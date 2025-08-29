@@ -28,7 +28,7 @@ export const create = action({
         const conversation = await ctx.runQuery(
             internal.system.conversations.getByThreadId,
             {
-                threadId: args.contactSessionId,
+                threadId: args.threadId,
             }
         );
 
