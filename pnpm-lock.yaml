@@ -44,6 +44,15 @@ importers:
       convex:
         specifier: ^1.25.4
         version: 1.26.1(@clerk/clerk-react@5.43.1(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
+      countries-and-timezones:
+        specifier: ^3.8.0
+        version: 3.8.0
+      date-fns:
+        specifier: ^4.1.0
+        version: 4.1.0
+      jotai:
+        specifier: ^2.12.5
+        version: 2.13.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@types/react@19.1.11)(react@19.1.1)
       lucide-react:
         specifier: ^0.475.0
         version: 0.475.0(react@19.1.1)
@@ -3083,6 +3092,10 @@ packages:
 
   core-js-pure@3.45.1:
     resolution: {integrity: sha512-OHnWFKgTUshEU8MK+lOs1H8kC8GkTi9Z1tvNkxrCcw9wl3MJIO7q2ld77wjWn4/xuGrVu2X+nME1iIIPBSdyEQ==}
+
+  countries-and-timezones@3.8.0:
+    resolution: {integrity: sha512-+Ze9h5f4dQpUwbzTm0DEkiPiZyim9VHV4/mSnT4zNYJnrnfwsKjAZPtnp7J5VzejCDgySs+2SSc6MDdCnD43GA==}
+    engines: {node: '>=8.x', npm: '>=5.x'}
 
   create-require@1.1.1:
     resolution: {integrity: sha512-dcKFX3jn0MpIaXjisoRvexIJVEKzaq7z2rZKxf+MSr9TkdmHmsU4m2lcLojrj/FHl8mk5VxMmYA+ftRkP/3oKQ==}
@@ -8204,6 +8217,8 @@ snapshots:
   cookie@1.0.2: {}
 
   core-js-pure@3.45.1: {}
+
+  countries-and-timezones@3.8.0: {}
 
   create-require@1.1.1: {}
 
