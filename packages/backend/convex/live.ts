@@ -1,0 +1,257 @@
+import { v } from "convex/values";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
+
+/** Helpers */
+function isPrivateOrLoopback(ip: string) {
+  if (ip === "::1") return true;
+  if (ip.startsWith("127.")) return true;
+  if (ip.startsWith("10.")) return true;
+  if (ip.startsWith("192.168.")) return true;
+  if (ip.startsWith("172.")) {
+    const second = Number(ip.split(".")[1] ?? "0");
+    if (second >= 16 && second <= 31) return true;
+  }
+  return false;
+}
+
+/** TTL du cache IP (24h) */
+const GEO_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Cache lookup */
+export const getCached = internalQuery({
+  args: { ip: v.string() },
+  handler: async (ctx, { ip }) => {
+    const now = Date.now();
+    const row = await ctx.db
+      .query("ipGeoCache")
+      .withIndex("by_ip", (q) => q.eq("ip", ip))
+      .unique();
+    if (!row) return null;
+    if (row.expiresAt < now) return null;
+    return row;
+  },
+});
+
+export const setCached = internalMutation({
+  args: {
+    ip: v.string(),
+    city: v.optional(v.string()),
+    countryCode: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+    ttlMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const expiresAt = Date.now() + (args.ttlMs ?? GEO_TTL_MS);
+    const existing = await ctx.db
+      .query("ipGeoCache")
+      .withIndex("by_ip", (q) => q.eq("ip", args.ip))
+      .unique();
+
+    const doc = {
+      ip: args.ip,
+      city: args.city,
+      countryCode: args.countryCode,
+      lat: args.lat,
+      lng: args.lng,
+      expiresAt,
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, doc);
+      return existing._id;
+    }
+    return ctx.db.insert("ipGeoCache", doc);
+  },
+});
+
+export interface GeoResult {
+  city?: string;
+  countryCode?: string;
+  lat?: number;
+  lng?: number;
+}
+
+/** Lookup IP (ipinfo) + cache */
+export const lookupIp = internalAction({
+  args: { ip: v.string() },
+  handler: async (ctx, { ip }): Promise<GeoResult> => {
+    const cached = await ctx.runQuery(internal.live.getCached, { ip });
+    if (cached) {
+      return {
+        city: cached.city,
+        countryCode: cached.countryCode,
+        lat: cached.lat,
+        lng: cached.lng,
+      };
+    }
+
+    const token = process.env.IPINFO_TOKEN;
+    const url = token
+      ? `https://ipinfo.io/${encodeURIComponent(ip)}?token=${token}`
+      : `https://ipinfo.io/${encodeURIComponent(ip)}`;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`ipinfo http ${res.status}`);
+      const data = (await res.json()) as {
+        city?: string;
+        country?: string; // ISO-2
+        loc?: string; // "lat,lng"
+      };
+
+      let lat: number | undefined;
+      let lng: number | undefined;
+      if (data.loc && data.loc.includes(",")) {
+        const [la, ln] = data.loc.split(",");
+        lat = Number(la);
+        lng = Number(ln);
+      }
+
+      await ctx.runMutation(internal.live.setCached, {
+        ip,
+        city: data.city,
+        countryCode: data.country,
+        lat,
+        lng,
+      });
+
+      return {
+        city: data.city,
+        countryCode: data.country,
+        lat,
+        lng,
+      };
+    } catch {
+      return { city: undefined, countryCode: undefined, lat: undefined, lng: undefined };
+    }
+  },
+});
+
+/** Upsert heartbeat + enrich metadata */
+export const upsertHeartbeat = internalMutation({
+  args: {
+    organizationId: v.string(),
+    contactSessionId: v.id("contactSessions"),
+    currentUrl: v.optional(v.string()),
+    referrer: v.optional(v.string()),
+    language: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    viewportSize: v.optional(v.string()),
+    screenResolution: v.optional(v.string()),
+    ip: v.optional(v.string()),
+    city: v.optional(v.string()),
+    countryCode: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.contactSessionId);
+    if (!session || session.organizationId !== args.organizationId) return;
+
+    const prevPages: string[] = Array.isArray(session.metadata?.pages)
+      ? (session.metadata!.pages as string[])
+      : [];
+
+    const addPage = (pages: string[], url?: string) => {
+      if (!url || url.length <= 3) return pages;
+      if (pages[0] === url) return pages;
+      return [url, ...pages];
+    };
+
+    const updatedPages = addPage(prevPages, args.currentUrl).slice(0, 10);
+
+    await ctx.db.patch(session._id, {
+      metadata: {
+        ...(session.metadata ?? {}),
+        language: args.language ?? session.metadata?.language,
+        screenResolution:
+          args.screenResolution ?? session.metadata?.screenResolution,
+        viewportSize: args.viewportSize ?? session.metadata?.viewportSize,
+        timezone: args.timezone ?? session.metadata?.timezone,
+        referrer: args.referrer ?? session.metadata?.referrer,
+        currentUrl: args.currentUrl ?? session.metadata?.currentUrl,
+        ip: args.ip ?? session.metadata?.ip,
+        city: args.city ?? session.metadata?.city,
+        countryCode: args.countryCode ?? session.metadata?.countryCode,
+        lat: args.lat ?? session.metadata?.lat,
+        lng: args.lng ?? session.metadata?.lng,
+        pages: updatedPages,
+      },
+    });
+  },
+});
+
+/** HTTP entrypoint : on passe les headers flatten (sans tirets) */
+export const heartbeatHttp = internalAction({
+  args: {
+    organizationId: v.string(),
+    contactSessionId: v.id("contactSessions"),
+    currentUrl: v.optional(v.string()),
+    referrer: v.optional(v.string()),
+    language: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    viewportSize: v.optional(v.string()),
+    screenResolution: v.optional(v.string()),
+    x_forwarded_for: v.optional(v.string()),
+    x_real_ip: v.optional(v.string()),
+    cf_connecting_ip: v.optional(v.string()),
+    x_vercel_forwarded_for: v.optional(v.string()),
+    remote_addr: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const getIp = (): string | undefined => {
+      const fromXff = args.x_forwarded_for?.split(",")[0]?.trim();
+      const pick =
+        fromXff ||
+        args.x_real_ip ||
+        args.cf_connecting_ip ||
+        args.x_vercel_forwarded_for ||
+        args.remote_addr;
+      if (!pick) return undefined;
+      if (isPrivateOrLoopback(pick)) return undefined;
+      return pick;
+    };
+
+    let ip = getIp();
+    if (!ip && process.env.DEV_GEO_IP) {
+      ip = process.env.DEV_GEO_IP;
+    }
+
+    let city: string | undefined;
+    let countryCode: string | undefined;
+    let lat: number | undefined;
+    let lng: number | undefined;
+
+    if (ip) {
+      try {
+        const geo = await ctx.runAction(internal.live.lookupIp, { ip });
+        city = geo.city;
+        countryCode = geo.countryCode;
+        lat = geo.lat;
+        lng = geo.lng;
+      } catch {}
+    }
+
+    await ctx.runMutation(internal.live.upsertHeartbeat, {
+      organizationId: args.organizationId,
+      contactSessionId: args.contactSessionId,
+      currentUrl: args.currentUrl,
+      referrer: args.referrer,
+      language: args.language,
+      timezone: args.timezone,
+      viewportSize: args.viewportSize,
+      screenResolution: args.screenResolution,
+      ip,
+      city,
+      countryCode,
+      lat,
+      lng,
+    });
+  },
+});
