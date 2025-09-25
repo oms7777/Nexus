@@ -77,10 +77,10 @@ export interface GeoResult {
   lng?: number;
 }
 
-/** Lookup IP (ipinfo) + cache */
 export const lookupIp = internalAction({
   args: { ip: v.string() },
   handler: async (ctx, { ip }): Promise<GeoResult> => {
+    // 1) cache
     const cached = await ctx.runQuery(internal.live.getCached, { ip });
     if (cached) {
       return {
@@ -91,52 +91,33 @@ export const lookupIp = internalAction({
       };
     }
 
-    const token = process.env.IPINFO_TOKEN;
-    const url = token
-      ? `https://ipinfo.io/${encodeURIComponent(ip)}?token=${token}`
-      : `https://ipinfo.io/${encodeURIComponent(ip)}`;
+    // 2) ipdata
+    const key = process.env.IPDATA_API_KEY;
+    const url = `https://api.ipdata.co/${encodeURIComponent(ip)}?api-key=${key ?? ""}`;
 
     try {
       const res = await fetch(url);
-      if (!res.ok) throw new Error(`ipinfo http ${res.status}`);
-      const data = (await res.json()) as {
+      if (!res.ok) throw new Error(`ipdata http ${res.status}`);
+      const data = await res.json() as {
         city?: string;
-        country?: string; // ISO-2
-        loc?: string; // "lat,lng"
+        country_code?: string;   // ISO-2
+        latitude?: number;
+        longitude?: number;
       };
 
-      let lat: number | undefined;
-      let lng: number | undefined;
-      if (data.loc && data.loc.includes(",")) {
-        const [la, ln] = data.loc.split(",");
-        lat = Number(la);
-        lng = Number(ln);
-      }
+      const city = data.city ?? undefined;
+      const countryCode = data.country_code ?? undefined;
+      const lat = typeof data.latitude === "number" ? data.latitude : undefined;
+      const lng = typeof data.longitude === "number" ? data.longitude : undefined;
 
-      await ctx.runMutation(internal.live.setCached, {
-        ip,
-        city: data.city,
-        countryCode: data.country,
-        lat,
-        lng,
-      });
-
-      return {
-        city: data.city,
-        countryCode: data.country,
-        lat,
-        lng,
-      };
+      await ctx.runMutation(internal.live.setCached, { ip, city, countryCode, lat, lng });
+      return { city, countryCode, lat, lng };
     } catch {
-      return {
-        city: undefined,
-        countryCode: undefined,
-        lat: undefined,
-        lng: undefined,
-      };
+      return { city: undefined, countryCode: undefined, lat: undefined, lng: undefined };
     }
   },
 });
+
 
 /** Upsert heartbeat + enrich metadata */
 export const upsertHeartbeat = internalMutation({
