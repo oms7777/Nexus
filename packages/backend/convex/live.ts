@@ -128,7 +128,12 @@ export const lookupIp = internalAction({
         lng,
       };
     } catch {
-      return { city: undefined, countryCode: undefined, lat: undefined, lng: undefined };
+      return {
+        city: undefined,
+        countryCode: undefined,
+        lat: undefined,
+        lng: undefined,
+      };
     }
   },
 });
@@ -187,7 +192,7 @@ export const upsertHeartbeat = internalMutation({
   },
 });
 
-/** HTTP entrypoint : on passe les headers flatten (sans tirets) */
+/** HTTP entrypoint : préfère client_ip (widget) puis headers, puis DEV_GEO_IP */
 export const heartbeatHttp = internalAction({
   args: {
     organizationId: v.string(),
@@ -198,6 +203,9 @@ export const heartbeatHttp = internalAction({
     timezone: v.optional(v.string()),
     viewportSize: v.optional(v.string()),
     screenResolution: v.optional(v.string()),
+    // NEW
+    client_ip: v.optional(v.string()),
+    // headers fallback (flattened)
     x_forwarded_for: v.optional(v.string()),
     x_real_ip: v.optional(v.string()),
     cf_connecting_ip: v.optional(v.string()),
@@ -205,7 +213,7 @@ export const heartbeatHttp = internalAction({
     remote_addr: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const getIp = (): string | undefined => {
+    const fromHeaders = (): string | undefined => {
       const fromXff = args.x_forwarded_for?.split(",")[0]?.trim();
       const pick =
         fromXff ||
@@ -213,15 +221,15 @@ export const heartbeatHttp = internalAction({
         args.cf_connecting_ip ||
         args.x_vercel_forwarded_for ||
         args.remote_addr;
-      if (!pick) return undefined;
-      if (isPrivateOrLoopback(pick)) return undefined;
       return pick;
     };
 
-    let ip = getIp();
-    if (!ip && process.env.DEV_GEO_IP) {
-      ip = process.env.DEV_GEO_IP;
-    }
+    let ip =
+      (args.client_ip && !isPrivateOrLoopback(args.client_ip) ? args.client_ip : undefined) ||
+      fromHeaders();
+
+    if (ip && isPrivateOrLoopback(ip)) ip = undefined;
+    if (!ip && process.env.DEV_GEO_IP) ip = process.env.DEV_GEO_IP;
 
     let city: string | undefined;
     let countryCode: string | undefined;
@@ -235,7 +243,9 @@ export const heartbeatHttp = internalAction({
         countryCode = geo.countryCode;
         lat = geo.lat;
         lng = geo.lng;
-      } catch {}
+      } catch {
+        // swallow – enrichment is best-effort
+      }
     }
 
     await ctx.runMutation(internal.live.upsertHeartbeat, {

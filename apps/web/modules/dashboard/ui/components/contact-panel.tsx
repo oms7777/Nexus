@@ -112,10 +112,7 @@ export const ContactPanel = () => {
   }, [contactSession?.metadata?.timezone]);
 
   // City sera alimentée plus tard via Live Map / geo-IP (placeholder).
-  const cityLabel = useMemo(
-    () => contactSession?.metadata?.city || undefined,
-    [contactSession?.metadata?.city]
-  );
+  const cityLabel = contactSession?.metadata?.city ?? undefined;
 
 
   const utm = useMemo(

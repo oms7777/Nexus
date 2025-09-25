@@ -90,6 +90,8 @@ http.route({
       timezone?: string;
       viewportSize?: string;
       screenResolution?: string;
+      /** NEW: public IP provided by the widget (api.ipify.org) */
+      clientIp?: string;
     };
 
     if (!body?.organizationId || !body?.contactSessionId) {
@@ -108,11 +110,16 @@ http.route({
       timezone: body.timezone,
       viewportSize: body.viewportSize,
       screenResolution: body.screenResolution,
-      // headers flatten (noms avec _)
+
+      // NEW: pass through the client-supplied public IP
+      client_ip: body.clientIp,
+
+      // headers fallback (flattened names)
       x_forwarded_for: req.headers.get("x-forwarded-for") ?? undefined,
       x_real_ip: req.headers.get("x-real-ip") ?? undefined,
       cf_connecting_ip: req.headers.get("cf-connecting-ip") ?? undefined,
-      x_vercel_forwarded_for: req.headers.get("x-vercel-forwarded-for") ?? undefined,
+      x_vercel_forwarded_for:
+        req.headers.get("x-vercel-forwarded-for") ?? undefined,
       remote_addr: req.headers.get("remote-addr") ?? undefined,
     });
 

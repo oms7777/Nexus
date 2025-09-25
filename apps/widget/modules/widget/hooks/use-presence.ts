@@ -17,34 +17,47 @@ function getTimezone(): string | undefined {
     return undefined;
   }
 }
-
 function getViewport(): string | undefined {
   if (typeof window === "undefined") return undefined;
   return `${window.innerWidth}x${window.innerHeight}`;
 }
-
 function getScreen(): string | undefined {
   if (typeof window === "undefined" || !window.screen) return undefined;
   return `${window.screen.width}x${window.screen.height}`;
 }
 
+// ---- NEW: fetch public IP once (2s timeout) ----
+let cachedIp: string | null = null;
+async function getPublicIp(): Promise<string | null> {
+  if (cachedIp) return cachedIp;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2000);
+    const res = await fetch("https://api.ipify.org?format=json", {
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { ip?: string };
+    cachedIp = data.ip ?? null;
+    return cachedIp;
+  } catch {
+    return null;
+  }
+}
+
 async function postHeartbeat(payload: Record<string, unknown>) {
   const base = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!base) return;
-
-  // ✅ Convex Cloud expose l’HTTP router sous /http/*
   const url = `${base.replace(/\/$/, "")}/http/live/heartbeat`;
-
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      keepalive: true,
-    });
-  } catch {
-    // ignorer les erreurs réseau sporadiques
-  }
+  await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+    mode: "cors",
+  }).catch(() => {});
 }
 
 export function usePresence() {
@@ -56,8 +69,9 @@ export function usePresence() {
   useEffect(() => {
     if (!organizationId || !contactSessionId) return;
 
-    const send = () => {
-      postHeartbeat({
+    const send = async () => {
+      const clientIp = await getPublicIp(); // <-- NEW
+      const payload = {
         organizationId,
         contactSessionId,
         currentUrl:
@@ -69,17 +83,15 @@ export function usePresence() {
         timezone: getTimezone(),
         viewportSize: getViewport(),
         screenResolution: getScreen(),
-      });
+        clientIp: clientIp ?? undefined, // <-- NEW
+      };
+      postHeartbeat(payload);
     };
 
-    // tick initial
-    send();
-
-    // interval
+    send(); // initial
     const id = setInterval(send, HEARTBEAT_MS);
 
-    // écoute navigation SPA
-    const onNav = () => send();
+    const onNav = () => void send();
     window.addEventListener("popstate", onNav);
     const _pushState = history.pushState;
     history.pushState = function (...args) {
