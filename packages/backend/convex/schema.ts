@@ -62,6 +62,7 @@ export default defineSchema({
       cookieEnabled: v.optional(v.boolean()),
       referrer: v.optional(v.string()),
       currentUrl: v.optional(v.string()),
+      title: v.optional(v.string()),
       // NEW
       ip: v.optional(v.string()),
       city: v.optional(v.string()),

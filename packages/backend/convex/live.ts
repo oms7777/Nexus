@@ -1,3 +1,4 @@
+// packages/backend/convex/live.ts
 import { v } from "convex/values";
 import {
   internalAction,
@@ -21,6 +22,8 @@ function isPrivateOrLoopback(ip: string) {
 
 /** TTL du cache IP (24h) */
 const GEO_TTL_MS = 24 * 60 * 60 * 1000;
+/** Visiteur "actif" pendant 15min après le dernier heartbeat */
+const SESSION_TTL_MS = 15 * 60 * 1000;
 
 /** Cache lookup */
 export const getCached = internalQuery({
@@ -77,6 +80,7 @@ export interface GeoResult {
   lng?: number;
 }
 
+/** Lookup IP (ipdata) + cache */
 export const lookupIp = internalAction({
   args: { ip: v.string() },
   handler: async (ctx, { ip }): Promise<GeoResult> => {
@@ -98,9 +102,9 @@ export const lookupIp = internalAction({
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`ipdata http ${res.status}`);
-      const data = await res.json() as {
+      const data = (await res.json()) as {
         city?: string;
-        country_code?: string;   // ISO-2
+        country_code?: string;
         latitude?: number;
         longitude?: number;
       };
@@ -118,8 +122,7 @@ export const lookupIp = internalAction({
   },
 });
 
-
-/** Upsert heartbeat + enrich metadata */
+/** Upsert heartbeat + enrich metadata + bump session TTL */
 export const upsertHeartbeat = internalMutation({
   args: {
     organizationId: v.string(),
@@ -156,8 +159,7 @@ export const upsertHeartbeat = internalMutation({
       metadata: {
         ...(session.metadata ?? {}),
         language: args.language ?? session.metadata?.language,
-        screenResolution:
-          args.screenResolution ?? session.metadata?.screenResolution,
+        screenResolution: args.screenResolution ?? session.metadata?.screenResolution,
         viewportSize: args.viewportSize ?? session.metadata?.viewportSize,
         timezone: args.timezone ?? session.metadata?.timezone,
         referrer: args.referrer ?? session.metadata?.referrer,
@@ -169,6 +171,8 @@ export const upsertHeartbeat = internalMutation({
         lng: args.lng ?? session.metadata?.lng,
         pages: updatedPages,
       },
+      // <<< keep active >>>
+      expiresAt: Date.now() + SESSION_TTL_MS,
     });
   },
 });
@@ -184,7 +188,7 @@ export const heartbeatHttp = internalAction({
     timezone: v.optional(v.string()),
     viewportSize: v.optional(v.string()),
     screenResolution: v.optional(v.string()),
-    // NEW
+    // widget-provided public IP
     client_ip: v.optional(v.string()),
     // headers fallback (flattened)
     x_forwarded_for: v.optional(v.string()),
@@ -225,7 +229,7 @@ export const heartbeatHttp = internalAction({
         lat = geo.lat;
         lng = geo.lng;
       } catch {
-        // swallow – enrichment is best-effort
+        // best-effort
       }
     }
 

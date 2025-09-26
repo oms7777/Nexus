@@ -96,6 +96,10 @@ export function usePresence() {
         viewportSize: getViewport(),
         screenResolution: getScreen(),
         clientIp: clientIp ?? undefined,
+        title: typeof document !== "undefined" ? document.title : undefined,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+        cookieEnabled: typeof navigator !== "undefined" ? navigator.cookieEnabled : undefined,
+        timezoneOffset: typeof Date !== "undefined" ? new Date().getTimezoneOffset() : undefined,
       };
       postHeartbeat(payload);
     };

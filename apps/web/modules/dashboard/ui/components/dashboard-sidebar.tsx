@@ -6,6 +6,7 @@ import {
     InboxIcon,
     LayoutDashboardIcon,
     LibraryBigIcon,
+    MapIcon,
     Mic,
     PaletteIcon,
 } from "lucide-react";
@@ -29,6 +30,11 @@ import { usePathname } from "next/navigation";
 
 
 const customerSupportItems = [
+    {
+        title: "Live Map",
+        url: "/live",
+        icon: MapIcon,
+    },
     {
         title: "Conversations",
         url: "/conversations",

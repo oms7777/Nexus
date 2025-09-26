@@ -127,13 +127,17 @@ export const ContactPanel = () => {
 
   // Fallback minimal pour "Last 5 pages" en attendant l’analytics.
   const lastPages = useMemo(() => {
+    const pages = (contactSession?.metadata?.pages ?? []) as string[];
+    if (pages.length) return pages.slice(0, 5);
+    // fallback
     const current = contactSession?.metadata?.currentUrl;
     const ref = contactSession?.metadata?.referrer;
     const list: string[] = [];
     if (current) list.push(current);
     if (ref && ref !== current) list.push(ref);
     return list.slice(0, 5);
-  }, [contactSession?.metadata?.currentUrl, contactSession?.metadata?.referrer]);
+  }, [contactSession?.metadata?.pages, contactSession?.metadata?.currentUrl, contactSession?.metadata?.referrer]);
+
 
   const handleQuickBook = useCallback(() => {
     if (typeof window !== "undefined") {
