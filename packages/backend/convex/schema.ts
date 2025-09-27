@@ -1,7 +1,9 @@
+// packages/backend/convex/schema.ts
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // ---------- Billing / Settings ----------
   subscriptions: defineTable({
     organizationId: v.string(),
     status: v.string(),
@@ -29,6 +31,7 @@ export default defineSchema({
     .index("by_organization_id", ["organizationId"])
     .index("by_organization_id_and_service", ["organizationId", "service"]),
 
+  // ---------- Conversations / Visitors ----------
   conversations: defineTable({
     threadId: v.string(),
     organizationId: v.string(),
@@ -63,19 +66,20 @@ export default defineSchema({
       referrer: v.optional(v.string()),
       currentUrl: v.optional(v.string()),
       title: v.optional(v.string()),
-      // NEW
+      // GEO (via ipdata)
       ip: v.optional(v.string()),
       city: v.optional(v.string()),
       countryCode: v.optional(v.string()),
       lat: v.optional(v.number()),
       lng: v.optional(v.number()),
+      // simple analytics
       pages: v.optional(v.array(v.string())),
     })),
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_expires_at", ["expiresAt"]),
 
-  // NEW: cache IP → geo
+  // Cache IP -> geo
   ipGeoCache: defineTable({
     ip: v.string(),
     city: v.optional(v.string()),
@@ -85,6 +89,40 @@ export default defineSchema({
     expiresAt: v.number(),
   }).index("by_ip", ["ip"]),
 
+  // ---------- Reps presence ----------
+  repsPresence: defineTable({
+    organizationId: v.string(),
+    userId: v.string(), // Clerk userId
+    role: v.union(v.literal("sales"), v.literal("support")),
+    regions: v.optional(v.array(v.string())), // ["FR", "EMEA", ...]
+    available: v.boolean(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_role", ["organizationId", "role"])
+    .index("by_org_user", ["organizationId", "userId"]),
+
+  // ---------- Routing rules ----------
+  routingRules: defineTable({
+    organizationId: v.string(),
+    name: v.string(),
+    priority: v.number(), // 1 = highest
+    match: v.object({
+      countries: v.optional(v.array(v.string())),   // ["FR","US"]
+      urlIncludes: v.optional(v.array(v.string())), // ["pricing","/enterprise"]
+      utmSource: v.optional(v.array(v.string())),   // ["google","linkedin"]
+    }),
+    routeTo: v.object({
+      role: v.union(v.literal("sales"), v.literal("support")),
+      regions: v.optional(v.array(v.string())),
+      repIds: v.optional(v.array(v.string())), // fixed allowlist (Clerk userIds)
+    }),
+    enabled: v.optional(v.boolean()),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_prio", ["organizationId", "priority"]),
+
+  // optional simple directory
   users: defineTable({
     name: v.string(),
   }),
