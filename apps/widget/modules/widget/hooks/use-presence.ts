@@ -1,3 +1,4 @@
+// usePresence.ts - Correction
 "use client";
 
 import { useEffect } from "react";
@@ -7,7 +8,7 @@ import {
   organizationIdAtom,
 } from "../atoms/widget-atoms";
 
-const HEARTBEAT_MS = 15000;
+const HEARTBEAT_MS = 60000;
 
 function getTimezone(): string | undefined {
   try {
@@ -108,27 +109,11 @@ export function usePresence() {
     send();
     const id = setInterval(send, HEARTBEAT_MS);
 
-    // Notifie aussi sur navigation interne de l’iframe elle-même
-    const onNav = () => void send();
-    window.addEventListener("popstate", onNav);
-    const _pushState = history.pushState;
-    const _replaceState = history.replaceState;
-    history.pushState = function (...args) {
-      // @ts-ignore
-      _pushState.apply(this, args);
-      onNav();
-    };
-    history.replaceState = function (...args) {
-      // @ts-ignore
-      _replaceState.apply(this, args);
-      onNav();
-    };
-
+    // Suppression de la logique de surcharge de l'historique de navigation
+    // car elle causait des écritures trop fréquentes.
+    
     return () => {
       clearInterval(id);
-      window.removeEventListener("popstate", onNav);
-      history.pushState = _pushState;
-      history.replaceState = _replaceState;
     };
   }, [organizationId, contactSessionId]);
 }

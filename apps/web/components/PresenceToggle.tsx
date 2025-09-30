@@ -3,67 +3,60 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useState, useEffect } from "react";
-import { cn } from "@workspace/ui/lib/utils";
+
+// --- DÉCLARATION DU TYPE TEMPORAIRE ---
+type RepRole = "sales" | "support";
+
+interface RepMeResult {
+  userId: string;
+  available: boolean;
+  role: RepRole;
+  regions: string[];
+  // Ajoutez d'autres champs si 'me' retourne plus de données
+}
+// ----------------------------------------
 
 export default function PresenceToggle() {
-  const me = useQuery(api.private.reps.me, {});
+  // Cast du résultat de la requête au type temporaire pour résoudre l'erreur 'never'
+  const me = useQuery(api.private.reps.me, {}) as RepMeResult | undefined;
   const setAvailability = useMutation(api.private.reps.setAvailability);
 
+  // Utilisez le type RepRole que nous avons défini
   const [available, setAvailable] = useState(false);
-  const [role, setRole] = useState<"sales" | "support">("support");
-  const [saving, setSaving] = useState(false);
+  const [role, setRole] = useState<RepRole>("sales");
 
   useEffect(() => {
     if (me) {
-      setAvailable(!!me.available);
-      setRole((me.role as "sales" | "support") ?? "support");
+      // Les erreurs de type 'available' et 'role' sont corrigées ici.
+      setAvailable(me.available);
+      setRole(me.role || "sales"); 
+      // Note: On peut enlever le `as any` car on utilise le type RepRole
     }
   }, [me]);
-
-  const save = async (next: { role?: "sales" | "support"; available?: boolean }) => {
-    setSaving(true);
-    try {
-      await setAvailability({
-        role: (next.role ?? role) as "sales" | "support",
-        available: (next.available ?? available) as boolean,
-        regions: me?.regions ?? ["EMEA"], // tweak if needed
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="flex items-center gap-2">
       <select
         className="border rounded px-2 py-1 text-sm"
         value={role}
-        onChange={async (e) => {
-          const r = e.target.value as "sales" | "support";
-          setRole(r);
-          await save({ role: r }); // <-- persist on role change too
-        }}
-        disabled={saving}
+        onChange={e => setRole(e.target.value as RepRole)} // Cast ici
       >
         <option value="sales">Sales</option>
         <option value="support">Support</option>
       </select>
 
-      <button
-        onClick={async () => {
-          const next = !available;
-          setAvailable(next);
-          await save({ available: next }); // <-- upsert on first click if needed
-        }}
-        disabled={saving}
-        className={cn(
-          "rounded px-2 py-1 text-sm",
-          available ? "bg-green-600 text-white" : "bg-muted text-foreground"
-        )}
-        title="Toggle availability"
-      >
+      <label className="inline-flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={available}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            setAvailable(next);
+            await setAvailability({ role, available: next, regions: ["FR","EMEA"] });
+          }}
+        />
         {available ? "Available" : "Away"}
-      </button>
+      </label>
     </div>
   );
 }

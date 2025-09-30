@@ -138,42 +138,74 @@ export const upsertHeartbeat = internalMutation({
     countryCode: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
+    // Ajout des nouveaux champs du client
+    title: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    cookieEnabled: v.optional(v.boolean()),
+    timezoneOffset: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.contactSessionId);
     if (!session || session.organizationId !== args.organizationId) return;
 
-    const prevPages: string[] = Array.isArray(session.metadata?.pages)
-      ? (session.metadata!.pages as string[])
-      : [];
-
-    const addPage = (pages: string[], url?: string) => {
-      if (!url || url.length <= 3) return pages;
-      if (pages[0] === url) return pages;
-      return [url, ...pages];
-    };
-
-    const updatedPages = addPage(prevPages, args.currentUrl).slice(0, 10);
-
-    await ctx.db.patch(session._id, {
-      metadata: {
-        ...(session.metadata ?? {}),
-        language: args.language ?? session.metadata?.language,
-        screenResolution: args.screenResolution ?? session.metadata?.screenResolution,
-        viewportSize: args.viewportSize ?? session.metadata?.viewportSize,
-        timezone: args.timezone ?? session.metadata?.timezone,
-        referrer: args.referrer ?? session.metadata?.referrer,
-        currentUrl: args.currentUrl ?? session.metadata?.currentUrl,
-        ip: args.ip ?? session.metadata?.ip,
-        city: args.city ?? session.metadata?.city,
-        countryCode: args.countryCode ?? session.metadata?.countryCode,
-        lat: args.lat ?? session.metadata?.lat,
-        lng: args.lng ?? session.metadata?.lng,
-        pages: updatedPages,
-      },
-      // <<< keep active >>>
+    // 1. DÉBUT DU PATCH MINIMAL
+    const minimalUpdate: Record<string, any> = {
+      // <<< keep active >>> : La seule mise à jour essentielle pour le heartbeat
       expiresAt: Date.now() + SESSION_TTL_MS,
-    });
+    };
+    
+    const prevMetadata = session.metadata ?? {};
+    
+    // 2. Vérification des changements majeurs : URL (navigation) ou données GEO (enrichissement initial)
+    const urlChanged = args.currentUrl && args.currentUrl !== prevMetadata.currentUrl;
+    const geoDataAvailable = args.city || args.countryCode || args.lat || args.lng;
+    
+    // 3. MISE À JOUR D'ENRICHISSEMENT (METADATA) - SEULEMENT si URL ou GEO a changé
+    if (urlChanged || geoDataAvailable) {
+      const prevPages: string[] = Array.isArray(prevMetadata.pages)
+        ? (prevMetadata.pages as string[])
+        : [];
+
+      const addPage = (pages: string[], url?: string) => {
+        if (!url || url.length <= 3) return pages;
+        if (pages[0] === url) return pages;
+        return [url, ...pages];
+      };
+
+      // Mettre à jour la liste des pages uniquement si l'URL a changé
+      const updatedPages = urlChanged 
+        ? addPage(prevPages, args.currentUrl).slice(0, 10)
+        : prevPages;
+
+      minimalUpdate.metadata = {
+        ...prevMetadata,
+        // Champs mis à jour du client (même s'ils sont redondants, on assure qu'ils sont mis à jour)
+        language: args.language ?? prevMetadata.language,
+        screenResolution: args.screenResolution ?? prevMetadata.screenResolution,
+        viewportSize: args.viewportSize ?? prevMetadata.viewportSize,
+        timezone: args.timezone ?? prevMetadata.timezone,
+        referrer: args.referrer ?? prevMetadata.referrer,
+        
+        // Nouveaux champs
+        title: args.title ?? prevMetadata.title,
+        userAgent: args.userAgent ?? prevMetadata.userAgent,
+        cookieEnabled: args.cookieEnabled ?? prevMetadata.cookieEnabled,
+        timezoneOffset: args.timezoneOffset ?? prevMetadata.timezoneOffset,
+        
+        // Champs potentiellement changeants (CurrentUrl, IP, Geo)
+        currentUrl: args.currentUrl ?? prevMetadata.currentUrl,
+        ip: args.ip ?? prevMetadata.ip,
+        city: args.city ?? prevMetadata.city,
+        countryCode: args.countryCode ?? prevMetadata.countryCode,
+        lat: args.lat ?? prevMetadata.lat,
+        lng: args.lng ?? prevMetadata.lng,
+        
+        pages: updatedPages,
+      };
+    }
+    
+    // 4. Application du patch. La majorité des appels feront uniquement la mise à jour d'expiresAt.
+    await ctx.db.patch(session._id, minimalUpdate);
   },
 });
 
@@ -196,6 +228,11 @@ export const heartbeatHttp = internalAction({
     cf_connecting_ip: v.optional(v.string()),
     x_vercel_forwarded_for: v.optional(v.string()),
     remote_addr: v.optional(v.string()),
+    // Nouveaux champs
+    title: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    cookieEnabled: v.optional(v.boolean()),
+    timezoneOffset: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const fromHeaders = (): string | undefined => {
@@ -203,6 +240,7 @@ export const heartbeatHttp = internalAction({
       const pick =
         fromXff ||
         args.x_real_ip ||
+        args.cf_connecting_ip ||
         args.cf_connecting_ip ||
         args.x_vercel_forwarded_for ||
         args.remote_addr;
@@ -247,6 +285,11 @@ export const heartbeatHttp = internalAction({
       countryCode,
       lat,
       lng,
+      // Nouveaux champs passés à la mutation
+      title: args.title,
+      userAgent: args.userAgent,
+      cookieEnabled: args.cookieEnabled,
+      timezoneOffset: args.timezoneOffset,
     });
   },
 });

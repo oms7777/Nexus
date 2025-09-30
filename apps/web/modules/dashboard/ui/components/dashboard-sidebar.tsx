@@ -27,94 +27,14 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import { usePathname } from "next/navigation";
 
-import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@workspace/backend/_generated/api";
-
-/* ----------------------------- Presence control ---------------------------- */
-
-function PresenceToggle() {
-  const me = useQuery(api.private.reps.me, {});
-  const setAvailability = useMutation(api.private.reps.setAvailability);
-  const [role, setRole] = useState<"sales" | "support">("sales");
-  const [available, setAvailable] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (me) {
-      setRole((me.role as "sales" | "support") ?? "sales");
-      setAvailable(!!me.available);
-    }
-  }, [me]);
-
-  const save = async (next: { role?: "sales" | "support"; available?: boolean }) => {
-    setSaving(true);
-    try {
-      await setAvailability({
-        role: next.role ?? role,
-        available: next.available ?? available,
-        regions: me?.regions ?? ["EMEA"],
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="mt-2 flex items-center justify-between gap-2 rounded-md border px-2 py-1 text-xs">
-      <div className="flex items-center gap-2">
-        <span className="opacity-70">Role</span>
-        <select
-          className="rounded border bg-transparent px-2 py-1"
-          value={role}
-          onChange={async (e) => {
-            const r = e.target.value as "sales" | "support";
-            setRole(r);
-            await save({ role: r });
-          }}
-          disabled={saving}
-        >
-          <option value="sales">Sales</option>
-          <option value="support">Support</option>
-        </select>
-      </div>
-
-      <button
-        onClick={async () => {
-          const next = !available;
-          setAvailable(next);
-          await save({ available: next });
-        }}
-        disabled={saving}
-        className={cn(
-          "rounded px-2 py-1",
-          available ? "bg-green-600 text-white" : "bg-muted text-foreground"
-        )}
-        title="Toggle availability"
-      >
-        {available ? "Available" : "Away"}
-      </button>
-    </div>
-  );
-}
-
-/* --------------------------------- Sidebar -------------------------------- */
-
 export const DashboardSidebar = () => {
   const pathname = usePathname();
-
-  // ✅ la bonne façon : membership vient du hook directement
-  const { membership, isLoaded: orgLoaded } = useOrganization();
+  const { membership } = useOrganization();
   const isAdmin = membership?.role === "org:admin";
-
-  // Rôle “opérationnel” (sales/support) depuis Convex
-  const me = useQuery(api.private.reps.me, {});
-  const role = (me?.role as "sales" | "support" | undefined) ?? undefined;
-  const isSales = role === "sales";
-  const isSupport = role === "support";
 
   const isActive = (url: string) => pathname === url || pathname.startsWith(`${url}/`);
 
+  // Admin verra aussi "Revenue" (Live Map). Les membres voient seulement "Support".
   const salesItems = [{ title: "Live Map", url: "/live", icon: MapIcon }];
 
   const supportItems = [
@@ -156,14 +76,11 @@ export const DashboardSidebar = () => {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-
-        {/* ⛔️ seulement pour les admins */}
-        {isAdmin && <PresenceToggle />}
       </SidebarHeader>
 
       <SidebarContent>
-        {/* SALES / Revenue */}
-        {(isSales || isAdmin) && (
+        {/* Revenue (admin seulement) */}
+        {isAdmin && (
           <SidebarGroup>
             <SidebarGroupLabel>Revenue</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -191,91 +108,88 @@ export const DashboardSidebar = () => {
           </SidebarGroup>
         )}
 
-        {/* SUPPORT */}
-        {(isSupport || isAdmin) && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Customer Support</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {supportItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive(item.url)}
-                      className={cn(
-                        isActive(item.url) &&
-                          "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground! hover:to-[#0b63f3]/90!"
-                      )}
-                      tooltip={item.title}
-                    >
-                      <Link href={item.url}>
-                        <item.icon className="size-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+        {/* Support (tout le monde) */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Customer Support</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {supportItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.url)}
+                    className={cn(
+                      isActive(item.url) &&
+                        "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground! hover:to-[#0b63f3]/90!"
+                    )}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url}>
+                      <item.icon className="size-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
-        {/* CONFIGURATION – admin only */}
+        {/* Configuration + Account (admin seulement) */}
         {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Configuration</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {configurationItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive(item.url)}
-                      className={cn(
-                        isActive(item.url) &&
-                          "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground! hover:to-[#0b63f3]/90!"
-                      )}
-                      tooltip={item.title}
-                    >
-                      <Link href={item.url}>
-                        <item.icon className="size-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+          <>
+            <SidebarGroup>
+              <SidebarGroupLabel>Configuration</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {configurationItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive(item.url)}
+                        className={cn(
+                          isActive(item.url) &&
+                            "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground! hover:to-[#0b63f3]/90!"
+                        )}
+                        tooltip={item.title}
+                      >
+                        <Link href={item.url}>
+                          <item.icon className="size-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-        {/* ACCOUNT – admin only */}
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Account</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {accountItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive(item.url)}
-                      className={cn(
-                        isActive(item.url) &&
-                          "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground! hover:to-[#0b63f3]/90!"
-                      )}
-                      tooltip={item.title}
-                    >
-                      <Link href={item.url}>
-                        <item.icon className="size-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+            <SidebarGroup>
+              <SidebarGroupLabel>Account</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {accountItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive(item.url)}
+                        className={cn(
+                          isActive(item.url) &&
+                            "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground! hover:to-[#0b63f3]/90!"
+                        )}
+                        tooltip={item.title}
+                      >
+                        <Link href={item.url}>
+                          <item.icon className="size-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
         )}
       </SidebarContent>
 

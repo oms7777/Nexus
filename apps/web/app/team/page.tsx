@@ -4,11 +4,24 @@
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useUser, useOrganization } from "@clerk/nextjs";
+// Importez le type de Convex ici (il est dans le backend)
+// Nous allons utiliser un type générique en attendant, mais idéalement vous importeriez le type Rep de la base de données.
+
+// Définition de type simple pour le Rep (temporaire ou basée sur votre schéma)
+interface Rep {
+  _id: string; // Nécessaire pour la clé
+  userId: string;
+  regions: string[];
+  available: boolean;
+  role: "sales" | "support";
+  // ... autres champs si besoin
+}
+
 
 export default function TeamPage() {
   const { isLoaded, membership } = useOrganization();
   const isAdmin = membership?.role === "org:admin";
-  const reps = useQuery(api.private.reps.list, {});
+  const reps = useQuery(api.private.reps.list, {}) as Rep[] | undefined; // <-- Cast ici
   const setRoleForUser = useMutation(api.private.reps.setRoleForUser);
 
   if (!isLoaded) return null;
