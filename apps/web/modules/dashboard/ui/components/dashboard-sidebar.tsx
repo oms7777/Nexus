@@ -2,6 +2,8 @@
 
 import { OrganizationSwitcher, UserButton, useOrganization } from "@clerk/nextjs";
 import {
+  BellIcon,
+  CalendarIcon,
   CreditCardIcon,
   InboxIcon,
   LayoutDashboardIcon,
@@ -9,6 +11,7 @@ import {
   MapIcon,
   Mic,
   PaletteIcon,
+  UserIcon,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -34,20 +37,28 @@ export const DashboardSidebar = () => {
 
   const isActive = (url: string) => pathname === url || pathname.startsWith(`${url}/`);
 
-  // Admin verra aussi "Revenue" (Live Map). Les membres voient seulement "Support".
+  // Admin: Revenue
   const salesItems = [{ title: "Live Map", url: "/live", icon: MapIcon }];
 
+  // Tout le monde: Support
   const supportItems = [
     { title: "Conversations", url: "/conversations", icon: InboxIcon },
     { title: "Knowledge Base", url: "/files", icon: LibraryBigIcon },
   ];
 
+  // NEW: Me (tout le monde)
+  const meItems = [
+    { title: "My Profile", url: "/me/profile", icon: UserIcon },
+    { title: "Calendar", url: "/me/calendar", icon: CalendarIcon },
+    { title: "Notifications", url: "/me/notifications", icon: BellIcon },
+  ];
+
+  // Admin: Configuration + Account
   const configurationItems = [
     { title: "Widget Customization", url: "/customization", icon: PaletteIcon },
     { title: "Integrations", url: "/integrations", icon: LayoutDashboardIcon },
     { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
   ];
-
   const accountItems = [{ title: "Plans & Billing", url: "/billing", icon: CreditCardIcon }];
 
   return (
@@ -114,6 +125,33 @@ export const DashboardSidebar = () => {
           <SidebarGroupContent>
             <SidebarMenu>
               {supportItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.url)}
+                    className={cn(
+                      isActive(item.url) &&
+                        "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground! hover:to-[#0b63f3]/90!"
+                    )}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url}>
+                      <item.icon className="size-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* NEW: Me (tout le monde) */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Me</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {meItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild

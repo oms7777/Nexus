@@ -1,8 +1,8 @@
 "use client";
 
 import { useAtomValue } from "jotai";
-import { WidgetAuthScreen } from "../screens/widget-auth-screen";
 import { screenAtom } from "../../atoms/widget-atoms";
+import { WidgetAuthScreen } from "../screens/widget-auth-screen";
 import { WidgetErrorScreen } from "../screens/widget-error-screen";
 import { WidgetLoadingScreen } from "../screens/widget-loading-screen";
 import { WidgetSelectionScreen } from "../screens/widget-selection-screen";
@@ -12,14 +12,16 @@ import { WidgetVoiceScreen } from "../screens/widget-voice-screen";
 import { WidgetContactScreen } from "../screens/widget-contact-screen";
 import { usePresence } from "../../hooks/use-presence";
 
+import QualifyModal from "../components/QualifyModal";
+import InlineBooker from "../components/InlineBooker";
+
 interface Props {
   organizationId: string | null;
 }
 
 export const WidgetView = ({ organizationId }: Props) => {
   const screen = useAtomValue(screenAtom);
-
-  usePresence(); // NEW
+  usePresence();
 
   const screenComponents = {
     loading: <WidgetLoadingScreen organizationId={organizationId} />,
@@ -35,6 +37,9 @@ export const WidgetView = ({ organizationId }: Props) => {
   return (
     <main className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-muted">
       {screenComponents[screen]}
+      {/* always mounted */}
+      <QualifyModal />
+      <InlineBooker />
     </main>
   );
 };

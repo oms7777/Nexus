@@ -3,7 +3,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  // ---------- Billing / Settings ----------
+  /* ---------- Billing / Settings ---------- */
   subscriptions: defineTable({
     organizationId: v.string(),
     status: v.string(),
@@ -31,7 +31,7 @@ export default defineSchema({
     .index("by_organization_id", ["organizationId"])
     .index("by_organization_id_and_service", ["organizationId", "service"]),
 
-  // ---------- Conversations / Visitors ----------
+  /* ---------- Conversations / Visitors ---------- */
   conversations: defineTable({
     threadId: v.string(),
     organizationId: v.string(),
@@ -66,7 +66,7 @@ export default defineSchema({
       referrer: v.optional(v.string()),
       currentUrl: v.optional(v.string()),
       title: v.optional(v.string()),
-      // GEO (via ipdata)
+      // GEO
       ip: v.optional(v.string()),
       city: v.optional(v.string()),
       countryCode: v.optional(v.string()),
@@ -79,7 +79,7 @@ export default defineSchema({
     .index("by_organization_id", ["organizationId"])
     .index("by_expires_at", ["expiresAt"]),
 
-  // Cache IP -> geo
+  /* ---------- Cache IP -> geo ---------- */
   ipGeoCache: defineTable({
     ip: v.string(),
     city: v.optional(v.string()),
@@ -89,12 +89,12 @@ export default defineSchema({
     expiresAt: v.number(),
   }).index("by_ip", ["ip"]),
 
-  // ---------- Reps presence ----------
+  /* ---------- Reps presence (optionnel) ---------- */
   repsPresence: defineTable({
     organizationId: v.string(),
     userId: v.string(), // Clerk userId
     role: v.union(v.literal("sales"), v.literal("support")),
-    regions: v.optional(v.array(v.string())), // ["FR", "EMEA", ...]
+    regions: v.optional(v.array(v.string())),
     available: v.boolean(),
     updatedAt: v.number(),
   })
@@ -102,27 +102,88 @@ export default defineSchema({
     .index("by_org_role", ["organizationId", "role"])
     .index("by_org_user", ["organizationId", "userId"]),
 
-  // ---------- Routing rules ----------
+  /* ---------- Routing rules (optionnel) ---------- */
   routingRules: defineTable({
     organizationId: v.string(),
     name: v.string(),
     priority: v.number(), // 1 = highest
     match: v.object({
-      countries: v.optional(v.array(v.string())),   // ["FR","US"]
-      urlIncludes: v.optional(v.array(v.string())), // ["pricing","/enterprise"]
-      utmSource: v.optional(v.array(v.string())),   // ["google","linkedin"]
+      countries: v.optional(v.array(v.string())),
+      urlIncludes: v.optional(v.array(v.string())),
+      utmSource: v.optional(v.array(v.string())),
     }),
     routeTo: v.object({
       role: v.union(v.literal("sales"), v.literal("support")),
       regions: v.optional(v.array(v.string())),
-      repIds: v.optional(v.array(v.string())), // fixed allowlist (Clerk userIds)
+      repIds: v.optional(v.array(v.string())),
     }),
     enabled: v.optional(v.boolean()),
   })
     .index("by_org", ["organizationId"])
     .index("by_org_prio", ["organizationId", "priority"]),
 
-  // optional simple directory
+  /* ---------- Calendar connections ---------- */
+  calendarAccounts: defineTable({
+    organizationId: v.string(),
+    userId: v.string(),               // Clerk userId du sales
+    provider: v.literal("google"),
+    email: v.optional(v.string()),
+    refreshToken: v.string(),         // OAuth refresh token
+    scope: v.optional(v.string()),
+    connectedAt: v.number(),
+  })
+    .index("by_org_user", ["organizationId", "userId"])
+    .index("by_org", ["organizationId"]),
+
+  /* ---------- Calendar user settings (VERSION B) ---------- */
+  calendarSettings: defineTable({
+    organizationId: v.string(),
+    userId: v.string(),               // Clerk userId
+
+    timezone: v.optional(v.string()), // ex. "Europe/Paris"
+    durationMin: v.number(),          // ex. 30
+    bufferMin: v.optional(v.number()),
+
+    meetingLinkType: v.union(v.literal("google_meet"), v.literal("manual")),
+    manualUrl: v.optional(v.string()),
+
+    // Plages d’ouverture hebdo, 1..7 (ou 0..6 si tu préfères)
+    weekly: v.array(
+      v.object({
+        day: v.number(),  // 1=Mon … 7=Sun
+        start: v.string(), // "09:00"
+        end: v.string(),   // "17:00"
+      })
+    ),
+
+    updatedAt: v.number(),
+  })
+    .index("by_org_user", ["organizationId", "userId"])
+    .index("by_org", ["organizationId"]),
+
+  /* ---------- Bookings ---------- */
+  calendarBookings: defineTable({
+    organizationId: v.string(),
+    contactSessionId: v.id("contactSessions"),
+    createdByUserId: v.optional(v.string()), // propriétaire du calendrier
+    attendeeName: v.string(),
+    attendeeEmail: v.string(),
+    start: v.number(),        // ms epoch
+    end: v.number(),          // ms epoch
+    meetingUrl: v.optional(v.string()),
+    externalEventId: v.optional(v.string()), // id de l’event Google
+    providerData: v.optional(v.object({
+      calendarId: v.optional(v.string()),
+      company: v.optional(v.string()),
+      role: v.optional(v.string()),
+    })),
+    createdAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_contact_session", ["contactSessionId"])
+    .index("by_org_start", ["organizationId", "start"]),
+
+  /* ---------- simple directory (optionnel) ---------- */
   users: defineTable({
     name: v.string(),
   }),
