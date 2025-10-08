@@ -187,4 +187,49 @@ export default defineSchema({
   users: defineTable({
     name: v.string(),
   }),
+
+  analyticsEvents: defineTable({
+    organizationId: v.string(),
+    type: v.string(),                 // "widget_loaded" | "chat_opened" | ...
+    ts: v.number(),                   // Date.now()
+    sessionId: v.optional(v.id("contactSessions")),
+    conversationId: v.optional(v.id("conversations")),
+    accountId: v.optional(v.string()), // (optionnel v1)
+    userId: v.optional(v.string()),
+    meta: v.optional(v.any()),
+  })
+    .index("by_org_ts", ["organizationId", "ts"])
+    .index("by_session", ["sessionId"])
+    .index("by_conversation", ["conversationId"]),
+
+  analyticsDaily: defineTable({
+    organizationId: v.string(),
+    day: v.string(), // "YYYY-MM-DD"
+    metrics: v.object({
+      sessions: v.number(),
+      experiences: v.number(),
+      inbound_requests: v.number(),
+      pounce_attempts: v.number(),
+      conversations: v.number(),
+      rep_conversations: v.number(),
+      meetings: v.number(),
+    }),
+    updatedAt: v.number(),
+  }).index("by_org_day", ["organizationId", "day"]),
+
+  sessionSnapshots: defineTable({
+    organizationId: v.string(),
+    sessionId: v.id("contactSessions"),
+    ts: v.number(),
+    pageUrl: v.optional(v.string()),
+    title: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    storageId: v.id("_storage"),
+  }).index("by_session", ["sessionId"])
+    .index("by_org_ts", ["organizationId","ts"]),
+
+  // (Signals — tu pourras les ajouter ensuite)
+  // accounts, accountDaily ...
+
 });

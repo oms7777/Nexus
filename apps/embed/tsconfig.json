@@ -1,12 +1,16 @@
 {
-    "extends": "@workspace/typescript-config/base.json",
-    "compilerOptions": {
-        "lib": ["ES2020", "DOM", "DOM.Iterable"],
-        "module": "ESNext",
-        "target": "ES2020",
-        "moduleResolution": "bundler",
-        "noEmit": true,
-        "skipLibCheck": true,
+  "extends": "@workspace/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "target": "ES2020",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@workspace/backend/*": ["../../packages/backend/*"] 
     },
-    "include": ["embed.ts", "vite.config.ts", "vite-env.d.ts", "*.ts", "**/*.ts"]
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["embed.ts", "vite.config.ts", "vite-env.d.ts", "*.ts", "**/*.ts"]
 }

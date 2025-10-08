@@ -14,5 +14,12 @@
         "eslint": "^9.32.0",
         "typescript": "^5.9.2",
         "vite": "^5.0.8"
+    },
+    "dependencies": {
+        "@workspace/backend": "workspace:*",
+        "convex": "^1.14.0",
+        "html2canvas": "^1.4.1",
+        "pusher-js": "^8.4.0",
+        "rrweb": "2.0.0-alpha.4"
     }
 }

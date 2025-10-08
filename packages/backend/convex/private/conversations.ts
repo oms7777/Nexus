@@ -98,7 +98,7 @@ export const getOne = query({
 
         const contactSession = await ctx.db.get(conversation.contactSessionId)
 
-        if (!conversation) {
+        if (!contactSession) {
             throw new ConvexError({
                 code: "NOT_FOUND",
                 message: "Contact Session not found",

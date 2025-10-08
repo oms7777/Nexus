@@ -24,6 +24,8 @@ import {
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import React, { useCallback, useMemo } from "react";
+import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
+
 
 type InfoItem = {
   label: string;
@@ -354,7 +356,9 @@ export const ContactPanel = () => {
             <div className="flex items-center gap-x-2">
               <h4 className="line-clamp-1">{contactSession.name}</h4>
             </div>
-            <p className="line-clamp-1 text-sm text-muted-foreground">{contactSession.email}</p>
+            <p className="line-clamp-1 text-sm text-muted-foreground">
+              {contactSession.email}
+            </p>
           </div>
         </div>
 
@@ -402,6 +406,24 @@ export const ContactPanel = () => {
             ))}
           </Accordion>
         )}
+
+        {/* Live view */}
+        <div className="border-t p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h5 className="text-sm font-medium">Live view</h5>
+            <span className="text-xs text-muted-foreground">
+              {contactSession.metadata?.currentUrl?.split("?")[0] ?? "—"}
+            </span>
+          </div>
+
+          <LiveVisitorView
+            orgId={contactSession.organizationId}
+            sessionId={contactSession._id as unknown as string}
+          />
+
+          {/* Optionnel: mini galerie de snapshots sous le stream */}
+          {/* <SnapshotsStrip sessionId={contactSession._id as any} limit={8} /> */}
+        </div>
       </div>
     </div>
   );

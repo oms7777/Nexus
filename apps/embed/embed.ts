@@ -1,5 +1,8 @@
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
+import Pusher, { type Channel } from "pusher-js";
+import { record } from "rrweb";
+import html2canvas from "html2canvas";
 
 (function () {
   let iframe: HTMLIFrameElement | null = null;
@@ -7,7 +10,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   let button: HTMLButtonElement | null = null;
   let isOpen = false;
 
-  // Config récupérée depuis la balise <script>
+  // ---- Config depuis <script>
   let organizationId: string | null = null;
   let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
 
@@ -37,9 +40,103 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     return;
   }
 
+  const WEB_ORIGIN = EMBED_CONFIG.WEB_ORIGIN;
   const WIDGET_ORIGIN = new URL(EMBED_CONFIG.WIDGET_URL).origin;
 
-  /** Envoie l’URL courante de la page hôte à l’iframe */
+  // ---- Session / tracking (via routes Next proxies)
+  const SESSION_KEY = `nx_session_${organizationId}`;
+  let sessionId: string | null = null;
+  let lastBeat = Date.now();
+
+  async function postJSON<T = any>(url: string, body: any): Promise<T> {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+    if (!res.ok) throw new Error(`${url} ${res.status}`);
+    return (await res.json()) as T;
+  }
+
+  async function ensureSession(metadata?: any) {
+    const existing = localStorage.getItem(SESSION_KEY);
+    const meta =
+      metadata ??
+      {
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        cookieEnabled: navigator.cookieEnabled,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        currentUrl: location.href,
+        title: document.title,
+        referrer: document.referrer || "",
+        viewportSize: `${window.innerWidth}x${window.innerHeight}`,
+      };
+
+    const out = await postJSON<{ sessionId: string }>(
+      `${WEB_ORIGIN}/api/tracker/ensure-session`,
+      {
+        organizationId,
+        sessionId: existing || undefined,
+        metadata: meta,
+      }
+    );
+    sessionId = out.sessionId;
+    localStorage.setItem(SESSION_KEY, sessionId);
+  }
+
+  async function log(type: string, meta?: any) {
+    if (!sessionId) return;
+    try {
+      await postJSON(`${WEB_ORIGIN}/api/tracker/log`, {
+        organizationId,
+        type,
+        sessionId,
+        ts: Date.now(),
+        meta,
+      });
+    } catch {}
+  }
+
+  async function heartbeat() {
+    if (!sessionId) return;
+    const now = Date.now();
+    const visible = document.visibilityState === "visible";
+    const engagedMs = visible ? now - lastBeat : 0;
+    lastBeat = now;
+
+    // Prolonge la session (réutilise ensure avec sessionId)
+    await ensureSession();
+
+    // temps “engagé”
+    if (engagedMs > 0) {
+      log("time_on_site", { ms: engagedMs, url: location.href });
+    }
+  }
+
+  async function onPageChange() {
+    if (!sessionId) return;
+    // MAJ “currentUrl” côté session (via ensure + metadata ciblée)
+    await ensureSession({
+      currentUrl: location.href,
+      title: document.title,
+      referrer: document.referrer || "",
+    });
+
+    // event analytics
+    log("page_view", {
+      url: location.href,
+      title: document.title,
+      referrer: document.referrer,
+    });
+
+    sendParentLocation();
+    // snapshot opportuniste sur navigation
+    takeSnapshot().catch(() => {});
+  }
+
+  /** Envoie l’URL courante de la page hôte à l’iframe (widget) */
   function sendParentLocation() {
     try {
       iframe?.contentWindow?.postMessage(
@@ -49,30 +146,121 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     } catch {}
   }
 
-  // Patch SPA nav pour notifier l’iframe
+  // Patch SPA nav pour notifier l’iframe ET logger page_view + snapshot
   const _push = history.pushState;
   const _replace = history.replaceState;
   function patchHistory() {
     history.pushState = function (...args) {
       // @ts-ignore
       _push.apply(this, args);
-      sendParentLocation();
+      onPageChange();
     };
     history.replaceState = function (...args) {
       // @ts-ignore
       _replace.apply(this, args);
-      sendParentLocation();
+      onPageChange();
     };
-    window.addEventListener("popstate", sendParentLocation);
-    window.addEventListener("hashchange", sendParentLocation);
+    window.addEventListener("popstate", onPageChange);
+    window.addEventListener("hashchange", onPageChange);
   }
   function unpatchHistory() {
     history.pushState = _push;
     history.replaceState = _replace;
-    window.removeEventListener("popstate", sendParentLocation);
-    window.removeEventListener("hashchange", sendParentLocation);
+    window.removeEventListener("popstate", onPageChange);
+    window.removeEventListener("hashchange", onPageChange);
   }
 
+  // ---- Realtime (Pusher) + rrweb + cursor
+  let pusher: Pusher | null = null;
+  let channel: Channel | null = null;
+
+  async function pusherConnect() {
+    pusher = new Pusher(EMBED_CONFIG.PUSHER_KEY, {
+      cluster: EMBED_CONFIG.PUSHER_CLUSTER,
+      // authorizer custom pour envoyer JSON
+      authorizer: (ch) => ({
+        authorize: (socketId, cb) => {
+          fetch(`${WEB_ORIGIN}/api/realtime/pusher-auth`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              socket_id: socketId,
+              channel_name: ch.name,
+              orgId: organizationId,
+              sessionId,
+            }),
+          })
+            .then((r) => r.json())
+            .then((data) => cb(null, data))
+            .catch((err) => cb(err as any, null));
+        },
+      }),
+    });
+
+    const chanName = `presence-org_${organizationId}_session_${sessionId}`;
+    channel = pusher.subscribe(chanName);
+  }
+
+  function startRrwebStreaming() {
+    const buffer: any[] = [];
+    let lastFlush = Date.now();
+
+    record({
+      emit(event) {
+        buffer.push(event);
+        const now = Date.now();
+        if (channel && now - lastFlush > 400) {
+          // flush ~2.5x/sec
+          const payload = { events: buffer.splice(0) };
+          try {
+            // events client-* requis par Pusher
+            channel!.trigger("client-rrweb", payload);
+          } catch {}
+          lastFlush = now;
+        }
+      },
+      sampling: {
+        mousemove: 50,
+        scroll: 100,
+        input: "last",
+      },
+    });
+
+    // Curseur léger
+    let raf: number | null = null;
+    window.addEventListener("mousemove", (e) => {
+      if (!channel) return;
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        try {
+          channel!.trigger("client-cursor", {
+            x: e.clientX / window.innerWidth,
+            y: e.clientY / window.innerHeight,
+          });
+        } catch {}
+      });
+    });
+  }
+
+  async function takeSnapshot() {
+    if (!sessionId) return;
+    try {
+      const canvas = await html2canvas(document.body, { scale: 0.3, useCORS: true });
+      const dataUrl = canvas.toDataURL("image/webp", 0.6);
+      await postJSON(`${WEB_ORIGIN}/api/tracker/snapshot`, {
+        organizationId,
+        sessionId,
+        ts: Date.now(),
+        pageUrl: location.href,
+        title: document.title,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        dataUrl,
+      });
+    } catch {}
+  }
+
+  // ---- Boot
   function init() {
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", render, { once: true });
@@ -81,8 +269,33 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     }
   }
 
-  function render() {
-    // FAB
+  async function render() {
+    // tracking boot
+    await ensureSession();
+    if (!sessionStorage.getItem("nx_visit_started")) {
+      await log("session_started", { url: location.href });
+      sessionStorage.setItem("nx_visit_started", "1");
+    }
+    await log("page_view", {
+      url: location.href,
+      title: document.title,
+      referrer: document.referrer,
+    });
+
+    // realtime + rrweb + snapshots
+    await pusherConnect();
+    startRrwebStreaming();
+    setInterval(heartbeat, 15000);
+    setInterval(takeSnapshot, 60000);
+    document.addEventListener("visibilitychange", heartbeat);
+    window.addEventListener("beforeunload", () => {
+      try {
+        const ms = Date.now() - lastBeat;
+        if (ms > 0) navigator.sendBeacon?.("/", JSON.stringify({ type: "time_on_site", ms }));
+      } catch {}
+    });
+
+    // ----- UI du widget
     button = document.createElement("button");
     button.id = "echo-widget-button";
     button.innerHTML = chatBubbleIcon;
@@ -90,66 +303,39 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       position: fixed;
       ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
       bottom: 20px;
-      width: 60px;
-      height: 60px;
-      border-radius: 50%;
-      background: #3b82f6;
-      color: white;
-      border: none;
-      cursor: pointer;
-      z-index: 999999;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 24px rgba(59,130,246,.35);
-      transition: all .2s ease;
+      width: 60px; height: 60px; border-radius: 50%;
+      background: #3b82f6; color: white; border: none; cursor: pointer;
+      z-index: 999999; display:flex; align-items:center; justify-content:center;
+      box-shadow: 0 4px 24px rgba(59,130,246,.35); transition: all .2s ease;
     `;
     button.addEventListener("click", toggleWidget);
     button.addEventListener("mouseenter", () => (button!.style.transform = "scale(1.05)"));
     button.addEventListener("mouseleave", () => (button!.style.transform = "scale(1)"));
     document.body.appendChild(button);
 
-    // Container
     container = document.createElement("div");
     container.id = "echo-widget-container";
     container.style.cssText = `
       position: fixed;
       ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
-      bottom: 90px;
-      width: 400px;
-      height: 600px;
-      max-width: calc(100vw - 40px);
-      max-height: calc(100vh - 110px);
-      z-index: 999998;
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0,0,0,.15);
-      display: none;
-      opacity: 0;
-      transform: translateY(10px);
-      transition: all .3s ease;
+      bottom: 90px; width: 400px; height: 600px;
+      max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
+      z-index: 999998; border-radius: 16px; overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,.15); display:none; opacity:0;
+      transform: translateY(10px); transition: all .3s ease;
     `;
 
-    // Iframe
     iframe = document.createElement("iframe");
     iframe.src = buildWidgetUrl();
     iframe.allow = "microphone; clipboard-read; clipboard-write";
     iframe.style.cssText = `width:100%;height:100%;border:none;`;
-    iframe.addEventListener("load", () => {
-      // Assure que l’iframe reçoit l’URL même si postMessage est parti trop tôt
-      sendParentLocation();
-    });
+    iframe.addEventListener("load", () => sendParentLocation());
 
     container.appendChild(iframe);
     document.body.appendChild(container);
 
-    // Messages venant du widget
     window.addEventListener("message", handleMessage);
-
-    // Écoute la nav du parent
     patchHistory();
-
-    // Premier envoi (au cas où l’iframe charge vite)
     sendParentLocation();
   }
 
@@ -171,7 +357,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   function toggleWidget() {
     isOpen ? hide() : show();
   }
-
   function show() {
     if (!container || !button) return;
     isOpen = true;
@@ -183,8 +368,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     }, 10);
     button.innerHTML = closeIcon;
     sendParentLocation();
+    log("widget_opened", { url: location.href });
   }
-
   function hide() {
     if (!container || !button) return;
     isOpen = false;
@@ -192,7 +377,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     container.style.transform = "translateY(10px)";
     setTimeout(() => container && (container.style.display = "none"), 300);
     button.innerHTML = chatBubbleIcon;
-    button.style.background = "#3b82f6";
   }
 
   function destroy() {
@@ -206,10 +390,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     isOpen = false;
   }
 
-  function reinit(cfg: {
-    organizationId?: string;
-    position?: "bottom-right" | "bottom-left";
-  }) {
+  function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left" }) {
     destroy();
     if (cfg.organizationId) organizationId = cfg.organizationId;
     if (cfg.position) position = cfg.position;
@@ -217,6 +398,5 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   }
 
   (window as any).EchoWidget = { init: reinit, show, hide, destroy };
-
   init();
 })();

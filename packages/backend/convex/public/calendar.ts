@@ -53,6 +53,7 @@ export const listSlots = action({
     slotMinutes: v.number(), // ex. 30
   },
   handler: async (ctx, { organizationId, days, slotMinutes }) => {
+    // 1) account + settings via queries publiques
     const acct = await ctx.runQuery(api.public.calendar.getAccount, { organizationId });
     if (!acct) return [] as Array<{ start: number; end: number }>;
 
@@ -71,6 +72,7 @@ export const listSlots = action({
     const durationMin = settings?.durationMin ?? slotMinutes;
     const bufferMin = settings?.bufferMin ?? 0;
 
+    // 2) périodes occupées Google (NO-AUTH variant)
     const now = Date.now();
     const rangeEnd = now + days * 24 * 60 * 60 * 1000;
 
@@ -86,7 +88,9 @@ export const listSlots = action({
 
     const slots: Array<{ start: number; end: number }> = [];
 
+    // map JS dow (0..6) -> notre 1..7 (7 = dimanche)
     const jsToOurDow = (jsDay: number) => (jsDay === 0 ? 7 : jsDay);
+
     const getWindowForDate = (d: Date) => {
       const ourDow = jsToOurDow(d.getDay());
       const rec = weekly.find((w) => w.day === ourDow);
@@ -111,14 +115,9 @@ export const listSlots = action({
       const win = getWindowForDate(day);
       if (!win) continue;
 
-      // Start at the later of window start or now, rounded up to the next step
-      let t = Math.max(win.startMs, now);
-      t = Math.ceil(t / stepMs) * stepMs;
-
-      for (; t + durationMs <= win.endMs; t += stepMs) {
-        const start = t;
+      for (let t = win.startMs; t + durationMs <= win.endMs; t += stepMs) {
+        const start = Math.max(t, now);
         const end = start + durationMs;
-
         const paddedStart = start - bufferMs;
         const paddedEnd = end + bufferMs;
 
@@ -127,17 +126,23 @@ export const listSlots = action({
       }
     }
 
-    // Deduplicate identical [start,end] just in case
-    const uniq = Array.from(
-      new Map(slots.map((s) => [`${s.start}-${s.end}`, s])).values()
-    );
+    // (facultatif) log non bloquant: slots chargés
+    try {
+      await ctx.runMutation(api.public.analytics.log, {
+        organizationId,
+        type: "calendar_slots_loaded",
+        meta: { count: Math.min(slots.length, 50), days, slotMinutes },
+      });
+    } catch (e) {
+      console.log("analytics.log(calendar_slots_loaded) failed:", e);
+    }
 
-    return uniq.slice(0, 50);
+    return slots.slice(0, 50);
   },
 });
 
 /* -------------------------------------------------------------
- * Book: crée l’event Google + enregistre le booking
+ * Book: crée l’event Google + enregistre le booking + log analytics
  * ----------------------------------------------------------- */
 export const bookSlot = action({
   args: {
@@ -150,8 +155,9 @@ export const bookSlot = action({
     attendeeCompany: v.optional(v.string()),
     attendeeRole: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
-    const {
+  handler: async (
+    ctx,
+    {
       organizationId,
       contactSessionId,
       attendeeName,
@@ -160,23 +166,20 @@ export const bookSlot = action({
       end,
       attendeeCompany,
       attendeeRole,
-    } = args;
-
+    }
+  ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
+    // 1) account
     const acct = await ctx.runQuery(api.public.calendar.getAccount, { organizationId });
     if (!acct) throw new Error("No connected calendar for this organization");
 
+    // 2) créer l’event Google (NO-AUTH variant)
     const descriptionLines = [
       `Booked via widget (org: ${organizationId})`,
       `Name: ${attendeeName}`,
       `Email: ${attendeeEmail}`,
       attendeeCompany ? `Company: ${attendeeCompany}` : null,
       attendeeRole ? `Role: ${attendeeRole}` : null,
-    ].filter(Boolean) as string[];
-
-    const attendees = [
-      { email: attendeeEmail, displayName: attendeeName },
-      ...(acct.email ? [{ email: acct.email, displayName: "Organizer" }] : []),
-    ];
+    ].filter(Boolean);
 
     const event: any = await ctx.runAction(api.private.calendar.createEventForOrgUser, {
       organizationId,
@@ -185,12 +188,15 @@ export const bookSlot = action({
       description: descriptionLines.join("\n"),
       startIso: new Date(start).toISOString(),
       endIso: new Date(end).toISOString(),
-      attendees,
+      attendees: [
+        { email: attendeeEmail, displayName: attendeeName },
+        { email: acct.email || "", displayName: "Organizer" }, // le sales reçoit l’invite
+      ],
     });
 
-    const meetingUrl: string | undefined =
-      event?.hangoutLink ?? event?.htmlLink ?? undefined;
+    const meetingUrl: string | undefined = event?.hangoutLink ?? event?.htmlLink ?? undefined;
 
+    // 3) enregistrer le booking
     const bookingId = await ctx.runMutation(api.public.booking.create, {
       organizationId,
       contactSessionId,
@@ -208,10 +214,10 @@ export const bookSlot = action({
       },
     });
 
-    // Notify sales, but don't fail booking if email can't be sent
-    try {
-      const SALES_NOTIFY_EMAIL = process.env.SALES_NOTIFY_EMAIL || acct.email;
-      if (SALES_NOTIFY_EMAIL) {
+    // 4) notifier le sales (email interne) — non bloquant
+    const SALES_NOTIFY_EMAIL = process.env.SALES_NOTIFY_EMAIL || acct.email; // fallback
+    if (SALES_NOTIFY_EMAIL) {
+      try {
         await ctx.runAction(api.private.notifications.sendBookingEmailToSales, {
           to: SALES_NOTIFY_EMAIL,
           attendeeName,
@@ -223,13 +229,52 @@ export const bookSlot = action({
           meetingUrl,
           organizationId,
           bookingId: String(bookingId),
-          // conversationUrl: "...",
         });
+      } catch (e) {
+        console.log("sendBookingEmailToSales skipped/failed:", e);
       }
+    }
+
+    // 5) analytics — non bloquant
+    try {
+      await ctx.runMutation(api.public.analytics.log, {
+        organizationId,
+        type: "meeting_booked",
+        sessionId: contactSessionId,
+        meta: {
+          bookingId,
+          attendeeName,
+          attendeeEmail,
+          attendeeCompany,
+          attendeeRole,
+          start,
+          end,
+          meetingUrl,
+          organizerEmail: acct.email ?? null,
+        },
+      });
     } catch (e) {
-      console.log("sendBookingEmailToSales skipped/failed:", e);
+      console.log("analytics.log(meeting_booked) failed:", e);
     }
 
     return { bookingId, meetingUrl };
   },
+});
+
+/* -------------------------------------------------------------
+ * Helpers (facultatif)
+ * ----------------------------------------------------------- */
+export const getAuthUrl = action({
+  args: { redirectUrl: v.string() },
+  handler: async (_ctx, { redirectUrl }) => `${redirectUrl}?connect=google`,
+});
+
+export const exchangeCode = action({
+  args: {
+    organizationId: v.string(),
+    userId: v.string(),
+    code: v.string(),
+    redirectUrl: v.string(),
+  },
+  handler: async () => ({ ok: true }),
 });

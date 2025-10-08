@@ -1,14 +1,17 @@
 "use client";
+
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
+import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
+import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
+// import { SnapshotsStrip } from "@/modules/dashboard/ui/components/SnapshotsStrip"; // optionnel
 
 function matches(v: Visitor, q: string) {
   if (!q) return true;
   const s = q.toLowerCase();
 
-  // extract UTM bits if present
   let utm: string[] = [];
   if (v.currentUrl) {
     try {
@@ -40,6 +43,9 @@ function matches(v: Visitor, q: string) {
 }
 
 export default function LiveMapView() {
+  const { organization } = useOrganization();
+  const orgId = organization?.id || "";
+
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const visitors = useQuery(api.private.live.getActiveVisitors, {}) ?? [];
@@ -47,6 +53,11 @@ export default function LiveMapView() {
   const filtered = useMemo(
     () => visitors.filter((v) => matches(v as Visitor, query)),
     [visitors, query]
+  );
+
+  const selected = useMemo(
+    () => filtered.find((v) => v._id === selectedId),
+    [filtered, selectedId]
   );
 
   return (
@@ -60,8 +71,6 @@ export default function LiveMapView() {
             placeholder="Filter: city, country, url, name, utm…"
             className="w-full rounded border px-3 py-2 text-sm"
           />
-          {/* Optional: Save as routing rule later */}
-          {/* <button className="mt-2 text-xs underline">Save as routing rule</button> */}
         </div>
         <div className="p-2 text-xs text-muted-foreground">
           {filtered.length} online
@@ -72,6 +81,7 @@ export default function LiveMapView() {
               key={v._id}
               onClick={() => setSelectedId(v._id)}
               className="w-full text-left px-3 py-3 hover:bg-accent border-b"
+              title={v.currentUrl || ""}
             >
               <div className="font-medium text-sm line-clamp-1">
                 {v.name || "Visitor"}
@@ -94,6 +104,28 @@ export default function LiveMapView() {
       <div className="flex-1">
         <LiveMap visitors={filtered as Visitor[]} selectedId={selectedId} />
       </div>
+
+      {/* Right panel (live stream) */}
+      {selected && (
+        <aside className="w-[420px] border-l bg-background p-3 hidden xl:block">
+          <div className="mb-2">
+            <div className="text-sm font-medium">{selected.name || "Visitor"}</div>
+            <div className="text-xs text-muted-foreground">
+              {selected.city ?? "—"}
+              {selected.countryCode ? `, ${selected.countryCode}` : ""} ·{" "}
+              {selected.currentUrl?.split("?")[0] ?? "—"}
+            </div>
+          </div>
+
+          <LiveVisitorView
+            orgId={orgId}
+            sessionId={(selected.contactSessionId as unknown as string) ?? ""}
+          />
+
+          {/* Optionnel */}
+          {/* <SnapshotsStrip sessionId={selected.contactSessionId as any} limit={6} /> */}
+        </aside>
+      )}
     </div>
   );
 }

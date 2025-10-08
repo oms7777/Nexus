@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 
@@ -75,6 +75,7 @@ function SlotsByDay({
     );
   }
 
+  // Dédoublonne globalement
   const uniq = Array.from(
     new Map(slots.map((s) => [`${s.start}-${s.end}`, s])).values()
   );
@@ -93,9 +94,9 @@ function SlotsByDay({
             {day}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {list.map((s) => (
+            {list.map((s, i) => (
               <button
-                key={`${s.start}-${s.end}`}
+                key={`${s.start}-${s.end}-${i}`} // clé unique résiliente
                 className="rounded-lg border px-4 py-3 text-sm shadow-sm hover:shadow transition active:scale-[0.99] bg-background hover:bg-accent"
                 onClick={() => onPick(s)}
               >
@@ -158,6 +159,20 @@ export const WidgetChatScreen = () => {
   const listSlots = useAction(api.public.calendar.listSlots);
   const bookSlot = useAction(api.public.calendar.bookSlot);
 
+  // analytics
+  const logEvent = useMutation(api.public.analytics.log);
+  const firstMessageSentRef = useRef(false);
+
+  // log: widget_loaded
+  useEffect(() => {
+    if (!organizationId) return;
+    logEvent({
+      organizationId,
+      type: "widget_loaded",
+      sessionId: contactSessionId || undefined,
+    }).catch(() => {});
+  }, [organizationId, contactSessionId, logEvent]);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: { message: "" },
@@ -171,6 +186,16 @@ export const WidgetChatScreen = () => {
       { role: "assistant", text: "Great! To book a demo, what's your full name?" },
     ]);
     setStep("ask_name");
+  
+    // 👇 NEW: log inbound chat/request
+    if (organizationId) {
+      logEvent({
+        organizationId,
+        type: "inbound_chat_requested",
+        sessionId: contactSessionId || undefined,
+        meta: { trigger: "calendar_button" },
+      }).catch(() => {});
+    }
   };
 
   const handleQualifyTurn = async (userText: string) => {
@@ -245,6 +270,17 @@ export const WidgetChatScreen = () => {
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     const text = values.message.trim();
     form.reset();
+
+    // log: premier message utilisateur => inbound chat
+    if (!firstMessageSentRef.current && text && organizationId) {
+      firstMessageSentRef.current = true;
+      logEvent({
+        organizationId,
+        type: "inbound_chat_requested",
+        sessionId: contactSessionId || undefined,
+        meta: { source: step === "idle" ? "manual" : "flow" },
+      }).catch(() => {});
+    }
 
     // déclencheur simple
     if (step === "idle" && /book|demo|meeting/i.test(text)) {
@@ -345,18 +381,32 @@ export const WidgetChatScreen = () => {
                       !contactSessionId ||
                       !qdata.name ||
                       !qdata.email
-                    ) return;
+                    )
+                      return;
 
                     const res = await bookSlot({
                       organizationId,
                       contactSessionId,
                       attendeeName: qdata.name,
                       attendeeEmail: qdata.email,
-                      attendeeCompany: qdata.company, // ✅
-                      attendeeRole: qdata.role,       // ✅
+                      attendeeCompany: qdata.company,
+                      attendeeRole: qdata.role,
                       start: s.start,
                       end: s.end,
                     });
+
+                    // log: meeting_booked
+                    logEvent({
+                      organizationId,
+                      type: "meeting_booked",
+                      sessionId: contactSessionId,
+                      meta: {
+                        start: s.start,
+                        end: s.end,
+                        bookingId: res?.bookingId,
+                        meetingUrl: res?.meetingUrl,
+                      },
+                    }).catch(() => {});
 
                     setLocalMsgs((m) => [
                       ...m,

@@ -13,6 +13,9 @@ import {
   PaletteIcon,
   UserIcon,
 } from "lucide-react";
+// 👇 nouveaux icônes pour Analytics (pas besoin du suffixe *Icon*)
+import { BarChart3, Filter, Activity } from "lucide-react";
+
 import Link from "next/link";
 import {
   Sidebar,
@@ -37,29 +40,36 @@ export const DashboardSidebar = () => {
 
   const isActive = (url: string) => pathname === url || pathname.startsWith(`${url}/`);
 
-  // Admin: Revenue
+  // Revenue (admin)
   const salesItems = [{ title: "Live Map", url: "/live", icon: MapIcon }];
 
-  // Tout le monde: Support
+  // Support (tous)
   const supportItems = [
     { title: "Conversations", url: "/conversations", icon: InboxIcon },
     { title: "Knowledge Base", url: "/files", icon: LibraryBigIcon },
   ];
 
-  // NEW: Me (tout le monde)
+  // Me (tous)
   const meItems = [
     { title: "My Profile", url: "/me/profile", icon: UserIcon },
     { title: "Calendar", url: "/me/calendar", icon: CalendarIcon },
     { title: "Notifications", url: "/me/notifications", icon: BellIcon },
   ];
 
-  // Admin: Configuration + Account
+  // Configuration + Account (admin)
   const configurationItems = [
     { title: "Widget Customization", url: "/customization", icon: PaletteIcon },
     { title: "Integrations", url: "/integrations", icon: LayoutDashboardIcon },
     { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
   ];
   const accountItems = [{ title: "Plans & Billing", url: "/billing", icon: CreditCardIcon }];
+
+  // ✅ Analytics (admin)
+  const analyticsItems = [
+    { title: "Overview", url: "/analytics/overview", icon: BarChart3 },
+    { title: "Funnel", url: "/analytics/funnel", icon: Filter },
+    { title: "Signals", url: "/analytics/signals", icon: Activity },
+  ];
 
   return (
     <Sidebar className="group" collapsible="icon">
@@ -90,6 +100,35 @@ export const DashboardSidebar = () => {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Analytics (admin seulement) */}
+        {isAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Analytics</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {analyticsItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive(item.url)}
+                      className={cn(
+                        isActive(item.url) &&
+                          "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground! hover:to-[#0b63f3]/90!"
+                      )}
+                      tooltip={item.title}
+                    >
+                      <Link href={item.url}>
+                        <item.icon className="size-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         {/* Revenue (admin seulement) */}
         {isAdmin && (
           <SidebarGroup>
@@ -146,7 +185,7 @@ export const DashboardSidebar = () => {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* NEW: Me (tout le monde) */}
+        {/* Me (tout le monde) */}
         <SidebarGroup>
           <SidebarGroupLabel>Me</SidebarGroupLabel>
           <SidebarGroupContent>
