@@ -97,7 +97,12 @@ export const listSlots = action({
       if (!rec) return null;
 
       const mkTs = (hhmm: string) => {
-        const [h, m] = hhmm.split(":").map(Number);
+        const [hStr = "0", mStr = "0"] = (hhmm ?? "").split(":");
+        const h = Number(hStr);
+        const m = Number(mStr);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) {
+          throw new Error(`Invalid time string: "${hhmm}"`);
+        }
         const nd = new Date(d);
         nd.setHours(h, m, 0, 0);
         return nd.getTime();
