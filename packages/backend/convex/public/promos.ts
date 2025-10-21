@@ -38,21 +38,20 @@ function matches(
 
 export const listForPage = query({
   args: {
-    organizationId: v.string(),
-    currentUrl: v.string(),
+    organizationId: v.optional(v.string()),
+    currentUrl: v.optional(v.string()),
     utmSource: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId, currentUrl, utmSource }) => {
-    // On récupère toutes les promos de l’org, on filtre côté serveur
+    // 🧩 Si orgId ou URL manquent, on ne casse rien : on renvoie juste []
+    if (!organizationId || !currentUrl) return [];
+
     const all = await ctx.db
       .query("promos")
       .withIndex("by_org", q => q.eq("organizationId", organizationId))
       .collect();
 
     const active = all.filter(p => p.active);
-    // TODO: si tu ajoutes "priority" dans le schema, trie ici.
-    // active.sort((a,b) => a.priority - b.priority);
-
     const filtered = active.filter(p => matches(currentUrl, utmSource, p.rules));
     return filtered;
   },
