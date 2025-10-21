@@ -27,27 +27,28 @@ export default function SmartPromo() {
   const [hidden, setHidden] = useState(false);
   const [closing, setClosing] = useState(false);
 
-  const currentUrl =
-    typeof window !== "undefined" ? window.location.href : "";
-  const utm =
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("utm_source") || undefined
-      : undefined;
+  // Don’t compute URL in SSR
+  const currentUrl = typeof window !== "undefined" ? window.location.href : undefined;
+  const utm = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("utm_source") || undefined
+    : undefined;
 
-  const promos = useQuery(
-    api.public.promos.listForPage,
-    orgId ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
-  ) as Doc<"promos">[] | undefined;
+  // If orgId or currentUrl missing, skip
+  const promos =
+    useQuery(
+      api.public.promos.listForPage,
+      orgId && currentUrl ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
+    ) ?? [];
 
   const createConversation = useMutation(api.public.conversations.create);
 
-  // auto-hide when chat opens
+  // Auto-hide when chat opens
   useEffect(() => {
     if (screen === "chat" && !hidden) setHidden(true);
   }, [screen, hidden]);
 
-  if (hidden || !promos || promos.length === 0) return null;
-  const p = promos.at(0);
+  if (hidden || !Array.isArray(promos) || promos.length === 0) return null;
+  const p: Doc<"promos"> | undefined = promos[0];
   if (!p) return null;
 
   const goChat = async () => {
@@ -57,17 +58,19 @@ export default function SmartPromo() {
       try {
         const id = await createConversation({ organizationId: orgId, contactSessionId: sessionId });
         setConvId(id);
-      } catch {}
+      } catch {
+        /* ignore */
+      }
     }
   };
 
   const runCta = async (cta: Doc<"promos">["primaryCta"]) => {
     if (cta.kind === "open_chat") {
-      setBookingIntent("none");     // chat simple
+      setBookingIntent("none");
       return goChat();
     }
     if (cta.kind === "open_booking") {
-      setBookingIntent("book");     // lance consent + qualif côté chat
+      setBookingIntent("book");
       return goChat();
     }
     if (cta.kind === "open_url" && cta.url) {
@@ -77,7 +80,7 @@ export default function SmartPromo() {
 
   const handleClose = () => {
     setClosing(true);
-    window.setTimeout(() => setHidden(true), 220); // 200ms + marge
+    window.setTimeout(() => setHidden(true), 220);
   };
 
   return (
@@ -88,7 +91,6 @@ export default function SmartPromo() {
       ].join(" ")}
     >
       <div className="relative p-3">
-        {/* Close */}
         <button
           onClick={handleClose}
           className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
@@ -97,11 +99,10 @@ export default function SmartPromo() {
           <X className="h-4 w-4" />
         </button>
 
-        {/* Logo opens chat */}
         <button
           onClick={() => {
             setBookingIntent("none");
-            goChat();
+            void goChat();
           }}
           className="absolute -left-3 -top-3 grid h-10 w-10 place-items-center rounded-full border bg-white shadow"
           aria-label="Open chat"

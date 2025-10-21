@@ -1,3 +1,4 @@
+// widget/modules/ui/views/widget-view.tsx
 "use client";
 
 import { useAtomValue } from "jotai";
@@ -16,9 +17,24 @@ import QualifyModal from "../components/QualifyModal";
 import InlineBooker from "../components/InlineBooker";
 import SmartPromo from "../components/SmartPromo";
 
-interface Props {
-  organizationId: string | null;
+// ⬇️ add this tiny boundary (or import your shared one)
+import React, { type PropsWithChildren } from "react";
+function Boundary({ children }: PropsWithChildren) {
+  return (
+    <ErrorBoundary fallback={null}>{children}</ErrorBoundary>
+  );
 }
+class ErrorBoundary extends React.Component<
+  PropsWithChildren<{ fallback?: React.ReactNode }>,
+  { hasError: boolean }
+> {
+  constructor(props: any) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: unknown) { console.error("SmartPromo crashed:", err); }
+  render() { return this.state.hasError ? (this.props.fallback ?? null) : this.props.children; }
+}
+
+interface Props { organizationId: string | null; }
 
 export const WidgetView = ({ organizationId }: Props) => {
   const screen = useAtomValue(screenAtom);
@@ -35,11 +51,19 @@ export const WidgetView = ({ organizationId }: Props) => {
     contact: <WidgetContactScreen />,
   } as const;
 
+  // Optional: hide SmartPromo in dev to avoid double CTAs with the dev buttons.
+  const showPromo =
+    process.env.NODE_ENV !== "development" ||
+    process.env.NEXT_PUBLIC_SHOW_PROMO === "1";
+
   return (
     <main className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-muted">
       {screenComponents[screen]}
-      {/* always mounted */}
-      <SmartPromo />
+      {showPromo && (
+        <Boundary>
+          <SmartPromo />
+        </Boundary>
+      )}
       <QualifyModal />
       <InlineBooker />
     </main>
