@@ -21,6 +21,24 @@ export default defineSchema({
       assistantId: v.optional(v.string()),
       phoneNumber: v.optional(v.string()),
     }),
+    // ⬇️ NEW: lien configurable + bloc consent complet
+    privacyUrl: v.optional(v.string()),
+    consent: v.optional(
+      v.object({
+        enabled: v.boolean(),
+        title: v.optional(v.string()),
+        intro: v.optional(v.string()),
+        body: v.optional(v.string()),
+        acceptLabel: v.optional(v.string()),
+        version: v.optional(v.string()),
+
+        // 🆕 NEW FIELDS for customizable consent behavior
+        linkMode: v.optional(v.union(v.literal("link"), v.literal("modal"))),
+        privacyUrl: v.optional(v.string()),
+        modalContent: v.optional(v.string()),
+      })
+    ),
+
   }).index("by_organization_id", ["organizationId"]),
 
   plugins: defineTable({
@@ -48,10 +66,13 @@ export default defineSchema({
     .index("by_status_and_organization_id", ["status", "organizationId"]),
 
   contactSessions: defineTable({
-    name: v.string(),
-    email: v.string(),
+    // anonymat initial OK
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
     organizationId: v.string(),
     expiresAt: v.number(),
+    isAnonymous: v.optional(v.boolean()),
+    identifiedAt: v.optional(v.number()),
     metadata: v.optional(v.object({
       userAgent: v.optional(v.string()),
       language: v.optional(v.string()),
@@ -75,6 +96,13 @@ export default defineSchema({
       // simple analytics
       pages: v.optional(v.array(v.string())),
     })),
+    // ⬇️ NEW: trace du consentement pour la session
+    consent: v.optional(v.object({
+      given: v.boolean(),
+      ts: v.number(),                  // ms epoch
+      privacyUrl: v.optional(v.string()),
+      version: v.optional(v.string()),
+    })),
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_expires_at", ["expiresAt"]),
@@ -89,7 +117,7 @@ export default defineSchema({
     expiresAt: v.number(),
   }).index("by_ip", ["ip"]),
 
-  /* ---------- Reps presence (optionnel) ---------- */
+  /* ---------- Reps presence ---------- */
   repsPresence: defineTable({
     organizationId: v.string(),
     userId: v.string(), // Clerk userId
@@ -102,7 +130,7 @@ export default defineSchema({
     .index("by_org_role", ["organizationId", "role"])
     .index("by_org_user", ["organizationId", "userId"]),
 
-  /* ---------- Routing rules (optionnel) ---------- */
+  /* ---------- Routing rules ---------- */
   routingRules: defineTable({
     organizationId: v.string(),
     name: v.string(),
@@ -128,26 +156,22 @@ export default defineSchema({
     userId: v.string(),               // Clerk userId du sales
     provider: v.literal("google"),
     email: v.optional(v.string()),
-    refreshToken: v.string(),         // OAuth refresh token
+    refreshToken: v.string(),
     scope: v.optional(v.string()),
     connectedAt: v.number(),
   })
     .index("by_org_user", ["organizationId", "userId"])
     .index("by_org", ["organizationId"]),
 
-  /* ---------- Calendar user settings (VERSION B) ---------- */
+  /* ---------- Calendar user settings ---------- */
   calendarSettings: defineTable({
     organizationId: v.string(),
-    userId: v.string(),               // Clerk userId
-
-    timezone: v.optional(v.string()), // ex. "Europe/Paris"
-    durationMin: v.number(),          // ex. 30
+    userId: v.string(),
+    timezone: v.optional(v.string()),
+    durationMin: v.number(),
     bufferMin: v.optional(v.number()),
-
     meetingLinkType: v.union(v.literal("google_meet"), v.literal("manual")),
     manualUrl: v.optional(v.string()),
-
-    // Plages d’ouverture hebdo, 1..7 (ou 0..6 si tu préfères)
     weekly: v.array(
       v.object({
         day: v.number(),  // 1=Mon … 7=Sun
@@ -155,7 +179,6 @@ export default defineSchema({
         end: v.string(),   // "17:00"
       })
     ),
-
     updatedAt: v.number(),
   })
     .index("by_org_user", ["organizationId", "userId"])
@@ -165,13 +188,13 @@ export default defineSchema({
   calendarBookings: defineTable({
     organizationId: v.string(),
     contactSessionId: v.id("contactSessions"),
-    createdByUserId: v.optional(v.string()), // propriétaire du calendrier
+    createdByUserId: v.optional(v.string()),
     attendeeName: v.string(),
     attendeeEmail: v.string(),
-    start: v.number(),        // ms epoch
-    end: v.number(),          // ms epoch
+    start: v.number(),   // ms epoch
+    end: v.number(),     // ms epoch
     meetingUrl: v.optional(v.string()),
-    externalEventId: v.optional(v.string()), // id de l’event Google
+    externalEventId: v.optional(v.string()),
     providerData: v.optional(v.object({
       calendarId: v.optional(v.string()),
       company: v.optional(v.string()),
@@ -183,18 +206,19 @@ export default defineSchema({
     .index("by_contact_session", ["contactSessionId"])
     .index("by_org_start", ["organizationId", "start"]),
 
-  /* ---------- simple directory (optionnel) ---------- */
+  /* ---------- simple directory ---------- */
   users: defineTable({
     name: v.string(),
   }),
 
+  /* ---------- Analytics ---------- */
   analyticsEvents: defineTable({
     organizationId: v.string(),
-    type: v.string(),                 // "widget_loaded" | "chat_opened" | ...
-    ts: v.number(),                   // Date.now()
+    type: v.string(),
+    ts: v.number(),
     sessionId: v.optional(v.id("contactSessions")),
     conversationId: v.optional(v.id("conversations")),
-    accountId: v.optional(v.string()), // (optionnel v1)
+    accountId: v.optional(v.string()),
     userId: v.optional(v.string()),
     meta: v.optional(v.any()),
   })
@@ -226,10 +250,50 @@ export default defineSchema({
     width: v.optional(v.number()),
     height: v.optional(v.number()),
     storageId: v.id("_storage"),
-  }).index("by_session", ["sessionId"])
+  })
+    .index("by_session", ["sessionId"])
     .index("by_org_ts", ["organizationId","ts"]),
 
-  // (Signals — tu pourras les ajouter ensuite)
-  // accounts, accountDaily ...
+  /* ---------- Promos contextuelles ---------- */
+  promos: defineTable({
+    organizationId: v.string(),
 
+    name: v.string(),
+    active: v.boolean(),
+
+    rules: v.object({
+      pathPrefix: v.optional(v.string()),
+      urlIncludes: v.optional(v.array(v.string())),
+      utmSource: v.optional(v.array(v.string())),
+    }),
+
+    card: v.object({
+      title: v.string(),
+      body: v.string(),
+      badgeText: v.optional(v.string()),
+    }),
+
+    primaryCta: v.object({
+      kind: v.union(
+        v.literal("open_chat"),
+        v.literal("open_booking"),
+        v.literal("open_url"),
+      ),
+      label: v.string(),
+      url: v.optional(v.string()),
+    }),
+
+    secondaryCta: v.optional(v.object({
+      kind: v.union(
+        v.literal("open_chat"),
+        v.literal("open_booking"),
+        v.literal("open_url"),
+      ),
+      label: v.string(),
+      url: v.optional(v.string()),
+    })),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]),
 });

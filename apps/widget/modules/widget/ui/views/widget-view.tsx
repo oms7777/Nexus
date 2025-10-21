@@ -14,6 +14,7 @@ import { usePresence } from "../../hooks/use-presence";
 
 import QualifyModal from "../components/QualifyModal";
 import InlineBooker from "../components/InlineBooker";
+import SmartPromo from "../components/SmartPromo";
 
 interface Props {
   organizationId: string | null;
@@ -38,6 +39,7 @@ export const WidgetView = ({ organizationId }: Props) => {
     <main className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-muted">
       {screenComponents[screen]}
       {/* always mounted */}
+      <SmartPromo />
       <QualifyModal />
       <InlineBooker />
     </main>

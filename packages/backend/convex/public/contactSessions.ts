@@ -1,6 +1,29 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { SESSION_DURATION_MS } from "../constants";
+
+export const grantConsent = mutation({
+  args: {
+    contactSessionId: v.id("contactSessions"),
+    privacyUrl: v.optional(v.string()),
+    version: v.optional(v.string()),
+  },
+  handler: async (ctx, { contactSessionId, privacyUrl, version }) => {
+    const session = await ctx.db.get(contactSessionId);
+    if (!session) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Session not found" });
+    }
+    await ctx.db.patch(contactSessionId, {
+      consent: {
+        given: true,
+        ts: Date.now(),
+        privacyUrl,
+        version,
+      },
+    });
+    return { ok: true };
+  },
+});
 
 /**
  * Crée une session explicite (widget) — inchangé, on garde.

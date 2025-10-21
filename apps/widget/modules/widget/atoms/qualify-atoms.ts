@@ -1,9 +1,9 @@
-// apps/widget/modules/widget/atoms/qualify-atoms.ts
 "use client";
 import { atom } from "jotai";
 
 export type QualifyStep =
   | "idle"
+  | "consent"   // ← NOUVEAU: étape de consentement
   | "ask_name"
   | "ask_email"
   | "ask_company"
@@ -16,9 +16,16 @@ export type QualifyData = {
   email?: string;
   company?: string;
   role?: string;
-  // keep region if you still use it elsewhere:
+  // (facultatif) si tu l'utilises ailleurs:
   region?: "EMEA" | "NA" | "LATAM" | "APAC";
 };
 
+// État du flow de qualif
 export const qualifyStepAtom = atom<QualifyStep>("idle");
 export const qualifyDataAtom = atom<QualifyData>({});
+
+// Déclencheur d’intention "book a demo" (depuis SmartPromo)
+export const bookingIntentAtom = atom<"none" | "book">("none");
+
+// Consentement RGPD donné ?
+export const consentGivenAtom = atom<boolean>(false);

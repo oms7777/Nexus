@@ -15,7 +15,12 @@ import {
   screenAtom,
   widgetSettingsAtom,
 } from "../../atoms/widget-atoms";
-import { qualifyDataAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
+import {
+  qualifyDataAtom,
+  qualifyStepAtom,
+  bookingIntentAtom,
+  consentGivenAtom,
+} from "../../atoms/qualify-atoms";
 
 import { WidgetHeader } from "../components/widget-header";
 import { Button } from "@workspace/ui/components/button";
@@ -39,6 +44,15 @@ import { Form, FormField } from "@workspace/ui/components/form";
 import { toUIMessages, useThreadMessages } from "@convex-dev/agent/react";
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
 
+/* —— Dialog for inline consent text when no privacyUrl —— */
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@workspace/ui/components/dialog";
+
 /* -------------------- helpers -------------------- */
 
 const formSchema = z.object({ message: z.string().min(1) });
@@ -52,51 +66,29 @@ function formatDay(ts: number) {
     month: "short",
   });
 }
-
 function formatSlot(ts: number) {
-  return new Date(ts).toLocaleString([], {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  return new Date(ts).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
-function SlotsByDay({
-  slots,
-  onPick,
-}: {
-  slots: Slot[];
-  onPick: (s: Slot) => void;
-}) {
+function SlotsByDay({ slots, onPick }: { slots: Slot[]; onPick: (s: Slot) => void }) {
   if (!slots.length) {
-    return (
-      <div className="p-3 text-sm text-muted-foreground">
-        No availability found. Please try later.
-      </div>
-    );
+    return <div className="p-3 text-sm text-muted-foreground">No availability found. Please try later.</div>;
   }
-
-  // Dédoublonne globalement
-  const uniq = Array.from(
-    new Map(slots.map((s) => [`${s.start}-${s.end}`, s])).values()
-  );
-
+  const uniq = Array.from(new Map(slots.map((s) => [`${s.start}-${s.end}`, s])).values());
   const grouped = uniq.reduce<Record<string, Slot[]>>((acc, s) => {
     const k = formatDay(s.start);
     (acc[k] ||= []).push(s);
     return acc;
   }, {});
-
   return (
     <div className="space-y-3 p-3">
       {Object.entries(grouped).map(([day, list]) => (
         <div key={day}>
-          <div className="px-1 pb-1 text-xs uppercase tracking-wide text-muted-foreground">
-            {day}
-          </div>
+          <div className="px-1 pb-1 text-xs uppercase tracking-wide text-muted-foreground">{day}</div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             {list.map((s, i) => (
               <button
-                key={`${s.start}-${s.end}-${i}`} // clé unique résiliente
+                key={`${s.start}-${s.end}-${i}`}
                 className="rounded-lg border px-4 py-3 text-sm shadow-sm hover:shadow transition active:scale-[0.99] bg-background hover:bg-accent"
                 onClick={() => onPick(s)}
               >
@@ -110,6 +102,33 @@ function SlotsByDay({
   );
 }
 
+/* Small helper for inline consent text */
+function ConsentInlineModal({
+  triggerLabel,
+  title,
+  fullText,
+}: {
+  triggerLabel: string;
+  title: string;
+  fullText: string;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button className="underline">{triggerLabel}</button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="whitespace-pre-wrap text-sm text-muted-foreground">
+          {fullText}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* -------------------- screen -------------------- */
 
 export const WidgetChatScreen = () => {
@@ -118,40 +137,32 @@ export const WidgetChatScreen = () => {
 
   const widgetSettings = useAtomValue(widgetSettingsAtom);
   const organizationId = useAtomValue(organizationIdAtom);
-  const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(organizationId || "")
-  );
+  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(organizationId || ""));
   const conversationId = useAtomValue(conversationIdAtom);
 
-  // qualification
-  // Étapes: "idle" | "ask_name" | "ask_email" | "ask_company" | "ask_role" | "picking" | "done"
-  const [step, setStep] = useAtom(qualifyStepAtom);
-  // Données: { name?: string; email?: string; company?: string; role?: string }
+  // Qualif state
+  const [step, setStep] = useAtom(qualifyStepAtom); // "idle" | "consent" | "ask_name" | ...
   const [qdata, setQdata] = useAtom(qualifyDataAtom);
+  const [bookingIntent, setBookingIntent] = useAtom(bookingIntentAtom);
+  const [, setConsentGiven] = useAtom(consentGivenAtom);
 
   // messages backend
   const conversation = useQuery(
     api.public.conversations.getOne,
-    conversationId && contactSessionId
-      ? { conversationId, contactSessionId }
-      : "skip"
+    conversationId && contactSessionId ? { conversationId, contactSessionId } : "skip"
   );
   const messages = useThreadMessages(
     api.public.messages.getMany,
-    conversation?.threadId && contactSessionId
-      ? { threadId: conversation.threadId, contactSessionId }
-      : "skip",
+    conversation?.threadId && contactSessionId ? { threadId: conversation.threadId, contactSessionId } : "skip",
     { initialNumItems: 10 }
   );
 
-  // état local pour l’interview + slots
-  const [localMsgs, setLocalMsgs] = useState<
-    Array<{ role: "assistant" | "user"; text: string }>
-  >([]);
+  // local conversation + booking
+  const [localMsgs, setLocalMsgs] = useState<Array<{ role: "assistant" | "user"; text: string }>>([]);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // actions calendar
+  // calendar
   const calendarAccount = useQuery(
     api.public.calendar.getAccount,
     organizationId ? { organizationId } : "skip"
@@ -163,7 +174,13 @@ export const WidgetChatScreen = () => {
   const logEvent = useMutation(api.public.analytics.log);
   const firstMessageSentRef = useRef(false);
 
-  // log: widget_loaded
+
+  const consentCfg = widgetSettings?.consent;
+  const linkMode = consentCfg?.linkMode ?? "link"; // "link" | "modal" (default link)
+  const consentUrl = consentCfg?.privacyUrl;       // URL when linkMode = "link"
+  const consentModalText = consentCfg?.modalContent; // text when linkMode = "modal"
+
+  // widget loaded
   useEffect(() => {
     if (!organizationId) return;
     logEvent({
@@ -179,25 +196,39 @@ export const WidgetChatScreen = () => {
   });
   const createMessage = useAction(api.public.messages.create);
 
-  const startQualify = () => {
-    if (step !== "idle") return;
+
+  /** A. Démarrage spécial "Book a meeting" : 1 message d'intro, puis carte de consentement */
+  const bookFlowStartedRef = useRef(false);
+  useEffect(() => {
+    if (bookingIntent !== "book" || bookFlowStartedRef.current || step !== "idle") return;
+
+    bookFlowStartedRef.current = true;
+
     setLocalMsgs((m) => [
       ...m,
-      { role: "assistant", text: "Great! To book a demo, what's your full name?" },
+      {
+        role: "assistant",
+        text:
+          "Discover the right solution for your business project.\n\nOur team is available to chat to guide you through the options based on your needs!",
+      },
     ]);
-    setStep("ask_name");
-  
-    // 👇 NEW: log inbound chat/request
+    setStep("consent");
+
+    // éviter relance si on revient
+    setBookingIntent("none");
+
+    // analytics
     if (organizationId) {
       logEvent({
         organizationId,
         type: "inbound_chat_requested",
         sessionId: contactSessionId || undefined,
-        meta: { trigger: "calendar_button" },
+        meta: { trigger: "book_meeting" },
       }).catch(() => {});
     }
-  };
+  }, [bookingIntent, step, setBookingIntent, organizationId, contactSessionId, logEvent]);
 
+  /** B. Flow qualif */
   const handleQualifyTurn = async (userText: string) => {
     if (step === "ask_name") {
       setQdata((d) => ({ ...d, name: userText.trim() }));
@@ -209,7 +240,6 @@ export const WidgetChatScreen = () => {
       setStep("ask_email");
       return true;
     }
-
     if (step === "ask_email") {
       setQdata((d) => ({ ...d, email: userText.trim() }));
       setLocalMsgs((m) => [
@@ -220,7 +250,6 @@ export const WidgetChatScreen = () => {
       setStep("ask_company");
       return true;
     }
-
     if (step === "ask_company") {
       setQdata((d) => ({ ...d, company: userText.trim() }));
       setLocalMsgs((m) => [
@@ -231,7 +260,6 @@ export const WidgetChatScreen = () => {
       setStep("ask_role");
       return true;
     }
-
     if (step === "ask_role") {
       setQdata((d) => ({ ...d, role: userText.trim() }));
       setLocalMsgs((m) => [
@@ -249,11 +277,7 @@ export const WidgetChatScreen = () => {
         setStep("picking");
         setLoadingSlots(true);
         try {
-          const s = await listSlots({
-            organizationId,
-            days: 7,
-            slotMinutes: 30,
-          });
+          const s = await listSlots({ organizationId, days: 7, slotMinutes: 30 });
           setSlots(s);
         } finally {
           setLoadingSlots(false);
@@ -263,7 +287,6 @@ export const WidgetChatScreen = () => {
       }
       return true;
     }
-
     return false;
   };
 
@@ -271,7 +294,6 @@ export const WidgetChatScreen = () => {
     const text = values.message.trim();
     form.reset();
 
-    // log: premier message utilisateur => inbound chat
     if (!firstMessageSentRef.current && text && organizationId) {
       firstMessageSentRef.current = true;
       logEvent({
@@ -285,29 +307,37 @@ export const WidgetChatScreen = () => {
     // déclencheur simple
     if (step === "idle" && /book|demo|meeting/i.test(text)) {
       setLocalMsgs((m) => [...m, { role: "user", text }]);
-      startQualify();
+      if (bookingIntent !== "book") {
+        setBookingIntent("book");
+      }
       return;
     }
 
     // interview en cours
-    if (
-      step === "ask_name" ||
-      step === "ask_email" ||
-      step === "ask_company" ||
-      step === "ask_role"
-    ) {
+    if (["ask_name", "ask_email", "ask_company", "ask_role"].includes(step)) {
       const consumed = await handleQualifyTurn(text);
       if (consumed) return;
     }
 
     // flux normal
     if (!conversation || !contactSessionId) return;
-    await createMessage({
-      threadId: conversation.threadId,
-      prompt: text,
-      contactSessionId,
-    });
+    await createMessage({ threadId: conversation.threadId, prompt: text, contactSessionId });
   };
+
+  /** C. Masquer le greet backend si on vient de “Book” (ou déjà en consent / qualif) */
+  const backendMsgs = toUIMessages(messages.results ?? []).map((m) => ({
+    role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+    text: m.content,
+  }));
+
+  const greet = widgetSettings?.greetMessage?.trim();
+  const shouldHideGreet = bookingIntent === "book" || step === "consent" || step === "ask_name";
+  const filteredBackend =
+    shouldHideGreet && greet
+      ? backendMsgs.filter((m, i) => !(i === 0 && m.role === "assistant" && m.text.trim() === greet))
+      : backendMsgs;
+
+  const uiMsgs = [...filteredBackend, ...localMsgs];
 
   const suggestions = useMemo(() => {
     const base = widgetSettings
@@ -315,14 +345,6 @@ export const WidgetChatScreen = () => {
       : [];
     return ["Book a demo", ...base];
   }, [widgetSettings]);
-
-  const uiMsgs = [
-    ...toUIMessages(messages.results ?? []).map((m) => ({
-      role: m.role === "user" ? ("user" as const) : ("assistant" as const),
-      text: m.content,
-    })),
-    ...localMsgs,
-  ];
 
   const onBack = () => {
     setConversationId(null);
@@ -339,12 +361,7 @@ export const WidgetChatScreen = () => {
           <p>Chat</p>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            size="icon"
-            variant="transparent"
-            onClick={startQualify}
-            title="Book a demo"
-          >
+          <Button size="icon" variant="transparent" onClick={() => setBookingIntent("book")} title="Book a demo">
             <CalendarIcon />
           </Button>
           <Button size="icon" variant="transparent">
@@ -366,6 +383,86 @@ export const WidgetChatScreen = () => {
             </AIMessage>
           ))}
 
+          {/* CONSENT CARD (config via widgetSettings, no Decline) */}
+          {step === "consent" && widgetSettings && widgetSettings.consent?.enabled !== false && (
+            <div className="p-3">
+              <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
+                {(widgetSettings.consent?.title || widgetSettings.consent?.intro) && (
+                  <div className="mb-2">
+                    {widgetSettings.consent?.title && (
+                      <div className="font-medium">{widgetSettings.consent.title}</div>
+                    )}
+                    {widgetSettings.consent?.intro && (
+                      <div className="text-muted-foreground">
+                        {widgetSettings.consent.intro}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-xs text-muted-foreground">
+                  {consentCfg?.body ||
+                    "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
+                  {linkMode === "link" && consentUrl ? (
+                    <>
+                      I hereby consent to processing of my personal data collected in the chat in
+                      accordance with the rules described{" "}
+                      <a
+                        href={consentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        here
+                      </a>.
+                    </>
+                  ) : (
+                    <ConsentInlineModal
+                      triggerLabel="here"
+                      title={consentCfg?.title ?? "Consent"}
+                      fullText={
+                        consentModalText?.trim() ||
+                        (consentCfg?.body?.trim() ||
+                          "Details about how your data may be processed.") +
+                          "\n\nYou can withdraw your consent at any time."
+                      }
+                    />
+                  )}
+                </p>
+
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setConsentGiven(true);
+                    setLocalMsgs((m) => [
+                      ...m,
+                      { role: "assistant", text: "Great! To book a demo, what's your full name?" },
+                    ]);
+                    setStep("ask_name");
+
+                    if (organizationId) {
+                      logEvent({
+                        organizationId,
+                        type: "consent_given",
+                        sessionId: contactSessionId || undefined,
+                        meta: {
+                          version: consentCfg?.version,
+                          privacyUrl: consentUrl, // use consent.privacyUrl
+                          linkMode,
+                        },
+                      }).catch(() => {});
+                    }
+                  }}
+                >
+                  {consentCfg?.acceptLabel?.trim() || "✓ I consent"}
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Slot picker inline après la qualif */}
           {step === "picking" && (
             <>
@@ -376,13 +473,7 @@ export const WidgetChatScreen = () => {
                 <SlotsByDay
                   slots={slots}
                   onPick={async (s) => {
-                    if (
-                      !organizationId ||
-                      !contactSessionId ||
-                      !qdata.name ||
-                      !qdata.email
-                    )
-                      return;
+                    if (!organizationId || !contactSessionId || !qdata.name || !qdata.email) return;
 
                     const res = await bookSlot({
                       organizationId,
@@ -395,7 +486,6 @@ export const WidgetChatScreen = () => {
                       end: s.end,
                     });
 
-                    // log: meeting_booked
                     logEvent({
                       organizationId,
                       type: "meeting_booked",
@@ -412,10 +502,9 @@ export const WidgetChatScreen = () => {
                       ...m,
                       {
                         role: "assistant",
-                        text:
-                          res?.meetingUrl
-                            ? `You're booked! Join with this link: ${res.meetingUrl}`
-                            : "You're booked! Check your inbox for the invite.",
+                        text: res?.meetingUrl
+                          ? `You're booked! Join with this link: ${res.meetingUrl}`
+                          : "You're booked! Check your inbox for the invite.",
                       },
                     ]);
                     setSlots(null);
@@ -428,8 +517,8 @@ export const WidgetChatScreen = () => {
         </AIConversationContent>
       </AIConversation>
 
-      {/* suggestions (incl. Book a demo) */}
-      {uiMsgs.length <= 1 && (
+      {/* suggestions (pas pendant consent/picking) */}
+      {uiMsgs.length <= 1 && step === "idle" && (
         <AISuggestions className="flex w-full flex-col items-end p-2">
           {suggestions.map((s) => (
             <AISuggestion
@@ -437,14 +526,10 @@ export const WidgetChatScreen = () => {
               suggestion={s}
               onClick={() => {
                 if (/book/i.test(s)) {
-                  startQualify();
+                  setBookingIntent("book");
                   return;
                 }
-                form.setValue("message", s, {
-                  shouldValidate: true,
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
+                form.setValue("message", s, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
                 form.handleSubmit(onSubmit)();
               }}
             />
@@ -454,10 +539,7 @@ export const WidgetChatScreen = () => {
 
       {/* composer */}
       <Form {...form}>
-        <AIInput
-          className="rounded-none border-x-0 border-b-0"
-          onSubmit={form.handleSubmit(onSubmit)}
-        >
+        <AIInput className="rounded-none border-x-0 border-b-0" onSubmit={form.handleSubmit(onSubmit)}>
           <FormField
             control={form.control}
             name="message"
