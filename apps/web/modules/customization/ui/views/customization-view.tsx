@@ -5,13 +5,16 @@ import { api } from "@workspace/backend/_generated/api";
 import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { CustomizationForm } from "../components/customization-form";
-import PromosPanel from "../components/promos-panel"; // 👈 add this
+import PromosPanel from "../components/promos-panel";
+import { useHasPro } from "@/lib/useHasPro";
+import { PremiumFeatureOverlay } from "@/modules/billing/ui/components/premium-feature-overlay";
 
 export const CustomizationView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
   const vapiPlugin = useQuery(api.private.plugins.getOne, { service: "vapi" });
+  const { isPro, loading: loadingPro } = useHasPro();
 
-  const isLoading = widgetSettings === undefined || vapiPlugin === undefined;
+  const isLoading = widgetSettings === undefined || vapiPlugin === undefined || loadingPro;
 
   if (isLoading) {
     return (
@@ -22,6 +25,25 @@ export const CustomizationView = () => {
     );
   }
 
+  if (!isPro) {
+    return (
+      <PremiumFeatureOverlay>
+        {/* on peut afficher un aperçu flouté si tu veux */}
+        <div className="mx-auto w-full max-w-screen-md space-y-12">
+          <section>
+            <div className="space-y-2">
+              <h1 className="text-2xl md:text-4xl">Widget Customization</h1>
+              <p className="text-muted-foreground">
+                Customize how your chat widget looks and behaves for your customers
+              </p>
+            </div>
+          </section>
+        </div>
+      </PremiumFeatureOverlay>
+    );
+  }
+
+  // ✅ Pro → UI complète
   return (
     <div className="flex min-h-screen flex-col bg-muted p-8">
       <div className="mx-auto w-full max-w-screen-md space-y-12">
@@ -37,7 +59,6 @@ export const CustomizationView = () => {
           </div>
         </section>
 
-        {/* 👇 New section for page-based promos */}
         <section>
           <PromosPanel />
         </section>
