@@ -1,10 +1,9 @@
-// apps/widget/modules/widget/components/SmartPromo.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
-import { useAtomValue, useSetAtom, atom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import {
   organizationIdAtom,
   contactSessionIdAtomFamily,
@@ -16,9 +15,6 @@ import { Button } from "@workspace/ui/components/button";
 import { X } from "lucide-react";
 import type { Doc } from "@workspace/backend/_generated/dataModel";
 
-/** NEW: partagé par le widget pour stocker l’URL de la page parente (envoyée par embed.ts) */
-export const parentUrlAtom = atom<string | null>(null);
-
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
   const sessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
@@ -27,68 +23,82 @@ export default function SmartPromo() {
   const setConvId = useSetAtom(conversationIdAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
 
-  // NEW: écoute des postMessages venant du script d’embed pour récupérer l’URL du parent
-  const parentUrl = useAtomValue(parentUrlAtom);
-  const setParentUrl = useSetAtom(parentUrlAtom);
+  const [hidden, setHidden] = useState(false);
+  const [closing, setClosing] = useState(false);
 
+  const currentUrl =
+    typeof window !== "undefined" ? window.location.href : undefined;
+  const utm =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("utm_source") || undefined
+      : undefined;
+
+  const promos =
+    useQuery(
+      api.public.promos.listForPage,
+      orgId && currentUrl
+        ? { organizationId: orgId, currentUrl, utmSource: utm }
+        : "skip"
+    ) ?? [];
+
+  const promo: Doc<"promos"> | undefined = useMemo(
+    () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
+    [promos]
+  );
+
+  const createConversation = useMutation(api.public.conversations.create);
+
+  // --- IMPORTANT: NE PLUS AUTO-HIDE EN MODE CHAT ---
+  // (si tu veux auto-cacher en chat, réactive l’effet ci-dessous)
+  // useEffect(() => {
+  //   if (screen === "chat" && !hidden) setHidden(true);
+  // }, [screen, hidden]);
+
+  // --- 1) PUSHER le contenu de la promo au parent (embed) ---
+  useEffect(() => {
+    if (hidden || !promo) return;
+    const payload = {
+      title: promo.card?.title || "Need a hand?",
+      body: promo.card?.body || "Chat with our assistant or book a 15-min demo.",
+      primary: promo.primaryCta?.label || "Chat",
+      secondary: promo.secondaryCta?.label || "Book a demo",
+      primaryCta: promo.primaryCta,
+      secondaryCta: promo.secondaryCta,
+    };
+    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
+  }, [hidden, promo]);
+
+  // --- 2) Écouter le parent pour exécuter les CTA (depuis le nudge) ---
   useEffect(() => {
     function onMsg(e: MessageEvent) {
-      const d = e.data || {};
-      if (d?.type === "nexus:parent-location" && typeof d.href === "string") {
-        setParentUrl(d.href);
+      const t = e.data?.type;
+      if (!promo) return;
+      if (t === "nexus:run-primary-cta" && promo.primaryCta) {
+        void runCta(promo.primaryCta);
+      }
+      if (t === "nexus:run-secondary-cta" && promo.secondaryCta) {
+        void runCta(promo.secondaryCta);
       }
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [setParentUrl]);
+  }, [promo]);
 
-  const [hidden, setHidden] = useState(false);
-  const [closing, setClosing] = useState(false);
-
-  // ❗️Use **parent** URL if available, fallback to iframe URL (dev direct)
-  const currentUrl: string | undefined = useMemo(() => {
-    if (typeof window === "undefined") return undefined;
-    return parentUrl || window.location.href;
-  }, [parentUrl]);
-
-  // Extract utm_source from the **parent** URL
-  const utm = useMemo(() => {
-    if (!currentUrl) return undefined;
-    try {
-      return new URL(currentUrl).searchParams.get("utm_source") || undefined;
-    } catch {
-      return undefined;
-    }
-  }, [currentUrl]);
-
-  // Query promos only when org + parent URL are known
-  const promos =
-    useQuery(
-      api.public.promos.listForPage,
-      orgId && currentUrl ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
-    ) ?? [];
-
-  const createConversation = useMutation(api.public.conversations.create);
-
-  // Auto-hide when chat opens
-  useEffect(() => {
-    if (screen === "chat" && !hidden) setHidden(true);
-  }, [screen, hidden]);
-
-  if (hidden || !Array.isArray(promos) || promos.length === 0) return null;
-  const p: Doc<"promos"> | undefined = promos[0];
-  if (!p) return null;
+  if (hidden || !promo) return null;
 
   const goChat = async () => {
-    setHidden(true);
+    // ouvre l’écran chat, crée une conversation si besoin
     setScreen("chat");
-    if (orgId && sessionId) {
-      try {
-        const id = await createConversation({ organizationId: orgId, contactSessionId: sessionId });
+    try {
+      if (orgId && sessionId) {
+        const id = await createConversation({
+          organizationId: orgId,
+          contactSessionId: sessionId,
+        });
         setConvId(id);
-      } catch {
-        /* ignore */
       }
+    } catch {
+      /* ignore */
     }
   };
 
@@ -114,8 +124,10 @@ export default function SmartPromo() {
   return (
     <div
       className={[
-        "fixed bottom-16 right-4 z-50 w-[320px] rounded-xl border bg-white shadow-lg transition-all duration-200",
-        closing ? "opacity-0 translate-y-2 pointer-events-none" : "opacity-100 translate-y-0",
+        "fixed bottom-16 right-4 z-[100] w-[320px] rounded-xl border bg-white shadow-lg transition-all duration-200",
+        closing
+          ? "opacity-0 translate-y-2 pointer-events-none"
+          : "opacity-100 translate-y-0",
       ].join(" ")}
     >
       <div className="relative p-3">
@@ -127,7 +139,7 @@ export default function SmartPromo() {
           <X className="h-4 w-4" />
         </button>
 
-        {/* mini-bouton logo pour ouvrir le chat depuis la promo */}
+        {/* petit bouton logo pour sauter direct au chat */}
         <button
           onClick={() => {
             setBookingIntent("none");
@@ -139,27 +151,29 @@ export default function SmartPromo() {
           <img src="/logo.svg" alt="logo" className="h-6 w-6" />
         </button>
 
-        {p.card?.badgeText && (
+        {promo.card?.badgeText && (
           <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
-            {p.card.badgeText}
+            {promo.card.badgeText}
           </div>
         )}
 
-        <div className="font-semibold">{p.card.title}</div>
-        <div className="mt-1 text-sm text-muted-foreground">{p.card.body}</div>
+        <div className="font-semibold">{promo.card.title}</div>
+        <div className="mt-1 text-sm text-muted-foreground">
+          {promo.card.body}
+        </div>
 
         <div className="mt-3 flex gap-2">
-          <Button size="sm" className="flex-1" onClick={() => runCta(p.primaryCta)}>
-            {p.primaryCta.label}
+          <Button size="sm" className="flex-1" onClick={() => runCta(promo.primaryCta)}>
+            {promo.primaryCta.label}
           </Button>
-          {p.secondaryCta && (
+          {promo.secondaryCta && (
             <Button
               size="sm"
               variant="outline"
               className="flex-1"
-              onClick={() => runCta(p.secondaryCta!)}
+              onClick={() => runCta(promo.secondaryCta!)}
             >
-              {p.secondaryCta.label}
+              {promo.secondaryCta.label}
             </Button>
           )}
         </div>
