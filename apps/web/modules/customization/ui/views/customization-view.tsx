@@ -25,23 +25,6 @@ export const CustomizationView = () => {
     );
   }
 
-  if (!isPro) {
-    return (
-      <PremiumFeatureOverlay>
-        {/* on peut afficher un aperçu flouté si tu veux */}
-        <div className="mx-auto w-full max-w-screen-md space-y-12">
-          <section>
-            <div className="space-y-2">
-              <h1 className="text-2xl md:text-4xl">Widget Customization</h1>
-              <p className="text-muted-foreground">
-                Customize how your chat widget looks and behaves for your customers
-              </p>
-            </div>
-          </section>
-        </div>
-      </PremiumFeatureOverlay>
-    );
-  }
 
   // ✅ Pro → UI complète
   return (

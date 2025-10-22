@@ -5,12 +5,6 @@ import { Protect } from "@clerk/nextjs";
 const Page = () => {
     return (
         <Protect
-            condition={(has) => has({ plan: "pro"})}
-            fallback={
-                <PremiumFeatureOverlay>
-                    <CustomizationView />
-                </PremiumFeatureOverlay>
-            }
         >
             <CustomizationView />
         </Protect>
