@@ -48,15 +48,14 @@ export default function SmartPromo() {
 
   const createConversation = useMutation(api.public.conversations.create);
 
-  // --- IMPORTANT: NE PLUS AUTO-HIDE EN MODE CHAT ---
-  // (si tu veux auto-cacher en chat, réactive l’effet ci-dessous)
+  // (optionnel) cacher en chat => désactivé pour laisser l’embed décider
   // useEffect(() => {
   //   if (screen === "chat" && !hidden) setHidden(true);
   // }, [screen, hidden]);
 
-  // --- 1) PUSHER le contenu de la promo au parent (embed) ---
+  // 1) Pousser la promo au parent dès qu’on l’a
   useEffect(() => {
-    if (hidden || !promo) return;
+    if (!promo) return;
     const payload = {
       title: promo.card?.title || "Need a hand?",
       body: promo.card?.body || "Chat with our assistant or book a 15-min demo.",
@@ -66,9 +65,28 @@ export default function SmartPromo() {
       secondaryCta: promo.secondaryCta,
     };
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
-  }, [hidden, promo]);
+  }, [promo]);
 
-  // --- 2) Écouter le parent pour exécuter les CTA (depuis le nudge) ---
+  // 2) Si l’embed nous renvoie la location parent (SPA), re-publier la promo
+  useEffect(() => {
+    function onParentLoc(e: MessageEvent) {
+      if (e.data?.type !== "nexus:parent-location") return;
+      if (!promo) return;
+      const payload = {
+        title: promo.card?.title || "Need a hand?",
+        body: promo.card?.body || "Chat with our assistant or book a 15-min demo.",
+        primary: promo.primaryCta?.label || "Chat",
+        secondary: promo.secondaryCta?.label || "Book a demo",
+        primaryCta: promo.primaryCta,
+        secondaryCta: promo.secondaryCta,
+      };
+      window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
+    }
+    window.addEventListener("message", onParentLoc);
+    return () => window.removeEventListener("message", onParentLoc);
+  }, [promo]);
+
+  // 3) Écouter le parent pour exécuter les CTA (depuis le nudge)
   useEffect(() => {
     function onMsg(e: MessageEvent) {
       const t = e.data?.type;
@@ -87,7 +105,6 @@ export default function SmartPromo() {
   if (hidden || !promo) return null;
 
   const goChat = async () => {
-    // ouvre l’écran chat, crée une conversation si besoin
     setScreen("chat");
     try {
       if (orgId && sessionId) {

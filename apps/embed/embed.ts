@@ -1,4 +1,3 @@
-// apps/embed/src/embed.ts
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
 import Pusher, { type Channel } from "pusher-js";
@@ -11,36 +10,145 @@ import html2canvas from "html2canvas";
   let button: HTMLButtonElement | null = null;
   let isOpen = false;
 
-  // --- NEW: promo nudge DOM
-  let promoEl: HTMLDivElement | null = null;
-  let promoData:
-    | {
-        title: string;
-        body: string;
-        primary: string;
-        secondary?: string;
-      }
-    | null = null;
+  // --- NUDGE state ------------------------------------------------
+  let nudge: HTMLDivElement | null = null;
+  let lastPromoPayload: any | null = null;
+  let promoTimer: number | null = null;   // ⬅️ NEW
+  let promoReceived = false;              // ⬅️ NEW
 
-  // ---- Config via <script>
+  function renderNudge(payload: {
+    title?: string;
+    body?: string;
+    primary?: string;
+    secondary?: string;
+    primaryCta?: any;
+    secondaryCta?: any;
+  } | null) {
+    if (!button) return;
+    if (!payload) {
+      if (nudge) {
+        nudge.remove();
+        nudge = null;
+      }
+      return;
+    }
+    if (!nudge) {
+      nudge = document.createElement("div");
+      nudge.id = "echo-widget-nudge";
+      nudge.style.cssText = `
+        position: fixed;
+        ${position === "bottom-right" ? "right: 90px;" : "left: 90px;"}
+        bottom: 40px;
+        max-width: 280px;
+        background: #fff;
+        border: 1px solid rgba(0,0,0,.08);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,.15);
+        padding: 12px 12px 10px;
+        z-index: 999999;
+        display: none; opacity: 0; transform: translateY(6px);
+        transition: all .25s ease;
+        font: 14px/1.3 -apple-system, system-ui, Segoe UI, Roboto, sans-serif;
+      `;
+      const titleEl = document.createElement("div");
+      titleEl.style.cssText = "font-weight:600;margin-bottom:6px";
+      titleEl.className = "nudge-title";
+      const bodyEl = document.createElement("div");
+      bodyEl.style.cssText = "color:#475569;margin-bottom:10px";
+      bodyEl.className = "nudge-body";
+
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;gap:8px;justify-content:flex-end";
+
+      const primary = document.createElement("button");
+      primary.className = "nudge-primary";
+      primary.style.cssText =
+        "padding:6px 10px;border-radius:8px;background:#3b82f6;color:#fff;border:none;cursor:pointer";
+      primary.onclick = () => {
+        show();
+        try {
+          iframe?.contentWindow?.postMessage(
+            { type: "nexus:run-primary-cta" },
+            WIDGET_ORIGIN
+          );
+        } catch {}
+      };
+
+      const secondary = document.createElement("button");
+      secondary.className = "nudge-secondary";
+      secondary.style.cssText =
+        "padding:6px 10px;border-radius:8px;background:#f1f5f9;border:1px solid #e2e8f0;cursor:pointer";
+      secondary.onclick = () => {
+        show();
+        try {
+          iframe?.contentWindow?.postMessage(
+            { type: "nexus:run-secondary-cta" },
+            WIDGET_ORIGIN
+          );
+        } catch {}
+      };
+
+      actions.appendChild(secondary);
+      actions.appendChild(primary);
+
+      nudge.appendChild(titleEl);
+      nudge.appendChild(bodyEl);
+      nudge.appendChild(actions);
+      document.body.appendChild(nudge);
+    }
+
+    (nudge!.querySelector(".nudge-title") as HTMLDivElement).textContent =
+      payload.title || "How can we help?";
+    (nudge!.querySelector(".nudge-body") as HTMLDivElement).textContent =
+      payload.body || "Chat with our assistant or book a demo.";
+    (nudge!.querySelector(".nudge-primary") as HTMLButtonElement).textContent =
+      payload.primary || "Chat";
+    (nudge!.querySelector(".nudge-secondary") as HTMLButtonElement).textContent =
+      payload.secondary || "Book a demo";
+
+    lastPromoPayload = payload;
+  }
+
+  function showNudge() {
+    if (!nudge || !lastPromoPayload) return;
+    nudge.style.display = "block";
+    requestAnimationFrame(() => {
+      nudge!.style.opacity = "1";
+      nudge!.style.transform = "translateY(0)";
+    });
+  }
+  function hideNudge() {
+    if (!nudge) return;
+    nudge.style.opacity = "0";
+    nudge.style.transform = "translateY(6px)";
+    setTimeout(() => nudge && (nudge.style.display = "none"), 200);
+  }
+  // ----------------------------------------------------------------
+
+  // ---- Config depuis <script>
   let organizationId: string | null = null;
-  let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
+  let position: "bottom-right" | "bottom-left" =
+    EMBED_CONFIG.DEFAULT_POSITION;
 
   const currentScript = document.currentScript as HTMLScriptElement | null;
-  function readAttrs(from: HTMLScriptElement | null) {
-    if (!from) return;
-    organizationId = from.getAttribute("data-organization-id");
+  if (currentScript) {
+    organizationId = currentScript.getAttribute("data-organization-id");
     position =
-      (from.getAttribute("data-position") as "bottom-right" | "bottom-left") ||
-      EMBED_CONFIG.DEFAULT_POSITION;
-  }
-  if (currentScript) readAttrs(currentScript);
-  else {
+      (currentScript.getAttribute("data-position") as
+        | "bottom-right"
+        | "bottom-left") || EMBED_CONFIG.DEFAULT_POSITION;
+  } else {
     const scripts = document.querySelectorAll('script[src*="embed"]');
-    const s = Array.from(scripts).find((x) => x.hasAttribute("data-organization-id")) as
-      | HTMLScriptElement
-      | undefined;
-    if (s) readAttrs(s);
+    const embedScript = Array.from(scripts).find((s) =>
+      s.hasAttribute("data-organization-id")
+    ) as HTMLScriptElement | undefined;
+    if (embedScript) {
+      organizationId = embedScript.getAttribute("data-organization-id");
+      position =
+        (embedScript.getAttribute("data-position") as
+          | "bottom-right"
+          | "bottom-left") || EMBED_CONFIG.DEFAULT_POSITION;
+    }
   }
 
   if (!organizationId) {
@@ -49,8 +157,7 @@ import html2canvas from "html2canvas";
   }
 
   const WEB_ORIGIN = EMBED_CONFIG.WEB_ORIGIN;
-  const WIDGET_URL = EMBED_CONFIG.WIDGET_URL;
-  const WIDGET_ORIGIN = new URL(WIDGET_URL).origin;
+  const WIDGET_ORIGIN = new URL(EMBED_CONFIG.WIDGET_URL).origin;
 
   // ---- Session / tracking (via routes Next proxies)
   const SESSION_KEY = `nx_session_${organizationId}`;
@@ -71,8 +178,7 @@ import html2canvas from "html2canvas";
   async function ensureSession(metadata?: any) {
     const existing = localStorage.getItem(SESSION_KEY);
     const meta =
-      metadata ??
-      {
+      metadata ?? {
         userAgent: navigator.userAgent,
         language: navigator.language,
         cookieEnabled: navigator.cookieEnabled,
@@ -85,7 +191,11 @@ import html2canvas from "html2canvas";
 
     const out = await postJSON<{ sessionId: string }>(
       `${WEB_ORIGIN}/api/tracker/ensure-session`,
-      { organizationId, sessionId: existing || undefined, metadata: meta }
+      {
+        organizationId,
+        sessionId: existing || undefined,
+        metadata: meta,
+      }
     );
     sessionId = out.sessionId;
     localStorage.setItem(SESSION_KEY, sessionId);
@@ -111,7 +221,9 @@ import html2canvas from "html2canvas";
     const engagedMs = visible ? now - lastBeat : 0;
     lastBeat = now;
     await ensureSession();
-    if (engagedMs > 0) log("time_on_site", { ms: engagedMs, url: location.href });
+    if (engagedMs > 0) {
+      log("time_on_site", { ms: engagedMs, url: location.href });
+    }
   }
 
   async function onPageChange() {
@@ -121,7 +233,11 @@ import html2canvas from "html2canvas";
       title: document.title,
       referrer: document.referrer || "",
     });
-    log("page_view", { url: location.href, title: document.title, referrer: document.referrer });
+    log("page_view", {
+      url: location.href,
+      title: document.title,
+      referrer: document.referrer,
+    });
     sendParentLocation();
     takeSnapshot().catch(() => {});
   }
@@ -135,6 +251,7 @@ import html2canvas from "html2canvas";
     } catch {}
   }
 
+  // Patch SPA nav
   const _push = history.pushState;
   const _replace = history.replaceState;
   function patchHistory() {
@@ -183,6 +300,7 @@ import html2canvas from "html2canvas";
         },
       }),
     });
+
     const chanName = `presence-org_${organizationId}_session_${sessionId}`;
     channel = pusher.subscribe(chanName);
   }
@@ -190,6 +308,7 @@ import html2canvas from "html2canvas";
   function startRrwebStreaming() {
     const buffer: any[] = [];
     let lastFlush = Date.now();
+
     record({
       emit(event) {
         buffer.push(event);
@@ -202,8 +321,13 @@ import html2canvas from "html2canvas";
           lastFlush = now;
         }
       },
-      sampling: { mousemove: 50, scroll: 100, input: "last" },
+      sampling: {
+        mousemove: 50,
+        scroll: 100,
+        input: "last",
+      },
     });
+
     let raf: number | null = null;
     window.addEventListener("mousemove", (e) => {
       if (!channel) return;
@@ -222,7 +346,10 @@ import html2canvas from "html2canvas";
   async function takeSnapshot() {
     if (!sessionId) return;
     try {
-      const canvas = await html2canvas(document.body, { scale: 0.3, useCORS: true });
+      const canvas = await html2canvas(document.body, {
+        scale: 0.3,
+        useCORS: true,
+      });
       const dataUrl = canvas.toDataURL("image/webp", 0.6);
       await postJSON(`${WEB_ORIGIN}/api/tracker/snapshot`, {
         organizationId,
@@ -252,7 +379,11 @@ import html2canvas from "html2canvas";
       await log("session_started", { url: location.href });
       sessionStorage.setItem("nx_visit_started", "1");
     }
-    await log("page_view", { url: location.href, title: document.title, referrer: document.referrer });
+    await log("page_view", {
+      url: location.href,
+      title: document.title,
+      referrer: document.referrer,
+    });
 
     await pusherConnect();
     startRrwebStreaming();
@@ -262,11 +393,12 @@ import html2canvas from "html2canvas";
     window.addEventListener("beforeunload", () => {
       try {
         const ms = Date.now() - lastBeat;
-        if (ms > 0) navigator.sendBeacon?.("/", JSON.stringify({ type: "time_on_site", ms }));
+        if (ms > 0)
+          navigator.sendBeacon?.("/", JSON.stringify({ type: "time_on_site", ms }));
       } catch {}
     });
 
-    // ----- UI: bubble + container
+    // ----- UI du widget
     button = document.createElement("button");
     button.id = "echo-widget-button";
     button.innerHTML = chatBubbleIcon;
@@ -294,96 +426,40 @@ import html2canvas from "html2canvas";
       z-index: 999998; border-radius: 16px; overflow: hidden;
       box-shadow: 0 4px 24px rgba(0,0,0,.15); display:none; opacity:0;
       transform: translateY(10px); transition: all .3s ease;
-      background: transparent;
     `;
 
     iframe = document.createElement("iframe");
     iframe.src = buildWidgetUrl();
     iframe.allow = "microphone; clipboard-read; clipboard-write";
-    iframe.style.cssText = `width:100%;height:100%;border:none;background:transparent;`;
+    iframe.style.cssText = `width:100%;height:100%;border:none;`;
     iframe.addEventListener("load", () => sendParentLocation());
 
     container.appendChild(iframe);
     document.body.appendChild(container);
 
-    // --- NEW: promo nudge element (hidden by default)
-    promoEl = document.createElement("div");
-    promoEl.style.cssText = `
-      position: fixed;
-      ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
-      bottom: 90px; width: 320px;
-      z-index: 999997; border-radius: 12px; overflow: hidden;
-      box-shadow: 0 10px 30px rgba(0,0,0,.18);
-      background: #fff; border: 1px solid rgba(0,0,0,0.06);
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto;
-      display: none; opacity: 0; transform: translateY(6px);
-      transition: all .2s ease;
-    `;
-    document.body.appendChild(promoEl);
-
     window.addEventListener("message", handleMessage);
     patchHistory();
     sendParentLocation();
+
+    // ⬇️ NEW: Fallback promo si rien reçu sous 4s et widget fermé
+    if (promoTimer) clearTimeout(promoTimer);
+    promoTimer = window.setTimeout(() => {
+      if (!promoReceived && !isOpen) {
+        renderNudge({
+          title: "Get help fast or schedule time",
+          body: "Chat with our assistant now or book a 15-min demo.",
+          primary: "Chat with AI Assistant",
+          secondary: "Book a meeting",
+        });
+        showNudge();
+      }
+    }, 4000);
   }
 
   function buildWidgetUrl(): string {
     const params = new URLSearchParams();
     params.append("organizationId", organizationId!);
-    // laisse le widget décider d’auto-chat; pas de param ici
-    return `${WIDGET_URL}?${params.toString()}`;
-  }
-
-  // --- NEW: render nudge
-  function renderPromo() {
-    if (!promoEl) return;
-    if (!promoData || isOpen) {
-      promoEl.style.display = "none";
-      return;
-    }
-    promoEl.innerHTML = `
-      <div style="position:relative;padding:12px 12px 10px 12px;">
-        <button aria-label="Close" id="nx-nudge-close"
-          style="position:absolute;right:8px;top:8px;border:none;background:transparent;cursor:pointer;font-size:16px;opacity:.6">×</button>
-        <div style="font-weight:600;font-size:14px;line-height:1.2;margin-bottom:4px;">
-          ${promoData.title}
-        </div>
-        <div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:10px;">
-          ${promoData.body}
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button id="nx-nudge-primary"
-            style="flex:1;height:34px;border-radius:8px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;font-weight:600;cursor:pointer">
-            ${promoData.primary}
-          </button>
-          ${
-            promoData.secondary
-              ? `<button id="nx-nudge-secondary"
-                   style="flex:1;height:34px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#111;font-weight:600;cursor:pointer">
-                   ${promoData.secondary}
-                 </button>`
-              : ""
-          }
-        </div>
-      </div>
-    `;
-    // wire buttons
-    promoEl.querySelector("#nx-nudge-close")?.addEventListener("click", () => {
-      promoEl!.style.display = "none";
-      promoEl!.style.opacity = "0";
-    });
-    promoEl.querySelector("#nx-nudge-primary")?.addEventListener("click", () => {
-      iframe?.contentWindow?.postMessage({ type: "nexus:run-primary-cta" }, WIDGET_ORIGIN);
-    });
-    promoEl.querySelector("#nx-nudge-secondary")?.addEventListener("click", () => {
-      iframe?.contentWindow?.postMessage({ type: "nexus:run-secondary-cta" }, WIDGET_ORIGIN);
-    });
-
-    // show
-    promoEl.style.display = "block";
-    requestAnimationFrame(() => {
-      promoEl!.style.opacity = "1";
-      promoEl!.style.transform = "translateY(0)";
-    });
+    return `${EMBED_CONFIG.WIDGET_URL}?${params.toString()}`;
   }
 
   function handleMessage(event: MessageEvent) {
@@ -393,15 +469,10 @@ import html2canvas from "html2canvas";
     if (type === "resize" && payload?.height && container) {
       container.style.height = `${payload.height}px`;
     }
-    // --- NEW: receive promo content from widget
     if (type === "nexus:promo") {
-      promoData = {
-        title: payload?.title ?? "Need a hand?",
-        body: payload?.body ?? "Chat now or book a quick meeting.",
-        primary: payload?.primary ?? "Chat",
-        secondary: payload?.secondary,
-      };
-      if (!isOpen) renderPromo();
+      promoReceived = true; // ⬅️ NEW
+      renderNudge(payload);
+      if (!isOpen) showNudge();
     }
   }
 
@@ -411,12 +482,6 @@ import html2canvas from "html2canvas";
   function show() {
     if (!container || !button) return;
     isOpen = true;
-    // hide promo when opening
-    if (promoEl) {
-      promoEl.style.opacity = "0";
-      promoEl.style.transform = "translateY(6px)";
-      setTimeout(() => promoEl && (promoEl.style.display = "none"), 180);
-    }
     container.style.display = "block";
     setTimeout(() => {
       if (!container) return;
@@ -426,6 +491,7 @@ import html2canvas from "html2canvas";
     button.innerHTML = closeIcon;
     sendParentLocation();
     log("widget_opened", { url: location.href });
+    hideNudge(); // cacher le nudge quand on ouvre
   }
   function hide() {
     if (!container || !button) return;
@@ -434,8 +500,8 @@ import html2canvas from "html2canvas";
     container.style.transform = "translateY(10px)";
     setTimeout(() => container && (container.style.display = "none"), 300);
     button.innerHTML = chatBubbleIcon;
-    // re-show promo (if we have data)
-    renderPromo();
+    // ré-afficher le nudge après fermeture
+    setTimeout(() => showNudge(), 500);
   }
 
   function destroy() {
@@ -443,13 +509,15 @@ import html2canvas from "html2canvas";
     unpatchHistory();
     if (container) container.remove();
     if (button) button.remove();
-    if (promoEl) promoEl.remove();
+    if (nudge) nudge.remove();
+    if (promoTimer) clearTimeout(promoTimer); // ⬅️ NEW
+    promoTimer = null;
+    promoReceived = false;
     iframe = null;
     container = null;
     button = null;
-    promoEl = null;
+    nudge = null;
     isOpen = false;
-    promoData = null;
   }
 
   function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left" }) {
