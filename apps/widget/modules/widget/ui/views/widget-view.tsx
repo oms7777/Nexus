@@ -52,7 +52,7 @@ export const WidgetView = ({ organizationId }: Props) => {
   } as const;
 
   // Optional: hide SmartPromo in dev to avoid double CTAs with the dev buttons.
-  const showPromo =
+  const showPromo = true
     process.env.NODE_ENV !== "development" ||
     process.env.NEXT_PUBLIC_SHOW_PROMO === "1";
 

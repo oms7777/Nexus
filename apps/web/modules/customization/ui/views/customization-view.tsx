@@ -6,15 +6,13 @@ import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { CustomizationForm } from "../components/customization-form";
 import PromosPanel from "../components/promos-panel";
-import { useHasPro } from "@/lib/useHasPro";
-import { PremiumFeatureOverlay } from "@/modules/billing/ui/components/premium-feature-overlay";
 
 export const CustomizationView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
   const vapiPlugin = useQuery(api.private.plugins.getOne, { service: "vapi" });
-  const { isPro, loading: loadingPro } = useHasPro();
 
-  const isLoading = widgetSettings === undefined || vapiPlugin === undefined || loadingPro;
+
+  const isLoading = widgetSettings === undefined || vapiPlugin === undefined 
 
   if (isLoading) {
     return (

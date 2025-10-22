@@ -10,9 +10,123 @@ import html2canvas from "html2canvas";
   let button: HTMLButtonElement | null = null;
   let isOpen = false;
 
+  // --- NUDGE state ---------------------------------------------
+  let nudge: HTMLDivElement | null = null;
+  let lastPromoPayload: any | null = null;
+
+  function renderNudge(payload: {
+    title?: string;
+    body?: string;
+    primary?: string;
+    secondary?: string;
+    primaryCta?: any;
+    secondaryCta?: any;
+  } | null) {
+    if (!button) return;
+    if (!payload) {
+      if (nudge) {
+        nudge.remove();
+        nudge = null;
+      }
+      return;
+    }
+    if (!nudge) {
+      nudge = document.createElement("div");
+      nudge.id = "echo-widget-nudge";
+      nudge.style.cssText = `
+        position: fixed;
+        ${position === "bottom-right" ? "right: 90px;" : "left: 90px;"}
+        bottom: 40px;
+        max-width: 280px;
+        background: #fff;
+        border: 1px solid rgba(0,0,0,.08);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,.15);
+        padding: 12px 12px 10px;
+        z-index: 999999;
+        display: none; opacity: 0; transform: translateY(6px);
+        transition: all .25s ease;
+        font: 14px/1.3 -apple-system, system-ui, Segoe UI, Roboto, sans-serif;
+      `;
+      const titleEl = document.createElement("div");
+      titleEl.style.cssText = "font-weight:600;margin-bottom:6px";
+      titleEl.className = "nudge-title";
+      const bodyEl = document.createElement("div");
+      bodyEl.style.cssText = "color:#475569;margin-bottom:10px";
+      bodyEl.className = "nudge-body";
+
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;gap:8px;justify-content:flex-end";
+
+      const primary = document.createElement("button");
+      primary.className = "nudge-primary";
+      primary.style.cssText =
+        "padding:6px 10px;border-radius:8px;background:#3b82f6;color:#fff;border:none;cursor:pointer";
+      primary.onclick = () => {
+        show();
+        try {
+          iframe?.contentWindow?.postMessage(
+            { type: "nexus:run-primary-cta" },
+            WIDGET_ORIGIN
+          );
+        } catch {}
+      };
+
+      const secondary = document.createElement("button");
+      secondary.className = "nudge-secondary";
+      secondary.style.cssText =
+        "padding:6px 10px;border-radius:8px;background:#f1f5f9;border:1px solid #e2e8f0;cursor:pointer";
+      secondary.onclick = () => {
+        show();
+        try {
+          iframe?.contentWindow?.postMessage(
+            { type: "nexus:run-secondary-cta" },
+            WIDGET_ORIGIN
+          );
+        } catch {}
+      };
+
+      actions.appendChild(secondary);
+      actions.appendChild(primary);
+
+      nudge.appendChild(titleEl);
+      nudge.appendChild(bodyEl);
+      nudge.appendChild(actions);
+      document.body.appendChild(nudge);
+    }
+
+    (nudge!.querySelector(".nudge-title") as HTMLDivElement).textContent =
+      payload.title || "How can we help?";
+    (nudge!.querySelector(".nudge-body") as HTMLDivElement).textContent =
+      payload.body || "Chat with our assistant or book a demo.";
+    (nudge!.querySelector(".nudge-primary") as HTMLButtonElement).textContent =
+      payload.primary || "Chat";
+    (nudge!.querySelector(".nudge-secondary") as HTMLButtonElement).textContent =
+      payload.secondary || "Book a demo";
+
+    lastPromoPayload = payload;
+  }
+
+  function showNudge() {
+    if (!nudge || !lastPromoPayload) return;
+    nudge.style.display = "block";
+    requestAnimationFrame(() => {
+      nudge!.style.opacity = "1";
+      nudge!.style.transform = "translateY(0)";
+    });
+  }
+  function hideNudge() {
+    if (!nudge) return;
+    nudge.style.opacity = "0";
+    nudge.style.transform = "translateY(6px)";
+    setTimeout(() => nudge && (nudge.style.display = "none"), 200);
+  }
+  // --------------------------------------------------------------
+
   // ---- Config depuis <script>
   let organizationId: string | null = null;
-  let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
+  let position: "bottom-right" | "bottom-left" =
+    EMBED_CONFIG.DEFAULT_POSITION;
 
   const currentScript = document.currentScript as HTMLScriptElement | null;
   if (currentScript) {
@@ -62,8 +176,7 @@ import html2canvas from "html2canvas";
   async function ensureSession(metadata?: any) {
     const existing = localStorage.getItem(SESSION_KEY);
     const meta =
-      metadata ??
-      {
+      metadata ?? {
         userAgent: navigator.userAgent,
         language: navigator.language,
         cookieEnabled: navigator.cookieEnabled,
@@ -105,11 +218,7 @@ import html2canvas from "html2canvas";
     const visible = document.visibilityState === "visible";
     const engagedMs = visible ? now - lastBeat : 0;
     lastBeat = now;
-
-    // Prolonge la session (réutilise ensure avec sessionId)
     await ensureSession();
-
-    // temps “engagé”
     if (engagedMs > 0) {
       log("time_on_site", { ms: engagedMs, url: location.href });
     }
@@ -117,26 +226,20 @@ import html2canvas from "html2canvas";
 
   async function onPageChange() {
     if (!sessionId) return;
-    // MAJ “currentUrl” côté session (via ensure + metadata ciblée)
     await ensureSession({
       currentUrl: location.href,
       title: document.title,
       referrer: document.referrer || "",
     });
-
-    // event analytics
     log("page_view", {
       url: location.href,
       title: document.title,
       referrer: document.referrer,
     });
-
     sendParentLocation();
-    // snapshot opportuniste sur navigation
     takeSnapshot().catch(() => {});
   }
 
-  /** Envoie l’URL courante de la page hôte à l’iframe (widget) */
   function sendParentLocation() {
     try {
       iframe?.contentWindow?.postMessage(
@@ -146,7 +249,7 @@ import html2canvas from "html2canvas";
     } catch {}
   }
 
-  // Patch SPA nav pour notifier l’iframe ET logger page_view + snapshot
+  // Patch SPA nav
   const _push = history.pushState;
   const _replace = history.replaceState;
   function patchHistory() {
@@ -177,7 +280,6 @@ import html2canvas from "html2canvas";
   async function pusherConnect() {
     pusher = new Pusher(EMBED_CONFIG.PUSHER_KEY, {
       cluster: EMBED_CONFIG.PUSHER_CLUSTER,
-      // authorizer custom pour envoyer JSON
       authorizer: (ch) => ({
         authorize: (socketId, cb) => {
           fetch(`${WEB_ORIGIN}/api/realtime/pusher-auth`, {
@@ -210,10 +312,8 @@ import html2canvas from "html2canvas";
         buffer.push(event);
         const now = Date.now();
         if (channel && now - lastFlush > 400) {
-          // flush ~2.5x/sec
           const payload = { events: buffer.splice(0) };
           try {
-            // events client-* requis par Pusher
             channel!.trigger("client-rrweb", payload);
           } catch {}
           lastFlush = now;
@@ -226,7 +326,6 @@ import html2canvas from "html2canvas";
       },
     });
 
-    // Curseur léger
     let raf: number | null = null;
     window.addEventListener("mousemove", (e) => {
       if (!channel) return;
@@ -245,7 +344,10 @@ import html2canvas from "html2canvas";
   async function takeSnapshot() {
     if (!sessionId) return;
     try {
-      const canvas = await html2canvas(document.body, { scale: 0.3, useCORS: true });
+      const canvas = await html2canvas(document.body, {
+        scale: 0.3,
+        useCORS: true,
+      });
       const dataUrl = canvas.toDataURL("image/webp", 0.6);
       await postJSON(`${WEB_ORIGIN}/api/tracker/snapshot`, {
         organizationId,
@@ -270,7 +372,6 @@ import html2canvas from "html2canvas";
   }
 
   async function render() {
-    // tracking boot
     await ensureSession();
     if (!sessionStorage.getItem("nx_visit_started")) {
       await log("session_started", { url: location.href });
@@ -282,7 +383,6 @@ import html2canvas from "html2canvas";
       referrer: document.referrer,
     });
 
-    // realtime + rrweb + snapshots
     await pusherConnect();
     startRrwebStreaming();
     setInterval(heartbeat, 15000);
@@ -291,7 +391,8 @@ import html2canvas from "html2canvas";
     window.addEventListener("beforeunload", () => {
       try {
         const ms = Date.now() - lastBeat;
-        if (ms > 0) navigator.sendBeacon?.("/", JSON.stringify({ type: "time_on_site", ms }));
+        if (ms > 0)
+          navigator.sendBeacon?.("/", JSON.stringify({ type: "time_on_site", ms }));
       } catch {}
     });
 
@@ -352,6 +453,11 @@ import html2canvas from "html2canvas";
     if (type === "resize" && payload?.height && container) {
       container.style.height = `${payload.height}px`;
     }
+    // --- NUDGE: recevoir la promo depuis le widget
+    if (type === "nexus:promo") {
+      renderNudge(payload);
+      if (!isOpen) showNudge();
+    }
   }
 
   function toggleWidget() {
@@ -369,6 +475,7 @@ import html2canvas from "html2canvas";
     button.innerHTML = closeIcon;
     sendParentLocation();
     log("widget_opened", { url: location.href });
+    hideNudge(); // cacher le nudge quand on ouvre
   }
   function hide() {
     if (!container || !button) return;
@@ -377,6 +484,8 @@ import html2canvas from "html2canvas";
     container.style.transform = "translateY(10px)";
     setTimeout(() => container && (container.style.display = "none"), 300);
     button.innerHTML = chatBubbleIcon;
+    // ré-afficher le nudge après fermeture
+    setTimeout(() => showNudge(), 500);
   }
 
   function destroy() {
@@ -384,9 +493,11 @@ import html2canvas from "html2canvas";
     unpatchHistory();
     if (container) container.remove();
     if (button) button.remove();
+    if (nudge) nudge.remove();
     iframe = null;
     container = null;
     button = null;
+    nudge = null;
     isOpen = false;
   }
 

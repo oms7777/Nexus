@@ -19,13 +19,10 @@ import { api } from "@workspace/backend/_generated/api";
 
 type InitStep = "org" | "session" | "settings" | "vapi" | "done";
 
-/**
- * Désactive l’auto-chat par défaut.
- * Seul ?autostart=1 ou ?autostart=true déclenche le chat automatique.
- */
-function getAutostart(): boolean {
+/** Flag util : permet d’opt-out avec ?nochat=1 */
+function getNoChat(): boolean {
   if (typeof window === "undefined") return false;
-  const v = new URLSearchParams(window.location.search).get("autostart");
+  const v = new URLSearchParams(window.location.search).get("nochat");
   return v === "1" || v === "true";
 }
 
@@ -164,17 +161,16 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
       });
   }, [step, organizationId, getVapiSecrets, setVapiSecrets, setLoadingMessage, setScreen, setErrorMessage]);
 
-  /* ---- Step 5: Auto-create conversation? ---- */
+  /* ---- Step 5: ALWAYS start chat (unless ?nochat=1) ---- */
   const createConversation = useMutation(api.public.conversations.create);
-
   useEffect(() => {
     if (step !== "done") return;
 
-    // Par défaut : affichage du launcher + SmartPromo
-    setScreen("selection");
-
-    // Si autostart activé, ouvrir directement le chat
-    if (!getAutostart()) return;
+    // opt-out pour debug: ?nochat=1
+    if (getNoChat()) {
+      setScreen("selection");
+      return;
+    }
 
     (async () => {
       try {
@@ -184,8 +180,8 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
         setConversationId(cid);
         setScreen("chat");
       } catch {
-        setErrorMessage("Unable to start chat");
-        setScreen("error");
+        // en cas d’échec, on retombe sur la sélection
+        setScreen("selection");
       }
     })();
   }, [
@@ -196,7 +192,6 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
     createConversation,
     setConversationId,
     setScreen,
-    setErrorMessage,
   ]);
 
   return (
