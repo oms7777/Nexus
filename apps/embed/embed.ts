@@ -13,6 +13,99 @@ import html2canvas from "html2canvas";
   // ---- Config depuis <script>
   let organizationId: string | null = null;
   let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
+// --- en haut du fichier (après les let existants)
+  let nudge: HTMLDivElement | null = null;
+  let nudgeTimer: number | null = null;
+  let lastPromoPayload: any | null = null;
+
+  // Crée la carte nudge
+  function renderNudge(payload: {
+    title: string; body: string;
+    primary: string; secondary?: string;
+    primaryCta?: any; secondaryCta?: any;
+  }) {
+    // si déjà présent, on le rafraîchit
+    if (!nudge) {
+      nudge = document.createElement("div");
+      nudge.id = "nexus-nudge";
+      nudge.style.cssText = `
+        position: fixed;
+        ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
+        bottom: 90px;
+        width: 320px;
+        border-radius: 12px;
+        background: #fff;
+        border: 1px solid rgba(0,0,0,.08);
+        box-shadow: 0 8px 30px rgba(0,0,0,.12);
+        z-index: 999998;
+        opacity: 0; transform: translateY(6px);
+        transition: all .2s ease;
+        display: none;
+        font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+      `;
+      document.body.appendChild(nudge);
+    }
+
+    nudge.innerHTML = `
+      <div style="position:relative;padding:12px">
+        <button id="nudge-close" aria-label="Close" style="position:absolute;right:8px;top:8px;border:none;background:transparent;cursor:pointer;opacity:.6">×</button>
+
+        <button id="nudge-logo" aria-label="Open chat"
+          style="position:absolute;left:-14px;top:-14px;width:36px;height:36px;border-radius:9999px;border:1px solid rgba(0,0,0,.08);background:#fff;display:grid;place-items:center;box-shadow:0 4px 12px rgba(0,0,0,.12);cursor:pointer">
+          <img src="${new URL(EMBED_CONFIG.WIDGET_URL).origin}/logo.svg" alt="logo" style="width:22px;height:22px" />
+        </button>
+
+        <div style="font-weight:600;margin-bottom:4px">${payload.title}</div>
+        <div style="color:#6b7280;font-size:13px">${payload.body}</div>
+
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button id="nudge-primary" style="flex:1;border:none;border-radius:8px;padding:8px 10px;background:#111827;color:#fff;cursor:pointer">${payload.primary}</button>
+          ${payload.secondary ? `<button id="nudge-secondary" style="flex:1;border:1px solid rgba(0,0,0,.1);border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer">${payload.secondary}</button>` : ""}
+        </div>
+      </div>
+    `;
+
+    // handlers
+    nudge.querySelector<HTMLButtonElement>("#nudge-close")!.onclick = () => hideNudge();
+    nudge.querySelector<HTMLButtonElement>("#nudge-logo")!.onclick = () => { show(); hideNudge(); };
+    nudge.querySelector<HTMLButtonElement>("#nudge-primary")!.onclick = () => {
+      iframe?.contentWindow?.postMessage({ type: "nexus:run-primary-cta" }, WIDGET_ORIGIN);
+      show(); // ouvre le widget
+      hideNudge();
+    };
+    const sec = nudge.querySelector<HTMLButtonElement>("#nudge-secondary");
+    if (sec) {
+      sec.onclick = () => {
+        iframe?.contentWindow?.postMessage({ type: "nexus:run-secondary-cta" }, WIDGET_ORIGIN);
+        show();
+        hideNudge();
+      };
+    }
+  }
+
+  function showNudgeLater(payload: any, delayMs = 3000) {
+    lastPromoPayload = payload;
+    if (nudgeTimer) { clearTimeout(nudgeTimer); nudgeTimer = null; }
+    nudgeTimer = window.setTimeout(() => {
+      renderNudge(payload);
+      if (!nudge) return;
+      nudge.style.display = "block";
+      requestAnimationFrame(() => {
+        if (!nudge) return;
+        nudge.style.opacity = "1";
+        nudge.style.transform = "translateY(0)";
+      });
+      // Optionnel: demander au widget de masquer sa carte interne
+      iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, WIDGET_ORIGIN);
+    }, delayMs);
+  }
+
+  function hideNudge() {
+    if (!nudge) return;
+    nudge.style.opacity = "0";
+    nudge.style.transform = "translateY(6px)";
+    setTimeout(() => nudge && (nudge.style.display = "none"), 180);
+  }
 
   const currentScript = document.currentScript as HTMLScriptElement | null;
   if (currentScript) {
@@ -352,7 +445,12 @@ import html2canvas from "html2canvas";
     if (type === "resize" && payload?.height && container) {
       container.style.height = `${payload.height}px`;
     }
+    // NUDGE: recevoir la promo depuis l'iframe
+    if (type === "nexus:promo" && payload) {
+      showNudgeLater(payload, 3000); // 3 à 5s selon ton besoin
+    }
   }
+
 
   function toggleWidget() {
     isOpen ? hide() : show();
@@ -360,6 +458,7 @@ import html2canvas from "html2canvas";
   function show() {
     if (!container || !button) return;
     isOpen = true;
+    hideNudge();
     container.style.display = "block";
     setTimeout(() => {
       if (!container) return;

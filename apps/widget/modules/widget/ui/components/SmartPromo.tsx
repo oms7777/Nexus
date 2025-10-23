@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
@@ -17,6 +18,7 @@ import type { Doc } from "@workspace/backend/_generated/dataModel";
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
   const sessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
+  const screen = useAtomValue(screenAtom);
   const setScreen = useSetAtom(screenAtom);
   const setConvId = useSetAtom(conversationIdAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
@@ -24,43 +26,18 @@ export default function SmartPromo() {
   const [hidden, setHidden] = useState(false);
   const [closing, setClosing] = useState(false);
 
-  // URL de l’iframe (fallback)…
-  const iframeUrl = typeof window !== "undefined" ? window.location.href : undefined;
-  const iframeUtm =
+  const currentUrl =
+    typeof window !== "undefined" ? window.location.href : undefined;
+  const utm =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("utm_source") || undefined
       : undefined;
 
-  // …mais on préfère l’URL de la page hôte envoyée par l’embed
-  const [parentHref, setParentHref] = useState<string | undefined>(undefined);
-  const [parentUtm, setParentUtm] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    function onMsg(e: MessageEvent) {
-      if (e.data?.type !== "nexus:parent-location") return;
-      const href = e.data?.href as string | undefined;
-      if (href) {
-        setParentHref(href);
-        try {
-          const url = new URL(href);
-          const utm = new URLSearchParams(url.search).get("utm_source") || undefined;
-          setParentUtm(utm);
-        } catch {/* ignore */}
-      }
-    }
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, []);
-
-  // Choix final de l’URL & UTM pour la query
-  const effectiveUrl = parentHref || iframeUrl;
-  const effectiveUtm = parentUtm ?? iframeUtm;
-
   const promos =
     useQuery(
       api.public.promos.listForPage,
-      orgId && effectiveUrl
-        ? { organizationId: orgId, currentUrl: effectiveUrl, utmSource: effectiveUtm }
+      orgId && currentUrl
+        ? { organizationId: orgId, currentUrl, utmSource: utm }
         : "skip"
     ) ?? [];
 
@@ -71,7 +48,12 @@ export default function SmartPromo() {
 
   const createConversation = useMutation(api.public.conversations.create);
 
-  // Push la promo au parent dès qu’on l’a
+  // (optionnel) cacher en chat => désactivé pour laisser l’embed décider
+  // useEffect(() => {
+  //   if (screen === "chat" && !hidden) setHidden(true);
+  // }, [screen, hidden]);
+
+  // 1) Pousser la promo au parent dès qu’on l’a
   useEffect(() => {
     if (!promo) return;
     const payload = {
@@ -85,17 +67,52 @@ export default function SmartPromo() {
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
   }, [promo]);
 
-  // Permettre à l’embed de déclencher les CTA du nudge
+  // 2) Si l’embed nous renvoie la location parent (SPA), re-publier la promo
   useEffect(() => {
-    function onCta(e: MessageEvent) {
+    function onParentLoc(e: MessageEvent) {
+      if (e.data?.type !== "nexus:parent-location") return;
       if (!promo) return;
-      const t = e.data?.type;
-      if (t === "nexus:run-primary-cta" && promo.primaryCta) void runCta(promo.primaryCta);
-      if (t === "nexus:run-secondary-cta" && promo.secondaryCta) void runCta(promo.secondaryCta);
+      const payload = {
+        title: promo.card?.title || "Need a hand?",
+        body: promo.card?.body || "Chat with our assistant or book a 15-min demo.",
+        primary: promo.primaryCta?.label || "Chat",
+        secondary: promo.secondaryCta?.label || "Book a demo",
+        primaryCta: promo.primaryCta,
+        secondaryCta: promo.secondaryCta,
+      };
+      window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
     }
-    window.addEventListener("message", onCta);
-    return () => window.removeEventListener("message", onCta);
+    window.addEventListener("message", onParentLoc);
+    return () => window.removeEventListener("message", onParentLoc);
   }, [promo]);
+
+  // 3) Écouter le parent pour exécuter les CTA (depuis le nudge)
+  useEffect(() => {
+    function onMsg(e: MessageEvent) {
+      const t = e.data?.type;
+      if (!promo) return;
+      if (t === "nexus:run-primary-cta" && promo.primaryCta) {
+        void runCta(promo.primaryCta);
+      }
+      if (t === "nexus:run-secondary-cta" && promo.secondaryCta) {
+        void runCta(promo.secondaryCta);
+      }
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [promo]);
+
+  // après les autres useEffect
+  useEffect(() => {
+    function onMsg(e: MessageEvent) {
+      if (e.data?.type === "nexus:hide-internal-promo") {
+        setHidden(true);
+      }
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
 
   if (hidden || !promo) return null;
 
@@ -103,10 +120,15 @@ export default function SmartPromo() {
     setScreen("chat");
     try {
       if (orgId && sessionId) {
-        const id = await createConversation({ organizationId: orgId, contactSessionId: sessionId });
+        const id = await createConversation({
+          organizationId: orgId,
+          contactSessionId: sessionId,
+        });
         setConvId(id);
       }
-    } catch {/* ignore */}
+    } catch {
+      /* ignore */
+    }
   };
 
   const runCta = async (cta: Doc<"promos">["primaryCta"]) => {
@@ -132,16 +154,26 @@ export default function SmartPromo() {
     <div
       className={[
         "fixed bottom-16 right-4 z-[100] w-[320px] rounded-xl border bg-white shadow-lg transition-all duration-200",
-        closing ? "opacity-0 translate-y-2 pointer-events-none" : "opacity-100 translate-y-0",
+        closing
+          ? "opacity-0 translate-y-2 pointer-events-none"
+          : "opacity-100 translate-y-0",
       ].join(" ")}
     >
       <div className="relative p-3">
-        <button onClick={handleClose} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600" aria-label="Close promo">
+        <button
+          onClick={handleClose}
+          className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
+          aria-label="Close promo"
+        >
           <X className="h-4 w-4" />
         </button>
 
+        {/* petit bouton logo pour sauter direct au chat */}
         <button
-          onClick={() => { setBookingIntent("none"); void goChat(); }}
+          onClick={() => {
+            setBookingIntent("none");
+            void goChat();
+          }}
           className="absolute -left-3 -top-3 grid h-10 w-10 place-items-center rounded-full border bg-white shadow"
           aria-label="Open chat"
         >
@@ -155,14 +187,21 @@ export default function SmartPromo() {
         )}
 
         <div className="font-semibold">{promo.card.title}</div>
-        <div className="mt-1 text-sm text-muted-foreground">{promo.card.body}</div>
+        <div className="mt-1 text-sm text-muted-foreground">
+          {promo.card.body}
+        </div>
 
         <div className="mt-3 flex gap-2">
           <Button size="sm" className="flex-1" onClick={() => runCta(promo.primaryCta)}>
             {promo.primaryCta.label}
           </Button>
           {promo.secondaryCta && (
-            <Button size="sm" variant="outline" className="flex-1" onClick={() => runCta(promo.secondaryCta!)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1"
+              onClick={() => runCta(promo.secondaryCta!)}
+            >
               {promo.secondaryCta.label}
             </Button>
           )}
