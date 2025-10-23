@@ -5,10 +5,6 @@
     "module": "ESNext",
     "target": "ES2020",
     "moduleResolution": "bundler",
-    "baseUrl": ".",
-    "paths": {
-      "@workspace/backend/*": ["../../packages/backend/*"] 
-    },
     "noEmit": true,
     "skipLibCheck": true
   },
