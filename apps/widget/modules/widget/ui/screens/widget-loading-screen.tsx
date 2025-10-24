@@ -12,6 +12,7 @@ import {
   widgetSettingsAtom,
   conversationIdAtom,
 } from "../../atoms/widget-atoms";
+import { qualifyStepAtom } from "../../atoms/qualify-atoms";
 import { WidgetHeader } from "../components/widget-header";
 import { useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -19,14 +20,18 @@ import { api } from "@workspace/backend/_generated/api";
 
 type InitStep = "org" | "session" | "settings" | "vapi" | "done";
 
-/** Flag util : permet d’opt-out avec ?nochat=1 */
+/** ?nochat=1 => on reste sur l’écran de sélection pour debug */
 function getNoChat(): boolean {
   if (typeof window === "undefined") return false;
   const v = new URLSearchParams(window.location.search).get("nochat");
   return v === "1" || v === "true";
 }
 
-export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string | null }) => {
+export const WidgetLoadingScreen = ({
+  organizationId,
+}: {
+  organizationId: string | null;
+}) => {
   const [step, setStep] = useState<InitStep>("org");
 
   const loadingMessage = useAtomValue(loadingMessageAtom);
@@ -37,11 +42,16 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
   const setScreen = useSetAtom(screenAtom);
   const setVapiSecrets = useSetAtom(vapiSecretsAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
+  const setQualifyStep = useSetAtom(qualifyStepAtom);
 
-  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(organizationId || ""));
-  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(organizationId || ""));
+  const contactSessionId = useAtomValue(
+    contactSessionIdAtomFamily(organizationId || "")
+  );
+  const setContactSessionId = useSetAtom(
+    contactSessionIdAtomFamily(organizationId || "")
+  );
 
-  /* ---- Step 1: Validate organization ---- */
+  /* 1) Valider l’org */
   const validateOrganization = useAction(api.public.organizations.validate);
   useEffect(() => {
     if (step !== "org") return;
@@ -79,7 +89,7 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
     setLoadingMessage,
   ]);
 
-  /* ---- Step 2: Ensure/validate session (anonymous OK) ---- */
+  /* 2) S’assurer d’avoir une session */
   const validateContactSession = useMutation(api.public.contactSessions.validate);
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
 
@@ -123,7 +133,7 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
     setScreen,
   ]);
 
-  /* ---- Step 3: Load widget settings ---- */
+  /* 3) Charger les widgetSettings */
   const widgetSettings = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     organizationId ? { organizationId } : "skip"
@@ -138,7 +148,7 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
     }
   }, [step, widgetSettings, setWidgetSettings, setLoadingMessage]);
 
-  /* ---- Step 4: Load voice/Vapi secrets ---- */
+  /* 4) Charger les secrets Vapi (si présents) */
   const getVapiSecrets = useAction(api.public.secrets.getVapiSecrets);
   useEffect(() => {
     if (step !== "vapi") return;
@@ -159,14 +169,21 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
         setVapiSecrets(null);
         setStep("done");
       });
-  }, [step, organizationId, getVapiSecrets, setVapiSecrets, setLoadingMessage, setScreen, setErrorMessage]);
+  }, [
+    step,
+    organizationId,
+    getVapiSecrets,
+    setVapiSecrets,
+    setLoadingMessage,
+    setScreen,
+    setErrorMessage,
+  ]);
 
-  /* ---- Step 5: ALWAYS start chat (unless ?nochat=1) ---- */
+  /* 5) Démarrer le chat automatiquement (sauf ?nochat) + forcer consent */
   const createConversation = useMutation(api.public.conversations.create);
   useEffect(() => {
     if (step !== "done") return;
 
-    // opt-out pour debug: ?nochat=1
     if (getNoChat()) {
       setScreen("selection");
       return;
@@ -175,9 +192,17 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
     (async () => {
       try {
         if (!organizationId) throw new Error("Missing org");
-        const sid = contactSessionId || (await ensureContactSession({ organizationId }));
-        const cid = await createConversation({ organizationId, contactSessionId: sid });
+        const sid =
+          contactSessionId || (await ensureContactSession({ organizationId }));
+        const cid = await createConversation({
+          organizationId,
+          contactSessionId: sid,
+        });
         setConversationId(cid);
+
+        // ⬇️ IMPORTANT : on entre par défaut en étape "consent" si activé
+        setQualifyStep("consent");
+
         setScreen("chat");
       } catch {
         // en cas d’échec, on retombe sur la sélection
@@ -191,6 +216,7 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
     ensureContactSession,
     createConversation,
     setConversationId,
+    setQualifyStep,
     setScreen,
   ]);
 
@@ -202,6 +228,7 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
           <p className="text-lg">Let&apos;s get you started</p>
         </div>
       </WidgetHeader>
+
       <div className="flex flex-1 flex-col items-center justify-center gap-y-4 p-4 text-muted-foreground">
         <LoaderIcon className="animate-spin" />
         <p className="text-sm">{loadingMessage || "Loading..."}</p>
