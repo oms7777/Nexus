@@ -6,14 +6,7 @@ import { PremiumFeatureOverlay } from "@/modules/billing/ui/components/premium-f
 
 const Page = () => {
     return (
-        <Protect
-            condition={(has) => has({ plan: "pro"})}
-            fallback={
-                <PremiumFeatureOverlay>
-                    <FilesView />
-                </PremiumFeatureOverlay>
-            }
-        >
+        <Protect>
             <FilesView />
         </Protect>
     )
