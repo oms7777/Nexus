@@ -21,11 +21,11 @@ export default function SmartPromo() {
   // Settings (privacy/logo – facultatif)
   const ws = useQuery(api.public.widgetSettings.getByOrganizationId, orgId ? { organizationId: orgId } : "skip");
 
-  // Avatars membres (public)
   const memberAvatars = useQuery(
-    api.public.users.avatarsByOrg,
+    api.public.users.listOrgAvatars,
     orgId ? { organizationId: orgId, limit: 3 } : "skip"
   ) ?? [];
+
 
   // Promo applicable
   const currentUrl = typeof window !== "undefined" ? (parentHrefRef.current ?? window.location.href) : undefined;
