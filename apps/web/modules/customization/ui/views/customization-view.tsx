@@ -11,8 +11,7 @@ export const CustomizationView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
   const vapiPlugin = useQuery(api.private.plugins.getOne, { service: "vapi" });
 
-
-  const isLoading = widgetSettings === undefined || vapiPlugin === undefined 
+  const isLoading = widgetSettings === undefined || vapiPlugin === undefined;
 
   if (isLoading) {
     return (
@@ -23,11 +22,9 @@ export const CustomizationView = () => {
     );
   }
 
-
-  // ✅ Pro → UI complète
   return (
     <div className="flex min-h-screen flex-col bg-muted p-8">
-      <div className="mx-auto w-full max-w-screen-md space-y-12">
+      <div className="mx-auto w-full max-w-3xl space-y-12">
         <section>
           <div className="space-y-2">
             <h1 className="text-2xl md:text-4xl">Widget Customization</h1>

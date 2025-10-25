@@ -1,6 +1,6 @@
-// apps/web/modules/customization/ui/components/promos-panel.tsx
 "use client";
 
+import { useState } from "react";
 import { useForm, SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,11 +20,10 @@ import { toast } from "sonner";
 const PromoSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1),
-  active: z.boolean(), // requis
-  // ciblage simple
+  active: z.boolean(),
   pathPrefix: z.string().optional(),
-  urlIncludes: z.string().optional(), // comma-separated
-  utmSource: z.string().optional(),   // comma-separated
+  urlIncludes: z.string().optional(),
+  utmSource: z.string().optional(),
   title: z.string().min(1),
   body: z.string().min(1),
   badgeText: z.string().optional(),
@@ -41,6 +40,7 @@ export default function PromosPanel() {
   const list = useQuery(api.private.promos.listByOrg, {});
   const upsert = useMutation(api.private.promos.upsert);
   const remove = useMutation(api.private.promos.remove);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const form = useForm<PromoForm>({
     resolver: zodResolver(PromoSchema),
@@ -90,10 +90,10 @@ export default function PromosPanel() {
     const rules = {
       pathPrefix: values.pathPrefix || undefined,
       urlIncludes: values.urlIncludes
-        ? values.urlIncludes.split(",").map(s => s.trim()).filter(Boolean)
+        ? values.urlIncludes.split(",").map((s) => s.trim()).filter(Boolean)
         : undefined,
       utmSource: values.utmSource
-        ? values.utmSource.split(",").map(s => s.trim()).filter(Boolean)
+        ? values.utmSource.split(",").map((s) => s.trim()).filter(Boolean)
         : undefined,
     };
 
@@ -114,7 +114,7 @@ export default function PromosPanel() {
 
     try {
       await upsert({
-        _id: values.id as any, // create si absent
+        _id: (values.id as any) || undefined,
         name: values.name,
         active: values.active,
         rules,
@@ -123,22 +123,68 @@ export default function PromosPanel() {
         secondaryCta,
       } as any);
       toast.success("Promo saved");
+      setDialogOpen(false);
     } catch {
       toast.error("Failed to save promo");
     }
   };
 
+  // --- Dialog helpers
+  function openForCreate() {
+    form.reset({
+      id: undefined,
+      name: "Dual CTA • Chat or Book",
+      active: true,
+      title: "Get help fast or schedule time",
+      body: "Talk to the assistant now or book a 15-min demo.",
+      badgeText: "Live",
+      pathPrefix: "",
+      urlIncludes: "",
+      utmSource: "",
+      primaryKind: "open_chat",
+      primaryLabel: "Chat with AI Assistant",
+      secondaryKind: "open_booking",
+      secondaryLabel: "Book a meeting",
+      primaryUrl: undefined,
+      secondaryUrl: undefined,
+    });
+    setDialogOpen(true);
+  }
+
+  function openForEdit(p: any) {
+    form.reset({
+      id: p._id,
+      name: p.name ?? "",
+      active: !!p.active,
+      title: p.card?.title ?? "",
+      body: p.card?.body ?? "",
+      badgeText: p.card?.badgeText ?? "",
+      pathPrefix: p.rules?.pathPrefix ?? "",
+      urlIncludes: (p.rules?.urlIncludes ?? []).join(","),
+      utmSource: (p.rules?.utmSource ?? []).join(","),
+      primaryKind: p.primaryCta?.kind ?? "open_chat",
+      primaryLabel: p.primaryCta?.label ?? "",
+      primaryUrl: p.primaryCta?.url ?? undefined,
+      secondaryKind: p.secondaryCta?.kind ?? "none",
+      secondaryLabel: p.secondaryCta?.label ?? "",
+      secondaryUrl: p.secondaryCta?.url ?? undefined,
+    });
+    setDialogOpen(true);
+  }
+
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
         <CardTitle>Promos (by page)</CardTitle>
-        <Dialog>
+
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button size="sm">New Promo</Button>
+            <Button size="sm" onClick={openForCreate}>New Promo</Button>
           </DialogTrigger>
+
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Create a promo</DialogTitle>
+              <DialogTitle>{form.watch("id") ? "Edit promo" : "Create a promo"}</DialogTitle>
             </DialogHeader>
 
             <div className="mb-3 flex gap-2">
@@ -147,6 +193,8 @@ export default function PromosPanel() {
             </div>
 
             <form className="grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(onSubmit)}>
+              <input type="hidden" {...form.register("id")} />
+
               <div className="col-span-2 flex items-center justify-between">
                 <div className="flex flex-col gap-1">
                   <Label>Name</Label>
@@ -201,7 +249,7 @@ export default function PromosPanel() {
                     value={form.watch("primaryKind")}
                     onValueChange={(v) => form.setValue("primaryKind", v as any)}
                   >
-                    <SelectTrigger className="w-[160px]">
+                    <SelectTrigger className="w-40">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -225,7 +273,7 @@ export default function PromosPanel() {
                     value={form.watch("secondaryKind")}
                     onValueChange={(v) => form.setValue("secondaryKind", v as any)}
                   >
-                    <SelectTrigger className="w-[160px]">
+                    <SelectTrigger className="w-40">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -248,7 +296,7 @@ export default function PromosPanel() {
               </div>
 
               <div className="col-span-2 flex justify-end">
-                <Button type="submit">Save promo</Button>
+                <Button type="submit">{form.watch("id") ? "Update promo" : "Save promo"}</Button>
               </div>
             </form>
           </DialogContent>
@@ -273,7 +321,7 @@ export default function PromosPanel() {
                 onCheckedChange={async (v) => {
                   try {
                     await upsert({
-                      _id: p._id as any,                // ✅ upsert attend `id?`
+                      _id: p._id as any,
                       name: p.name,
                       active: v,
                       rules: p.rules,
@@ -286,6 +334,9 @@ export default function PromosPanel() {
                   }
                 }}
               />
+              <Button variant="outline" size="sm" onClick={() => openForEdit(p)}>
+                Edit
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
