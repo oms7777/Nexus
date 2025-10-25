@@ -1,16 +1,10 @@
 // apps/widget/modules/ui/components/SmartPromo.tsx
 "use client";
-
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
-import {
-  organizationIdAtom,
-  contactSessionIdAtomFamily,
-  conversationIdAtom,
-  screenAtom,
-} from "../../atoms/widget-atoms";
+import { organizationIdAtom, contactSessionIdAtomFamily, conversationIdAtom, screenAtom } from "../../atoms/widget-atoms";
 import { bookingIntentAtom } from "../../atoms/qualify-atoms";
 import type { Doc } from "@workspace/backend/_generated/dataModel";
 
@@ -21,74 +15,60 @@ export default function SmartPromo() {
   const setConvId = useSetAtom(conversationIdAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
 
-  const [hidden, setHidden] = useState(false);
-  const [parentHref, setParentHref] = useState<string | undefined>(undefined);
+  const parentHrefRef = useRef<string | undefined>(undefined); // ✅ initial value
+  const hiddenRef = useRef<boolean>(false);     
 
-  // ✅ settings publics pour avatars/logo/privacy
-  const widgetSettings = useQuery(
-    api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip"
-  );
+  // Settings (privacy/logo – facultatif)
+  const ws = useQuery(api.public.widgetSettings.getByOrganizationId, orgId ? { organizationId: orgId } : "skip");
 
-  // URL du parent + signal pour cacher la carte interne (si le parent affiche le nudge)
+  // Avatars membres (public)
+  const memberAvatars = useQuery(
+    api.public.users.avatarsByOrg,
+    orgId ? { organizationId: orgId, limit: 3 } : "skip"
+  ) ?? [];
+
+  // Promo applicable
+  const currentUrl = typeof window !== "undefined" ? (parentHrefRef.current ?? window.location.href) : undefined;
+  const utm = typeof window !== "undefined" && currentUrl ? new URL(currentUrl).searchParams.get("utm_source") || undefined : undefined;
+
+  const promos = useQuery(
+    api.public.promos.listForPage,
+    orgId && currentUrl ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
+  ) ?? [];
+
+  const promo: Doc<"promos"> | undefined = useMemo(() => (Array.isArray(promos) && promos.length ? promos[0] : undefined), [promos]);
+  const promoRef = useRef(promo);
+  promoRef.current = promo;
+
+  const createConversation = useMutation(api.public.conversations.create);
+
+  // Host -> widget: parent URL & hide signal & CTA triggers
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      const t = e.data?.type;
-      if (t === "nexus:parent-location" && typeof e.data.href === "string") {
-        setParentHref(e.data.href);
+      if (e.data?.type === "nexus:parent-location" && typeof e.data.href === "string") {
+        parentHrefRef.current = e.data.href;
       }
-      if (t === "nexus:hide-internal-promo") {
-        setHidden(true);
+      if (e.data?.type === "nexus:hide-internal-promo") {
+        hiddenRef.current = true;
       }
-      // Actions CTA en provenance du parent
       if (!promoRef.current) return;
-      if (t === "nexus:run-primary-cta" && promoRef.current.primaryCta) {
-        void runCta(promoRef.current.primaryCta);
-      }
-      if (t === "nexus:run-secondary-cta" && promoRef.current.secondaryCta) {
-        void runCta(promoRef.current.secondaryCta);
-      }
+      if (e.data?.type === "nexus:run-primary-cta" && promoRef.current.primaryCta) runCta(promoRef.current.primaryCta);
+      if (e.data?.type === "nexus:run-secondary-cta" && promoRef.current.secondaryCta) runCta(promoRef.current.secondaryCta);
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, []);
 
-  const currentUrl =
-    typeof window !== "undefined" ? (parentHref ?? window.location.href) : undefined;
-
-  const utm =
-    typeof window !== "undefined" && currentUrl
-      ? new URL(currentUrl).searchParams.get("utm_source") || undefined
-      : undefined;
-
-  // Promo applicable à la page hôte
-  const promos =
-    useQuery(
-      api.public.promos.listForPage,
-      orgId && currentUrl
-        ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip"
-    ) ?? [];
-
-  const promo = useMemo<Doc<"promos"> | undefined>(
-    () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos]
-  );
-
-  // Ref pour l'utiliser dans l’écouteur de message
-  const promoRef = useMemo(() => ({ current: promo ?? ({} as any) }), [promo]);
-  if (promo) promoRef.current = promo;
-
-  const createConversation = useMutation(api.public.conversations.create);
-
-  // Pousser la promo au parent (nudge externe)
+  // Widget -> host: pousser les données du nudge
   useEffect(() => {
     if (!promo) return;
 
-    const ws: any = widgetSettings || {};
-    const avatars: string[] =
-      (ws.teamAvatars && Array.isArray(ws.teamAvatars) && ws.teamAvatars.filter(Boolean).slice(0, 3)) ||
-      (ws.brandLogoUrl ? [ws.brandLogoUrl] : ["/logo.svg"]);
+    // Fallback chain avatars
+    const avatars =
+      (memberAvatars && memberAvatars.length ? memberAvatars :
+       (ws as any)?.teamAvatars?.length ? (ws as any).teamAvatars.slice(0,3) :
+       (ws as any)?.brandLogoUrl ? [(ws as any).brandLogoUrl] :
+       ["/logo.svg"]);
 
     const payload = {
       title: promo.card?.title || "Need a hand?",
@@ -98,45 +78,30 @@ export default function SmartPromo() {
       primaryCta: promo.primaryCta,
       secondaryCta: promo.secondaryCta,
       avatars,
-      badgeText: promo.card?.badgeText || "Live",
-      privacyUrl: ws.privacyUrl || undefined,
-      brandName: ws.brandName || "Chat",
+      badgeText: promo.card?.badgeText || undefined,
+      privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
     };
 
-    // Important: poster à chaque changement de promo / URL parent / settings
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
-  }, [promo, parentHref, widgetSettings]);
+  }, [promo, memberAvatars, ws]);
 
-  // Ouvre l'écran chat et crée/reprend la conversation
   const goChat = async () => {
     setScreen("chat");
     try {
       if (orgId && sessionId) {
-        const id = await createConversation({
-          organizationId: orgId,
-          contactSessionId: sessionId,
-        });
+        const id = await createConversation({ organizationId: orgId, contactSessionId: sessionId });
         setConvId(id);
       }
-    } catch { /* no-op */ }
+    } catch {/* noop */}
   };
 
-  // Routage des CTA
   const runCta = async (cta: Doc<"promos">["primaryCta"]) => {
-    if (cta.kind === "open_chat") {
-      setBookingIntent("none");
-      return goChat();
-    }
-    if (cta.kind === "open_booking") {
-      setBookingIntent("book");
-      return goChat();
-    }
-    if (cta.kind === "open_url" && cta.url) {
-      window.open(cta.url, "_blank", "noopener,noreferrer");
-    }
+    if (cta.kind === "open_chat") { setBookingIntent("none"); return goChat(); }
+    if (cta.kind === "open_booking") { setBookingIntent("book"); return goChat(); }
+    if (cta.kind === "open_url" && cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
   };
 
-  // On n'affiche rien côté iframe quand le parent gère le nudge
-  if (hidden || !promo) return null;
-  return null;
+  // Ne masque pas le nudge interne sauf si l’hôte demande explicitement
+  if (hiddenRef.current || !promo) return null;
+  return null; // on laisse l’embed afficher la carte externe
 }

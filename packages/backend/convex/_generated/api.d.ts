@@ -24,6 +24,7 @@ import type * as private_notifications from "../private/notifications.js";
 import type * as private_plugins from "../private/plugins.js";
 import type * as private_promos from "../private/promos.js";
 import type * as private_secrets from "../private/secrets.js";
+import type * as private_users from "../private/users.js";
 import type * as private_vapi from "../private/vapi.js";
 import type * as private_widgetSettings from "../private/widgetSettings.js";
 import type * as public_analytics from "../public/analytics.js";
@@ -36,6 +37,7 @@ import type * as public_organizations from "../public/organizations.js";
 import type * as public_promos from "../public/promos.js";
 import type * as public_secrets from "../public/secrets.js";
 import type * as public_snapshots from "../public/snapshots.js";
+import type * as public_users from "../public/users.js";
 import type * as public_widgetSettings from "../public/widgetSettings.js";
 import type * as system_ai_agents_supportAgent from "../system/ai/agents/supportAgent.js";
 import type * as system_ai_constants from "../system/ai/constants.js";
@@ -48,7 +50,6 @@ import type * as system_conversations from "../system/conversations.js";
 import type * as system_plugins from "../system/plugins.js";
 import type * as system_secrets from "../system/secrets.js";
 import type * as system_subscriptions from "../system/subscriptions.js";
-import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   "private/plugins": typeof private_plugins;
   "private/promos": typeof private_promos;
   "private/secrets": typeof private_secrets;
+  "private/users": typeof private_users;
   "private/vapi": typeof private_vapi;
   "private/widgetSettings": typeof private_widgetSettings;
   "public/analytics": typeof public_analytics;
@@ -93,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   "public/promos": typeof public_promos;
   "public/secrets": typeof public_secrets;
   "public/snapshots": typeof public_snapshots;
+  "public/users": typeof public_users;
   "public/widgetSettings": typeof public_widgetSettings;
   "system/ai/agents/supportAgent": typeof system_ai_agents_supportAgent;
   "system/ai/constants": typeof system_ai_constants;
@@ -105,7 +108,6 @@ declare const fullApi: ApiFromModules<{
   "system/plugins": typeof system_plugins;
   "system/secrets": typeof system_secrets;
   "system/subscriptions": typeof system_subscriptions;
-  users: typeof users;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

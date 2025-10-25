@@ -206,10 +206,15 @@ export default defineSchema({
     .index("by_contact_session", ["contactSessionId"])
     .index("by_org_start", ["organizationId", "start"]),
 
-  /* ---------- simple directory ---------- */
   users: defineTable({
-    name: v.string(),
-  }),
+    organizationId: v.string(),      // org du membre
+    externalId: v.string(),          // Clerk tokenIdentifier
+    name: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),  // URL photo profil
+  })
+    .index("by_org_external", ["organizationId", "externalId"])
+    .index("by_org", ["organizationId"]),
+
 
   /* ---------- Analytics ---------- */
   analyticsEvents: defineTable({
