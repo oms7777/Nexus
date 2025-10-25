@@ -12,8 +12,6 @@ import {
   screenAtom,
 } from "../../atoms/widget-atoms";
 import { bookingIntentAtom } from "../../atoms/qualify-atoms";
-import { Button } from "@workspace/ui/components/button";
-import { X } from "lucide-react";
 import type { Doc } from "@workspace/backend/_generated/dataModel";
 
 export default function SmartPromo() {
@@ -24,19 +22,22 @@ export default function SmartPromo() {
   const setBookingIntent = useSetAtom(bookingIntentAtom);
 
   const [hidden, setHidden] = useState(false);
-  const [closing, setClosing] = useState(false);
   const [parentHref, setParentHref] = useState<string | undefined>(undefined);
 
-  // reçoit l'URL du parent
+  // Settings publics (brand logo, privacy, team avatars)
+  const widgetSettings = useQuery(
+    api.public.widgetSettings.getByOrganizationId,
+    orgId ? { organizationId: orgId } : "skip"
+  );
+
+  // URL du parent + signal pour cacher la carte interne
   useEffect(() => {
-    function onParentLoc(e: MessageEvent) {
+    const onParentLoc = (e: MessageEvent) => {
       if (e.data?.type === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
       }
-      if (e.data?.type === "nexus:hide-internal-promo") {
-        setHidden(true);
-      }
-    }
+      if (e.data?.type === "nexus:hide-internal-promo") setHidden(true);
+    };
     window.addEventListener("message", onParentLoc);
     return () => window.removeEventListener("message", onParentLoc);
   }, []);
@@ -49,6 +50,7 @@ export default function SmartPromo() {
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
       : undefined;
 
+  // Promo applicable à la page hôte
   const promos =
     useQuery(
       api.public.promos.listForPage,
@@ -64,9 +66,19 @@ export default function SmartPromo() {
 
   const createConversation = useMutation(api.public.conversations.create);
 
-  // 1) pousser la promo au parent
+  // Pousser la promo au parent (nudge externe)
   useEffect(() => {
     if (!promo) return;
+
+    // On prend jusqu'à 3 avatars :
+    // 1) widgetSettings.teamAvatars (si présent)
+    // 2) widgetSettings.brandLogoUrl
+    // 3) /logo.svg
+    const raw = (widgetSettings as any)?.teamAvatars as string[] | undefined;
+    const avatars =
+      (raw && raw.filter(Boolean).slice(0, 3)) ||
+      ((widgetSettings as any)?.brandLogoUrl ? [(widgetSettings as any).brandLogoUrl] : ["/logo.svg"]);
+
     const payload = {
       title: promo.card?.title || "Need a hand?",
       body: promo.card?.body || "Chat with our assistant or book a 15-min demo.",
@@ -74,28 +86,27 @@ export default function SmartPromo() {
       secondary: promo.secondaryCta?.label || "Book a demo",
       primaryCta: promo.primaryCta,
       secondaryCta: promo.secondaryCta,
+      avatars,
+      privacyUrl: (widgetSettings as any)?.privacyUrl || undefined,
+      brandName: (widgetSettings as any)?.brandName || "Chat",
     };
-    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
-  }, [promo, parentHref]);
 
-  // 2) exécuter les CTA déclenchées par le nudge
+    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
+  }, [promo, parentHref, widgetSettings]);
+
+  // Écoute des CTA du nudge parent
   useEffect(() => {
     function onMsg(e: MessageEvent) {
-      const t = e.data?.type;
       if (!promo) return;
-      if (t === "nexus:run-primary-cta" && promo.primaryCta) {
-        void runCta(promo.primaryCta);
-      }
-      if (t === "nexus:run-secondary-cta" && promo.secondaryCta) {
-        void runCta(promo.secondaryCta);
-      }
+      const t = e.data?.type;
+      if (t === "nexus:run-primary-cta" && promo.primaryCta) void runCta(promo.primaryCta);
+      if (t === "nexus:run-secondary-cta" && promo.secondaryCta) void runCta(promo.secondaryCta);
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, [promo]);
 
-  if (hidden || !promo) return null;
-
+  // Ouvre l'écran chat et crée/reprend la conversation
   const goChat = async () => {
     setScreen("chat");
     try {
@@ -107,10 +118,11 @@ export default function SmartPromo() {
         setConvId(id);
       }
     } catch {
-      /* ignore */
+      /* no-op */
     }
   };
 
+  // Routage des CTA
   const runCta = async (cta: Doc<"promos">["primaryCta"]) => {
     if (cta.kind === "open_chat") {
       setBookingIntent("none");
@@ -125,63 +137,7 @@ export default function SmartPromo() {
     }
   };
 
-  const handleClose = () => {
-    setClosing(true);
-    window.setTimeout(() => setHidden(true), 220);
-  };
-
-  return (
-    <div
-      className={[
-        "fixed bottom-16 right-4 z-100 w-[320px] rounded-xl border bg-white shadow-lg transition-all duration-200",
-        closing ? "opacity-0 translate-y-2 pointer-events-none" : "opacity-100 translate-y-0",
-      ].join(" ")}
-    >
-      <div className="relative p-3">
-        <button
-          onClick={handleClose}
-          className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
-          aria-label="Close promo"
-        >
-          <X className="h-4 w-4" />
-        </button>
-
-        <button
-          onClick={() => {
-            setBookingIntent("none");
-            void goChat();
-          }}
-          className="absolute -left-3 -top-3 grid h-10 w-10 place-items-center rounded-full border bg-white shadow"
-          aria-label="Open chat"
-        >
-          <img src="/logo.svg" alt="logo" className="h-6 w-6" />
-        </button>
-
-        {promo.card?.badgeText && (
-          <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
-            {promo.card.badgeText}
-          </div>
-        )}
-
-        <div className="font-semibold">{promo.card.title}</div>
-        <div className="mt-1 text-sm text-muted-foreground">{promo.card.body}</div>
-
-        <div className="mt-3 flex gap-2">
-          <Button size="sm" className="flex-1" onClick={() => runCta(promo.primaryCta)}>
-            {promo.primaryCta.label}
-          </Button>
-          {promo.secondaryCta && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1"
-              onClick={() => runCta(promo.secondaryCta!)}
-            >
-              {promo.secondaryCta.label}
-            </Button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  // Si le parent affiche le nudge (ou pas de promo), on ne rend rien dans l'iframe
+  if (hidden || !promo) return null;
+  return null;
 }

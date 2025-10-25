@@ -1,4 +1,3 @@
-// apps/embed/src/embed.ts
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
 
@@ -50,7 +49,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   }
 
   function render() {
-    // Bouton flottant
+    // Bouton flottant (logo)
     button = document.createElement("button");
     button.id = "echo-widget-button";
     button.innerHTML = chatBubbleIcon;
@@ -60,7 +59,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       bottom: 20px;
       width: 60px; height: 60px; border-radius: 50%;
       background: #3b82f6; color: white; border: none; cursor: pointer;
-      z-index: 999999; display: flex; align-items: center; justify-content: center;
+      z-index: 1000000; display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 24px rgba(59,130,246,.35); transition: transform .2s ease;
     `;
     button.addEventListener("click", toggleWidget);
@@ -77,7 +76,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       bottom: 90px;
       width: 400px; height: 600px;
       max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
-      z-index: 999998; border-radius: 16px; overflow: hidden;
+      z-index: 999999; border-radius: 16px; overflow: hidden;
       box-shadow: 0 4px 24px rgba(0,0,0,.15);
       display: none; opacity: 0; transform: translateY(10px);
       transition: all .3s ease;
@@ -87,10 +86,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     iframe.src = buildWidgetUrl();
     iframe.allow = "microphone; clipboard-read; clipboard-write";
     iframe.style.cssText = `width:100%;height:100%;border:none;`;
-    iframe.onload = () => {
-      // envoyer l’URL hôte au widget
-      sendParentLocation();
-    };
+    iframe.onload = () => sendParentLocation();
 
     container.appendChild(iframe);
     document.body.appendChild(container);
@@ -119,18 +115,12 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         hide();
         break;
       case "resize":
-        if (payload?.height && container) {
-          container.style.height = `${payload.height}px`;
-        }
+        if (payload?.height && container) container.style.height = `${payload.height}px`;
         break;
       case "nexus:promo":
-        // payload: { title, body, primary, secondary, primaryCta, secondaryCta }
-        renderNudge(payload);
+        renderNudge(payload); // payload: { title, body, primary, secondary, primaryCta, secondaryCta, avatars?, privacyUrl?, brandName? }
         // cacher la promo interne du widget (éviter le doublon)
-        iframe?.contentWindow?.postMessage(
-          { type: "nexus:hide-internal-promo" },
-          WIDGET_ORIGIN
-        );
+        iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, WIDGET_ORIGIN);
         break;
       default:
         break;
@@ -156,7 +146,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     });
   }
 
-  // -------- nudge UI --------
+  // -------- nudge UI (SUSE-like) --------
   function renderNudge(payload: {
     title?: string;
     body?: string;
@@ -164,6 +154,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     secondary?: string;
     primaryCta?: unknown;
     secondaryCta?: unknown;
+    avatars?: string[];
+    privacyUrl?: string;
+    brandName?: string;
   }) {
     if (!nudge) {
       nudge = document.createElement("div");
@@ -171,36 +164,66 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       nudge.style.cssText = `
         position: fixed;
         ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
-        bottom: 90px;
-        width: 320px; z-index: 999997;
-        background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+        bottom: 92px;
+        width: 340px; z-index: 1000001;
+        background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;
         box-shadow: 0 8px 24px rgba(0,0,0,.12);
         padding: 12px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
       `;
       document.body.appendChild(nudge);
     }
 
+    const avatars = Array.isArray(payload.avatars) && payload.avatars.length
+      ? payload.avatars.slice(0, 3)
+      : [];
+
     nudge.innerHTML = `
-      <div style="display:flex;gap:8px;align-items:flex-start">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <!-- avatars stack -->
+        <div style="display:flex;gap:4px;min-width:48px;padding-top:2px">
+          ${avatars.map((src, i) => `
+            <img src="${escapeAttr(src)}" alt="avatar ${i+1}" 
+              style="width:24px;height:24px;border-radius:9999px;object-fit:cover;border:1px solid #e5e7eb" />
+          `).join("")}
+        </div>
+
+        <!-- content -->
         <div style="flex:1">
-          <div style="font-weight:600">${escapeHtml(payload.title || "Need a hand?")}</div>
-          <div style="margin-top:4px;color:#6b7280;font-size:14px">${escapeHtml(
+          <div style="font-weight:700">${escapeHtml(payload.title || "Discover the right solution for your business project.")}</div>
+          <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4">${escapeHtml(
             payload.body || "Chat with our assistant or book a 15-min demo."
           )}</div>
-          <div style="display:flex;gap:8px;margin-top:10px">
-            <button id="nexus-primary" style="flex:1;height:32px;border:none;border-radius:8px;background:#111827;color:#fff;cursor:pointer">
+
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button id="nexus-primary"
+              style="flex:1;height:36px;border:none;border-radius:8px;background:#0ea5e9;color:#fff;cursor:pointer;font-weight:600">
               ${escapeHtml(payload.primary || "Chat with AI Assistant")}
             </button>
             ${
               payload.secondary !== undefined
-                ? `<button id="nexus-secondary" style="flex:1;height:32px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#111827;cursor:pointer">
+                ? `<button id="nexus-secondary"
+                     style="flex:1;height:36px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#111827;cursor:pointer;font-weight:600">
                      ${escapeHtml(payload.secondary || "Book a meeting")}
                    </button>`
                 : ""
             }
           </div>
+
+          ${
+            payload.privacyUrl
+              ? `<div style="margin-top:10px">
+                   <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                      style="color:#6b7280;font-size:11px;text-decoration:underline">
+                     This chat may be recorded. View our privacy policy.
+                   </a>
+                 </div>`
+              : ""
+          }
         </div>
-        <button id="nexus-close" title="Close" style="border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:18px;line-height:18px">×</button>
+
+        <!-- dismiss -->
+        <button id="nexus-close" title="Close"
+          style="border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:18px;line-height:18px">×</button>
       </div>
     `;
 
@@ -211,7 +234,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
     primaryBtn?.addEventListener("click", () => {
       postToWidget({ type: "nexus:run-primary-cta" });
-      show(); // ouvrir le widget si besoin
+      show(); // ouvrir le widget
     });
     secondaryBtn?.addEventListener("click", () => {
       postToWidget({ type: "nexus:run-secondary-cta" });
@@ -225,6 +248,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
   function escapeHtml(s: string) {
     return s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]!));
+  }
+  function escapeAttr(s: string) {
+    return s.replace(/"/g, "&quot;");
   }
 
   // -------- open / close --------
