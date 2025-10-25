@@ -14,7 +14,7 @@ export const widgetSettingsSchema = z
     }),
 
     // kept for backward compat (you won’t render it in the form anymore)
-    privacyUrl: z.string().url().optional(),
+    privacyUrl: z.string().url().optional().or(z.literal("")),
 
     consent: z
       .object({
@@ -27,7 +27,7 @@ export const widgetSettingsSchema = z
 
         // NEW: how the “here” behaves
         linkMode: z.enum(["link", "modal"]).default("link"),
-        privacyUrl: z.string().url().optional(), // if linkMode = "link"
+        privacyUrl: z.string().url().optional().or(z.literal("")), // if linkMode = "link"
         modalContent: z.string().optional(),     // if linkMode = "modal"
       })
       .optional(),

@@ -28,7 +28,6 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
 
   const form = useForm<FormSchema>({
-    // Cast to avoid RHF duplicate type issue in monorepo
     resolver: zodResolver(widgetSettingsSchema) as any,
     defaultValues: {
       greetMessage: initialData?.greetMessage || "Hi! How can I help you today?",
@@ -41,10 +40,8 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
         assistantId: initialData?.vapiSettings.assistantId || "",
         phoneNumber: initialData?.vapiSettings.phoneNumber || "",
       },
-
-      // keep (hidden) for backward compat; not shown in the form
-      privacyUrl: initialData?.privacyUrl || "",
-
+      // hidden (compat)
+      privacyUrl: initialData?.privacyUrl ?? undefined,
       consent: {
         enabled: initialData?.consent?.enabled ?? true,
         title: initialData?.consent?.title || "Discover the right solution for your business project.",
@@ -54,32 +51,33 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
           "I hereby consent to processing of my personal data collected in the chat in accordance with the rules described",
         acceptLabel: initialData?.consent?.acceptLabel || "✓ Yes, I consent",
         version: initialData?.consent?.version || "v1.0",
-
-        // NEW
         linkMode: initialData?.consent?.linkMode || "link",
         privacyUrl: initialData?.consent?.privacyUrl || "",
-        modalContent:
-          initialData?.consent?.modalContent ||
-          "",
+        modalContent: initialData?.consent?.modalContent || "",
       },
     },
   });
 
   const onSubmit: SubmitHandler<FormSchema> = async (values) => {
+    console.log("Submitting widget settings", values);
     try {
-      const vapiSettings: WidgetSettings["vapiSettings"] = {
-        assistantId: values.vapiSettings.assistantId || "",
-        phoneNumber: values.vapiSettings.phoneNumber || "",
-      };
+      const vapiSettings = {
+        assistantId:
+          values.vapiSettings.assistantId && values.vapiSettings.assistantId !== "none"
+            ? values.vapiSettings.assistantId
+            : undefined,
+        phoneNumber:
+          values.vapiSettings.phoneNumber && values.vapiSettings.phoneNumber !== "none"
+            ? values.vapiSettings.phoneNumber
+            : undefined,
+      } as const;
 
       await upsertWidgetSettings({
         greetMessage: values.greetMessage,
         defaultSuggestions: values.defaultSuggestions,
         vapiSettings,
-
-        // keep passing for backward compat (widget may still read it)
+        // compat
         privacyUrl: values.privacyUrl || undefined,
-
         consent: values.consent
           ? {
               enabled: !!values.consent.enabled,
@@ -88,7 +86,6 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
               body: values.consent.body?.trim() || undefined,
               acceptLabel: values.consent.acceptLabel?.trim() || undefined,
               version: values.consent.version?.trim() || undefined,
-
               linkMode: values.consent.linkMode,
               privacyUrl:
                 values.consent.linkMode === "link"
@@ -109,12 +106,19 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
     }
   };
 
+  // handler d’erreurs pour afficher un toast et aider au débogage
+  const onError = (errors: unknown) => {
+    console.error("RHF/Zod validation errors:", errors);
+    toast.error("Validation error — check highlighted fields");
+  };
+
   const consentEnabled = form.watch("consent")?.enabled ?? true;
   const linkMode = form.watch("consent")?.linkMode ?? "link";
+  const submitting = form.formState.isSubmitting;
 
   return (
     <Form {...(form as any)}>
-      <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
+      <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit, onError)}>
         {/* General */}
         <Card>
           <CardHeader>
@@ -138,17 +142,13 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
                 </FormItem>
               )}
             />
-
-            {/* Removed the privacyUrl field from General section */}
             <Separator />
-
             <div className="space-y-4">
               <div>
                 <h3 className="mb-4 text-sm">Default suggestions</h3>
                 <p className="mb-4 text-muted-foreground text-sm">
                   Quick reply suggestions shown to customers to help guide the conversation
                 </p>
-
                 <div className="space-y-4">
                   <FormField
                     control={form.control as any}
@@ -270,7 +270,6 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
                 )}
               />
 
-              {/* NEW: how “here” behaves */}
               <FormField
                 control={form.control as any}
                 name="consent.linkMode"
@@ -349,8 +348,8 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
         )}
 
         <div className="flex justify-end">
-          <Button disabled={form.formState.isSubmitting} type="submit">
-            Save Settings
+          <Button disabled={submitting} type="submit">
+            {submitting ? "Saving…" : "Save Settings"}
           </Button>
         </div>
       </form>
