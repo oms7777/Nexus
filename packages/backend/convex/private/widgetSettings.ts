@@ -14,6 +14,9 @@ export const upsert = mutation({
       phoneNumber: v.optional(v.string()),
     }),
 
+    teamAvatars: v.optional(v.array(v.string())), // max 3 URLs
+    brandLogoUrl: v.optional(v.string()),
+
     // keep root privacyUrl for backward compat (widget may still read it)
     privacyUrl: v.optional(v.string()),
 
@@ -53,6 +56,8 @@ export const upsert = mutation({
       greetMessage: args.greetMessage,
       defaultSuggestions: args.defaultSuggestions,
       vapiSettings: args.vapiSettings,
+      teamAvatars: args.teamAvatars ?? [],     
+      brandLogoUrl: args.brandLogoUrl ?? null, 
       privacyUrl: args.privacyUrl, // kept for backward compat
       consent: args.consent,
     };

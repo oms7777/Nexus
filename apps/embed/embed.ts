@@ -157,6 +157,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     avatars?: string[];
     privacyUrl?: string;
     brandName?: string;
+    badgeText?: string;
   }) {
     if (!nudge) {
       nudge = document.createElement("div");
@@ -177,53 +178,74 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       ? payload.avatars.slice(0, 3)
       : [];
 
+    // CSS inline pour overlap
+    const avatarHtml = avatars.map((src, i) => `
+      <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
+        style="
+          width:26px;height:26px;border-radius:9999px;object-fit:cover;
+          border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
+          position: relative; ${i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"}
+        " />
+    `).join("");
+
+    const badgeHtml = payload.badgeText
+      ? `<span style="
+            position:absolute; left:12px; top:10px;
+            background:#10b981; color:#fff; font-size:11px; line-height:1;
+            padding:4px 6px; border-radius:6px; font-weight:600;">
+          ${escapeHtml(payload.badgeText)}
+        </span>`
+      : "";
+
     nudge.innerHTML = `
-      <div style="display:flex;gap:10px;align-items:flex-start">
-        <!-- avatars stack -->
-        <div style="display:flex;gap:4px;min-width:48px;padding-top:2px">
-          ${avatars.map((src, i) => `
-            <img src="${escapeAttr(src)}" alt="avatar ${i+1}" 
-              style="width:24px;height:24px;border-radius:9999px;object-fit:cover;border:1px solid #e5e7eb" />
-          `).join("")}
-        </div>
+      <div style="position:relative">
+        ${badgeHtml}
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <!-- avatars stack -->
+          <div style="display:flex;align-items:center;min-width:56px;padding-top:2px">
+            ${avatarHtml}
+          </div>
 
-        <!-- content -->
-        <div style="flex:1">
-          <div style="font-weight:700">${escapeHtml(payload.title || "Discover the right solution for your business project.")}</div>
-          <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4">${escapeHtml(
-            payload.body || "Chat with our assistant or book a 15-min demo."
-          )}</div>
+          <!-- content -->
+          <div style="flex:1">
+            <div style="font-weight:700">${escapeHtml(
+              payload.title || "Discover the right solution for your business project."
+            )}</div>
+            <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4">${escapeHtml(
+              payload.body || "Chat with our assistant or book a 15-min demo."
+            )}</div>
 
-          <div style="display:flex;gap:8px;margin-top:12px">
-            <button id="nexus-primary"
-              style="flex:1;height:36px;border:none;border-radius:8px;background:#0ea5e9;color:#fff;cursor:pointer;font-weight:600">
-              ${escapeHtml(payload.primary || "Chat with AI Assistant")}
-            </button>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button id="nexus-primary"
+                style="flex:1;height:36px;border:none;border-radius:8px;background:#0ea5e9;color:#fff;cursor:pointer;font-weight:600">
+                ${escapeHtml(payload.primary || "Chat with AI Assistant")}
+              </button>
+              ${
+                payload.secondary !== undefined
+                  ? `<button id="nexus-secondary"
+                      style="flex:1;height:36px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#111827;cursor:pointer;font-weight:600">
+                      ${escapeHtml(payload.secondary || "Book a meeting")}
+                    </button>`
+                  : ""
+              }
+            </div>
+
             ${
-              payload.secondary !== undefined
-                ? `<button id="nexus-secondary"
-                     style="flex:1;height:36px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#111827;cursor:pointer;font-weight:600">
-                     ${escapeHtml(payload.secondary || "Book a meeting")}
-                   </button>`
+              payload.privacyUrl
+                ? `<div style="margin-top:10px">
+                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                        style="color:#6b7280;font-size:11px;text-decoration:underline">
+                      This chat may be recorded. View our privacy policy.
+                    </a>
+                  </div>`
                 : ""
             }
           </div>
 
-          ${
-            payload.privacyUrl
-              ? `<div style="margin-top:10px">
-                   <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
-                      style="color:#6b7280;font-size:11px;text-decoration:underline">
-                     This chat may be recorded. View our privacy policy.
-                   </a>
-                 </div>`
-              : ""
-          }
+          <!-- dismiss -->
+          <button id="nexus-close" title="Close"
+            style="border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:18px;line-height:18px">×</button>
         </div>
-
-        <!-- dismiss -->
-        <button id="nexus-close" title="Close"
-          style="border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:18px;line-height:18px">×</button>
       </div>
     `;
 
@@ -234,7 +256,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
     primaryBtn?.addEventListener("click", () => {
       postToWidget({ type: "nexus:run-primary-cta" });
-      show(); // ouvrir le widget
+      show();
     });
     secondaryBtn?.addEventListener("click", () => {
       postToWidget({ type: "nexus:run-secondary-cta" });
@@ -245,6 +267,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       nudge = null;
     });
   }
+
 
   function escapeHtml(s: string) {
     return s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]!));
