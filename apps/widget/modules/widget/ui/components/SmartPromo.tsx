@@ -71,6 +71,7 @@ export default function SmartPromo() {
 
       // Any of these confirm the host is listening
       if (
+        t === "nexus:host-ack" || 
         t === "nexus:embed-ready" ||
         t === "nexus:parent-location" ||
         t === "nexus:hide-internal-promo"
@@ -177,7 +178,7 @@ export default function SmartPromo() {
   if (!showInternal) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg z-1000">
+    <div className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg z-[1000]">
       <div className="p-3">
         {promo?.card?.badgeText && (
           <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">

@@ -1,10 +1,8 @@
-// apps/embed/widget.ts
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
 
 (function () {
-  const VERSION = "embed-1.2.0"; // <— bump when you ship
-  // eslint-disable-next-line no-console
+  const VERSION = "embed-1.2.1";
   console.log(`[EchoWidget] ${VERSION} | origin=${location.origin}`);
 
   let iframe: HTMLIFrameElement | null = null;
@@ -24,17 +22,17 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
     position =
-      (currentScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ||
+      (currentScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
       EMBED_CONFIG.DEFAULT_POSITION;
   } else {
     const scripts = document.querySelectorAll('script[src*="widget"]');
-    const embedScript = Array.from(scripts).find((s) => s.hasAttribute("data-organization-id")) as
-      | HTMLScriptElement
-      | undefined;
+    const embedScript = Array.from(scripts).find((s) =>
+      s.hasAttribute("data-organization-id"),
+    ) as HTMLScriptElement | undefined;
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
       position =
-        (embedScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ||
+        (embedScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
         EMBED_CONFIG.DEFAULT_POSITION;
     }
   }
@@ -55,7 +53,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   }
 
   function render() {
-    // Floating button
+    // Launcher button
     button = document.createElement("button");
     button.id = "echo-widget-button";
     button.innerHTML = chatBubbleIcon;
@@ -73,7 +71,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     button.addEventListener("mouseleave", () => (button!.style.transform = "scale(1)"));
     document.body.appendChild(button);
 
-    // Container + iframe
+    // Panel container + iframe
     container = document.createElement("div");
     container.id = "echo-widget-container";
     container.style.cssText = `
@@ -93,7 +91,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     iframe.allow = "microphone; clipboard-read; clipboard-write";
     iframe.style.cssText = `width:100%;height:100%;border:none;`;
     iframe.onload = () => {
-      // Handshake: tell the widget we’re ready and give it our current URL
       postToWidget({ type: "nexus:embed-ready" });
       sendParentLocation();
     };
@@ -101,17 +98,18 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     container.appendChild(iframe);
     document.body.appendChild(container);
 
+    // Messaging + SPA awareness
     window.addEventListener("message", handleMessage);
     patchHistoryForSpa();
     window.addEventListener("popstate", sendParentLocation);
+
+    // Keep nudge aligned to the button
     window.addEventListener("resize", placeNudge);
     window.addEventListener("scroll", placeNudge, { passive: true });
 
-    // Fallback if the widget never posts a promo (cache/CDN races)
+    // Safety: show local fallback if widget never posts a promo
     window.setTimeout(() => {
-      if (!hasPromoPayload && !nudgeDismissed) {
-        renderNudge(localFallback());
-      }
+      if (!hasPromoPayload && !nudgeDismissed) renderNudge(localFallback());
     }, 1200);
   }
 
@@ -121,9 +119,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     return `${EMBED_CONFIG.WIDGET_URL}?${params.toString()}`;
   }
 
+  // ---------------- Messaging ----------------
   function handleMessage(event: MessageEvent) {
-    // Debug tip if the origin ever mismatches
-    // console.debug("[EchoWidget] message from", event.origin, "expecting", WIDGET_ORIGIN, event.data);
     if (event.origin !== WIDGET_ORIGIN) return;
     const { type, payload } = event.data || {};
 
@@ -136,8 +133,10 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         break;
       case "nexus:promo":
         hasPromoPayload = true;
+        // Acknowledge back so the widget knows the host is listening
+        iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, WIDGET_ORIGIN);
         renderNudge(payload);
-        // hide the widget’s own internal promo
+        // Hide the widget’s internal debug promo (avoid duplicates)
         iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, WIDGET_ORIGIN);
         break;
       default:
@@ -164,7 +163,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     });
   }
 
-  // -------- Nudge --------
+  // ---------------- Nudge ----------------
   function localFallback() {
     return {
       title: "Get help fast or schedule time",
@@ -173,7 +172,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       secondary: "Book a meeting",
       primaryCta: { kind: "open_chat", label: "Chat with AI Assistant" },
       secondaryCta: { kind: "open_booking", label: "Book a meeting" },
-      avatars: [],
+      avatars: [] as string[],
     };
   }
 
@@ -194,7 +193,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       nudge.id = "echo-nudge";
       nudge.style.cssText = `
         position: fixed;
-        width: 340px; max-width: calc(100vw - 92px);
+        width: 340px; max-width: min(340px, calc(100vw - 96px));
         z-index: 1000001;
         background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;
         box-shadow: 0 8px 24px rgba(0,0,0,.12);
@@ -202,6 +201,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
         opacity: 0; transform: translateY(6px);
         transition: opacity .18s ease, transform .18s ease;
+        pointer-events: auto;
       `;
       document.body.appendChild(nudge);
 
@@ -216,6 +216,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         z-index: 1000002;
         box-shadow: 0 2px 8px rgba(0,0,0,.08);
         opacity: 0; transition: opacity .18s ease;
+        pointer-events: none;
       `;
       document.body.appendChild(caret);
     }
@@ -224,21 +225,20 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       ? payload.avatars.slice(0, 3)
       : [];
 
-    const avatarHtml = avatars
-      .map(
-        (src, i) => `
+    const avatarHtml = avatars.map((src, i) => `
       <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
-        style="width:26px;height:26px;border-radius:9999px;object-fit:cover;border:2px solid #fff;
-               box-shadow: 0 1px 3px rgba(0,0,0,.12); position: relative; ${
-                 i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
-               }" />
-    `
-      )
-      .join("");
+        style="
+          width:26px;height:26px;border-radius:9999px;object-fit:cover;
+          border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
+          position: relative; ${i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"}
+        " />
+    `).join("");
 
     const badgeHtml = payload.badgeText
-      ? `<span style="position:absolute; left:12px; top:10px; background:#10b981; color:#fff;
-                      font-size:11px; line-height:1; padding:4px 6px; border-radius:6px; font-weight:600;">
+      ? `<span style="
+            position:absolute; left:12px; top:10px;
+            background:#10b981; color:#fff; font-size:11px; line-height:1;
+            padding:4px 6px; border-radius:6px; font-weight:600;">
           ${escapeHtml(payload.badgeText)}
         </span>`
       : "";
@@ -286,6 +286,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       </div>
     `;
 
+    // Handlers
     const primaryBtn = nudge.querySelector<HTMLButtonElement>("#nexus-primary");
     const secondaryBtn = nudge.querySelector<HTMLButtonElement>("#nexus-secondary");
     const closeBtn = nudge.querySelector<HTMLButtonElement>("#nexus-close");
@@ -303,6 +304,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       removeNudge();
     });
 
+    // Place & reveal
     placeNudge();
     if (!isOpen && !nudgeDismissed) {
       requestAnimationFrame(() => {
@@ -314,21 +316,39 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
   function placeNudge() {
     if (!button || !nudge || !caret) return;
-    const btnRect = button.getBoundingClientRect();
+
+    const rect = button.getBoundingClientRect();
     const gap = 12;
-    const sideRight = position === "bottom-right";
-
-    nudge.style.right = sideRight ? "20px" : "";
-    nudge.style.left  = sideRight ? "" : "20px";
-    nudge.style.bottom = `${(window.innerHeight - btnRect.top) + gap}px`;
-
     const caretSize = 12;
-    const caretLeft = sideRight ? btnRect.right - caretSize - 20 - 6 : btnRect.left + 20 + 6;
-    const caretBottom = (window.innerHeight - btnRect.top) + (gap - caretSize / 2);
+    const fromBottomToButtonTop = window.innerHeight - rect.top;
 
-    caret.style.left = `${caretLeft}px`;
-    caret.style.bottom = `${caretBottom}px`;
+    // Position nudge just above the button; anchor to the same side as the button
+    nudge.style.bottom = `${fromBottomToButtonTop + gap}px`;
+    if (position === "bottom-right") {
+      nudge.style.right = "20px";
+      nudge.style.left = "";
+    } else {
+      nudge.style.left = "20px";
+      nudge.style.right = "";
+    }
+
+    // Center caret horizontally over the button, just above it
+    const centerX = rect.left + rect.width / 2;
+    caret.style.left = `${centerX - caretSize / 2}px`;
+    caret.style.bottom = `${fromBottomToButtonTop + (gap - caretSize / 2)}px`;
     caret.style.transform = "rotate(45deg)";
+
+    // Clamp nudge inside viewport horizontally if needed
+    const r = nudge.getBoundingClientRect();
+    const overflowRight = r.right - window.innerWidth;
+    const overflowLeft = -r.left;
+    if (overflowRight > 0 && position === "bottom-right") {
+      const currRight = parseFloat(getComputedStyle(nudge).right || "20");
+      nudge.style.right = `${Math.max(12, currRight + overflowRight)}px`;
+    } else if (overflowLeft > 0 && position === "bottom-left") {
+      const currLeft = parseFloat(getComputedStyle(nudge).left || "20");
+      nudge.style.left = `${Math.max(12, currLeft + overflowLeft)}px`;
+    }
   }
 
   function removeNudge() {
@@ -343,17 +363,23 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     return s.replace(/"/g, "&quot;");
   }
 
-  // Open / Close
+  // ---------------- Open / Close ----------------
   function toggleWidget() { isOpen ? hide() : show(); }
 
   function show() {
     if (!container || !button) return;
     isOpen = true;
-    if (nudge) { nudge.style.opacity = "0"; nudge.style.transform = "translateY(6px)"; }
-    if (caret) caret.style.opacity = "0";
+
+    // Fully hide the nudge while the panel is open
+    if (nudge) { nudge.style.display = "none"; }
+    if (caret) { caret.style.display = "none"; }
+
     container.style.display = "block";
     setTimeout(() => {
-      if (container) { container.style.opacity = "1"; container.style.transform = "translateY(0)"; }
+      if (container) {
+        container.style.opacity = "1";
+        container.style.transform = "translateY(0)";
+      }
     }, 10);
     button.innerHTML = closeIcon;
     sendParentLocation();
@@ -362,18 +388,23 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   function hide() {
     if (!container || !button) return;
     isOpen = false;
+
     container.style.opacity = "0";
     container.style.transform = "translateY(10px)";
     setTimeout(() => container && (container.style.display = "none"), 300);
     button.innerHTML = chatBubbleIcon;
     button.style.background = "#3b82f6";
 
+    // Re-show nudge (if not dismissed) and re-place it
     if (hasPromoPayload && !nudgeDismissed) {
-      // Ask the widget to re-post current promo (re-shows nudge)
+      if (nudge) { nudge.style.display = "block"; nudge.style.opacity = "1"; nudge.style.transform = "translateY(0)"; }
+      if (caret) { caret.style.display = "block"; caret.style.opacity = "1"; }
+      placeNudge();
       postToWidget({ type: "nexus:parent-location", href: location.href });
     }
   }
 
+  // ---------------- Lifecycle ----------------
   function destroy() {
     window.removeEventListener("message", handleMessage);
     window.removeEventListener("popstate", sendParentLocation);
