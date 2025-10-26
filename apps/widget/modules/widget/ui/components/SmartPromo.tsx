@@ -136,7 +136,10 @@ export default function SmartPromo() {
         };
 
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
-    // console.debug("[SmartPromo] posted nexus:promo", payload);
+    // 👇 If we're inside an iframe, consider the host “alive” right away.
+    if (typeof window !== "undefined" && window.parent !== window) {
+      setHostAcknowledged(true);
+    }
   }, [promo, memberAvatars, ws, parentHref, fallbackPayload]);
 
   // CTA helpers

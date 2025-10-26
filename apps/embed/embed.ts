@@ -120,7 +120,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
   // ------------- messaging -------------
   function handleMessage(event: MessageEvent) {
-    if (event.origin !== WIDGET_ORIGIN) return;
+    const fromIframe = event.source === iframe?.contentWindow;
+    const fromAllowedOrigin = event.origin === WIDGET_ORIGIN;
+    if (!fromIframe && !fromAllowedOrigin) return;
     const { type, payload } = event.data || {};
 
     switch (type) {
