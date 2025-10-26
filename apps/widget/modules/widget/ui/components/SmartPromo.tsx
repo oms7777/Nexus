@@ -25,27 +25,23 @@ export default function SmartPromo() {
 
   const [parentHref, setParentHref] = useState<string>();
   const [hostAck, setHostAck] = useState(false);
-  const [ackWaitOver, setAckWaitOver] = useState(false);       // 👈 NEW
+  const [ackWaitOver, setAckWaitOver] = useState(false);
   const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
 
-  // Wait ~700ms before deciding host is missing (prevents flashing the internal card)
   useEffect(() => {
     if (!isEmbedded) return;
-    const t = setTimeout(() => setAckWaitOver(true), 700);     // 👈 NEW
+    const t = setTimeout(() => setAckWaitOver(true), 700);
     return () => clearTimeout(t);
   }, [isEmbedded]);
 
-  // Settings (privacy/logo fallback)
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip"
   );
 
-  // Org avatars (public)
   const memberAvatars =
     useQuery(api.public.users.listOrgAvatars, orgId ? { organizationId: orgId, limit: 3 } : "skip") ?? [];
 
-  // Page URL (prefer parent)
   const currentUrl =
     typeof window !== "undefined" ? parentHref ?? window.location.href : undefined;
   const utm =
@@ -53,7 +49,6 @@ export default function SmartPromo() {
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
       : undefined;
 
-  // Promos for page
   const promos =
     useQuery(
       api.public.promos.listForPage,
@@ -64,11 +59,8 @@ export default function SmartPromo() {
     [promos]
   );
 
-  // Stable ref for CTA handling
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
-  useEffect(() => {
-    promoRef.current = promo;
-  }, [promo]);
+  useEffect(() => { promoRef.current = promo; }, [promo]);
 
   const createConversation = useMutation(api.public.conversations.create);
 
@@ -77,7 +69,6 @@ export default function SmartPromo() {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      // Any of these confirm the host is listening
       if (
         t === "nexus:embed-ready" ||
         t === "nexus:parent-location" ||
@@ -89,9 +80,9 @@ export default function SmartPromo() {
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
       }
-      
+
       if (t === "nexus:open-chat") {
-        setBookingIntent("none");
+        setBookingIntent("chat");     // ✅ le type inclut "chat"
         setScreen("chat");
         return;
       }
@@ -103,9 +94,8 @@ export default function SmartPromo() {
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, []);
+  }, [setBookingIntent, setScreen]);
 
-  // Fallback payload (so host can always render something)
   const fallbackPayload = useMemo(
     () => ({
       title: "Get help fast or schedule time",
@@ -141,14 +131,9 @@ export default function SmartPromo() {
         privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
       };
     }
-    return {
-      ...fallbackPayload,
-      avatars,
-      privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
-    };
+    return { ...fallbackPayload, avatars, privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined };
   };
 
-  // Post promo immediately and once again after a short delay (covers SPA and handshake races)
   useEffect(() => {
     const send = () => window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
     send();
@@ -156,7 +141,6 @@ export default function SmartPromo() {
     return () => clearTimeout(t);
   }, [promo, memberAvatars, ws, parentHref, fallbackPayload]);
 
-  // CTA helpers
   const goChat = async () => {
     setScreen("chat");
     try {
@@ -168,14 +152,11 @@ export default function SmartPromo() {
   };
 
   const runCta = async (cta: Cta) => {
-    if (cta.kind === "open_chat") { setBookingIntent("none"); return goChat(); }
+    if (cta.kind === "open_chat") { setBookingIntent("chat"); return goChat(); }
     if (cta.kind === "open_booking") { setBookingIntent("book"); return goChat(); }
     if (cta.kind === "open_url" && cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
   };
 
-  // Show internal debug only if:
-  //  - not embedded, OR
-  //  - embedded but host didn’t ack AFTER the small wait
   const showInternal = !!promo && (!isEmbedded || (!hostAck && ackWaitOver));
   if (!showInternal) return null;
 
@@ -192,17 +173,13 @@ export default function SmartPromo() {
           {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
         </div>
         <div className="mt-3 flex gap-2">
-          <button
-            className="h-9 flex-1 rounded-md bg-sky-500 px-3 font-medium text-white"
-            onClick={() => promo?.primaryCta && runCta(promo.primaryCta)}
-          >
+          <button className="h-9 flex-1 rounded-md bg-sky-500 px-3 font-medium text-white"
+                  onClick={() => promo?.primaryCta && runCta(promo.primaryCta)}>
             {promo?.primaryCta?.label ?? "Chat"}
           </button>
           {promo?.secondaryCta && (
-            <button
-              className="h-9 flex-1 rounded-md border px-3 font-medium"
-              onClick={() => runCta(promo.secondaryCta!)}
-            >
+            <button className="h-9 flex-1 rounded-md border px-3 font-medium"
+                    onClick={() => runCta(promo.secondaryCta!)}>
               {promo.secondaryCta.label}
             </button>
           )}

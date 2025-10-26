@@ -198,14 +198,14 @@ export const WidgetChatScreen = () => {
   const consentUrl = consentCfg?.privacyUrl;
   const consentModalText = consentCfg?.modalContent;
   const showWelcomeChoices = !conversationId && step === "idle";
+  const lastIntentRef = useRef<"none" | "chat" | "book">("none");
 
 
-  // 0) si consent activé et step "idle" → on force l’étape "consent"
   useEffect(() => {
-    if (step === "idle" && consentCfg && consentCfg.enabled !== false) {
-      setStep("consent");
+    if (bookingIntent === "none") {
+      bookFlowStartedRef.current = false;
     }
-  }, [step, consentCfg, setStep]);
+  }, [bookingIntent]);
 
   // widget loaded
   useEffect(() => {
@@ -226,9 +226,10 @@ export const WidgetChatScreen = () => {
   // A. Book flow → intro + consent, puis qualif
   const bookFlowStartedRef = useRef(false);
   useEffect(() => {
-    if (bookingIntent !== "book" || bookFlowStartedRef.current) return;
+    if ((bookingIntent !== "book" && bookingIntent !== "chat") || bookFlowStartedRef.current) return;
 
     bookFlowStartedRef.current = true;
+    lastIntentRef.current = bookingIntent;     // mémorise l’intent
 
     setLocalMsgs((m) => [
       ...m,
@@ -246,7 +247,7 @@ export const WidgetChatScreen = () => {
         organizationId,
         type: "inbound_chat_requested",
         sessionId: contactSessionId || undefined,
-        meta: { trigger: "book_meeting" },
+        meta: { trigger: bookingIntent === "book" ? "book_meeting" : "chat" },
       }).catch(() => {});
     }
   }, [
@@ -368,7 +369,7 @@ export const WidgetChatScreen = () => {
 
   const greet = widgetSettings?.greetMessage?.trim();
   const shouldHideGreet =
-    bookingIntent === "book" || step === "consent" || step === "ask_name";
+    lastIntentRef.current === "book" || step === "consent" || step === "ask_name";
   const filteredBackend =
     shouldHideGreet && greet
       ? backendMsgs.filter(
@@ -434,8 +435,7 @@ export const WidgetChatScreen = () => {
                   <Button
                     className="flex-1"
                     onClick={() => {
-                      setBookingIntent("none");
-                      setStep("consent"); // 👈 affiche le consent juste après
+                      setBookingIntent("chat");
                     }}
                   >
                     💬 Chat with AI Assistant
@@ -512,15 +512,25 @@ export const WidgetChatScreen = () => {
                     size="sm"
                     onClick={() => {
                       setConsentGiven(true);
-                      setLocalMsgs((m) => [
-                        ...m,
-                        {
-                          role: "assistant",
-                          text:
-                            "Great! To book a demo, what's your full name?",
-                        },
-                      ]);
-                      setStep("ask_name");
+
+                      if (lastIntentRef.current === "book") {
+                        // FLOW BOOKING → on lance la qualif
+                        setLocalMsgs((m) => [
+                          ...m,
+                          { role: "assistant", text: "Great! To book a demo, what's your full name?" },
+                        ]);
+                        setStep("ask_name");
+                      } else {
+                        // FLOW CHAT → on laisse l'IA prendre la main (pas de qualif)
+                        // Optionnel : injecter un petit message d’accueil si tu veux
+                        if (!widgetSettings?.greetMessage) {
+                          setLocalMsgs((m) => [
+                            ...m,
+                            { role: "assistant", text: "How can I help you today?" },
+                          ]);
+                        }
+                        setStep("idle");
+                      }
 
                       if (organizationId) {
                         logEvent({
@@ -531,6 +541,7 @@ export const WidgetChatScreen = () => {
                             version: consentCfg?.version,
                             privacyUrl: consentUrl,
                             linkMode,
+                            intent: lastIntentRef.current,     // trace l’intent
                           },
                         }).catch(() => {});
                       }
@@ -538,6 +549,7 @@ export const WidgetChatScreen = () => {
                   >
                     {consentCfg?.acceptLabel?.trim() || "✓ I consent"}
                   </Button>
+
                 </div>
               </div>
             )}

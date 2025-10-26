@@ -3,7 +3,7 @@ import { atom } from "jotai";
 
 export type QualifyStep =
   | "idle"
-  | "consent"   // ← NOUVEAU: étape de consentement
+  | "consent"
   | "ask_name"
   | "ask_email"
   | "ask_company"
@@ -16,7 +16,6 @@ export type QualifyData = {
   email?: string;
   company?: string;
   role?: string;
-  // (facultatif) si tu l'utilises ailleurs:
   region?: "EMEA" | "NA" | "LATAM" | "APAC";
 };
 
@@ -24,8 +23,9 @@ export type QualifyData = {
 export const qualifyStepAtom = atom<QualifyStep>("idle");
 export const qualifyDataAtom = atom<QualifyData>({});
 
-// Déclencheur d’intention "book a demo" (depuis SmartPromo)
-export const bookingIntentAtom = atom<"none" | "book">("none");
+// ✅ L’intention inclut maintenant "chat"
+export type BookingIntent = "none" | "chat" | "book";
+export const bookingIntentAtom = atom<BookingIntent>("none");
 
 // Consentement RGPD donné ?
 export const consentGivenAtom = atom<boolean>(false);
