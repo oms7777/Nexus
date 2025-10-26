@@ -1,4 +1,3 @@
-// apps/widget/modules/ui/components/SmartPromo.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -69,20 +68,14 @@ export default function SmartPromo() {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      if (
-        t === "nexus:embed-ready" ||
-        t === "nexus:parent-location" ||
-        t === "nexus:hide-internal-promo"
-      ) {
+      if (t === "nexus:embed-ready" || t === "nexus:parent-location" || t === "nexus:hide-internal-promo") {
         setHostAck(true);
       }
-
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
       }
-
       if (t === "nexus:open-chat") {
-        setBookingIntent("chat");     // ✅ le type inclut "chat"
+        setBookingIntent("chat");
         setScreen("chat");
         return;
       }

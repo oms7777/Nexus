@@ -19,13 +19,11 @@ export type QualifyData = {
   region?: "EMEA" | "NA" | "LATAM" | "APAC";
 };
 
-// État du flow de qualif
 export const qualifyStepAtom = atom<QualifyStep>("idle");
 export const qualifyDataAtom = atom<QualifyData>({});
 
-// ✅ L’intention inclut maintenant "chat"
+// ✅ inclut "chat"
 export type BookingIntent = "none" | "chat" | "book";
 export const bookingIntentAtom = atom<BookingIntent>("none");
 
-// Consentement RGPD donné ?
 export const consentGivenAtom = atom<boolean>(false);
