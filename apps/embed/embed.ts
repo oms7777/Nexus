@@ -1,3 +1,4 @@
+// apps/embed/widget.ts
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
 
@@ -6,7 +7,11 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   let container: HTMLDivElement | null = null;
   let button: HTMLButtonElement | null = null;
   let nudge: HTMLDivElement | null = null;
+  let caret: HTMLDivElement | null = null;
+
   let isOpen = false;
+  let nudgeDismissed = false; // l’utilisateur a cliqué ✕
+  let hasPromoPayload = false;
 
   // --- config depuis le <script ...>
   let organizationId: string | null = null;
@@ -22,7 +27,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   } else {
     const scripts = document.querySelectorAll('script[src*="widget"]');
     const embedScript = Array.from(scripts).find((s) =>
-      s.hasAttribute("data-organization-id")
+      s.hasAttribute("data-organization-id"),
     ) as HTMLScriptElement | undefined;
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
@@ -80,6 +85,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       box-shadow: 0 4px 24px rgba(0,0,0,.15);
       display: none; opacity: 0; transform: translateY(10px);
       transition: all .3s ease;
+      background: #fff;
     `;
 
     iframe = document.createElement("iframe");
@@ -97,6 +103,10 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     // publier les changements d’URL (SPA)
     patchHistoryForSpa();
     window.addEventListener("popstate", sendParentLocation);
+
+    // re-position on resize/scroll
+    window.addEventListener("resize", placeNudge);
+    window.addEventListener("scroll", placeNudge, { passive: true });
   }
 
   function buildWidgetUrl(): string {
@@ -118,7 +128,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         if (payload?.height && container) container.style.height = `${payload.height}px`;
         break;
       case "nexus:promo":
-        renderNudge(payload); // payload: { title, body, primary, secondary, primaryCta, secondaryCta, avatars?, privacyUrl?, brandName? }
+        hasPromoPayload = true;
+        renderNudge(payload);
         // cacher la promo interne du widget (éviter le doublon)
         iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, WIDGET_ORIGIN);
         break;
@@ -159,26 +170,43 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     brandName?: string;
     badgeText?: string;
   }) {
+    // create container once
     if (!nudge) {
       nudge = document.createElement("div");
       nudge.id = "echo-nudge";
       nudge.style.cssText = `
         position: fixed;
-        ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
-        bottom: 92px;
-        width: 340px; z-index: 1000001;
+        width: 340px; max-width: calc(100vw - 92px);
+        z-index: 1000001;
         background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;
         box-shadow: 0 8px 24px rgba(0,0,0,.12);
-        padding: 12px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
+        padding: 12px;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
+        opacity: 0; transform: translateY(6px);
+        transition: opacity .18s ease, transform .18s ease;
       `;
       document.body.appendChild(nudge);
+
+      // caret (petit triangle pointant le logo)
+      caret = document.createElement("div");
+      caret.style.cssText = `
+        position: fixed;
+        width: 12px; height: 12px;
+        background: #ffffff;
+        border-left: 1px solid #e5e7eb;
+        border-top: 1px solid #e5e7eb;
+        transform: rotate(45deg);
+        z-index: 1000002;
+        box-shadow: 0 2px 8px rgba(0,0,0,.08);
+        opacity: 0; transition: opacity .18s ease;
+      `;
+      document.body.appendChild(caret);
     }
 
     const avatars = Array.isArray(payload.avatars) && payload.avatars.length
       ? payload.avatars.slice(0, 3)
       : [];
 
-    // CSS inline pour overlap
     const avatarHtml = avatars.map((src, i) => `
       <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
         style="
@@ -201,20 +229,16 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       <div style="position:relative">
         ${badgeHtml}
         <div style="display:flex;gap:10px;align-items:flex-start">
-          <!-- avatars stack -->
           <div style="display:flex;align-items:center;min-width:56px;padding-top:2px">
             ${avatarHtml}
           </div>
-
-          <!-- content -->
           <div style="flex:1">
             <div style="font-weight:700">${escapeHtml(
-              payload.title || "Discover the right solution for your business project."
+              payload.title || "Discover the right solution for your business project.",
             )}</div>
             <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4">${escapeHtml(
-              payload.body || "Chat with our assistant or book a 15-min demo."
+              payload.body || "Chat with our assistant or book a 15-min demo.",
             )}</div>
-
             <div style="display:flex;gap:8px;margin-top:12px">
               <button id="nexus-primary"
                 style="flex:1;height:36px;border:none;border-radius:8px;background:#0ea5e9;color:#fff;cursor:pointer;font-weight:600">
@@ -229,20 +253,17 @@ import { chatBubbleIcon, closeIcon } from "./icons";
                   : ""
               }
             </div>
-
             ${
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
                     <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
-                        style="color:#6b7280;font-size:11px;text-decoration:underline">
+                      style="color:#6b7280;font-size:11px;text-decoration:underline">
                       This chat may be recorded. View our privacy policy.
                     </a>
                   </div>`
                 : ""
             }
           </div>
-
-          <!-- dismiss -->
           <button id="nexus-close" title="Close"
             style="border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:18px;line-height:18px">×</button>
         </div>
@@ -256,18 +277,67 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
     primaryBtn?.addEventListener("click", () => {
       postToWidget({ type: "nexus:run-primary-cta" });
-      show();
+      show(); // ouvre le chat
     });
     secondaryBtn?.addEventListener("click", () => {
       postToWidget({ type: "nexus:run-secondary-cta" });
       show();
     });
     closeBtn?.addEventListener("click", () => {
-      nudge?.remove();
-      nudge = null;
+      nudgeDismissed = true;
+      removeNudge();
     });
+
+    // place + reveal
+    placeNudge();
+    if (!isOpen && !nudgeDismissed) {
+      requestAnimationFrame(() => {
+        if (nudge) { nudge.style.opacity = "1"; nudge.style.transform = "translateY(0)"; }
+        if (caret) caret.style.opacity = "1";
+      });
+    }
   }
 
+  function placeNudge() {
+    if (!button || !nudge || !caret) return;
+
+    const btnRect = button.getBoundingClientRect();
+    const gap = 12; // gap entre nudge et bouton
+    const caretOffset = 10; // décalage vertical du caret par rapport au bord du nudge
+
+    // aligner horizontalement au bouton (bord droit/gauche)
+    const sideRight = position === "bottom-right";
+
+    // Nudge X
+    const nudgeX = sideRight
+      ? Math.max(12, window.innerWidth - (btnRect.right - 0) - (window.innerWidth - (btnRect.right + 20)) - 340) // garde-fou
+      : 20;
+
+    // Nudge Y juste au-dessus du bouton
+    const nudgeBottomPx = (window.innerHeight - btnRect.top) + gap;
+
+    nudge.style.right = sideRight ? "20px" : "";
+    nudge.style.left  = sideRight ? "" : "20px";
+    nudge.style.bottom = `${nudgeBottomPx}px`;
+
+    // Caret : centré au-dessus du bouton
+    const caretSize = 12;
+    const caretLeft = sideRight
+      ? btnRect.right - caretSize - 20 - 6
+      : btnRect.left + 20 + 6;
+    const caretBottom = (window.innerHeight - btnRect.top) + (gap - caretSize/2);
+
+    caret.style.left = sideRight ? `${caretLeft}px` : `${caretLeft}px`;
+    caret.style.bottom = `${caretBottom}px`;
+
+    // orientation du caret (45° déjà appliqué)
+    caret.style.transform = sideRight ? "rotate(45deg)" : "rotate(45deg)";
+  }
+
+  function removeNudge() {
+    if (nudge) { nudge.remove(); nudge = null; }
+    if (caret) { caret.remove(); caret = null; }
+  }
 
   function escapeHtml(s: string) {
     return s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]!));
@@ -282,6 +352,10 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   function show() {
     if (!container || !button) return;
     isOpen = true;
+    // cache le nudge quand on ouvre
+    if (nudge) { nudge.style.opacity = "0"; nudge.style.transform = "translateY(6px)"; }
+    if (caret) caret.style.opacity = "0";
+
     container.style.display = "block";
     setTimeout(() => {
       if (container) {
@@ -301,13 +375,21 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     setTimeout(() => container && (container.style.display = "none"), 300);
     button.innerHTML = chatBubbleIcon;
     button.style.background = "#3b82f6";
+
+    // si l’utilisateur ne l’a pas fermé, on ré-affiche le nudge si on a un payload
+    if (hasPromoPayload && !nudgeDismissed) {
+      // remonte la promo actuelle en demandant au widget de reposter (au cas où)
+      postToWidget({ type: "nexus:parent-location", href: location.href });
+    }
   }
 
   // -------- lifecycle --------
   function destroy() {
     window.removeEventListener("message", handleMessage);
     window.removeEventListener("popstate", sendParentLocation);
-    if (nudge) { nudge.remove(); nudge = null; }
+    window.removeEventListener("resize", placeNudge);
+    window.removeEventListener("scroll", placeNudge);
+    removeNudge();
     if (container) { container.remove(); container = null; iframe = null; }
     if (button) { button.remove(); button = null; }
     isOpen = false;
