@@ -63,7 +63,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       bottom: 20px;
       width: 60px; height: 60px; border-radius: 50%;
       background: #3b82f6; color: white; border: none; cursor: pointer;
-      z-index: 1000000; display: flex; align-items: center; justify-content: center;
+      z-index: 2147483000;                  /* ⬅ higher than most sites */
+      display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 24px rgba(59,130,246,.35); transition: transform .2s ease;
     `;
     button.addEventListener("click", toggleWidget);
@@ -80,7 +81,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       bottom: 90px;
       width: 400px; height: 600px;
       max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
-      z-index: 999999; border-radius: 16px; overflow: hidden;
+      z-index: 2147482999;                  /* just under the button */
+      border-radius: 16px; overflow: hidden;
       box-shadow: 0 4px 24px rgba(0,0,0,.15);
       display: none; opacity: 0; transform: translateY(10px);
       transition: all .3s ease; background: #fff;
@@ -213,10 +215,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         border-left: 1px solid #e5e7eb;
         border-top: 1px solid #e5e7eb;
         transform: rotate(45deg);
-        z-index: 1000002;
+        z-index: 2147483002;                  /* above the nudge */
         box-shadow: 0 2px 8px rgba(0,0,0,.08);
         opacity: 0; transition: opacity .18s ease;
-        pointer-events: none;
       `;
       document.body.appendChild(caret);
     }

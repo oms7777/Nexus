@@ -25,7 +25,15 @@ export default function SmartPromo() {
 
   const [parentHref, setParentHref] = useState<string>();
   const [hostAck, setHostAck] = useState(false);
+  const [ackWaitOver, setAckWaitOver] = useState(false);       // 👈 NEW
   const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
+
+  // Wait ~700ms before deciding host is missing (prevents flashing the internal card)
+  useEffect(() => {
+    if (!isEmbedded) return;
+    const t = setTimeout(() => setAckWaitOver(true), 700);     // 👈 NEW
+    return () => clearTimeout(t);
+  }, [isEmbedded]);
 
   // Settings (privacy/logo fallback)
   const ws = useQuery(
@@ -71,7 +79,6 @@ export default function SmartPromo() {
 
       // Any of these confirm the host is listening
       if (
-        t === "nexus:host-ack" || 
         t === "nexus:embed-ready" ||
         t === "nexus:parent-location" ||
         t === "nexus:hide-internal-promo"
@@ -105,7 +112,6 @@ export default function SmartPromo() {
     []
   );
 
-  // Compose outbound payload
   const makePayload = () => {
     const avatars =
       memberAvatars.length
@@ -136,15 +142,11 @@ export default function SmartPromo() {
     };
   };
 
-  // Post promo immediately and once again after a short delay
+  // Post promo immediately and once again after a short delay (covers SPA and handshake races)
   useEffect(() => {
-    const payload = makePayload();
-    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
-
-    const t = window.setTimeout(() => {
-      window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
-    }, 800);
-
+    const send = () => window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
+    send();
+    const t = setTimeout(send, 800);
     return () => clearTimeout(t);
   }, [promo, memberAvatars, ws, parentHref, fallbackPayload]);
 
@@ -160,25 +162,19 @@ export default function SmartPromo() {
   };
 
   const runCta = async (cta: Cta) => {
-    if (cta.kind === "open_chat") {
-      setBookingIntent("none");
-      return goChat();
-    }
-    if (cta.kind === "open_booking") {
-      setBookingIntent("book");
-      return goChat();
-    }
-    if (cta.kind === "open_url" && cta.url) {
-      window.open(cta.url, "_blank", "noopener,noreferrer");
-    }
+    if (cta.kind === "open_chat") { setBookingIntent("none"); return goChat(); }
+    if (cta.kind === "open_booking") { setBookingIntent("book"); return goChat(); }
+    if (cta.kind === "open_url" && cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
   };
 
-  // Only show internal debug if not embedded OR host never responded
-  const showInternal = !!promo && (!isEmbedded || !hostAck);
+  // Show internal debug only if:
+  //  - not embedded, OR
+  //  - embedded but host didn’t ack AFTER the small wait
+  const showInternal = !!promo && (!isEmbedded || (!hostAck && ackWaitOver));
   if (!showInternal) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg z-[1000]">
+    <div className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg" style={{ zIndex: 1000 }}>
       <div className="p-3">
         {promo?.card?.badgeText && (
           <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
@@ -205,9 +201,7 @@ export default function SmartPromo() {
             </button>
           )}
         </div>
-        <div className="mt-2 text-[11px] text-gray-500">
-          Debug nudge (host not detected).
-        </div>
+        <div className="mt-2 text-[11px] text-gray-500">Debug nudge (host not detected).</div>
       </div>
     </div>
   );
