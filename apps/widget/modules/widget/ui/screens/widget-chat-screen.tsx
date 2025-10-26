@@ -197,6 +197,8 @@ export const WidgetChatScreen = () => {
   const linkMode = consentCfg?.linkMode ?? "link";
   const consentUrl = consentCfg?.privacyUrl;
   const consentModalText = consentCfg?.modalContent;
+  const showWelcomeChoices = !conversationId && step === "idle";
+
 
   // 0) si consent activé et step "idle" → on force l’étape "consent"
   useEffect(() => {
@@ -418,6 +420,37 @@ export const WidgetChatScreen = () => {
               )}
             </AIMessage>
           ))}
+
+          {showWelcomeChoices && (
+            <div className="p-3">
+              <div className="rounded-lg border bg-background p-3">
+                <div className="font-semibold text-lg mb-2">
+                  Discover the right solution for your business project.
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Our team is available to chat or schedule a quick call to guide you through your needs.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1"
+                    onClick={() => {
+                      setBookingIntent("none");
+                      setStep("consent"); // 👈 affiche le consent juste après
+                    }}
+                  >
+                    💬 Chat with AI Assistant
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setBookingIntent("book")}
+                  >
+                    📅 Book a meeting
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Carte consent (uniquement si activée) */}
           {step === "consent" &&

@@ -89,6 +89,12 @@ export default function SmartPromo() {
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
       }
+      
+      if (t === "nexus:open-chat") {
+        setBookingIntent("none");
+        setScreen("chat");
+        return;
+      }
 
       const p = promoRef.current;
       if (!p) return;

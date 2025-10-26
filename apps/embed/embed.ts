@@ -384,6 +384,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     }, 10);
     button.innerHTML = closeIcon;
     sendParentLocation();
+    postToWidget({ type: "nexus:open-chat" });
   }
 
   function hide() {
