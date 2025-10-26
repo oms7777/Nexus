@@ -1,3 +1,4 @@
+// apps/widget/modules/ui/components/SmartPromo.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -22,25 +23,21 @@ export default function SmartPromo() {
   const setConvId = useSetAtom(conversationIdAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
 
-  const [parentHref, setParentHref] = useState<string | undefined>(undefined);
-  const [hostAcknowledged, setHostAcknowledged] = useState(false);
-  const isEmbedded =
-    typeof window !== "undefined" ? window.parent !== window : false;
+  const [parentHref, setParentHref] = useState<string>();
+  const [hostAck, setHostAck] = useState(false);
+  const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
 
   // Settings (privacy/logo fallback)
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip",
+    orgId ? { organizationId: orgId } : "skip"
   );
 
   // Org avatars (public)
   const memberAvatars =
-    useQuery(
-      api.public.users.listOrgAvatars,
-      orgId ? { organizationId: orgId, limit: 3 } : "skip",
-    ) ?? [];
+    useQuery(api.public.users.listOrgAvatars, orgId ? { organizationId: orgId, limit: 3 } : "skip") ?? [];
 
-  // Current URL (prefer parent)
+  // Page URL (prefer parent)
   const currentUrl =
     typeof window !== "undefined" ? parentHref ?? window.location.href : undefined;
   const utm =
@@ -48,21 +45,18 @@ export default function SmartPromo() {
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
       : undefined;
 
-  // Page promo(s)
+  // Promos for page
   const promos =
     useQuery(
       api.public.promos.listForPage,
-      orgId && currentUrl
-        ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip",
+      orgId && currentUrl ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
     ) ?? [];
-
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos],
+    [promos]
   );
 
-  // Keep latest promo in a ref for message handler
+  // Stable ref for CTA handling
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
     promoRef.current = promo;
@@ -70,17 +64,24 @@ export default function SmartPromo() {
 
   const createConversation = useMutation(api.public.conversations.create);
 
-  // Host -> widget messages
+  // Host -> widget
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      const t = e.data?.type;
+      const t = e.data?.type as string | undefined;
+
+      // Any of these confirm the host is listening
+      if (
+        t === "nexus:embed-ready" ||
+        t === "nexus:parent-location" ||
+        t === "nexus:hide-internal-promo"
+      ) {
+        setHostAck(true);
+      }
+
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
-        setHostAcknowledged(true);
       }
-      if (t === "nexus:hide-internal-promo") {
-        setHostAcknowledged(true);
-      }
+
       const p = promoRef.current;
       if (!p) return;
       if (t === "nexus:run-primary-cta" && p.primaryCta) void runCta(p.primaryCta);
@@ -90,7 +91,7 @@ export default function SmartPromo() {
     return () => window.removeEventListener("message", onMsg);
   }, []);
 
-  // Fallback payload so the host can show something immediately
+  // Fallback payload (so host can always render something)
   const fallbackPayload = useMemo(
     () => ({
       title: "Get help fast or schedule time",
@@ -100,14 +101,13 @@ export default function SmartPromo() {
       primaryCta: { kind: "open_chat", label: "Chat with AI" as const },
       secondaryCta: { kind: "open_booking", label: "Book a meeting" as const },
     }),
-    [],
+    []
   );
 
-  // Push nudge payload to host (external nudge). Always send something:
-  useEffect(() => {
-    // Avatars fallback chain
+  // Compose outbound payload
+  const makePayload = () => {
     const avatars =
-      memberAvatars && memberAvatars.length
+      memberAvatars.length
         ? memberAvatars
         : (ws as any)?.teamAvatars?.length
         ? (ws as any).teamAvatars.slice(0, 3)
@@ -115,31 +115,36 @@ export default function SmartPromo() {
         ? [(ws as any).brandLogoUrl]
         : ["/logo.svg"];
 
-    const payload = promo
-      ? {
-          title: promo.card?.title,
-          body: promo.card?.body,
-          primary: promo.primaryCta?.label,
-          secondary: promo.secondaryCta?.label,
-          primaryCta: promo.primaryCta,
-          secondaryCta: promo.secondaryCta,
-          avatars,
-          badgeText: promo.card?.badgeText || undefined,
-          privacyUrl:
-            (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
-        }
-      : {
-          ...fallbackPayload,
-          avatars,
-          privacyUrl:
-            (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
-        };
-
-    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
-    // 👇 If we're inside an iframe, consider the host “alive” right away.
-    if (typeof window !== "undefined" && window.parent !== window) {
-      setHostAcknowledged(true);
+    if (promo) {
+      return {
+        title: promo.card?.title,
+        body: promo.card?.body,
+        primary: promo.primaryCta?.label,
+        secondary: promo.secondaryCta?.label,
+        primaryCta: promo.primaryCta,
+        secondaryCta: promo.secondaryCta,
+        avatars,
+        badgeText: promo.card?.badgeText || undefined,
+        privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
+      };
     }
+    return {
+      ...fallbackPayload,
+      avatars,
+      privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
+    };
+  };
+
+  // Post promo immediately and once again after a short delay
+  useEffect(() => {
+    const payload = makePayload();
+    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
+
+    const t = window.setTimeout(() => {
+      window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
+    }, 800);
+
+    return () => clearTimeout(t);
   }, [promo, memberAvatars, ws, parentHref, fallbackPayload]);
 
   // CTA helpers
@@ -147,15 +152,10 @@ export default function SmartPromo() {
     setScreen("chat");
     try {
       if (orgId && sessionId) {
-        const id = await createConversation({
-          organizationId: orgId,
-          contactSessionId: sessionId,
-        });
+        const id = await createConversation({ organizationId: orgId, contactSessionId: sessionId });
         setConvId(id);
       }
-    } catch {
-      /* no-op */
-    }
+    } catch {}
   };
 
   const runCta = async (cta: Cta) => {
@@ -172,15 +172,12 @@ export default function SmartPromo() {
     }
   };
 
-  // Internal debug card only if not embedded OR host never responded
-  const shouldShowInternalDebug = !!promo && (!isEmbedded || !hostAcknowledged);
-  if (!shouldShowInternalDebug) return null;
+  // Only show internal debug if not embedded OR host never responded
+  const showInternal = !!promo && (!isEmbedded || !hostAck);
+  if (!showInternal) return null;
 
   return (
-    <div
-      className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg"
-      style={{ zIndex: 1000 }}
-    >
+    <div className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg z-1000">
       <div className="p-3">
         {promo?.card?.badgeText && (
           <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
@@ -208,8 +205,7 @@ export default function SmartPromo() {
           )}
         </div>
         <div className="mt-2 text-[11px] text-gray-500">
-          Debug nudge (shown because the widget is not embedded or host hasn’t
-          responded yet).
+          Debug nudge (host not detected).
         </div>
       </div>
     </div>
