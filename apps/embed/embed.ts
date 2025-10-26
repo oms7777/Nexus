@@ -55,7 +55,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   function render() {
     // Launcher button
     button = document.createElement("button");
-    button.id = "echo-widget-button";
+    button.id = "nexus-widget-button";
     button.innerHTML = chatBubbleIcon;
     button.style.cssText = `
       position: fixed;
@@ -74,7 +74,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
     // Panel container + iframe
     container = document.createElement("div");
-    container.id = "echo-widget-container";
+    container.id = "nexus-widget-container";
     container.style.cssText = `
       position: fixed;
       ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
@@ -192,7 +192,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   }) {
     if (!nudge) {
       nudge = document.createElement("div");
-      nudge.id = "echo-nudge";
+      nudge.id = "nexus-nudge";
       nudge.style.cssText = `
         position: fixed;
         width: 340px; max-width: min(340px, calc(100vw - 96px));
