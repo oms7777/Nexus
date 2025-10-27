@@ -128,11 +128,28 @@ export default function SmartPromo() {
   };
 
   useEffect(() => {
-    const send = () => window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
-    send();
-    const t = setTimeout(send, 800);
-    return () => clearTimeout(t);
-  }, [promo, memberAvatars, ws, parentHref, fallbackPayload]);
+    // Ne rien envoyer si le widget n'est pas dans un embed
+    if (!isEmbedded) return;
+
+    // Attendre que le host soit prêt (ack) avant d'envoyer le nudge
+    const send = () => {
+      if (hostAck) {
+        window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
+      }
+    };
+
+    // Envoi dès ack, avec petit délai de sécurité
+    const interval = setInterval(() => {
+      if (hostAck) {
+        send();
+        clearInterval(interval);
+      }
+    }, 200);
+
+    // Sécurité : ne rien renvoyer 2x
+    return () => clearInterval(interval);
+  }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
+
 
   const goChat = async () => {
     setScreen("chat");
