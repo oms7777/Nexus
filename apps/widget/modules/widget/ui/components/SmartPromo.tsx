@@ -150,7 +150,7 @@ export default function SmartPromo() {
     if (cta.kind === "open_url" && cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
   };
 
-  const showInternal = !!promo && (!isEmbedded || (!hostAck && ackWaitOver));
+  const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 
   return (
