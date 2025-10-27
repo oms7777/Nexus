@@ -51,6 +51,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@workspace/ui/components/dialog";
+import { Input } from "@workspace/ui/components/input";
+import { Label } from "@workspace/ui/components/label";
+import QualifyCard from "../components/QualifyCard";
+
 
 /* ---------------- helpers ---------------- */
 
@@ -189,7 +193,7 @@ export const WidgetChatScreen = () => {
   const listSlots = useAction(api.public.calendar.listSlots);
   const bookSlot = useAction(api.public.calendar.bookSlot);
 
-  // analytics
+  // analytics & conversation bootstrap
   const logEvent = useMutation(api.public.analytics.log);
   const createConversation = useMutation(api.public.conversations.create);
   const firstMessageSentRef = useRef(false);
@@ -199,10 +203,10 @@ export const WidgetChatScreen = () => {
   const consentUrl = consentCfg?.privacyUrl;
   const consentModalText = consentCfg?.modalContent;
 
-  // Afficher la carte d’accueil uniquement à froid
+  // Carte d’accueil hors-fil : seulement à froid
   const showWelcomeChoices = !conversationId && step === "idle";
 
-  // widget loaded
+  // log widget load
   useEffect(() => {
     if (!organizationId) return;
     logEvent({
@@ -218,70 +222,37 @@ export const WidgetChatScreen = () => {
   });
   const createMessage = useAction(api.public.messages.create);
 
-  /* -------- Qualif tour par tour -------- */
-  const handleQualifyTurn = async (userText: string) => {
-    if (step === "ask_name") {
-      setQdata((d) => ({ ...d, name: userText.trim() }));
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "user", text: userText },
-        { role: "assistant", text: "Thanks! What's your email?" },
-      ]);
-      setStep("ask_email");
-      return true;
-    }
-    if (step === "ask_email") {
-      setQdata((d) => ({ ...d, email: userText.trim() }));
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "user", text: userText },
-        { role: "assistant", text: "What's your company?" },
-      ]);
-      setStep("ask_company");
-      return true;
-    }
-    if (step === "ask_company") {
-      setQdata((d) => ({ ...d, company: userText.trim() }));
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "user", text: userText },
-        { role: "assistant", text: "And your role / job title?" },
-      ]);
-      setStep("ask_role");
-      return true;
-    }
-    if (step === "ask_role") {
-      setQdata((d) => ({ ...d, role: userText.trim() }));
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "user", text: userText },
-        {
-          role: "assistant",
-          text: calendarAccount
-            ? "Perfect — pick a time below 👇"
-            : "No calendar is connected yet. Please try again later.",
-        },
-      ]);
+  /* -------- Qualif en “steps” (utilisée après submit du formulaire) -------- */
+  const startPickingAfterQualify = async (lead: {
+    name: string; email: string; company?: string; role?: string;
+  }) => {
+    setQdata(lead);
+    setLocalMsgs((m) => [
+      ...m,
+      {
+        role: "assistant",
+        text: calendarAccount
+          ? "Perfect — pick a time below 👇"
+          : "No calendar is connected yet. Please try again later.",
+      },
+    ]);
 
-      if (calendarAccount && organizationId) {
-        setStep("picking");
-        setLoadingSlots(true);
-        try {
-          const s = await listSlots({
-            organizationId,
-            days: 7,
-            slotMinutes: 30,
-          });
-          setSlots(s);
-        } finally {
-          setLoadingSlots(false);
-        }
-      } else {
-        setStep("done");
+    if (calendarAccount && organizationId) {
+      setStep("picking");
+      setLoadingSlots(true);
+      try {
+        const s = await listSlots({
+          organizationId,
+          days: 7,
+          slotMinutes: 30,
+        });
+        setSlots(s);
+      } finally {
+        setLoadingSlots(false);
       }
-      return true;
+    } else {
+      setStep("done");
     }
-    return false;
   };
 
   /* -------- Envoi message -------- */
@@ -307,12 +278,6 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // qualif en cours
-    if (["ask_name", "ask_email", "ask_company", "ask_role"].includes(step)) {
-      const consumed = await handleQualifyTurn(text);
-      if (consumed) return;
-    }
-
     // flux normal
     if (!conversation || !contactSessionId) return;
     await createMessage({
@@ -328,24 +293,19 @@ export const WidgetChatScreen = () => {
     text: m.content,
   }));
 
-  // on masque le greet pendant consent + tout début qualif
+  // On ne touche pas au greet: il reste premier. On évite juste un doublon exact.
   const greet = widgetSettings?.greetMessage?.trim();
-  const shouldHideGreet = step === "consent" || step === "ask_name";
-  const filteredBackend =
-    shouldHideGreet && greet
-      ? backendMsgs.filter(
-          (m, i) =>
-            !(i === 0 && m.role === "assistant" && m.text.trim() === greet)
-        )
-      : backendMsgs;
+  const filteredBackend = greet
+    ? backendMsgs.filter(
+        (m, i) => !(i > 0 && m.role === "assistant" && m.text.trim() === greet)
+      )
+    : backendMsgs;
 
   const uiMsgs = [...filteredBackend, ...localMsgs];
 
   const suggestions = useMemo(() => {
     const base = widgetSettings
-      ? (Object.values(widgetSettings.defaultSuggestions).filter(
-          Boolean
-        ) as string[])
+      ? (Object.values(widgetSettings.defaultSuggestions).filter(Boolean) as string[])
       : [];
     return ["Book a demo", ...base];
   }, [widgetSettings]);
@@ -386,7 +346,7 @@ export const WidgetChatScreen = () => {
             </AIMessage>
           ))}
 
-          {/* Carte de bienvenue hors-fil */}
+          {/* Carte de bienvenue hors-fil (idempotente) */}
           {showWelcomeChoices && (
             <div className="p-3">
               <div className="rounded-lg border bg-background p-3">
@@ -427,13 +387,10 @@ export const WidgetChatScreen = () => {
             widgetSettings.consent?.enabled !== false && (
               <div className="p-3">
                 <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
-                  {(widgetSettings.consent?.title ||
-                    widgetSettings.consent?.intro) && (
+                  {(widgetSettings.consent?.title || widgetSettings.consent?.intro) && (
                     <div className="mb-2">
                       {widgetSettings.consent?.title && (
-                        <div className="font-medium">
-                          {widgetSettings.consent.title}
-                        </div>
+                        <div className="font-medium">{widgetSettings.consent.title}</div>
                       )}
                       {widgetSettings.consent?.intro && (
                         <div className="text-muted-foreground">
@@ -448,9 +405,8 @@ export const WidgetChatScreen = () => {
                       "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
                     {linkMode === "link" && consentUrl ? (
                       <>
-                        I hereby consent to processing of my personal data
-                        collected in the chat in accordance with the rules
-                        described{" "}
+                        I hereby consent to processing of my personal data collected in the chat in
+                        accordance with the rules described{" "}
                         <a
                           href={consentUrl}
                           target="_blank"
@@ -483,23 +439,17 @@ export const WidgetChatScreen = () => {
                       setConsentGiven(true);
 
                       if (bookingIntent === "book") {
-                        // FLOW BOOKING → qualif
+                        // → FORMULAIRE DE QUALIF (puis slots)
+                        setStep("ask_name"); // on utilise ce step comme repère “dans la qualif”
                         setLocalMsgs((m) => [
                           ...m,
-                          {
-                            role: "assistant",
-                            text: "Great! To book a demo, what's your full name?",
-                          },
+                          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
                         ]);
-                        setStep("ask_name");
                       } else {
-                        // FLOW CHAT → s'assurer d'avoir une conversation (laisse le greet backend)
+                        // → CHAT : s’assurer d’avoir une conversation
                         if (!conversation && organizationId && contactSessionId) {
                           try {
-                            await createConversation({
-                              organizationId,
-                              contactSessionId,
-                            });
+                            await createConversation({ organizationId, contactSessionId });
                           } catch {}
                         }
                         setStep("idle");
@@ -529,13 +479,30 @@ export const WidgetChatScreen = () => {
               </div>
             )}
 
+          {/* Formulaire de qualification quand step === "ask_name" */}
+          {step === "ask_name" && bookingIntent !== "chat" && (
+            <QualifyCard
+              initial={{ name: qdata.name, email: qdata.email, company: qdata.company, role: qdata.role }}
+              onSubmit={(lead) => {
+                // Option: log pour CRM/ETL futur
+                if (organizationId) {
+                  logEvent({
+                    organizationId,
+                    type: "lead_qualified",
+                    sessionId: contactSessionId || undefined,
+                    meta: lead,
+                  }).catch(() => {});
+                }
+                startPickingAfterQualify(lead);
+              }}
+            />
+          )}
+
           {/* Slot picker après qualif */}
           {step === "picking" && (
             <>
               {loadingSlots && (
-                <div className="p-3 text-sm text-muted-foreground">
-                  Loading times…
-                </div>
+                <div className="p-3 text-sm text-muted-foreground">Loading times…</div>
               )}
               {!loadingSlots && slots && (
                 <SlotsByDay
@@ -569,6 +536,7 @@ export const WidgetChatScreen = () => {
                         end: s.end,
                         bookingId: res?.bookingId,
                         meetingUrl: res?.meetingUrl,
+                        lead: qdata, // CRM ready
                       },
                     }).catch(() => {});
 
@@ -627,7 +595,7 @@ export const WidgetChatScreen = () => {
             name="message"
             render={({ field }) => (
               <AIInputTextarea
-                disabled={conversation?.status === "resolved"}
+                disabled={conversation?.status === "resolved" || step === "ask_name" || step === "picking"}
                 onChange={field.onChange}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
@@ -639,13 +607,9 @@ export const WidgetChatScreen = () => {
                   conversation?.status === "resolved"
                     ? "This conversation has been resolved."
                     : step === "ask_name"
-                    ? "Type your full name…"
-                    : step === "ask_email"
-                    ? "Type your email…"
-                    : step === "ask_company"
-                    ? "Type your company…"
-                    : step === "ask_role"
-                    ? "Type your role / job title…"
+                    ? "Fill the form above to continue…"
+                    : step === "picking"
+                    ? "Pick a time above…"
                     : "Type your message..."
                 }
                 value={field.value}
@@ -656,7 +620,7 @@ export const WidgetChatScreen = () => {
             <AIInputTools />
             <AIInputSubmit
               disabled={
-                conversation?.status === "resolved" || !form.formState.isValid
+                conversation?.status === "resolved" || !form.formState.isValid || step === "ask_name" || step === "picking"
               }
               status="ready"
               type="submit"
