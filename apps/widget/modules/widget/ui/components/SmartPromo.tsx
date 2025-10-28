@@ -167,35 +167,6 @@ export default function SmartPromo() {
     if (cta.kind === "open_url" && cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
   };
 
-  const showInternal = !!promo && !isEmbedded;
-  if (!showInternal) return null;
 
-  return (
-    <div className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg" style={{ zIndex: 1000 }}>
-      <div className="p-3">
-        {promo?.card?.badgeText && (
-          <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
-            {promo.card.badgeText}
-          </div>
-        )}
-        <div className="font-semibold">{promo?.card?.title ?? "Need a hand?"}</div>
-        <div className="mt-1 text-sm text-muted-foreground">
-          {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
-        </div>
-        <div className="mt-3 flex gap-2">
-          <button className="h-9 flex-1 rounded-md bg-sky-500 px-3 font-medium text-white"
-                  onClick={() => promo?.primaryCta && runCta(promo.primaryCta)}>
-            {promo?.primaryCta?.label ?? "Chat"}
-          </button>
-          {promo?.secondaryCta && (
-            <button className="h-9 flex-1 rounded-md border px-3 font-medium"
-                    onClick={() => runCta(promo.secondaryCta!)}>
-              {promo.secondaryCta.label}
-            </button>
-          )}
-        </div>
-        <div className="mt-2 text-[11px] text-gray-500">Debug nudge (host not detected).</div>
-      </div>
-    </div>
-  );
+  return null;
 }
