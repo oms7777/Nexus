@@ -24,14 +24,7 @@ export default function SmartPromo() {
 
   const [parentHref, setParentHref] = useState<string>();
   const [hostAck, setHostAck] = useState(false);
-  const [ackWaitOver, setAckWaitOver] = useState(false);
   const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
-
-  useEffect(() => {
-    if (!isEmbedded) return;
-    const t = setTimeout(() => setAckWaitOver(true), 700);
-    return () => clearTimeout(t);
-  }, [isEmbedded]);
 
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
@@ -43,6 +36,7 @@ export default function SmartPromo() {
 
   const currentUrl =
     typeof window !== "undefined" ? parentHref ?? window.location.href : undefined;
+
   const utm =
     typeof window !== "undefined" && currentUrl
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
@@ -53,6 +47,7 @@ export default function SmartPromo() {
       api.public.promos.listForPage,
       orgId && currentUrl ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
     ) ?? [];
+
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
     [promos]
@@ -63,12 +58,12 @@ export default function SmartPromo() {
 
   const createConversation = useMutation(api.public.conversations.create);
 
-  // Host -> widget
+  // Listen to host messages
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      if (t === "nexus:embed-ready" || t === "nexus:parent-location" || t === "nexus:hide-internal-promo") {
+      if (t === "nexus:host-ack" || t === "nexus:embed-ready" || t === "nexus:parent-location") {
         setHostAck(true);
       }
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
@@ -93,9 +88,9 @@ export default function SmartPromo() {
     () => ({
       title: "Get help fast or schedule time",
       body: "Chat now or book a 15-min demo.",
-      primary: "Chat with AI",
+      primary: "Chat with AI Assistant",
       secondary: "Book a meeting",
-      primaryCta: { kind: "open_chat", label: "Chat with AI" as const },
+      primaryCta: { kind: "open_chat", label: "Chat with AI Assistant" as const },
       secondaryCta: { kind: "open_booking", label: "Book a meeting" as const },
     }),
     []
@@ -127,29 +122,11 @@ export default function SmartPromo() {
     return { ...fallbackPayload, avatars, privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined };
   };
 
+  // Only send payload to host; never render a local nudge here
   useEffect(() => {
-    // Ne rien envoyer si le widget n'est pas dans un embed
-    if (!isEmbedded) return;
-
-    // Attendre que le host soit prêt (ack) avant d'envoyer le nudge
-    const send = () => {
-      if (hostAck) {
-        window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
-      }
-    };
-
-    // Envoi dès ack, avec petit délai de sécurité
-    const interval = setInterval(() => {
-      if (hostAck) {
-        send();
-        clearInterval(interval);
-      }
-    }, 200);
-
-    // Sécurité : ne rien renvoyer 2x
-    return () => clearInterval(interval);
+    if (!isEmbedded || !hostAck) return;
+    window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
   }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
-
 
   const goChat = async () => {
     setScreen("chat");
@@ -166,7 +143,6 @@ export default function SmartPromo() {
     if (cta.kind === "open_booking") { setBookingIntent("book"); return goChat(); }
     if (cta.kind === "open_url" && cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
   };
-
 
   return null;
 }
