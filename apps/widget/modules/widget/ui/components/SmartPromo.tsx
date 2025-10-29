@@ -10,8 +10,8 @@ import {
   conversationIdAtom,
   screenAtom,
 } from "../../atoms/widget-atoms";
-import { bookingIntentAtom } from "../../atoms/qualify-atoms";
 import type { Doc } from "@workspace/backend/_generated/dataModel";
+import { bookingIntentAtom } from "../../atoms/qualify-atoms";
 
 type Cta = Doc<"promos">["primaryCta"];
 
@@ -23,7 +23,6 @@ export default function SmartPromo() {
   const setBookingIntent = useSetAtom(bookingIntentAtom);
 
   const [parentHref, setParentHref] = useState<string>();
-  const [hostAck, setHostAck] = useState(false);
   const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
 
   const ws = useQuery(
@@ -36,7 +35,6 @@ export default function SmartPromo() {
 
   const currentUrl =
     typeof window !== "undefined" ? parentHref ?? window.location.href : undefined;
-
   const utm =
     typeof window !== "undefined" && currentUrl
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
@@ -47,7 +45,6 @@ export default function SmartPromo() {
       api.public.promos.listForPage,
       orgId && currentUrl ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
     ) ?? [];
-
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
     [promos]
@@ -58,23 +55,15 @@ export default function SmartPromo() {
 
   const createConversation = useMutation(api.public.conversations.create);
 
-  // Listen to host messages
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
-
-      if (t === "nexus:host-ack" || t === "nexus:embed-ready" || t === "nexus:parent-location") {
-        setHostAck(true);
-      }
-      if (t === "nexus:parent-location" && typeof e.data.href === "string") {
-        setParentHref(e.data.href);
-      }
+      if (t === "nexus:parent-location" && typeof e.data.href === "string") setParentHref(e.data.href);
       if (t === "nexus:open-chat") {
         setBookingIntent("chat");
         setScreen("chat");
         return;
       }
-
       const p = promoRef.current;
       if (!p) return;
       if (t === "nexus:run-primary-cta" && p.primaryCta) void runCta(p.primaryCta);
@@ -122,11 +111,12 @@ export default function SmartPromo() {
     return { ...fallbackPayload, avatars, privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined };
   };
 
-  // Only send payload to host; never render a local nudge here
   useEffect(() => {
-    if (!isEmbedded || !hostAck) return;
-    window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
-  }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
+    if (!isEmbedded) return;
+    const payload = makePayload();
+    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
+    window.dispatchEvent(new CustomEvent("nexus:promo-card", { detail: payload }));
+  }, [isEmbedded, promo, memberAvatars, ws]);
 
   const goChat = async () => {
     setScreen("chat");
