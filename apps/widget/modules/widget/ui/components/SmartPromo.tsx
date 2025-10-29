@@ -11,7 +11,6 @@ import {
   screenAtom,
 } from "../../atoms/widget-atoms";
 import { bookingIntentAtom } from "../../atoms/qualify-atoms";
-import { promoAtom } from "../../atoms/promo-atoms";
 import type { Doc } from "@workspace/backend/_generated/dataModel";
 
 type Cta = Doc<"promos">["primaryCta"];
@@ -22,38 +21,23 @@ export default function SmartPromo() {
   const setScreen = useSetAtom(screenAtom);
   const setConvId = useSetAtom(conversationIdAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
-  const setPromo = useSetAtom(promoAtom);
 
   const [parentHref, setParentHref] = useState<string>();
   const [hostAck, setHostAck] = useState(false);
-  const isEmbedded =
-    typeof window !== "undefined" ? window.parent !== window : false;
+  const [ackWaitOver, setAckWaitOver] = useState(false);
+  const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
 
-  // host ACK management
   useEffect(() => {
     if (!isEmbedded) return;
-    const onMsg = (e: MessageEvent) => {
-      const t = e.data?.type as string | undefined;
-      if (t === "nexus:embed-ready") setHostAck(true);
-      if (t === "nexus:parent-location" && typeof e.data.href === "string") {
-        setParentHref(e.data.href);
-      }
-      if (t === "nexus:open-chat") {
-        setBookingIntent("chat");
-        setScreen("chat");
-      }
-      if (t === "nexus:run-primary-cta") handleRunCta("primary");
-      if (t === "nexus:run-secondary-cta") handleRunCta("secondary");
-    };
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, [setBookingIntent, setScreen]);
+    const t = setTimeout(() => setAckWaitOver(true), 700);
+    return () => clearTimeout(t);
+  }, [isEmbedded]);
 
-  // Queries
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip"
   );
+
   const memberAvatars =
     useQuery(api.public.users.listOrgAvatars, orgId ? { organizationId: orgId, limit: 3 } : "skip") ?? [];
 
@@ -69,22 +53,41 @@ export default function SmartPromo() {
       api.public.promos.listForPage,
       orgId && currentUrl ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
     ) ?? [];
-
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
     [promos]
   );
 
-  // Stockage du dernier promo
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
-  useEffect(() => {
-    if (promo) {
-      promoRef.current = promo;
-      setPromo(promo);
-    }
-  }, [promo, setPromo]);
+  useEffect(() => { promoRef.current = promo; }, [promo]);
 
   const createConversation = useMutation(api.public.conversations.create);
+
+  // Host -> widget
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const t = e.data?.type as string | undefined;
+
+      if (t === "nexus:embed-ready" || t === "nexus:parent-location" || t === "nexus:hide-internal-promo") {
+        setHostAck(true);
+      }
+      if (t === "nexus:parent-location" && typeof e.data.href === "string") {
+        setParentHref(e.data.href);
+      }
+      if (t === "nexus:open-chat") {
+        setBookingIntent("chat");
+        setScreen("chat");
+        return;
+      }
+
+      const p = promoRef.current;
+      if (!p) return;
+      if (t === "nexus:run-primary-cta" && p.primaryCta) void runCta(p.primaryCta);
+      if (t === "nexus:run-secondary-cta" && p.secondaryCta) void runCta(p.secondaryCta);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [setBookingIntent, setScreen]);
 
   const fallbackPayload = useMemo(
     () => ({
@@ -108,63 +111,91 @@ export default function SmartPromo() {
         ? [(ws as any).brandLogoUrl]
         : ["/logo.svg"];
 
-    const p = promo ?? undefined;
-    return {
-      title: p?.card?.title ?? fallbackPayload.title,
-      body: p?.card?.body ?? fallbackPayload.body,
-      primary: p?.primaryCta?.label ?? fallbackPayload.primary,
-      secondary: p?.secondaryCta?.label ?? fallbackPayload.secondary,
-      primaryCta: p?.primaryCta ?? fallbackPayload.primaryCta,
-      secondaryCta: p?.secondaryCta ?? fallbackPayload.secondaryCta,
-      avatars,
-      badgeText: p?.card?.badgeText || undefined,
-      privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
-    };
+    if (promo) {
+      return {
+        title: promo.card?.title,
+        body: promo.card?.body,
+        primary: promo.primaryCta?.label,
+        secondary: promo.secondaryCta?.label,
+        primaryCta: promo.primaryCta,
+        secondaryCta: promo.secondaryCta,
+        avatars,
+        badgeText: promo.card?.badgeText || undefined,
+        privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
+      };
+    }
+    return { ...fallbackPayload, avatars, privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined };
   };
 
-  // Send promo to host when ready
   useEffect(() => {
-    if (!isEmbedded || !hostAck) return;
-    const payload = makePayload();
-    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
-  }, [isEmbedded, hostAck, promo, ws, memberAvatars]);
+    // Ne rien envoyer si le widget n'est pas dans un embed
+    if (!isEmbedded) return;
 
-  // Conversation bootstrap
+    // Attendre que le host soit prêt (ack) avant d'envoyer le nudge
+    const send = () => {
+      if (hostAck) {
+        window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
+      }
+    };
+
+    // Envoi dès ack, avec petit délai de sécurité
+    const interval = setInterval(() => {
+      if (hostAck) {
+        send();
+        clearInterval(interval);
+      }
+    }, 200);
+
+    // Sécurité : ne rien renvoyer 2x
+    return () => clearInterval(interval);
+  }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
+
+
   const goChat = async () => {
     setScreen("chat");
     try {
       if (orgId && sessionId) {
-        const id = await createConversation({
-          organizationId: orgId,
-          contactSessionId: sessionId,
-        });
+        const id = await createConversation({ organizationId: orgId, contactSessionId: sessionId });
         setConvId(id);
       }
-    } catch (e) {
-      console.warn("Conversation create error:", e);
-    }
+    } catch {}
   };
 
-  const handleRunCta = async (ctaType: "primary" | "secondary") => {
-    const p = promoRef.current;
-    const cta = ctaType === "primary" ? p?.primaryCta : p?.secondaryCta;
-    if (!cta) return;
-
-    switch (cta.kind) {
-      case "open_chat":
-        setBookingIntent("chat");
-        return goChat();
-      case "open_booking":
-        setBookingIntent("book");
-        return goChat();
-      case "open_url":
-        if (cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
-        break;
-    }
+  const runCta = async (cta: Cta) => {
+    if (cta.kind === "open_chat") { setBookingIntent("chat"); return goChat(); }
+    if (cta.kind === "open_booking") { setBookingIntent("book"); return goChat(); }
+    if (cta.kind === "open_url" && cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
   };
 
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 
-  return null;
+  return (
+    <div className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg" style={{ zIndex: 1000 }}>
+      <div className="p-3">
+        {promo?.card?.badgeText && (
+          <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
+            {promo.card.badgeText}
+          </div>
+        )}
+        <div className="font-semibold">{promo?.card?.title ?? "Need a hand?"}</div>
+        <div className="mt-1 text-sm text-muted-foreground">
+          {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button className="h-9 flex-1 rounded-md bg-sky-500 px-3 font-medium text-white"
+                  onClick={() => promo?.primaryCta && runCta(promo.primaryCta)}>
+            {promo?.primaryCta?.label ?? "Chat"}
+          </button>
+          {promo?.secondaryCta && (
+            <button className="h-9 flex-1 rounded-md border px-3 font-medium"
+                    onClick={() => runCta(promo.secondaryCta!)}>
+              {promo.secondaryCta.label}
+            </button>
+          )}
+        </div>
+        <div className="mt-2 text-[11px] text-gray-500">Debug nudge (host not detected).</div>
+      </div>
+    </div>
+  );
 }
