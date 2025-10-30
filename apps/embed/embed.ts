@@ -18,6 +18,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   let organizationId: string | null = null;
   let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
 
+  let TARGET_ORIGIN = "";
+
   const currentScript = document.currentScript as HTMLScriptElement | null;
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
@@ -42,8 +44,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     return;
   }
 
-  const WIDGET_ORIGIN = new URL(EMBED_CONFIG.WIDGET_URL).origin;
-
   function init() {
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", render, { once: true });
@@ -53,7 +53,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   }
 
   function render() {
-    // Launcher button
     button = document.createElement("button");
     button.id = "nexus-widget-button";
     button.innerHTML = chatBubbleIcon;
@@ -63,7 +62,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       bottom: 20px;
       width: 60px; height: 60px; border-radius: 50%;
       background: #3b82f6; color: white; border: none; cursor: pointer;
-      z-index: 2147483000;                  /* ⬅ higher than most sites */
+      z-index: 2147483000;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 24px rgba(59,130,246,.35); transition: transform .2s ease;
     `;
@@ -72,7 +71,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     button.addEventListener("mouseleave", () => (button!.style.transform = "scale(1)"));
     document.body.appendChild(button);
 
-    // Panel container + iframe
     container = document.createElement("div");
     container.id = "nexus-widget-container";
     container.style.cssText = `
@@ -81,7 +79,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       bottom: 90px;
       width: 400px; height: 600px;
       max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
-      z-index: 2147482999;                  /* just under the button */
+      z-index: 2147482999;
       border-radius: 16px; overflow: hidden;
       box-shadow: 0 4px 24px rgba(0,0,0,.15);
       display: none; opacity: 0; transform: translateY(10px);
@@ -93,6 +91,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     iframe.allow = "microphone; clipboard-read; clipboard-write";
     iframe.style.cssText = `width:100%;height:100%;border:none;`;
     iframe.onload = () => {
+      TARGET_ORIGIN = new URL(iframe!.src).origin;
       postToWidget({ type: "nexus:embed-ready" });
       sendParentLocation();
     };
@@ -100,16 +99,13 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     container.appendChild(iframe);
     document.body.appendChild(container);
 
-    // Messaging + SPA awareness
     window.addEventListener("message", handleMessage);
     patchHistoryForSpa();
     window.addEventListener("popstate", sendParentLocation);
 
-    // Keep nudge aligned to the button
     window.addEventListener("resize", placeNudge);
     window.addEventListener("scroll", placeNudge, { passive: true });
 
-    // Safety: show local fallback if widget never posts a promo
     window.setTimeout(() => {
       if (!hasPromoPayload && !nudgeDismissed) renderNudge(localFallback());
     }, 1200);
@@ -121,9 +117,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     return `${EMBED_CONFIG.WIDGET_URL}?${params.toString()}`;
   }
 
-  // ---------------- Messaging ----------------
   function handleMessage(event: MessageEvent) {
-    if (event.origin !== WIDGET_ORIGIN) return;
+    if (!TARGET_ORIGIN || event.origin !== TARGET_ORIGIN) return;
     const { type, payload } = event.data || {};
 
     switch (type) {
@@ -135,11 +130,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         break;
       case "nexus:promo":
         hasPromoPayload = true;
-        // Acknowledge back so the widget knows the host is listening
-        iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, WIDGET_ORIGIN);
+        iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, TARGET_ORIGIN);
         renderNudge(payload);
-        // Hide the widget’s internal debug promo (avoid duplicates)
-        iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, WIDGET_ORIGIN);
+        iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, TARGET_ORIGIN);
         break;
       default:
         break;
@@ -147,7 +140,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   }
 
   function postToWidget(msg: any) {
-    iframe?.contentWindow?.postMessage(msg, WIDGET_ORIGIN);
+    if (!TARGET_ORIGIN) TARGET_ORIGIN = new URL(iframe!.src).origin;
+    iframe?.contentWindow?.postMessage(msg, TARGET_ORIGIN);
   }
 
   function sendParentLocation() {
@@ -165,7 +159,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     });
   }
 
-  // ---------------- Nudge ----------------
   function localFallback() {
     return {
       title: "Get help fast or schedule time",
@@ -215,7 +208,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         border-left: 1px solid #e5e7eb;
         border-top: 1px solid #e5e7eb;
         transform: rotate(45deg);
-        z-index: 2147483002;                  /* above the nudge */
+        z-index: 2147483002;
         box-shadow: 0 2px 8px rgba(0,0,0,.08);
         opacity: 0; transition: opacity .18s ease;
       `;
@@ -287,7 +280,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       </div>
     `;
 
-    // Handlers
     const primaryBtn = nudge.querySelector<HTMLButtonElement>("#nexus-primary");
     const secondaryBtn = nudge.querySelector<HTMLButtonElement>("#nexus-secondary");
     const closeBtn = nudge.querySelector<HTMLButtonElement>("#nexus-close");
@@ -305,7 +297,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       removeNudge();
     });
 
-    // Place & reveal
     placeNudge();
     if (!isOpen && !nudgeDismissed) {
       requestAnimationFrame(() => {
@@ -323,7 +314,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     const caretSize = 12;
     const fromBottomToButtonTop = window.innerHeight - rect.top;
 
-    // Position nudge just above the button; anchor to the same side as the button
     nudge.style.bottom = `${fromBottomToButtonTop + gap}px`;
     if (position === "bottom-right") {
       nudge.style.right = "20px";
@@ -333,13 +323,11 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       nudge.style.right = "";
     }
 
-    // Center caret horizontally over the button, just above it
     const centerX = rect.left + rect.width / 2;
     caret.style.left = `${centerX - caretSize / 2}px`;
     caret.style.bottom = `${fromBottomToButtonTop + (gap - caretSize / 2)}px`;
     caret.style.transform = "rotate(45deg)";
 
-    // Clamp nudge inside viewport horizontally if needed
     const r = nudge.getBoundingClientRect();
     const overflowRight = r.right - window.innerWidth;
     const overflowLeft = -r.left;
@@ -364,14 +352,12 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     return s.replace(/"/g, "&quot;");
   }
 
-  // ---------------- Open / Close ----------------
   function toggleWidget() { isOpen ? hide() : show(); }
 
   function show() {
     if (!container || !button) return;
     isOpen = true;
 
-    // Fully hide the nudge while the panel is open
     if (nudge) { nudge.style.display = "none"; }
     if (caret) { caret.style.display = "none"; }
 
@@ -397,7 +383,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     button.innerHTML = chatBubbleIcon;
     button.style.background = "#3b82f6";
 
-    // Re-show nudge (if not dismissed) and re-place it
     if (hasPromoPayload && !nudgeDismissed) {
       if (nudge) { nudge.style.display = "block"; nudge.style.opacity = "1"; nudge.style.transform = "translateY(0)"; }
       if (caret) { caret.style.display = "block"; caret.style.opacity = "1"; }
@@ -406,7 +391,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     }
   }
 
-  // ---------------- Lifecycle ----------------
   function destroy() {
     window.removeEventListener("message", handleMessage);
     window.removeEventListener("popstate", sendParentLocation);
