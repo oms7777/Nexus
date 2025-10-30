@@ -1,5 +1,22 @@
 "use client";
 
+/**
+ * WidgetLoadingScreen
+ * -------------------
+ * Rôle :
+ * - Valide organizationId
+ * - Garantit une contactSession (mais ne crée PAS de conversation)
+ * - Charge widgetSettings + secrets Vapi
+ * - Redirige :
+ *    - par défaut => écran "chat", étape "consent"
+ *    - ?nochat=1 => écran "selection" (debug)
+ *
+ * Changement clé :
+ * - On ne crée plus la conversation automatiquement ici.
+ *   => La création est déclenchée uniquement après consent si intent = "chat"
+ *      (dans WidgetChatScreen).
+ */
+
 import { useAtomValue, useSetAtom } from "jotai";
 import { LoaderIcon } from "lucide-react";
 import {
@@ -10,7 +27,6 @@ import {
   screenAtom,
   vapiSecretsAtom,
   widgetSettingsAtom,
-  conversationIdAtom,
 } from "../../atoms/widget-atoms";
 import { qualifyStepAtom } from "../../atoms/qualify-atoms";
 import { WidgetHeader } from "../components/widget-header";
@@ -41,7 +57,6 @@ export const WidgetLoadingScreen = ({
   const setLoadingMessage = useSetAtom(loadingMessageAtom);
   const setScreen = useSetAtom(screenAtom);
   const setVapiSecrets = useSetAtom(vapiSecretsAtom);
-  const setConversationId = useSetAtom(conversationIdAtom);
   const setQualifyStep = useSetAtom(qualifyStepAtom);
 
   const contactSessionId = useAtomValue(
@@ -89,7 +104,7 @@ export const WidgetLoadingScreen = ({
     setLoadingMessage,
   ]);
 
-  /* 2) S’assurer d’avoir une session */
+  /* 2) S’assurer d’avoir une session (mais pas de conversation) */
   const validateContactSession = useMutation(api.public.contactSessions.validate);
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
 
@@ -179,8 +194,7 @@ export const WidgetLoadingScreen = ({
     setErrorMessage,
   ]);
 
-  /* 5) Démarrer le chat automatiquement (sauf ?nochat) + forcer consent */
-  const createConversation = useMutation(api.public.conversations.create);
+  /* 5) Aller à l’écran chat (ou selection), mais SANS créer de conversation */
   useEffect(() => {
     if (step !== "done") return;
 
@@ -189,36 +203,10 @@ export const WidgetLoadingScreen = ({
       return;
     }
 
-    (async () => {
-      try {
-        if (!organizationId) throw new Error("Missing org");
-        const sid =
-          contactSessionId || (await ensureContactSession({ organizationId }));
-        const cid = await createConversation({
-          organizationId,
-          contactSessionId: sid,
-        });
-        setConversationId(cid);
-
-        // ⬇️ IMPORTANT : on entre par défaut en étape "consent" si activé
-        setQualifyStep("consent");
-
-        setScreen("chat");
-      } catch {
-        // en cas d’échec, on retombe sur la sélection
-        setScreen("selection");
-      }
-    })();
-  }, [
-    step,
-    organizationId,
-    contactSessionId,
-    ensureContactSession,
-    createConversation,
-    setConversationId,
-    setQualifyStep,
-    setScreen,
-  ]);
+    // On force l’étape consent par défaut ; la conversation sera créée ensuite si intent = chat.
+    setQualifyStep("consent");
+    setScreen("chat");
+  }, [step, setQualifyStep, setScreen]);
 
   return (
     <>

@@ -1,5 +1,19 @@
 "use client";
 
+/**
+ * WidgetChatScreen
+ * ----------------
+ * Rôle :
+ * - Affiche la conversation, suggestions, carte de consent, flow booking
+ *
+ * Changements clés :
+ * - Après clic sur "✓ I consent":
+ *    - si intent === "book" => pas de conversation, on déroule QualifyCard + slots
+ *    - si intent === "chat" => on s’assure d’avoir une conversation (création si besoin), puis on passe en "idle"
+ * - La carte de bienvenue hors-fil n’apparaît que si step === "idle" et pas de conversation.
+ * - Le message "Book a demo" auto-déclenche l’intent "book" et montre le consent.
+ */
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -51,10 +65,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@workspace/ui/components/dialog";
-import { Input } from "@workspace/ui/components/input";
-import { Label } from "@workspace/ui/components/label";
 import QualifyCard from "../components/QualifyCard";
-
 
 /* ---------------- helpers ---------------- */
 
@@ -222,9 +233,12 @@ export const WidgetChatScreen = () => {
   });
   const createMessage = useAction(api.public.messages.create);
 
-  /* -------- Qualif en “steps” (utilisée après submit du formulaire) -------- */
+  /* -------- Qualif en “steps” (après submit du mini-form) -------- */
   const startPickingAfterQualify = async (lead: {
-    name: string; email: string; company?: string; role?: string;
+    name: string;
+    email: string;
+    company?: string;
+    role?: string;
   }) => {
     setQdata(lead);
     setLocalMsgs((m) => [
@@ -293,7 +307,7 @@ export const WidgetChatScreen = () => {
     text: m.content,
   }));
 
-  // On ne touche pas au greet: il reste premier. On évite juste un doublon exact.
+  // On laisse le greet en premier, mais on évite un doublon exact
   const greet = widgetSettings?.greetMessage?.trim();
   const filteredBackend = greet
     ? backendMsgs.filter(
@@ -403,32 +417,40 @@ export const WidgetChatScreen = () => {
                   <p className="text-xs text-muted-foreground">
                     {widgetSettings.consent?.body ||
                       "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
-                    {linkMode === "link" && consentUrl ? (
-                      <>
-                        I hereby consent to processing of my personal data collected in the chat in
-                        accordance with the rules described{" "}
-                        <a
-                          href={consentUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="underline"
-                        >
-                          here
-                        </a>
-                        .
-                      </>
-                    ) : (
-                      <ConsentInlineModal
-                        triggerLabel="here"
-                        title={consentCfg?.title ?? "Consent"}
-                        fullText={
-                          (consentModalText?.trim() ||
-                            consentCfg?.body?.trim() ||
-                            "Details about how your data may be processed.") +
-                          "\n\nYou can withdraw your consent at any time."
-                        }
-                      />
-                    )}
+                    {(() => {
+                      const linkMode = widgetSettings.consent?.linkMode ?? "link";
+                      const consentUrl = widgetSettings.consent?.privacyUrl;
+                      const consentModalText = widgetSettings.consent?.modalContent;
+                      if (linkMode === "link" && consentUrl) {
+                        return (
+                          <>
+                            I hereby consent to processing of my personal data collected in
+                            the chat in accordance with the rules described{" "}
+                            <a
+                              href={consentUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline"
+                            >
+                              here
+                            </a>
+                            .
+                          </>
+                        );
+                      }
+                      return (
+                        <ConsentInlineModal
+                          triggerLabel="here"
+                          title={widgetSettings.consent?.title ?? "Consent"}
+                          fullText={
+                            (consentModalText?.trim() ||
+                              widgetSettings.consent?.body?.trim() ||
+                              "Details about how your data may be processed.") +
+                            "\n\nYou can withdraw your consent at any time."
+                          }
+                        />
+                      );
+                    })()}
                   </p>
                 </div>
 
@@ -440,16 +462,22 @@ export const WidgetChatScreen = () => {
 
                       if (bookingIntent === "book") {
                         // → FORMULAIRE DE QUALIF (puis slots)
-                        setStep("ask_name"); // on utilise ce step comme repère “dans la qualif”
+                        setStep("ask_name"); // repère "dans la qualif"
                         setLocalMsgs((m) => [
                           ...m,
-                          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+                          {
+                            role: "assistant",
+                            text: "Great! To book a demo, fill in these quick details.",
+                          },
                         ]);
                       } else {
                         // → CHAT : s’assurer d’avoir une conversation
                         if (!conversation && organizationId && contactSessionId) {
                           try {
-                            await createConversation({ organizationId, contactSessionId });
+                            await createConversation({
+                              organizationId,
+                              contactSessionId,
+                            });
                           } catch {}
                         }
                         setStep("idle");
@@ -459,6 +487,9 @@ export const WidgetChatScreen = () => {
                       setBookingIntent("none");
 
                       if (organizationId) {
+                        const consentCfg = widgetSettings.consent;
+                        const linkMode = consentCfg?.linkMode ?? "link";
+                        const consentUrl = consentCfg?.privacyUrl;
                         logEvent({
                           organizationId,
                           type: "consent_given",
@@ -473,7 +504,7 @@ export const WidgetChatScreen = () => {
                       }
                     }}
                   >
-                    {consentCfg?.acceptLabel?.trim() || "✓ I consent"}
+                    {widgetSettings.consent?.acceptLabel?.trim() || "✓ I consent"}
                   </Button>
                 </div>
               </div>
@@ -482,9 +513,13 @@ export const WidgetChatScreen = () => {
           {/* Formulaire de qualification quand step === "ask_name" */}
           {step === "ask_name" && bookingIntent !== "chat" && (
             <QualifyCard
-              initial={{ name: qdata.name, email: qdata.email, company: qdata.company, role: qdata.role }}
+              initial={{
+                name: qdata.name,
+                email: qdata.email,
+                company: qdata.company,
+                role: qdata.role,
+              }}
               onSubmit={(lead) => {
-                // Option: log pour CRM/ETL futur
                 if (organizationId) {
                   logEvent({
                     organizationId,
@@ -502,7 +537,9 @@ export const WidgetChatScreen = () => {
           {step === "picking" && (
             <>
               {loadingSlots && (
-                <div className="p-3 text-sm text-muted-foreground">Loading times…</div>
+                <div className="p-3 text-sm text-muted-foreground">
+                  Loading times…
+                </div>
               )}
               {!loadingSlots && slots && (
                 <SlotsByDay
@@ -536,7 +573,7 @@ export const WidgetChatScreen = () => {
                         end: s.end,
                         bookingId: res?.bookingId,
                         meetingUrl: res?.meetingUrl,
-                        lead: qdata, // CRM ready
+                        lead: qdata,
                       },
                     }).catch(() => {});
 
@@ -559,7 +596,7 @@ export const WidgetChatScreen = () => {
         </AIConversationContent>
       </AIConversation>
 
-      {/* suggestions (pas pendant consent/picking) */}
+      {/* suggestions (pas pendant consent / picking) */}
       {uiMsgs.length <= 1 && step === "idle" && (
         <AISuggestions className="flex w-full flex-col items-end p-2">
           {suggestions.map((s) => (
@@ -595,7 +632,11 @@ export const WidgetChatScreen = () => {
             name="message"
             render={({ field }) => (
               <AIInputTextarea
-                disabled={conversation?.status === "resolved" || step === "ask_name" || step === "picking"}
+                disabled={
+                  conversation?.status === "resolved" ||
+                  step === "ask_name" ||
+                  step === "picking"
+                }
                 onChange={field.onChange}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
@@ -620,7 +661,10 @@ export const WidgetChatScreen = () => {
             <AIInputTools />
             <AIInputSubmit
               disabled={
-                conversation?.status === "resolved" || !form.formState.isValid || step === "ask_name" || step === "picking"
+                conversation?.status === "resolved" ||
+                !form.formState.isValid ||
+                step === "ask_name" ||
+                step === "picking"
               }
               status="ready"
               type="submit"

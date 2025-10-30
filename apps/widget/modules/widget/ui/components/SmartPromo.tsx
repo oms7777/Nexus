@@ -1,16 +1,30 @@
 "use client";
 
+/**
+ * SmartPromo
+ * -----------
+ * Rôle :
+ * - Pousse au host (embed) un payload "nexus:promo" (nudge)
+ * - Réagit aux actions du host :
+ *    - "nexus:open-chat" => ouvre le widget côté iframe
+ *    - "nexus:run-primary-cta" / "nexus:run-secondary-cta" => exécute CTA
+ *
+ * Changement clé :
+ * - NE crée PAS de conversation.
+ * - Pose l’intent (chat / book) + force l’étape "consent", puis bascule écran "chat".
+ *   => La conversation ne sera créée qu’après consent si intent = "chat" (dans WidgetChatScreen)
+ */
+
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   organizationIdAtom,
   contactSessionIdAtomFamily,
-  conversationIdAtom,
   screenAtom,
 } from "../../atoms/widget-atoms";
-import { bookingIntentAtom } from "../../atoms/qualify-atoms";
+import { bookingIntentAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
 import type { Doc } from "@workspace/backend/_generated/dataModel";
 
 type Cta = Doc<"promos">["primaryCta"];
@@ -18,28 +32,29 @@ type Cta = Doc<"promos">["primaryCta"];
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
   const sessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
+
   const setScreen = useSetAtom(screenAtom);
-  const setConvId = useSetAtom(conversationIdAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
+  const setStep = useSetAtom(qualifyStepAtom);
 
   const [parentHref, setParentHref] = useState<string>();
   const [hostAck, setHostAck] = useState(false);
-  const [ackWaitOver, setAckWaitOver] = useState(false);
-  const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
 
-  useEffect(() => {
-    if (!isEmbedded) return;
-    const t = setTimeout(() => setAckWaitOver(true), 700);
-    return () => clearTimeout(t);
-  }, [isEmbedded]);
+  // Détection embed (host ≠ iframe)
+  const isEmbedded =
+    typeof window !== "undefined" ? window.parent !== window : false;
 
+  // Widget settings + avatars + promos courantes (filtrées par URL/UTM)
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip"
   );
 
   const memberAvatars =
-    useQuery(api.public.users.listOrgAvatars, orgId ? { organizationId: orgId, limit: 3 } : "skip") ?? [];
+    useQuery(
+      api.public.users.listOrgAvatars,
+      orgId ? { organizationId: orgId, limit: 3 } : "skip"
+    ) ?? [];
 
   const currentUrl =
     typeof window !== "undefined" ? parentHref ?? window.location.href : undefined;
@@ -51,43 +66,64 @@ export default function SmartPromo() {
   const promos =
     useQuery(
       api.public.promos.listForPage,
-      orgId && currentUrl ? { organizationId: orgId, currentUrl, utmSource: utm } : "skip"
+      orgId && currentUrl
+        ? { organizationId: orgId, currentUrl, utmSource: utm }
+        : "skip"
     ) ?? [];
+
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
     [promos]
   );
 
+  // Référence stable pour la promo (utilisée depuis listener window)
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
-  useEffect(() => { promoRef.current = promo; }, [promo]);
+  useEffect(() => {
+    promoRef.current = promo;
+  }, [promo]);
 
-  const createConversation = useMutation(api.public.conversations.create);
+  /* ---------------- Host -> Widget messaging ---------------- */
 
-  // Host -> widget
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      if (t === "nexus:embed-ready" || t === "nexus:parent-location" || t === "nexus:hide-internal-promo") {
+      // L’embed (host) nous indique qu’il est prêt et nous envoie sa location
+      if (
+        t === "nexus:embed-ready" ||
+        t === "nexus:parent-location" ||
+        t === "nexus:hide-internal-promo"
+      ) {
         setHostAck(true);
       }
+
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
       }
+
+      // Quand l’utilisateur clique le bouton rond -> host envoie "open-chat"
       if (t === "nexus:open-chat") {
+        // Intent = "chat", on force étape "consent" puis on affiche l’écran chat
         setBookingIntent("chat");
+        setStep("consent");
         setScreen("chat");
         return;
       }
 
+      // Gestion des CTAs du nudge envoyés par le host
       const p = promoRef.current;
       if (!p) return;
+
       if (t === "nexus:run-primary-cta" && p.primaryCta) void runCta(p.primaryCta);
-      if (t === "nexus:run-secondary-cta" && p.secondaryCta) void runCta(p.secondaryCta);
+      if (t === "nexus:run-secondary-cta" && p.secondaryCta)
+        void runCta(p.secondaryCta);
     };
+
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [setBookingIntent, setScreen]);
+  }, [setBookingIntent, setScreen, setStep]);
+
+  /* ---------------- Payload du nudge ---------------- */
 
   const fallbackPayload = useMemo(
     () => ({
@@ -102,14 +138,16 @@ export default function SmartPromo() {
   );
 
   const makePayload = () => {
-    const avatars =
-      memberAvatars.length
-        ? memberAvatars
-        : (ws as any)?.teamAvatars?.length
-        ? (ws as any).teamAvatars.slice(0, 3)
-        : (ws as any)?.brandLogoUrl
-        ? [(ws as any).brandLogoUrl]
-        : ["/logo.svg"];
+    const avatars = memberAvatars.length
+      ? memberAvatars
+      : (ws as any)?.teamAvatars?.length
+      ? (ws as any).teamAvatars.slice(0, 3)
+      : (ws as any)?.brandLogoUrl
+      ? [(ws as any).brandLogoUrl]
+      : ["/logo.svg"];
+
+    const privacyUrl =
+      (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined;
 
     if (promo) {
       return {
@@ -121,80 +159,85 @@ export default function SmartPromo() {
         secondaryCta: promo.secondaryCta,
         avatars,
         badgeText: promo.card?.badgeText || undefined,
-        privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined,
+        privacyUrl,
       };
     }
-    return { ...fallbackPayload, avatars, privacyUrl: (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined };
+    return { ...fallbackPayload, avatars, privacyUrl };
   };
 
+  // Dès que le host est prêt => on lui envoie le nudge (une seule fois)
   useEffect(() => {
-    // Ne rien envoyer si le widget n'est pas dans un embed
     if (!isEmbedded) return;
+    if (!hostAck) return;
 
-    // Attendre que le host soit prêt (ack) avant d'envoyer le nudge
-    const send = () => {
-      if (hostAck) {
-        window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
-      }
-    };
-
-    // Envoi dès ack, avec petit délai de sécurité
-    const interval = setInterval(() => {
-      if (hostAck) {
-        send();
-        clearInterval(interval);
-      }
-    }, 200);
-
-    // Sécurité : ne rien renvoyer 2x
-    return () => clearInterval(interval);
+    window.parent?.postMessage(
+      { type: "nexus:promo", payload: makePayload() },
+      "*" // le host filtre déjà par origin côté embed
+    );
+    // pas d’interval/retry ici : l’ack est reçu avant l’envoi
   }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
 
-
-  const goChat = async () => {
-    setScreen("chat");
-    try {
-      if (orgId && sessionId) {
-        const id = await createConversation({ organizationId: orgId, contactSessionId: sessionId });
-        setConvId(id);
-      }
-    } catch {}
-  };
+  /* ---------------- CTAs ---------------- */
 
   const runCta = async (cta: Cta) => {
-    if (cta.kind === "open_chat") { setBookingIntent("chat"); return goChat(); }
-    if (cta.kind === "open_booking") { setBookingIntent("book"); return goChat(); }
-    if (cta.kind === "open_url" && cta.url) window.open(cta.url, "_blank", "noopener,noreferrer");
+    if (cta.kind === "open_chat") {
+      setBookingIntent("chat");
+      setStep("consent"); // on force la carte consent en premier
+      setScreen("chat");
+      return;
+    }
+    if (cta.kind === "open_booking") {
+      setBookingIntent("book");
+      setStep("consent"); // consent avant le mini-form
+      setScreen("chat");
+      return;
+    }
+    if (cta.kind === "open_url" && cta.url) {
+      window.open(cta.url, "_blank", "noopener,noreferrer");
+    }
   };
+
+  /* ---------------- Debug interne (pas embarqué) ---------------- */
 
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg" style={{ zIndex: 1000 }}>
+    <div
+      className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg"
+      style={{ zIndex: 1000 }}
+    >
       <div className="p-3">
         {promo?.card?.badgeText && (
           <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
             {promo.card.badgeText}
           </div>
         )}
-        <div className="font-semibold">{promo?.card?.title ?? "Need a hand?"}</div>
+        <div className="font-semibold">
+          {promo?.card?.title ?? "Need a hand?"}
+        </div>
         <div className="mt-1 text-sm text-muted-foreground">
           {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
         </div>
         <div className="mt-3 flex gap-2">
-          <button className="h-9 flex-1 rounded-md bg-sky-500 px-3 font-medium text-white"
-                  onClick={() => promo?.primaryCta && runCta(promo.primaryCta)}>
+          <button
+            className="h-9 flex-1 rounded-md bg-sky-500 px-3 font-medium text-white"
+            onClick={() => promo?.primaryCta && runCta(promo.primaryCta)}
+          >
             {promo?.primaryCta?.label ?? "Chat"}
           </button>
           {promo?.secondaryCta && (
-            <button className="h-9 flex-1 rounded-md border px-3 font-medium"
-                    onClick={() => runCta(promo.secondaryCta!)}>
+            <button
+              className="h-9 flex-1 rounded-md border px-3 font-medium"
+              onClick={() => runCta(promo.secondaryCta!)}
+            >
               {promo.secondaryCta.label}
             </button>
           )}
         </div>
-        <div className="mt-2 text-[11px] text-gray-500">Debug nudge (host not detected).</div>
+        <div className="mt-2 text-[11px] text-gray-500">
+          Debug nudge (host not detected).
+        </div>
       </div>
     </div>
   );
