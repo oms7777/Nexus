@@ -3,27 +3,21 @@
 /**
  * SmartPromo
  * -----------
- * Rôle :
- * - Pousse au host (embed) un payload "nexus:promo" (nudge)
- * - Réagit aux actions du host :
- *    - "nexus:open-chat" => ouvre le widget côté iframe
+ * - Envoie le payload "nexus:promo" au host (nudge)
+ * - Réagit aux messages du host :
+ *    - "nexus:open-chat" => intent=chat → step=consent → screen=chat
  *    - "nexus:run-primary-cta" / "nexus:run-secondary-cta" => exécute CTA
  *
- * Changement clé :
- * - NE crée PAS de conversation.
- * - Pose l’intent (chat / book) + force l’étape "consent", puis bascule écran "chat".
- *   => La conversation ne sera créée qu’après consent si intent = "chat" (dans WidgetChatScreen)
+ * IMPORTANT :
+ * - Ne crée PLUS de conversation ici.
+ * - La création de conversation est gérée après consent dans WidgetChatScreen.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
-import {
-  organizationIdAtom,
-  contactSessionIdAtomFamily,
-  screenAtom,
-} from "../../atoms/widget-atoms";
+import { organizationIdAtom, screenAtom } from "../../atoms/widget-atoms";
 import { bookingIntentAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
 import type { Doc } from "@workspace/backend/_generated/dataModel";
 
@@ -31,7 +25,6 @@ type Cta = Doc<"promos">["primaryCta"];
 
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
-  const sessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
 
   const setScreen = useSetAtom(screenAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
@@ -40,24 +33,27 @@ export default function SmartPromo() {
   const [parentHref, setParentHref] = useState<string>();
   const [hostAck, setHostAck] = useState(false);
 
-  // Détection embed (host ≠ iframe)
+  // Widget embarqué ?
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
-  // Widget settings + avatars + promos courantes (filtrées par URL/UTM)
+  // Settings + avatars + promos
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip"
+    orgId ? { organizationId: orgId } : "skip",
   );
 
   const memberAvatars =
     useQuery(
       api.public.users.listOrgAvatars,
-      orgId ? { organizationId: orgId, limit: 3 } : "skip"
+      orgId ? { organizationId: orgId, limit: 3 } : "skip",
     ) ?? [];
 
   const currentUrl =
-    typeof window !== "undefined" ? parentHref ?? window.location.href : undefined;
+    typeof window !== "undefined"
+      ? parentHref ?? window.location.href
+      : undefined;
+
   const utm =
     typeof window !== "undefined" && currentUrl
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
@@ -68,27 +64,27 @@ export default function SmartPromo() {
       api.public.promos.listForPage,
       orgId && currentUrl
         ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip"
+        : "skip",
     ) ?? [];
 
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos]
+    [promos],
   );
 
-  // Référence stable pour la promo (utilisée depuis listener window)
+  // Référence stable de la promo pour le listener
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
     promoRef.current = promo;
   }, [promo]);
 
-  /* ---------------- Host -> Widget messaging ---------------- */
+  /* ---------------- Host -> Widget ---------------- */
 
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      // L’embed (host) nous indique qu’il est prêt et nous envoie sa location
+      // Host prêt + position de la page
       if (
         t === "nexus:embed-ready" ||
         t === "nexus:parent-location" ||
@@ -101,16 +97,15 @@ export default function SmartPromo() {
         setParentHref(e.data.href);
       }
 
-      // Quand l’utilisateur clique le bouton rond -> host envoie "open-chat"
+      // Clic sur le bouton rond → ouvrir chat avec consent d’abord
       if (t === "nexus:open-chat") {
-        // Intent = "chat", on force étape "consent" puis on affiche l’écran chat
         setBookingIntent("chat");
         setStep("consent");
         setScreen("chat");
         return;
       }
 
-      // Gestion des CTAs du nudge envoyés par le host
+      // CTAs du nudge
       const p = promoRef.current;
       if (!p) return;
 
@@ -134,7 +129,7 @@ export default function SmartPromo() {
       primaryCta: { kind: "open_chat", label: "Chat with AI" as const },
       secondaryCta: { kind: "open_booking", label: "Book a meeting" as const },
     }),
-    []
+    [],
   );
 
   const makePayload = () => {
@@ -165,16 +160,15 @@ export default function SmartPromo() {
     return { ...fallbackPayload, avatars, privacyUrl };
   };
 
-  // Dès que le host est prêt => on lui envoie le nudge (une seule fois)
+  // Envoi du nudge une fois que le host est prêt
   useEffect(() => {
     if (!isEmbedded) return;
     if (!hostAck) return;
 
     window.parent?.postMessage(
       { type: "nexus:promo", payload: makePayload() },
-      "*" // le host filtre déjà par origin côté embed
+      "*",
     );
-    // pas d’interval/retry ici : l’ack est reçu avant l’envoi
   }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
 
   /* ---------------- CTAs ---------------- */
@@ -182,13 +176,13 @@ export default function SmartPromo() {
   const runCta = async (cta: Cta) => {
     if (cta.kind === "open_chat") {
       setBookingIntent("chat");
-      setStep("consent"); // on force la carte consent en premier
+      setStep("consent");
       setScreen("chat");
       return;
     }
     if (cta.kind === "open_booking") {
       setBookingIntent("book");
-      setStep("consent"); // consent avant le mini-form
+      setStep("consent");
       setScreen("chat");
       return;
     }

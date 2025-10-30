@@ -20,7 +20,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
-import { useAtomValue, useAtom } from "jotai";
+import { useAtomValue, useAtom, useSetAtom } from "jotai";
 
 import {
   conversationIdAtom,
@@ -167,6 +167,7 @@ export const WidgetChatScreen = () => {
     contactSessionIdAtomFamily(organizationId || "")
   );
   const conversationId = useAtomValue(conversationIdAtom);
+  const setConversationId = useSetAtom(conversationIdAtom);
 
   // Qualif + consent
   const [step, setStep] = useAtom(qualifyStepAtom);
@@ -471,18 +472,19 @@ export const WidgetChatScreen = () => {
                           },
                         ]);
                       } else {
-                        // → CHAT : s’assurer d’avoir une conversation
-                        if (!conversation && organizationId && contactSessionId) {
-                          try {
-                            await createConversation({
-                              organizationId,
-                              contactSessionId,
-                            });
-                          } catch {}
-                        }
+                        // → CHAT : s’assurer d’avoir une conversation ET poser l'ID
+                        try {
+                          if (!conversation && organizationId && contactSessionId) {
+                            const cid = await createConversation({ organizationId, contactSessionId });
+                            setConversationId(cid);
+                          } else if (conversationId) {
+                            // sécurise l’atom si déjà existant
+                            setConversationId(conversationId);
+                          }
+                        } catch {}
                         setStep("idle");
                       }
-
+                      
                       // reset intent
                       setBookingIntent("none");
 
