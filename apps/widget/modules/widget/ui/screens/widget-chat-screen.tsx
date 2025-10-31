@@ -1,17 +1,9 @@
 "use client";
 
 /**
- * WidgetChatScreen
- * ----------------
- * Rôle :
- * - Affiche la conversation, suggestions, carte de consent, flow booking
- *
- * Changements clés :
- * - Après clic sur "✓ I consent":
- *    - si intent === "book" => pas de conversation, on déroule QualifyCard + slots
- *    - si intent === "chat" => on s’assure d’avoir une conversation (création si besoin), puis on passe en "idle"
- * - La carte de bienvenue hors-fil n’apparaît que si step === "idle" et pas de conversation.
- * - Le message "Book a demo" auto-déclenche l’intent "book" et montre le consent.
+ * WidgetChatScreen (prod-safe)
+ * - Gère le cas consent désactivé (prod) : jump direct selon intent
+ * - Crée une conversation dès que nécessaire (fallback)
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -57,7 +49,6 @@ import { Form, FormField } from "@workspace/ui/components/form";
 import { toUIMessages, useThreadMessages } from "@convex-dev/agent/react";
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
 
-/* Dialog pour le consentement inline (quand pas d’URL) */
 import {
   Dialog,
   DialogContent,
@@ -210,11 +201,6 @@ export const WidgetChatScreen = () => {
   const createConversation = useMutation(api.public.conversations.create);
   const firstMessageSentRef = useRef(false);
 
-  const consentCfg = widgetSettings?.consent;
-  const linkMode = consentCfg?.linkMode ?? "link";
-  const consentUrl = consentCfg?.privacyUrl;
-  const consentModalText = consentCfg?.modalContent;
-
   // Carte d’accueil hors-fil : seulement à froid
   const showWelcomeChoices = !conversationId && step === "idle";
 
@@ -233,6 +219,45 @@ export const WidgetChatScreen = () => {
     defaultValues: { message: "" },
   });
   const createMessage = useAction(api.public.messages.create);
+
+  /* -------- prod-safe: consent désactivé => agir selon intent -------- */
+  useEffect(() => {
+    if (!widgetSettings) return;
+    const consentEnabled = widgetSettings.consent?.enabled !== false;
+
+    // Si consent actif, on ne fait rien ici (flux normal via carte consent)
+    if (consentEnabled) return;
+
+    // Consent désactivé: on exécute l'intent immédiatement
+    if (bookingIntent === "book" && step !== "ask_name") {
+      setStep("ask_name");
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+      ]);
+      // ne pas reset l'intent tout de suite; on le clean après qualif
+    }
+
+    if (bookingIntent === "chat") {
+      (async () => {
+        try {
+          if (!conversation && organizationId && contactSessionId) {
+            const cid = await createConversation({ organizationId, contactSessionId });
+            setConversationId(cid);
+          }
+        } catch {}
+        setStep("idle");
+        setBookingIntent("none");
+      })();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    widgetSettings?.consent?.enabled,
+    bookingIntent,
+    organizationId,
+    contactSessionId,
+    conversation,
+  ]);
 
   /* -------- Qualif en “steps” (après submit du mini-form) -------- */
   const startPickingAfterQualify = async (lead: {
@@ -275,7 +300,9 @@ export const WidgetChatScreen = () => {
     const text = values.message.trim();
     form.reset();
 
-    if (!firstMessageSentRef.current && text && organizationId) {
+    if (!text) return;
+
+    if (!firstMessageSentRef.current && organizationId) {
       firstMessageSentRef.current = true;
       logEvent({
         organizationId,
@@ -285,22 +312,64 @@ export const WidgetChatScreen = () => {
       }).catch(() => {});
     }
 
-    // déclencheur simple pour booking
+    // Déclencheur simple pour booking
     if (step === "idle" && /book|demo|meeting/i.test(text)) {
       setLocalMsgs((m) => [...m, { role: "user", text }]);
       setBookingIntent("book");
-      setStep("consent");
+      if (widgetSettings?.consent?.enabled === false) {
+        // pas de consent : on saute direct sur le mini-form
+        setStep("ask_name");
+        setLocalMsgs((m) => [
+          ...m,
+          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+        ]);
+      } else {
+        setStep("consent");
+      }
       return;
     }
 
-    // flux normal
-    if (!conversation || !contactSessionId) return;
+    // --- GARDE FIL (IMPORTANT) : on ne tente JAMAIS createMessage sans threadId ---
+    if (!contactSessionId || !organizationId) return;
+
+    // S'assurer qu'on a une conversation
+    try {
+      if (!conversationId || !conversation) {
+        const cid = await createConversation({ organizationId, contactSessionId });
+        setConversationId(cid);
+        // On prévient l’utilisateur et on s’arrête ici
+        setLocalMsgs((m) => [
+          ...m,
+          { role: "assistant", text: "All set. Please send your message again 😊" },
+        ]);
+        return;
+      }
+    } catch {
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "One sec… ready now. Please resend your message." },
+      ]);
+      return;
+    }
+
+    // À partir d'ici, on attend un threadId **défini**
+    if (!conversation?.threadId) {
+      // Sécurité : si le thread n’est pas encore prêt côté backend, on stoppe proprement.
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "Preparing the chat… please resend your message in a moment." },
+      ]);
+      return;
+    }
+
+    // Flux normal
     await createMessage({
-      threadId: conversation.threadId,
+      threadId: conversation.threadId, // <- toujours un string ici
       prompt: text,
       contactSessionId,
     });
   };
+
 
   /* -------- Messages backend + greet -------- */
   const backendMsgs = toUIMessages(messages.results ?? []).map((m) => ({
@@ -336,7 +405,15 @@ export const WidgetChatScreen = () => {
             variant="transparent"
             onClick={() => {
               setBookingIntent("book");
-              setStep("consent");
+              if (widgetSettings?.consent?.enabled === false) {
+                setStep("ask_name");
+                setLocalMsgs((m) => [
+                  ...m,
+                  { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+                ]);
+              } else {
+                setStep("consent");
+              }
             }}
             title="Book a demo"
           >
@@ -374,9 +451,20 @@ export const WidgetChatScreen = () => {
                 <div className="flex gap-2">
                   <Button
                     className="flex-1"
-                    onClick={() => {
+                    onClick={async () => {
                       setBookingIntent("chat");
-                      setStep("consent");
+                      if (widgetSettings?.consent?.enabled === false) {
+                        try {
+                          if (!conversation && organizationId && contactSessionId) {
+                            const cid = await createConversation({ organizationId, contactSessionId });
+                            setConversationId(cid);
+                          }
+                        } catch {}
+                        setStep("idle");
+                        setBookingIntent("none");
+                      } else {
+                        setStep("consent");
+                      }
                     }}
                   >
                     💬 Chat with AI Assistant
@@ -386,7 +474,15 @@ export const WidgetChatScreen = () => {
                     className="flex-1"
                     onClick={() => {
                       setBookingIntent("book");
-                      setStep("consent");
+                      if (widgetSettings?.consent?.enabled === false) {
+                        setStep("ask_name");
+                        setLocalMsgs((m) => [
+                          ...m,
+                          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+                        ]);
+                      } else {
+                        setStep("consent");
+                      }
                     }}
                   >
                     📅 Book a meeting
@@ -462,14 +558,10 @@ export const WidgetChatScreen = () => {
                       setConsentGiven(true);
 
                       if (bookingIntent === "book") {
-                        // → FORMULAIRE DE QUALIF (puis slots)
-                        setStep("ask_name"); // repère "dans la qualif"
+                        setStep("ask_name");
                         setLocalMsgs((m) => [
                           ...m,
-                          {
-                            role: "assistant",
-                            text: "Great! To book a demo, fill in these quick details.",
-                          },
+                          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
                         ]);
                       } else {
                         // → CHAT : s’assurer d’avoir une conversation ET poser l'ID
@@ -478,14 +570,12 @@ export const WidgetChatScreen = () => {
                             const cid = await createConversation({ organizationId, contactSessionId });
                             setConversationId(cid);
                           } else if (conversationId) {
-                            // sécurise l’atom si déjà existant
                             setConversationId(conversationId);
                           }
                         } catch {}
                         setStep("idle");
                       }
-                      
-                      // reset intent
+
                       setBookingIntent("none");
 
                       if (organizationId) {
@@ -512,7 +602,7 @@ export const WidgetChatScreen = () => {
               </div>
             )}
 
-          {/* Formulaire de qualification quand step === "ask_name" */}
+          {/* Qualif */}
           {step === "ask_name" && bookingIntent !== "chat" && (
             <QualifyCard
               initial={{
@@ -531,11 +621,12 @@ export const WidgetChatScreen = () => {
                   }).catch(() => {});
                 }
                 startPickingAfterQualify(lead);
+                setBookingIntent("none");
               }}
             />
           )}
 
-          {/* Slot picker après qualif */}
+          {/* Slot picker */}
           {step === "picking" && (
             <>
               {loadingSlots && (
@@ -598,17 +689,25 @@ export const WidgetChatScreen = () => {
         </AIConversationContent>
       </AIConversation>
 
-      {/* suggestions (pas pendant consent / picking) */}
+      {/* suggestions */}
       {uiMsgs.length <= 1 && step === "idle" && (
         <AISuggestions className="flex w-full flex-col items-end p-2">
           {suggestions.map((s) => (
             <AISuggestion
               key={s}
               suggestion={s}
-              onClick={() => {
+              onClick={async () => {
                 if (/book/i.test(s)) {
                   setBookingIntent("book");
-                  setStep("consent");
+                  if (widgetSettings?.consent?.enabled === false) {
+                    setStep("ask_name");
+                    setLocalMsgs((m) => [
+                      ...m,
+                      { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+                    ]);
+                  } else {
+                    setStep("consent");
+                  }
                   return;
                 }
                 form.setValue("message", s, {
@@ -616,7 +715,7 @@ export const WidgetChatScreen = () => {
                   shouldDirty: true,
                   shouldTouch: true,
                 });
-                form.handleSubmit(onSubmit)();
+                await form.handleSubmit(onSubmit)();
               }}
             />
           ))}
