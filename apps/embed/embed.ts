@@ -2,7 +2,7 @@ import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
 
 (function () {
-  const VERSION = "embed-1.2.1";
+  const VERSION = "embed-1.2.2";
   console.log(`[EchoWidget] ${VERSION} | origin=${location.origin}`);
 
   let iframe: HTMLIFrameElement | null = null;
@@ -18,7 +18,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   let organizationId: string | null = null;
   let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
 
+  // --- Origin & readiness guards ---
   let TARGET_ORIGIN = "";
+  let iframeLoaded = false;
 
   const currentScript = document.currentScript as HTMLScriptElement | null;
   if (currentScript) {
@@ -91,6 +93,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     iframe.allow = "microphone; clipboard-read; clipboard-write";
     iframe.style.cssText = `width:100%;height:100%;border:none;`;
     iframe.onload = () => {
+      // Mark the iframe as ready and set the authoritative origin
+      iframeLoaded = true;
       TARGET_ORIGIN = new URL(iframe!.src).origin;
       postToWidget({ type: "nexus:embed-ready" });
       sendParentLocation();
@@ -118,7 +122,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   }
 
   function handleMessage(event: MessageEvent) {
-    if (!TARGET_ORIGIN || event.origin !== TARGET_ORIGIN) return;
+    if (!iframeLoaded || !TARGET_ORIGIN || event.origin !== TARGET_ORIGIN) return;
     const { type, payload } = event.data || {};
 
     switch (type) {
@@ -140,8 +144,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   }
 
   function postToWidget(msg: any) {
-    if (!TARGET_ORIGIN) TARGET_ORIGIN = new URL(iframe!.src).origin;
-    iframe?.contentWindow?.postMessage(msg, TARGET_ORIGIN);
+    // Don’t try to talk to about:blank or before contentWindow exists
+    if (!iframeLoaded || !iframe?.contentWindow || !TARGET_ORIGIN) return;
+    iframe.contentWindow.postMessage(msg, TARGET_ORIGIN);
   }
 
   function sendParentLocation() {
@@ -153,7 +158,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       const orig = (history as any)[fn];
       (history as any)[fn] = function (...args: any[]) {
         const ret = orig.apply(this, args);
-        sendParentLocation();
+        // Only notify the widget after it’s actually loaded
+        if (iframeLoaded) sendParentLocation();
         return ret;
       };
     });
@@ -369,6 +375,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       }
     }, 10);
     button.innerHTML = closeIcon;
+
+    // Posts are safe after load guard
     sendParentLocation();
     postToWidget({ type: "nexus:open-chat" });
   }
@@ -400,6 +408,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     if (container) { container.remove(); container = null; iframe = null; }
     if (button) { button.remove(); button = null; }
     isOpen = false;
+    iframeLoaded = false;
+    TARGET_ORIGIN = "";
   }
 
   function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left"; }) {
