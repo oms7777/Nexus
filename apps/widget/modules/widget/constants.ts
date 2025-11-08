@@ -7,6 +7,7 @@ export const WIDGET_SCREENS = [
     "inbox",
     "chat",
     "contact",
+    "booking", 
 ] as const;
 
 export const CONTACT_SESSION_KEY = "nexus_contact_session"
