@@ -19,6 +19,7 @@ import SmartPromo from "../components/SmartPromo";
 
 // ⬇️ add this tiny boundary (or import your shared one)
 import React, { type PropsWithChildren } from "react";
+import { useEnsureContactSession } from "../../hooks/use-ensure-contact-session";
 function Boundary({ children }: PropsWithChildren) {
   return (
     <ErrorBoundary fallback={null}>{children}</ErrorBoundary>
@@ -38,6 +39,7 @@ interface Props { organizationId: string | null; }
 
 export const WidgetView = ({ organizationId }: Props) => {
   const screen = useAtomValue(screenAtom);
+  useEnsureContactSession(organizationId); 
   usePresence();
 
   const screenComponents = {
