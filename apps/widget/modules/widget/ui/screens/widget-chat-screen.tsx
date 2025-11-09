@@ -426,7 +426,7 @@ export const WidgetChatScreen = () => {
                 <AIResponse>{m.text}</AIResponse>
               </AIMessageContent>
               {m.role === "assistant" && (
-                <DicebearAvatar imageUrl="/logo.svg" seed="assistant" size={32} />
+                <DicebearAvatar imageUrl="https://app.inboundless.co/logo.svg" seed="assistant" size={32} />
               )}
             </AIMessage>
           ))}
