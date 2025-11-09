@@ -14,13 +14,12 @@ export const upsert = mutation({
       phoneNumber: v.optional(v.string()),
     }),
 
+    // Optional marketing
     teamAvatars: v.optional(v.array(v.string())), // max 3 URLs
     brandLogoUrl: v.optional(v.string()),
 
-    // keep root privacyUrl for backward compat (widget may still read it)
+    // Back-compat + full consent
     privacyUrl: v.optional(v.string()),
-
-    // full consent configuration (link OR modal)
     consent: v.optional(
       v.object({
         enabled: v.boolean(),
@@ -28,14 +27,12 @@ export const upsert = mutation({
         intro: v.optional(v.string()),
         body: v.optional(v.string()),
         acceptLabel: v.optional(v.string()),
-        // decline kept in schema for forwards/backwards compat, not used by UI
+        // decline kept for fwd/back compat; not used
         declineLabel: v.optional(v.string()),
         version: v.optional(v.string()),
-
-        // NEW
         linkMode: v.optional(v.union(v.literal("link"), v.literal("modal"))),
-        privacyUrl: v.optional(v.string()),  // when linkMode = "link"
-        modalContent: v.optional(v.string()), // when linkMode = "modal"
+        privacyUrl: v.optional(v.string()),
+        modalContent: v.optional(v.string()),
       })
     ),
   },
@@ -44,7 +41,6 @@ export const upsert = mutation({
     if (!identity?.orgId) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
     }
-
     const orgId = identity.orgId as string;
 
     const existing = await ctx.db
@@ -52,13 +48,14 @@ export const upsert = mutation({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .unique();
 
+    // IMPORTANT: do not store nulls (Convex optional != null)
     const patch = {
       greetMessage: args.greetMessage,
       defaultSuggestions: args.defaultSuggestions,
       vapiSettings: args.vapiSettings,
-      teamAvatars: args.teamAvatars ?? [],     
-      brandLogoUrl: args.brandLogoUrl ?? null, 
-      privacyUrl: args.privacyUrl, // kept for backward compat
+      teamAvatars: args.teamAvatars,      // undefined if absent
+      brandLogoUrl: args.brandLogoUrl,    // undefined if absent
+      privacyUrl: args.privacyUrl,
       consent: args.consent,
     };
 

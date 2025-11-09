@@ -153,6 +153,7 @@ function ConsentInlineModal({
 
 export const WidgetChatScreen = () => {
   const widgetSettings = useAtomValue(widgetSettingsAtom);
+  const consentCfg = widgetSettings?.consent;
   const organizationId = useAtomValue(organizationIdAtom);
   const contactSessionId = useAtomValue(
     contactSessionIdAtomFamily(organizationId || "")
@@ -222,11 +223,8 @@ export const WidgetChatScreen = () => {
 
   /* -------- prod-safe: consent désactivé => agir selon intent -------- */
   useEffect(() => {
-    if (!widgetSettings) return;
-    const consentEnabled = widgetSettings.consent?.enabled !== false;
-
-    // Si consent actif, on ne fait rien ici (flux normal via carte consent)
-    if (consentEnabled) return;
+    const consentEnabled = consentCfg?.enabled !== false;
+    if (consentEnabled) return; // flux normal via carte consent
 
     // Consent désactivé: on exécute l'intent immédiatement
     if (bookingIntent === "book" && step !== "ask_name") {
@@ -235,7 +233,6 @@ export const WidgetChatScreen = () => {
         ...m,
         { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
       ]);
-      // ne pas reset l'intent tout de suite; on le clean après qualif
     }
 
     if (bookingIntent === "chat") {
@@ -250,9 +247,9 @@ export const WidgetChatScreen = () => {
         setBookingIntent("none");
       })();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    widgetSettings?.consent?.enabled,
+    consentCfg?.enabled,
     bookingIntent,
     organizationId,
     contactSessionId,
@@ -316,8 +313,7 @@ export const WidgetChatScreen = () => {
     if (step === "idle" && /book|demo|meeting/i.test(text)) {
       setLocalMsgs((m) => [...m, { role: "user", text }]);
       setBookingIntent("book");
-      if (widgetSettings?.consent?.enabled === false) {
-        // pas de consent : on saute direct sur le mini-form
+      if (consentCfg?.enabled === false) {
         setStep("ask_name");
         setLocalMsgs((m) => [
           ...m,
@@ -329,7 +325,7 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // --- GARDE FIL (IMPORTANT) : on ne tente JAMAIS createMessage sans threadId ---
+    // --- GARDE FIL: pas de createMessage sans threadId ---
     if (!contactSessionId || !organizationId) return;
 
     // S'assurer qu'on a une conversation
@@ -337,7 +333,6 @@ export const WidgetChatScreen = () => {
       if (!conversationId || !conversation) {
         const cid = await createConversation({ organizationId, contactSessionId });
         setConversationId(cid);
-        // On prévient l’utilisateur et on s’arrête ici
         setLocalMsgs((m) => [
           ...m,
           { role: "assistant", text: "All set. Please send your message again 😊" },
@@ -352,9 +347,8 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // À partir d'ici, on attend un threadId **défini**
+    // On attend un threadId défini
     if (!conversation?.threadId) {
-      // Sécurité : si le thread n’est pas encore prêt côté backend, on stoppe proprement.
       setLocalMsgs((m) => [
         ...m,
         { role: "assistant", text: "Preparing the chat… please resend your message in a moment." },
@@ -364,12 +358,11 @@ export const WidgetChatScreen = () => {
 
     // Flux normal
     await createMessage({
-      threadId: conversation.threadId, // <- toujours un string ici
+      threadId: conversation.threadId,
       prompt: text,
       contactSessionId,
     });
   };
-
 
   /* -------- Messages backend + greet -------- */
   const backendMsgs = toUIMessages(messages.results ?? []).map((m) => ({
@@ -405,7 +398,7 @@ export const WidgetChatScreen = () => {
             variant="transparent"
             onClick={() => {
               setBookingIntent("book");
-              if (widgetSettings?.consent?.enabled === false) {
+              if (consentCfg?.enabled === false) {
                 setStep("ask_name");
                 setLocalMsgs((m) => [
                   ...m,
@@ -453,7 +446,7 @@ export const WidgetChatScreen = () => {
                     className="flex-1"
                     onClick={async () => {
                       setBookingIntent("chat");
-                      if (widgetSettings?.consent?.enabled === false) {
+                      if (consentCfg?.enabled === false) {
                         try {
                           if (!conversation && organizationId && contactSessionId) {
                             const cid = await createConversation({ organizationId, contactSessionId });
@@ -474,7 +467,7 @@ export const WidgetChatScreen = () => {
                     className="flex-1"
                     onClick={() => {
                       setBookingIntent("book");
-                      if (widgetSettings?.consent?.enabled === false) {
+                      if (consentCfg?.enabled === false) {
                         setStep("ask_name");
                         setLocalMsgs((m) => [
                           ...m,
@@ -493,114 +486,109 @@ export const WidgetChatScreen = () => {
           )}
 
           {/* Carte consent (uniquement si activée) */}
-          {step === "consent" &&
-            widgetSettings &&
-            widgetSettings.consent?.enabled !== false && (
-              <div className="p-3">
-                <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
-                  {(widgetSettings.consent?.title || widgetSettings.consent?.intro) && (
-                    <div className="mb-2">
-                      {widgetSettings.consent?.title && (
-                        <div className="font-medium">{widgetSettings.consent.title}</div>
-                      )}
-                      {widgetSettings.consent?.intro && (
-                        <div className="text-muted-foreground">
-                          {widgetSettings.consent.intro}
-                        </div>
-                      )}
-                    </div>
-                  )}
+          {step === "consent" && consentCfg && consentCfg.enabled !== false && (
+            <div className="p-3">
+              <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
+                {(consentCfg.title || consentCfg.intro) && (
+                  <div className="mb-2">
+                    {consentCfg.title && (
+                      <div className="font-medium">{consentCfg.title}</div>
+                    )}
+                    {consentCfg.intro && (
+                      <div className="text-muted-foreground">{consentCfg.intro}</div>
+                    )}
+                  </div>
+                )}
 
-                  <p className="text-xs text-muted-foreground">
-                    {widgetSettings.consent?.body ||
-                      "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
-                    {(() => {
-                      const linkMode = widgetSettings.consent?.linkMode ?? "link";
-                      const consentUrl = widgetSettings.consent?.privacyUrl;
-                      const consentModalText = widgetSettings.consent?.modalContent;
-                      if (linkMode === "link" && consentUrl) {
-                        return (
-                          <>
-                            I hereby consent to processing of my personal data collected in
-                            the chat in accordance with the rules described{" "}
-                            <a
-                              href={consentUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="underline"
-                            >
-                              here
-                            </a>
-                            .
-                          </>
-                        );
-                      }
+                <p className="text-xs text-muted-foreground">
+                  {consentCfg.body ||
+                    "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
+                  {(() => {
+                    const linkMode = consentCfg.linkMode ?? "link";
+                    const consentUrl = consentCfg.privacyUrl;
+                    const consentModalText = consentCfg.modalContent;
+                    if (linkMode === "link" && consentUrl) {
                       return (
-                        <ConsentInlineModal
-                          triggerLabel="here"
-                          title={widgetSettings.consent?.title ?? "Consent"}
-                          fullText={
-                            (consentModalText?.trim() ||
-                              widgetSettings.consent?.body?.trim() ||
-                              "Details about how your data may be processed.") +
-                            "\n\nYou can withdraw your consent at any time."
-                          }
-                        />
+                        <>
+                          I hereby consent to processing of my personal data collected in
+                          the chat in accordance with the rules described{" "}
+                          <a
+                            href={consentUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline"
+                          >
+                            here
+                          </a>
+                          .
+                        </>
                       );
-                    })()}
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={async () => {
-                      setConsentGiven(true);
-
-                      if (bookingIntent === "book") {
-                        setStep("ask_name");
-                        setLocalMsgs((m) => [
-                          ...m,
-                          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
-                        ]);
-                      } else {
-                        // → CHAT : s’assurer d’avoir une conversation ET poser l'ID
-                        try {
-                          if (!conversation && organizationId && contactSessionId) {
-                            const cid = await createConversation({ organizationId, contactSessionId });
-                            setConversationId(cid);
-                          } else if (conversationId) {
-                            setConversationId(conversationId);
-                          }
-                        } catch {}
-                        setStep("idle");
-                      }
-
-                      setBookingIntent("none");
-
-                      if (organizationId) {
-                        const consentCfg = widgetSettings.consent;
-                        const linkMode = consentCfg?.linkMode ?? "link";
-                        const consentUrl = consentCfg?.privacyUrl;
-                        logEvent({
-                          organizationId,
-                          type: "consent_given",
-                          sessionId: contactSessionId || undefined,
-                          meta: {
-                            version: consentCfg?.version,
-                            privacyUrl: consentUrl,
-                            linkMode,
-                            intent: bookingIntent,
-                          },
-                        }).catch(() => {});
-                      }
-                    }}
-                  >
-                    {widgetSettings.consent?.acceptLabel?.trim() || "✓ I consent"}
-                  </Button>
-                </div>
+                    }
+                    return (
+                      <ConsentInlineModal
+                        triggerLabel="here"
+                        title={consentCfg.title ?? "Consent"}
+                        fullText={
+                          (consentModalText?.trim() ||
+                            consentCfg.body?.trim() ||
+                            "Details about how your data may be processed.") +
+                          "\n\nYou can withdraw your consent at any time."
+                        }
+                      />
+                    );
+                  })()}
+                </p>
               </div>
-            )}
+
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    setConsentGiven(true);
+
+                    if (bookingIntent === "book") {
+                      setStep("ask_name");
+                      setLocalMsgs((m) => [
+                        ...m,
+                        { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+                      ]);
+                    } else {
+                      // → CHAT : s’assurer d’avoir une conversation ET poser l'ID
+                      try {
+                        if (!conversation && organizationId && contactSessionId) {
+                          const cid = await createConversation({ organizationId, contactSessionId });
+                          setConversationId(cid);
+                        } else if (conversationId) {
+                          setConversationId(conversationId);
+                        }
+                      } catch {}
+                      setStep("idle");
+                    }
+
+                    setBookingIntent("none");
+
+                    if (organizationId) {
+                      const linkMode = consentCfg.linkMode ?? "link";
+                      const consentUrl = consentCfg.privacyUrl;
+                      logEvent({
+                        organizationId,
+                        type: "consent_given",
+                        sessionId: contactSessionId || undefined,
+                        meta: {
+                          version: consentCfg.version,
+                          privacyUrl: consentUrl,
+                          linkMode,
+                          intent: bookingIntent,
+                        },
+                      }).catch(() => {});
+                    }
+                  }}
+                >
+                  {consentCfg.acceptLabel?.trim() || "✓ I consent"}
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Qualif */}
           {step === "ask_name" && bookingIntent !== "chat" && (
@@ -699,7 +687,7 @@ export const WidgetChatScreen = () => {
               onClick={async () => {
                 if (/book/i.test(s)) {
                   setBookingIntent("book");
-                  if (widgetSettings?.consent?.enabled === false) {
+                  if (consentCfg?.enabled === false) {
                     setStep("ask_name");
                     setLocalMsgs((m) => [
                       ...m,

@@ -1,4 +1,3 @@
-// widget/modules/ui/views/widget-view.tsx
 "use client";
 
 import { useAtomValue } from "jotai";
@@ -17,13 +16,10 @@ import QualifyModal from "../components/QualifyModal";
 import InlineBooker from "../components/InlineBooker";
 import SmartPromo from "../components/SmartPromo";
 
-// ⬇️ add this tiny boundary (or import your shared one)
+// Tiny error boundary
 import React, { type PropsWithChildren } from "react";
-import { useEnsureContactSession } from "../../hooks/use-ensure-contact-session";
 function Boundary({ children }: PropsWithChildren) {
-  return (
-    <ErrorBoundary fallback={null}>{children}</ErrorBoundary>
-  );
+  return <ErrorBoundary fallback={null}>{children}</ErrorBoundary>;
 }
 class ErrorBoundary extends React.Component<
   PropsWithChildren<{ fallback?: React.ReactNode }>,
@@ -39,9 +35,10 @@ interface Props { organizationId: string | null; }
 
 export const WidgetView = ({ organizationId }: Props) => {
   const screen = useAtomValue(screenAtom);
-  useEnsureContactSession(organizationId); 
   usePresence();
 
+  // NOTE: add "booking" to satisfy the Screen union.
+  // We route "booking" to WidgetChatScreen because booking flow lives there.
   const screenComponents = {
     loading: <WidgetLoadingScreen organizationId={organizationId} />,
     error: <WidgetErrorScreen />,
@@ -51,11 +48,10 @@ export const WidgetView = ({ organizationId }: Props) => {
     selection: <WidgetSelectionScreen />,
     chat: <WidgetChatScreen />,
     contact: <WidgetContactScreen />,
-    booking: <InlineBooker />, 
+    booking: <WidgetChatScreen />, // <-- added
   } as const;
 
-  // Optional: hide SmartPromo in dev to avoid double CTAs with the dev buttons.
-  const showPromo = true
+  const showPromo = true;
 
   return (
     <main className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-muted">

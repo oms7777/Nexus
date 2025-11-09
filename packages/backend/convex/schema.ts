@@ -1,4 +1,3 @@
-// packages/backend/convex/schema.ts
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -21,7 +20,12 @@ export default defineSchema({
       assistantId: v.optional(v.string()),
       phoneNumber: v.optional(v.string()),
     }),
-    // ⬇️ NEW: lien configurable + bloc consent complet
+
+    // Optional marketing/branding
+    teamAvatars: v.optional(v.array(v.string())), // up to 3 URLs typically
+    brandLogoUrl: v.optional(v.string()),
+
+    // Back-compat root privacyUrl + full consent config
     privacyUrl: v.optional(v.string()),
     consent: v.optional(
       v.object({
@@ -31,14 +35,11 @@ export default defineSchema({
         body: v.optional(v.string()),
         acceptLabel: v.optional(v.string()),
         version: v.optional(v.string()),
-
-        // 🆕 NEW FIELDS for customizable consent behavior
         linkMode: v.optional(v.union(v.literal("link"), v.literal("modal"))),
         privacyUrl: v.optional(v.string()),
         modalContent: v.optional(v.string()),
       })
     ),
-
   }).index("by_organization_id", ["organizationId"]),
 
   plugins: defineTable({
@@ -66,7 +67,6 @@ export default defineSchema({
     .index("by_status_and_organization_id", ["status", "organizationId"]),
 
   contactSessions: defineTable({
-    // anonymat initial OK
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     organizationId: v.string(),
@@ -96,13 +96,13 @@ export default defineSchema({
       // simple analytics
       pages: v.optional(v.array(v.string())),
 
+      // NEW: for anonymous tracking via widget
       visitorId: v.optional(v.string()),
       clientIp: v.optional(v.string()),
     })),
-    // ⬇️ NEW: trace du consentement pour la session
     consent: v.optional(v.object({
       given: v.boolean(),
-      ts: v.number(),                  // ms epoch
+      ts: v.number(), // ms epoch
       privacyUrl: v.optional(v.string()),
       version: v.optional(v.string()),
     })),
@@ -156,7 +156,7 @@ export default defineSchema({
   /* ---------- Calendar connections ---------- */
   calendarAccounts: defineTable({
     organizationId: v.string(),
-    userId: v.string(),               // Clerk userId du sales
+    userId: v.string(),
     provider: v.literal("google"),
     email: v.optional(v.string()),
     refreshToken: v.string(),
@@ -194,8 +194,8 @@ export default defineSchema({
     createdByUserId: v.optional(v.string()),
     attendeeName: v.string(),
     attendeeEmail: v.string(),
-    start: v.number(),   // ms epoch
-    end: v.number(),     // ms epoch
+    start: v.number(),
+    end: v.number(),
     meetingUrl: v.optional(v.string()),
     externalEventId: v.optional(v.string()),
     providerData: v.optional(v.object({
@@ -210,14 +210,13 @@ export default defineSchema({
     .index("by_org_start", ["organizationId", "start"]),
 
   users: defineTable({
-    organizationId: v.string(),      // org du membre
-    externalId: v.string(),          // Clerk tokenIdentifier
+    organizationId: v.string(),
+    externalId: v.string(),
     name: v.optional(v.string()),
-    avatarUrl: v.optional(v.string()),  // URL photo profil
+    avatarUrl: v.optional(v.string()),
   })
     .index("by_org_external", ["organizationId", "externalId"])
     .index("by_org", ["organizationId"]),
-
 
   /* ---------- Analytics ---------- */
   analyticsEvents: defineTable({
@@ -265,22 +264,18 @@ export default defineSchema({
   /* ---------- Promos contextuelles ---------- */
   promos: defineTable({
     organizationId: v.string(),
-
     name: v.string(),
     active: v.boolean(),
-
     rules: v.object({
       pathPrefix: v.optional(v.string()),
       urlIncludes: v.optional(v.array(v.string())),
       utmSource: v.optional(v.array(v.string())),
     }),
-
     card: v.object({
       title: v.string(),
       body: v.string(),
       badgeText: v.optional(v.string()),
     }),
-
     primaryCta: v.object({
       kind: v.union(
         v.literal("open_chat"),
@@ -290,7 +285,6 @@ export default defineSchema({
       label: v.string(),
       url: v.optional(v.string()),
     }),
-
     secondaryCta: v.optional(v.object({
       kind: v.union(
         v.literal("open_chat"),
@@ -300,7 +294,6 @@ export default defineSchema({
       label: v.string(),
       url: v.optional(v.string()),
     })),
-
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
