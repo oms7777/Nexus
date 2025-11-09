@@ -49,7 +49,6 @@ export const WidgetView = ({ organizationId }: Props) => {
     selection: <WidgetSelectionScreen />,
     chat: <WidgetChatScreen />,
     contact: <WidgetContactScreen />,
-    booking:   <InlineBooker />,
   } as const;
 
   // Optional: hide SmartPromo in dev to avoid double CTAs with the dev buttons.

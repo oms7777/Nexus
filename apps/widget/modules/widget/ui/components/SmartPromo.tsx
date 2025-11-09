@@ -1,13 +1,16 @@
 "use client";
 
 /**
- * SmartPromo (robuste)
- * - Handshake propre host <-> widget via postMessage
- * - Envoie "nexus:promo" dès que le host est prêt (avec retry)
- * - Gère les CTAs :
- *    - open_chat     → chat (consent d’abord)
- *    - open_booking  → booking (consent d’abord)
- *    - open_url      → nouvelle fenêtre
+ * SmartPromo
+ * -----------
+ * - Envoie le payload "nexus:promo" au host (nudge)
+ * - Réagit aux messages du host :
+ *    - "nexus:open-chat" => intent=chat → step=consent → screen=chat
+ *    - "nexus:run-primary-cta" / "nexus:run-secondary-cta" => exécute CTA
+ *
+ * IMPORTANT :
+ * - Ne crée PLUS de conversation ici.
+ * - La création de conversation est gérée après consent dans WidgetChatScreen.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -19,9 +22,6 @@ import { bookingIntentAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
 import type { Doc } from "@workspace/backend/_generated/dataModel";
 
 type Cta = Doc<"promos">["primaryCta"];
-type PromoDoc = Doc<"promos"> | undefined;
-
-const LOG_PREFIX = "[SmartPromo]";
 
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
@@ -31,15 +31,13 @@ export default function SmartPromo() {
   const setStep = useSetAtom(qualifyStepAtom);
 
   const [parentHref, setParentHref] = useState<string>();
-  const [hostReady, setHostReady] = useState(false);
-  const [targetOrigin, setTargetOrigin] = useState<string | null>(null);
+  const [hostAck, setHostAck] = useState(false);
 
-  // Sommes-nous embarqués ?
+  // Widget embarqué ?
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
-  /* ---------------- Data ---------------- */
-
+  // Settings + avatars + promos
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip",
@@ -69,40 +67,37 @@ export default function SmartPromo() {
         : "skip",
     ) ?? [];
 
-  const promo: PromoDoc = useMemo(
+  const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
     [promos],
   );
 
-  // Référence stable de promo pour le listener
-  const promoRef = useRef<PromoDoc>(undefined);
+  // Référence stable de la promo pour le listener
+  const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
     promoRef.current = promo;
   }, [promo]);
 
-  /* ---------------- Handshake Host -> Widget ---------------- */
+  /* ---------------- Host -> Widget ---------------- */
 
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      // DEBUG global
-      // eslint-disable-next-line no-console
-      console.log(`${LOG_PREFIX} <-`, e.origin, e.data);
-
       const t = e.data?.type as string | undefined;
 
-      // Le host nous indique son readiness + nous envoie sa location.
-      if (t === "nexus:embed-ready" || t === "nexus:hide-internal-promo") {
-        if (!targetOrigin) setTargetOrigin(e.origin);
-        setHostReady(true);
+      // Host prêt + position de la page
+      if (
+        t === "nexus:embed-ready" ||
+        t === "nexus:parent-location" ||
+        t === "nexus:hide-internal-promo"
+      ) {
+        setHostAck(true);
       }
 
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
-        if (!targetOrigin) setTargetOrigin(e.origin);
-        setHostReady(true);
         setParentHref(e.data.href);
       }
 
-      // Ouverture du chat depuis le bouton rond du host
+      // Clic sur le bouton rond → ouvrir chat avec consent d’abord
       if (t === "nexus:open-chat") {
         setBookingIntent("chat");
         setStep("consent");
@@ -110,19 +105,20 @@ export default function SmartPromo() {
         return;
       }
 
-      // CTAs du nudge (host)
+      // CTAs du nudge
       const p = promoRef.current;
       if (!p) return;
 
-      if (t === "nexus:run-primary-cta" && p.primaryCta) runCta(p.primaryCta);
-      if (t === "nexus:run-secondary-cta" && p.secondaryCta) runCta(p.secondaryCta);
+      if (t === "nexus:run-primary-cta" && p.primaryCta) void runCta(p.primaryCta);
+      if (t === "nexus:run-secondary-cta" && p.secondaryCta)
+        void runCta(p.secondaryCta);
     };
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [setBookingIntent, setScreen, setStep, targetOrigin]);
+  }, [setBookingIntent, setScreen, setStep]);
 
-  /* ---------------- Construction du payload ---------------- */
+  /* ---------------- Payload du nudge ---------------- */
 
   const fallbackPayload = useMemo(
     () => ({
@@ -136,7 +132,7 @@ export default function SmartPromo() {
     [],
   );
 
-  const buildPayload = () => {
+  const makePayload = () => {
     const avatars = memberAvatars.length
       ? memberAvatars
       : (ws as any)?.teamAvatars?.length
@@ -164,51 +160,20 @@ export default function SmartPromo() {
     return { ...fallbackPayload, avatars, privacyUrl };
   };
 
-  /* ---------------- Envoi du payload au host ---------------- */
-
-  // Post utilitaire avec origine connue
-  const postToHost = (msg: any) => {
-    if (!isEmbedded) return;
-    if (!targetOrigin) return;
-    try {
-      window.parent.postMessage(msg, targetOrigin);
-      // eslint-disable-next-line no-console
-      console.log(`${LOG_PREFIX} ->`, targetOrigin, msg);
-    } catch (e) {
-      console.warn(`${LOG_PREFIX} postMessage failed`, e);
-    }
-  };
-
-  // Envoi dès que le host est prêt (avec petite stratégie de retry)
+  // Envoi du nudge une fois que le host est prêt
   useEffect(() => {
     if (!isEmbedded) return;
-    if (!hostReady) return;
+    if (!hostAck) return;
 
-    let cancelled = false;
-    const payload = buildPayload();
-
-    const send = () => {
-      if (cancelled) return;
-      postToHost({ type: "nexus:promo", payload });
-    };
-
-    // premier envoi
-    send();
-
-    // 2 petits retries si le host n’a pas affiché le nudge tout de suite
-    const t1 = setTimeout(send, 400);
-    const t2 = setTimeout(send, 1200);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [isEmbedded, hostReady, promo, memberAvatars, ws, targetOrigin]);
+    window.parent?.postMessage(
+      { type: "nexus:promo", payload: makePayload() },
+      "*",
+    );
+  }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
 
   /* ---------------- CTAs ---------------- */
 
-  const runCta = (cta: Cta) => {
+  const runCta = async (cta: Cta) => {
     if (cta.kind === "open_chat") {
       setBookingIntent("chat");
       setStep("consent");
@@ -216,10 +181,9 @@ export default function SmartPromo() {
       return;
     }
     if (cta.kind === "open_booking") {
-      // 👉 Basculer vers le flow booking (comme en local)
       setBookingIntent("book");
       setStep("consent");
-      setScreen("booking");
+      setScreen("chat");
       return;
     }
     if (cta.kind === "open_url" && cta.url) {
@@ -227,7 +191,7 @@ export default function SmartPromo() {
     }
   };
 
-  /* ---------------- Debug interne (quand non embarqué) ---------------- */
+  /* ---------------- Debug interne (pas embarqué) ---------------- */
 
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
