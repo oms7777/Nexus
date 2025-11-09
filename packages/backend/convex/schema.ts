@@ -95,6 +95,9 @@ export default defineSchema({
       lng: v.optional(v.number()),
       // simple analytics
       pages: v.optional(v.array(v.string())),
+
+      visitorId: v.optional(v.string()),
+      clientIp: v.optional(v.string()),
     })),
     // ⬇️ NEW: trace du consentement pour la session
     consent: v.optional(v.object({
