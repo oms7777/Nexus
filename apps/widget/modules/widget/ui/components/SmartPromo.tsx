@@ -1,16 +1,11 @@
 "use client";
 
 /**
- * SmartPromo
- * -----------
- * - Envoie le payload "nexus:promo" au host (nudge)
- * - Réagit aux messages du host :
- *    - "nexus:open-chat" => intent=chat → step=consent → screen=chat
- *    - "nexus:run-primary-cta" / "nexus:run-secondary-cta" => exécute CTA
- *
- * IMPORTANT :
- * - Ne crée PLUS de conversation ici.
- * - La création de conversation est gérée après consent dans WidgetChatScreen.
+ * SmartPromo (iframe → host)
+ * - Récupère la promo + avatars depuis Convex
+ * - Attend l’ack du host puis envoie { type: "nexus:promo", payload }
+ * - Réagit aux commandes du host (open_chat / open_booking / open_url)
+ * - Ne crée PAS de conversation : c’est géré après consent dans WidgetChatScreen
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -32,27 +27,27 @@ export default function SmartPromo() {
 
   const [parentHref, setParentHref] = useState<string>();
   const [hostAck, setHostAck] = useState(false);
+  const sentRef = useRef(false);
 
-  // Widget embarqué ?
+  // Sommes-nous embarqués ?
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
-  // Settings + avatars + promos
+  /* ---------- Data (Convex) ---------- */
+
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip",
+    orgId ? { organizationId: orgId } : "skip"
   );
 
   const memberAvatars =
     useQuery(
       api.public.users.listOrgAvatars,
-      orgId ? { organizationId: orgId, limit: 3 } : "skip",
+      orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
   const currentUrl =
-    typeof window !== "undefined"
-      ? parentHref ?? window.location.href
-      : undefined;
+    typeof window !== "undefined" ? parentHref ?? window.location.href : undefined;
 
   const utm =
     typeof window !== "undefined" && currentUrl
@@ -64,40 +59,34 @@ export default function SmartPromo() {
       api.public.promos.listForPage,
       orgId && currentUrl
         ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip",
+        : "skip"
     ) ?? [];
 
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos],
+    [promos]
   );
 
-  // Référence stable de la promo pour le listener
+  // Référence stable de la promo pour les callbacks
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
     promoRef.current = promo;
   }, [promo]);
 
-  /* ---------------- Host -> Widget ---------------- */
+  /* ---------- Host → Widget ---------- */
 
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      // Host prêt + position de la page
-      if (
-        t === "nexus:embed-ready" ||
-        t === "nexus:parent-location" ||
-        t === "nexus:hide-internal-promo"
-      ) {
+      // Handshake & position du host
+      if (t === "nexus:embed-ready" || t === "nexus:host-ack") setHostAck(true);
+      if (t === "nexus:parent-location" && typeof e.data.href === "string") {
+        setParentHref(e.data.href);
         setHostAck(true);
       }
 
-      if (t === "nexus:parent-location" && typeof e.data.href === "string") {
-        setParentHref(e.data.href);
-      }
-
-      // Clic sur le bouton rond → ouvrir chat avec consent d’abord
+      // Clic FAB du host → ouvrir chat (en respectant le consent)
       if (t === "nexus:open-chat") {
         setBookingIntent("chat");
         setStep("consent");
@@ -118,7 +107,7 @@ export default function SmartPromo() {
     return () => window.removeEventListener("message", onMsg);
   }, [setBookingIntent, setScreen, setStep]);
 
-  /* ---------------- Payload du nudge ---------------- */
+  /* ---------- Payload du nudge ---------- */
 
   const fallbackPayload = useMemo(
     () => ({
@@ -129,17 +118,16 @@ export default function SmartPromo() {
       primaryCta: { kind: "open_chat", label: "Chat with AI" as const },
       secondaryCta: { kind: "open_booking", label: "Book a meeting" as const },
     }),
-    [],
+    []
   );
 
   const makePayload = () => {
-    const avatars = memberAvatars.length
-      ? memberAvatars
-      : (ws as any)?.teamAvatars?.length
-      ? (ws as any).teamAvatars.slice(0, 3)
-      : (ws as any)?.brandLogoUrl
-      ? [(ws as any).brandLogoUrl]
-      : [new URL("/logo.svg", window.location.origin).toString()];;
+    // Avatars: ordre de préférence, aucun 404
+    const avatars: string[] =
+      (Array.isArray(memberAvatars) && memberAvatars.length
+        ? memberAvatars
+        : (ws as any)?.teamAvatars?.slice?.(0, 3)) ||
+      ((ws as any)?.brandLogoUrl ? [(ws as any).brandLogoUrl] : []);
 
     const privacyUrl =
       (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined;
@@ -160,18 +148,17 @@ export default function SmartPromo() {
     return { ...fallbackPayload, avatars, privacyUrl };
   };
 
-  // Envoi du nudge une fois que le host est prêt
+  // Envoi vers le host (une seule fois par page) quand prêt
   useEffect(() => {
-    if (!isEmbedded) return;
-    if (!hostAck) return;
+    if (!isEmbedded) return;        // inutile en local (non embarqué)
+    if (!hostAck) return;           // attendre l’ack du host
+    if (sentRef.current) return;    // ne pas renvoyer
 
-    window.parent?.postMessage(
-      { type: "nexus:promo", payload: makePayload() },
-      "*",
-    );
+    sentRef.current = true;
+    window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
   }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
 
-  /* ---------------- CTAs ---------------- */
+  /* ---------- CTAs ---------- */
 
   const runCta = async (cta: Cta) => {
     if (cta.kind === "open_chat") {
@@ -191,8 +178,7 @@ export default function SmartPromo() {
     }
   };
 
-  /* ---------------- Debug interne (pas embarqué) ---------------- */
-
+  /* ---------- Démo interne (non embarqué) ---------- */
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 
@@ -207,9 +193,7 @@ export default function SmartPromo() {
             {promo.card.badgeText}
           </div>
         )}
-        <div className="font-semibold">
-          {promo?.card?.title ?? "Need a hand?"}
-        </div>
+        <div className="font-semibold">{promo?.card?.title ?? "Need a hand?"}</div>
         <div className="mt-1 text-sm text-muted-foreground">
           {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
         </div>
