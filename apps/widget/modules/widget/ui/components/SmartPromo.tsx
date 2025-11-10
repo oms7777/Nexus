@@ -139,7 +139,7 @@ export default function SmartPromo() {
       ? (ws as any).teamAvatars.slice(0, 3)
       : (ws as any)?.brandLogoUrl
       ? [(ws as any).brandLogoUrl]
-      : ["/logo.svg"];
+      : [new URL("/logo.svg", window.location.origin).toString()];;
 
     const privacyUrl =
       (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined;
