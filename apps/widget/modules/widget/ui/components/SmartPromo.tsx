@@ -116,21 +116,25 @@ export default function SmartPromo() {
         setHostAck(true);
       }
 
-      // 🔒 Guard: ignorer open-chat si on est déjà dans un parcours booking
+      // Toujours supportés, même sans promo
       if (t === "nexus:open-chat") {
-        if (currentIntent === "book" || currentStep !== "idle") return;
         void ensureAndStartChat("chat");
         return;
       }
-
-      const p = promoRef.current;
-      if (!p) return;
-
-      if (t === "nexus:run-primary-cta" && p.primaryCta)
-        void runCta(p.primaryCta);
-      if (t === "nexus:run-secondary-cta" && p.secondaryCta)
-        void runCta(p.secondaryCta);
+      if (t === "nexus:run-primary-cta") {
+        const p = promoRef.current;
+        if (p?.primaryCta) { void runCta(p.primaryCta); }
+        else { void ensureAndStartChat("chat"); }   // fallback sans promo
+        return;
+      }
+      if (t === "nexus:run-secondary-cta") {
+        const p = promoRef.current;
+        if (p?.secondaryCta) { void runCta(p.secondaryCta); }
+        else { void ensureAndStartChat("book"); }   // ✅ fallback booking
+        return;
+      }
     };
+
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
