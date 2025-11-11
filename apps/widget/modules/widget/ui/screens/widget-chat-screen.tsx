@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * WidgetChatScreen (prod-safe)
- * - Gère le cas consent désactivé (prod) : jump direct selon intent
- * - Crée une conversation dès que nécessaire (fallback)
+ * WidgetChatScreen (prod-safe, no threads API)
+ * - Creates a conversation if needed
+ * - Waits for conversation.threadId to be populated, then sends
+ * - Gracefully prompts the user to resend if thread isn't ready yet
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -167,13 +168,35 @@ export const WidgetChatScreen = () => {
   const [bookingIntent, setBookingIntent] = useAtom(bookingIntentAtom);
   const [, setConsentGiven] = useAtom(consentGivenAtom);
 
-  // backend messages
+  // Conversation + messages
   const conversation = useQuery(
     api.public.conversations.getOne,
     conversationId && contactSessionId
       ? { conversationId, contactSessionId }
       : "skip"
   );
+
+  // Track latest threadId (so polling reads fresh values)
+  const threadIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    threadIdRef.current = conversation?.threadId ?? null;
+  }, [conversation?.threadId]);
+
+  // Wait helper: resolve once threadId exists (short poll)
+  async function waitForThreadId(opts: { timeoutMs?: number; intervalMs?: number } = {}) {
+    const timeoutMs = opts.timeoutMs ?? 4000;
+    const intervalMs = opts.intervalMs ?? 150;
+    const start = Date.now();
+
+    if (threadIdRef.current) return threadIdRef.current;
+
+    while (Date.now() - start < timeoutMs) {
+      if (threadIdRef.current) return threadIdRef.current;
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return null;
+  }
+
   const messages = useThreadMessages(
     api.public.messages.getMany,
     conversation?.threadId && contactSessionId
@@ -202,7 +225,6 @@ export const WidgetChatScreen = () => {
   const createConversation = useMutation(api.public.conversations.create);
   const firstMessageSentRef = useRef(false);
 
-  // Carte d’accueil hors-fil : seulement à froid
   const showWelcomeChoices = !conversationId && step === "idle";
 
   // log widget load
@@ -221,12 +243,11 @@ export const WidgetChatScreen = () => {
   });
   const createMessage = useAction(api.public.messages.create);
 
-  /* -------- prod-safe: consent désactivé => agir selon intent -------- */
+  /* -------- consent disabled => act immediately -------- */
   useEffect(() => {
     const consentEnabled = consentCfg?.enabled !== false;
-    if (consentEnabled) return; // flux normal via carte consent
+    if (consentEnabled) return;
 
-    // Consent désactivé: on exécute l'intent immédiatement
     if (bookingIntent === "book" && step !== "ask_name") {
       setStep("ask_name");
       setLocalMsgs((m) => [
@@ -256,7 +277,7 @@ export const WidgetChatScreen = () => {
     conversation,
   ]);
 
-  /* -------- Qualif en “steps” (après submit du mini-form) -------- */
+  /* -------- Qualif flow -------- */
   const startPickingAfterQualify = async (lead: {
     name: string;
     email: string;
@@ -292,11 +313,10 @@ export const WidgetChatScreen = () => {
     }
   };
 
-  /* -------- Envoi message -------- */
+  /* -------- Send message (thread bootstrap + retry) -------- */
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     const text = values.message.trim();
     form.reset();
-
     if (!text) return;
 
     if (!firstMessageSentRef.current && organizationId) {
@@ -309,7 +329,7 @@ export const WidgetChatScreen = () => {
       }).catch(() => {});
     }
 
-    // Déclencheur simple pour booking
+    // booking intent via free text
     if (step === "idle" && /book|demo|meeting/i.test(text)) {
       setLocalMsgs((m) => [...m, { role: "user", text }]);
       setBookingIntent("book");
@@ -325,19 +345,14 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // --- GARDE FIL: pas de createMessage sans threadId ---
     if (!contactSessionId || !organizationId) return;
 
-    // S'assurer qu'on a une conversation
+    // Ensure a conversation exists
+    let cid = conversationId;
     try {
-      if (!conversationId || !conversation) {
-        const cid = await createConversation({ organizationId, contactSessionId });
+      if (!cid || !conversation) {
+        cid = await createConversation({ organizationId, contactSessionId });
         setConversationId(cid);
-        setLocalMsgs((m) => [
-          ...m,
-          { role: "assistant", text: "All set. Please send your message again 😊" },
-        ]);
-        return;
       }
     } catch {
       setLocalMsgs((m) => [
@@ -347,8 +362,9 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // On attend un threadId défini
-    if (!conversation?.threadId) {
+    // Wait for threadId to be ready, then send
+    const thr = conversation?.threadId ?? (await waitForThreadId());
+    if (!thr) {
       setLocalMsgs((m) => [
         ...m,
         { role: "assistant", text: "Preparing the chat… please resend your message in a moment." },
@@ -356,21 +372,26 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // Flux normal
-    await createMessage({
-      threadId: conversation.threadId,
-      prompt: text,
-      contactSessionId,
-    });
+    try {
+      await createMessage({
+        threadId: thr,
+        prompt: text,
+        contactSessionId,
+      });
+    } catch {
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "Network hiccup—please try again." },
+      ]);
+    }
   };
 
-  /* -------- Messages backend + greet -------- */
+  /* -------- Messages + greet -------- */
   const backendMsgs = toUIMessages(messages.results ?? []).map((m) => ({
     role: m.role === "user" ? ("user" as const) : ("assistant" as const),
     text: m.content,
   }));
 
-  // On laisse le greet en premier, mais on évite un doublon exact
   const greet = widgetSettings?.greetMessage?.trim();
   const filteredBackend = greet
     ? backendMsgs.filter(
@@ -389,7 +410,6 @@ export const WidgetChatScreen = () => {
 
   return (
     <>
-      {/* Header SANS flèche retour */}
       <WidgetHeader className="flex items-center justify-between">
         <p className="font-medium">Chat</p>
         <div className="flex items-center gap-1">
@@ -431,8 +451,8 @@ export const WidgetChatScreen = () => {
             </AIMessage>
           ))}
 
-          {/* Carte de bienvenue hors-fil (idempotente) */}
-          {showWelcomeChoices && (
+          {/* welcome card */}
+          {!conversationId && step === "idle" && (
             <div className="p-3">
               <div className="rounded-lg border bg-background p-3">
                 <div className="font-semibold text-lg mb-2">
@@ -449,8 +469,8 @@ export const WidgetChatScreen = () => {
                       if (consentCfg?.enabled === false) {
                         try {
                           if (!conversation && organizationId && contactSessionId) {
-                            const cid = await createConversation({ organizationId, contactSessionId });
-                            setConversationId(cid);
+                            const cid2 = await createConversation({ organizationId, contactSessionId });
+                            setConversationId(cid2);
                           }
                         } catch {}
                         setStep("idle");
@@ -485,18 +505,14 @@ export const WidgetChatScreen = () => {
             </div>
           )}
 
-          {/* Carte consent (uniquement si activée) */}
+          {/* consent card */}
           {step === "consent" && consentCfg && consentCfg.enabled !== false && (
             <div className="p-3">
               <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
                 {(consentCfg.title || consentCfg.intro) && (
                   <div className="mb-2">
-                    {consentCfg.title && (
-                      <div className="font-medium">{consentCfg.title}</div>
-                    )}
-                    {consentCfg.intro && (
-                      <div className="text-muted-foreground">{consentCfg.intro}</div>
-                    )}
+                    {consentCfg.title && <div className="font-medium">{consentCfg.title}</div>}
+                    {consentCfg.intro && <div className="text-muted-foreground">{consentCfg.intro}</div>}
                   </div>
                 )}
 
@@ -553,13 +569,10 @@ export const WidgetChatScreen = () => {
                         { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
                       ]);
                     } else {
-                      // → CHAT : s’assurer d’avoir une conversation ET poser l'ID
                       try {
                         if (!conversation && organizationId && contactSessionId) {
-                          const cid = await createConversation({ organizationId, contactSessionId });
-                          setConversationId(cid);
-                        } else if (conversationId) {
-                          setConversationId(conversationId);
+                          const cid2 = await createConversation({ organizationId, contactSessionId });
+                          setConversationId(cid2);
                         }
                       } catch {}
                       setStep("idle");
@@ -590,7 +603,7 @@ export const WidgetChatScreen = () => {
             </div>
           )}
 
-          {/* Qualif */}
+          {/* Qualif form */}
           {step === "ask_name" && bookingIntent !== "chat" && (
             <QualifyCard
               initial={{
@@ -618,9 +631,7 @@ export const WidgetChatScreen = () => {
           {step === "picking" && (
             <>
               {loadingSlots && (
-                <div className="p-3 text-sm text-muted-foreground">
-                  Loading times…
-                </div>
+                <div className="p-3 text-sm text-muted-foreground">Loading times…</div>
               )}
               {!loadingSlots && slots && (
                 <SlotsByDay
