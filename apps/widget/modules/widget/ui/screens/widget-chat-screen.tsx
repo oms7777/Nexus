@@ -393,10 +393,12 @@ export const WidgetChatScreen = () => {
   }));
 
   const greet = widgetSettings?.greetMessage?.trim();
+  const hideGreetNow = bookingIntent === "book" || step !== "idle";
   const filteredBackend = greet
-    ? backendMsgs.filter(
-        (m, i) => !(i > 0 && m.role === "assistant" && m.text.trim() === greet)
-      )
+    ? backendMsgs.filter((m) => {
+        if (!hideGreetNow) return true;
+        return !(m.role === "assistant" && m.text.trim() === greet);
+      })
     : backendMsgs;
 
   const uiMsgs = [...filteredBackend, ...localMsgs];

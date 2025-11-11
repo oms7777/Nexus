@@ -9,7 +9,7 @@ import { api } from "../_generated/api";
 export const getMany = query({
   args: {
     contactSessionId: v.id("contactSessions"),
-    paginationOpts: paginationOptsValidator
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const contactSession = await ctx.db.get(args.contactSessionId);
@@ -34,7 +34,7 @@ export const getMany = query({
 
         const messages = await supportAgent.listMessages(ctx, {
           threadId: conversation.threadId,
-          paginationOpts: { numItems: 1, cursor: null }
+          paginationOpts: { numItems: 1, cursor: null },
         });
 
         if (messages.page.length > 0) {
@@ -49,14 +49,14 @@ export const getMany = query({
           threadId: conversation.threadId,
           lastMessage,
         };
-      })
+      }),
     );
 
     return {
       ...conversations,
       page: conversationsWithLastMessage,
     };
-  }
+  },
 });
 
 export const getOne = query({
@@ -91,7 +91,7 @@ export const getOne = query({
     return {
       _id: conversation._id,
       status: conversation.status,
-      threadId: conversation.threadId
+      threadId: conversation.threadId,
     };
   },
 });
@@ -100,6 +100,8 @@ export const create = mutation({
   args: {
     organizationId: v.string(),
     contactSessionId: v.id("contactSessions"),
+    // ✅ nouveau paramètre optionnel : supprime le greet côté backend
+    suppressGreet: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.contactSessionId);
@@ -111,14 +113,14 @@ export const create = mutation({
     }
 
     // refresh TTL
-    await ctx.runMutation(internal.system.contactSessions.refresh,  {
+    await ctx.runMutation(internal.system.contactSessions.refresh, {
       contactSessionId: args.contactSessionId,
     });
 
     const widgetSettings = await ctx.db
       .query("widgetSettings")
       .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", args.organizationId)
+        q.eq("organizationId", args.organizationId),
       )
       .unique();
 
@@ -126,14 +128,18 @@ export const create = mutation({
       userId: args.organizationId,
     });
 
-    // greet
-    await saveMessage(ctx, components.agent, {
-      threadId,
-      message: {
-        role: "assistant",
-        content: widgetSettings?.greetMessage || "Hello, how can I help you today?",
-      }
-    });
+    // ✅ Greet conditionnel : n'envoyer le message d'accueil que si non supprimé
+    if (!args.suppressGreet) {
+      await saveMessage(ctx, components.agent, {
+        threadId,
+        message: {
+          role: "assistant",
+          content:
+            widgetSettings?.greetMessage ||
+            "Hello, how can I help you today?",
+        },
+      });
+    }
 
     const conversationId = await ctx.db.insert("conversations", {
       contactSessionId: session._id,
@@ -142,13 +148,13 @@ export const create = mutation({
       threadId,
     });
 
-    // 🔹 1) experience_shown (assistant affiché)
+    // 🔹 1) experience_shown
     await ctx.runMutation(api.public.analytics.log, {
       organizationId: args.organizationId,
       type: "experience_shown",
       sessionId: args.contactSessionId,
       conversationId,
-      meta: { threadId },
+      meta: { threadId, suppressGreet: !!args.suppressGreet },
     });
 
     // 🔹 2) conversation_created
@@ -157,7 +163,7 @@ export const create = mutation({
       type: "conversation_created",
       sessionId: args.contactSessionId,
       conversationId,
-      meta: { threadId },
+      meta: { threadId, suppressGreet: !!args.suppressGreet },
     });
 
     return conversationId;

@@ -20,14 +20,14 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   let organizationId: string | null = null;
   let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
 
-
   // Read attributes
   const currentScript = document.currentScript as HTMLScriptElement | null;
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
     position =
-      (currentScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
-      EMBED_CONFIG.DEFAULT_POSITION;
+      (currentScript.getAttribute("data-position") as
+        | "bottom-right"
+        | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
   } else {
     const scripts = document.querySelectorAll('script[src*="widget"]');
     const embedScript = Array.from(scripts).find((s) =>
@@ -36,8 +36,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
       position =
-        (embedScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
-        EMBED_CONFIG.DEFAULT_POSITION;
+        (embedScript.getAttribute("data-position") as
+          | "bottom-right"
+          | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
     }
   }
 
@@ -71,7 +72,14 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 24px rgba(59,130,246,.35); transition: transform .2s ease;
     `;
-    button.addEventListener("click", toggleWidget);
+    // FAB => ouvre le chat (et ferme si déjà ouvert)
+    button.addEventListener("click", () => {
+      if (isOpen) {
+        hide();
+        return;
+      }
+      openChat();
+    });
     button.addEventListener("mouseenter", () => (button!.style.transform = "scale(1.05)"));
     button.addEventListener("mouseleave", () => (button!.style.transform = "scale(1)"));
     document.body.appendChild(button);
@@ -133,7 +141,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   /* ---------------- Messaging ---------------- */
 
   function handleMessage(event: MessageEvent) {
-    // Guard: only our iframe origin
     if (!iframeLoaded || !TARGET_ORIGIN || event.origin !== TARGET_ORIGIN) return;
     const { type, payload } = event.data || {};
 
@@ -148,10 +155,10 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
       case "nexus:promo":
         hasPromoPayload = true;
-        // ack to iframe (so it can stop re-sending)
+        // ack to iframe
         iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, TARGET_ORIGIN);
         renderNudge(payload);
-        // hide internal demo promo inside iframe (if any)
+        // hide any internal demo promo inside iframe
         iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, TARGET_ORIGIN);
         break;
 
@@ -306,14 +313,9 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     const secondaryBtn = nudge.querySelector<HTMLButtonElement>("#nexus-secondary");
     const closeBtn = nudge.querySelector<HTMLButtonElement>("#nexus-close");
 
-    primaryBtn?.addEventListener("click", () => {
-      postToWidget({ type: "nexus:run-primary-cta" });
-      show();
-    });
-    secondaryBtn?.addEventListener("click", () => {
-      postToWidget({ type: "nexus:run-secondary-cta" });
-      show();
-    });
+    // route proprement : primaire = chat, secondaire = booking
+    primaryBtn?.addEventListener("click", () => openChat());
+    secondaryBtn?.addEventListener("click", () => openBooking());
     closeBtn?.addEventListener("click", () => {
       nudgeDismissed = true;
       removeNudge();
@@ -374,8 +376,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
   /* ---------------- UI actions ---------------- */
 
-  function toggleWidget() { isOpen ? hide() : show(); }
-
   function show() {
     if (!container || !button) return;
     isOpen = true;
@@ -392,7 +392,7 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     button.innerHTML = closeIcon;
 
     sendParentLocation();
-    postToWidget({ type: "nexus:open-chat" });
+    // ❌ ne pas ouvrir le chat ici — laissé aux helpers ciblés
   }
 
   function hide() {
@@ -411,6 +411,16 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       placeNudge();
       postToWidget({ type: "nexus:parent-location", href: location.href });
     }
+  }
+
+  // Helpers ciblés
+  function openChat() {
+    show();
+    setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 50);
+  }
+  function openBooking() {
+    show();
+    setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 50);
   }
 
   /* ---------------- Lifecycle ---------------- */

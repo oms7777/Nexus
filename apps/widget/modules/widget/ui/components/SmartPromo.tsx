@@ -23,6 +23,10 @@ export default function SmartPromo() {
   const setStep = useSetAtom(qualifyStepAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
 
+  // état courant pour guard "ignore open-chat si booking en cours"
+  const currentStep = useAtomValue(qualifyStepAtom);
+  const currentIntent = useAtomValue(bookingIntentAtom);
+
   const contactSessionId = useAtomValue(
     contactSessionIdAtomFamily(orgId || "")
   );
@@ -76,7 +80,7 @@ export default function SmartPromo() {
     promoRef.current = promo;
   }, [promo]);
 
-  // ----- Helper: ensure session+conversation then open chat
+  // ----- Helper: ensure session+conversation puis ouvrir l'écran
   const ensureAndStartChat = async (intent: "chat" | "book") => {
     if (!orgId) {
       setScreen("error");
@@ -90,10 +94,13 @@ export default function SmartPromo() {
       (await ensureContactSession({ organizationId: orgId }));
     if (!contactSessionId) setContactSessionId(sessionId);
 
+    // NOTE: le backend salue toujours pour l'instant; on filtrera côté UI plus tard si besoin
     const convId = await createConversation({
       contactSessionId: sessionId,
       organizationId: orgId,
-    });
+      // ⬇️ on supprime le greet pour le parcours booking
+      suppressGreet: intent === "book" ? true : undefined,
+    } as any);
     setConversationId(convId);
     setScreen("chat");
   };
@@ -109,7 +116,9 @@ export default function SmartPromo() {
         setHostAck(true);
       }
 
+      // 🔒 Guard: ignorer open-chat si on est déjà dans un parcours booking
       if (t === "nexus:open-chat") {
+        if (currentIntent === "book" || currentStep !== "idle") return;
         void ensureAndStartChat("chat");
         return;
       }
@@ -125,7 +134,7 @@ export default function SmartPromo() {
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [orgId, contactSessionId]);
+  }, [orgId, contactSessionId, currentIntent, currentStep]);
 
   // ----- Payload for host
   const fallbackPayload = useMemo(
