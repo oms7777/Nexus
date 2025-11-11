@@ -5,13 +5,13 @@ import { cn } from "@workspace/ui/lib/utils";
 import { useAtomValue, useSetAtom } from "jotai";
 import { HomeIcon, InboxIcon } from "lucide-react";
 import { screenAtom } from "../../atoms/widget-atoms";
-// import BookDemoButton from "./BookDemoButton"; // ⬅️ supprimé
+// import BookDemoButton from "./BookDemoButton"; // ⬅️ intentionally removed
 
 export const WidgetFooter = () => {
   const screen = useAtomValue(screenAtom);
   const setScreen = useSetAtom(screenAtom);
 
-  // Optionnel: laisser un flag pour le remettre en dev si nécessaire
+  // Optional feature flag to temporarily bring back a footer CTA in dev
   const showFooterBookCta =
     process.env.NODE_ENV === "development" &&
     process.env.NEXT_PUBLIC_SHOW_FOOTER_BOOK_CTA === "1";
@@ -27,10 +27,10 @@ export const WidgetFooter = () => {
         <HomeIcon className={cn("size-5", screen === "selection" && "text-primary")} />
       </Button>
 
-      {/* ❌ CTA Book a demo retiré pour ne pas dupliquer la SmartPromo */}
+      {/* ❌ Keep empty unless you explicitly enable NEXT_PUBLIC_SHOW_FOOTER_BOOK_CTA */}
       {showFooterBookCta && (
         <div className="h-14 flex-1 rounded-none flex items-center justify-center">
-          {/* <BookDemoButton>...</BookDemoButton> */}
+          {/* <BookDemoButton /> */}
         </div>
       )}
 

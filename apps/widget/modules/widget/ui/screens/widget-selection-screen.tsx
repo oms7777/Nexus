@@ -19,7 +19,7 @@ import {
 } from "../../atoms/widget-atoms";
 import { useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { WidgetFooter } from "../components/widget-footer";
 
 export const WidgetSelectionScreen = () => {
@@ -75,7 +75,17 @@ export const WidgetSelectionScreen = () => {
     }
   };
 
-  // ✅ En prod, on ne montre pas les boutons (SmartPromo s’occupe de tout)
+  // ✅ In production, auto-start a conversation (SmartPromo opens the chat UI)
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development") return;
+    if (autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    // Fire and forget — any error will be handled by the internal try/catch
+    void handleNewConversation();
+  }, []); // run once
+
+  // ✅ In dev, keep the manual buttons visible
   const isDev = process.env.NODE_ENV === "development";
 
   return (
@@ -88,7 +98,6 @@ export const WidgetSelectionScreen = () => {
       </WidgetHeader>
 
       <div className="flex flex-1 flex-col gap-y-4 p-4 overflow-y-auto">
-        {/* ✅ Boutons visibles uniquement en mode développement */}
         {isDev && (
           <>
             <Button

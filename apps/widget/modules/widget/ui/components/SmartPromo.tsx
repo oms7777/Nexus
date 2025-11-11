@@ -1,35 +1,37 @@
 "use client";
 
-/**
- * SmartPromo (iframe → host)
- * - Récupère la promo + avatars depuis Convex
- * - Attend l’ack du host puis envoie { type: "nexus:promo", payload }
- * - Réagit aux commandes du host (open_chat / open_booking / open_url)
- * - Ne crée PAS de conversation : c’est géré après consent dans WidgetChatScreen
- */
-
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
-import { organizationIdAtom, screenAtom } from "../../atoms/widget-atoms";
+import {
+  organizationIdAtom,
+  screenAtom,
+  conversationIdAtom,
+  contactSessionIdAtomFamily,
+} from "../../atoms/widget-atoms";
 import { bookingIntentAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
-import type { Doc } from "@workspace/backend/_generated/dataModel";
+import type { Doc, Id } from "@workspace/backend/_generated/dataModel";
 
 type Cta = Doc<"promos">["primaryCta"];
 
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
-
   const setScreen = useSetAtom(screenAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
   const setStep = useSetAtom(qualifyStepAtom);
+
+  const setConversationId = useSetAtom(conversationIdAtom);
+  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
+  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(orgId || ""));
+
+  const ensureContactSession = useMutation(api.public.contactSessions.ensure);
+  const createConversation = useMutation(api.public.conversations.create);
 
   const [parentHref, setParentHref] = useState<string>();
   const [hostAck, setHostAck] = useState(false);
   const sentRef = useRef(false);
 
-  // Sommes-nous embarqués ?
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
@@ -67,16 +69,44 @@ export default function SmartPromo() {
     [promos]
   );
 
-  // Référence stable de la promo pour les callbacks
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
     promoRef.current = promo;
   }, [promo]);
 
-  /* ---------- Host → Widget ---------- */
+  /* ---------- Helper: démarrer la conversation ---------- */
+  const ensureStartConversation = useCallback(
+    async (): Promise<Id<"conversations"> | null> => {
+      if (!orgId) return null;
 
+      // 1) ensure contact session
+      const sessionId =
+        contactSessionId ||
+        (await ensureContactSession({ organizationId: orgId }));
+      if (!contactSessionId) setContactSessionId(sessionId);
+
+      // 2) create conversation
+      const convId = await createConversation({
+        contactSessionId: sessionId,
+        organizationId: orgId,
+      });
+
+      setConversationId(convId);
+      return convId;
+    },
+    [
+      orgId,
+      contactSessionId,
+      ensureContactSession,
+      createConversation,
+      setContactSessionId,
+      setConversationId,
+    ]
+  );
+
+  /* ---------- Host → Widget ---------- */
   useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
+    const onMsg = async (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
       // Handshake & position du host
@@ -86,15 +116,15 @@ export default function SmartPromo() {
         setHostAck(true);
       }
 
-      // Clic FAB du host → ouvrir chat (en respectant le consent)
+      // Clic FAB du host → ouvrir chat + démarrer conv si besoin
       if (t === "nexus:open-chat") {
         setBookingIntent("chat");
         setStep("consent");
+        await ensureStartConversation();
         setScreen("chat");
         return;
       }
 
-      // CTAs du nudge
       const p = promoRef.current;
       if (!p) return;
 
@@ -105,7 +135,7 @@ export default function SmartPromo() {
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [setBookingIntent, setScreen, setStep]);
+  }, [setBookingIntent, setScreen, setStep, ensureStartConversation]);
 
   /* ---------- Payload du nudge ---------- */
 
@@ -122,7 +152,6 @@ export default function SmartPromo() {
   );
 
   const makePayload = () => {
-    // Avatars: ordre de préférence, aucun 404
     const avatars: string[] =
       (Array.isArray(memberAvatars) && memberAvatars.length
         ? memberAvatars
@@ -150,26 +179,27 @@ export default function SmartPromo() {
 
   // Envoi vers le host (une seule fois par page) quand prêt
   useEffect(() => {
-    if (!isEmbedded) return;        // inutile en local (non embarqué)
-    if (!hostAck) return;           // attendre l’ack du host
-    if (sentRef.current) return;    // ne pas renvoyer
+    if (!isEmbedded) return;
+    if (!hostAck) return;
+    if (sentRef.current) return;
 
     sentRef.current = true;
     window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
   }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
 
   /* ---------- CTAs ---------- */
-
   const runCta = async (cta: Cta) => {
     if (cta.kind === "open_chat") {
       setBookingIntent("chat");
       setStep("consent");
+      await ensureStartConversation();
       setScreen("chat");
       return;
     }
     if (cta.kind === "open_booking") {
       setBookingIntent("book");
       setStep("consent");
+      await ensureStartConversation();
       setScreen("chat");
       return;
     }
