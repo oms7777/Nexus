@@ -11,8 +11,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
   // State
   let isOpen = false;
-  let hasPromoPayload = false;
-  let nudgeDismissed = false;
+  let hasPromoPayload = false;            // l’iframe a publié une promo personnalisée
+  let nudgeDismissed = false;             // l’utilisateur a fermé le nudge
   let iframeLoaded = false;
   let TARGET_ORIGIN = "";
 
@@ -72,7 +72,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 24px rgba(59,130,246,.35); transition: transform .2s ease;
     `;
-    // FAB => ouvre le chat (et ferme si déjà ouvert)
     button.addEventListener("click", () => {
       if (isOpen) {
         hide();
@@ -117,8 +116,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
     // Messaging
     window.addEventListener("message", handleMessage);
-
-    // Keep iframe updated with SPA URL
     patchHistoryForSpa();
     window.addEventListener("popstate", sendParentLocation);
 
@@ -126,10 +123,10 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     window.addEventListener("resize", placeNudge);
     window.addEventListener("scroll", placeNudge, { passive: true });
 
-    // Local fallback nudge (if iframe never sends payload)
-    window.setTimeout(() => {
-      if (!hasPromoPayload && !nudgeDismissed) renderNudge(localFallback());
-    }, 1200);
+    // 🔥 Fallback instantané (aucun délai) — remplacé dès réception de nexus:promo
+    if (!nudgeDismissed) {
+      renderNudge(localFallback());
+    }
   }
 
   function buildWidgetUrl(): string {
@@ -154,11 +151,10 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         break;
 
       case "nexus:promo":
+        // L’iframe envoie la promo personnalisée → on remplace le contenu du nudge
         hasPromoPayload = true;
-        // ack to iframe
         iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, TARGET_ORIGIN);
         renderNudge(payload);
-        // hide any internal demo promo inside iframe
         iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, TARGET_ORIGIN);
         break;
 
@@ -313,7 +309,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     const secondaryBtn = nudge.querySelector<HTMLButtonElement>("#nexus-secondary");
     const closeBtn = nudge.querySelector<HTMLButtonElement>("#nexus-close");
 
-    // route proprement : primaire = chat, secondaire = booking
     primaryBtn?.addEventListener("click", () => openChat());
     secondaryBtn?.addEventListener("click", () => openBooking());
     closeBtn?.addEventListener("click", () => {
@@ -392,7 +387,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     button.innerHTML = closeIcon;
 
     sendParentLocation();
-    // ❌ ne pas ouvrir le chat ici — laissé aux helpers ciblés
   }
 
   function hide() {
@@ -405,7 +399,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     button.innerHTML = chatBubbleIcon;
     button.style.background = "#3b82f6";
 
-    if (hasPromoPayload && !nudgeDismissed) {
+    // ✅ Toujours ré-afficher le nudge si l’utilisateur ne l’a pas volontairement fermé
+    if (!nudgeDismissed) {
       if (nudge) { nudge.style.display = "block"; nudge.style.opacity = "1"; nudge.style.transform = "translateY(0)"; }
       if (caret) { caret.style.display = "block"; caret.style.opacity = "1"; }
       placeNudge();
@@ -413,7 +408,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     }
   }
 
-  // Helpers ciblés
   function openChat() {
     show();
     setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 50);

@@ -23,7 +23,7 @@ export default function SmartPromo() {
   const setStep = useSetAtom(qualifyStepAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
 
-  // état courant pour guard "ignore open-chat si booking en cours"
+  // état courant (pour futures guards si besoin)
   const currentStep = useAtomValue(qualifyStepAtom);
   const currentIntent = useAtomValue(bookingIntentAtom);
 
@@ -38,8 +38,7 @@ export default function SmartPromo() {
   const createConversation = useMutation(api.public.conversations.create);
 
   const [parentHref, setParentHref] = useState<string>();
-  const [hostAck, setHostAck] = useState(false);
-  const sentRef = useRef(false);
+  const sentRef = useRef(false); // non critique désormais, on renvoie avec retries
 
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
@@ -94,11 +93,10 @@ export default function SmartPromo() {
       (await ensureContactSession({ organizationId: orgId }));
     if (!contactSessionId) setContactSessionId(sessionId);
 
-    // NOTE: le backend salue toujours pour l'instant; on filtrera côté UI plus tard si besoin
+    // pour le booking on peut (optionnellement) supprimer le greet côté backend
     const convId = await createConversation({
       contactSessionId: sessionId,
       organizationId: orgId,
-      // ⬇️ on supprime le greet pour le parcours booking
       suppressGreet: intent === "book" ? true : undefined,
     } as any);
     setConversationId(convId);
@@ -110,13 +108,14 @@ export default function SmartPromo() {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      if (t === "nexus:embed-ready" || t === "nexus:host-ack") setHostAck(true);
+      if (t === "nexus:embed-ready") {
+        // rien de spécial; l'envoi promo est robuste via retries ci-dessous
+      }
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
-        setHostAck(true);
       }
 
-      // Toujours supportés, même sans promo
+      // Toujours supportés, même sans promo personnalisée
       if (t === "nexus:open-chat") {
         void ensureAndStartChat("chat");
         return;
@@ -135,9 +134,9 @@ export default function SmartPromo() {
       }
     };
 
-
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, contactSessionId, currentIntent, currentStep]);
 
   // ----- Payload for host
@@ -147,8 +146,8 @@ export default function SmartPromo() {
       body: "Chat now or book a 15-min demo.",
       primary: "Chat with AI",
       secondary: "Book a meeting",
-      primaryCta: { kind: "open_chat", label: "Chat with AI" as const },
-      secondaryCta: { kind: "open_booking", label: "Book a meeting" as const },
+      primaryCta: { kind: "open_chat" as const, label: "Chat with AI" },
+      secondaryCta: { kind: "open_booking" as const, label: "Book a meeting" },
     }),
     []
   );
@@ -179,17 +178,32 @@ export default function SmartPromo() {
     return { ...fallbackPayload, avatars, privacyUrl };
   };
 
-  // send once to host
+  // ---- Envoi fiable au host : immédiat + petits retries (sans attendre hostAck)
   useEffect(() => {
     if (!isEmbedded) return;
-    if (!hostAck) return;
-    if (sentRef.current) return;
+
+    const send = () =>
+      window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
+
+    // on évite d'empiler trop d'envois si l'effet boucle
+    if (sentRef.current) {
+      // on renvoie quand même une fois pour rafraichir sur changement réel
+      send();
+      return;
+    }
     sentRef.current = true;
-    window.parent?.postMessage(
-      { type: "nexus:promo", payload: makePayload() },
-      "*"
-    );
-  }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
+
+    // envoi immédiat + retries courts pour couvrir hydrate/ready/CDN
+    send();
+    const t1 = setTimeout(send, 120);
+    const t2 = setTimeout(send, 600);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+    // relancer si promo/settings/avatars/URL changent
+  }, [isEmbedded, promo, memberAvatars, ws, parentHref]);
 
   // ----- CTAs
   const runCta = async (cta: Cta) => {
