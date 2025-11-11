@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -17,13 +17,18 @@ type Cta = Doc<"promos">["primaryCta"];
 
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
+
   const setScreen = useSetAtom(screenAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
   const setStep = useSetAtom(qualifyStepAtom);
-
   const setConversationId = useSetAtom(conversationIdAtom);
-  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
-  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(orgId || ""));
+
+  const contactSessionId = useAtomValue(
+    contactSessionIdAtomFamily(orgId || "")
+  );
+  const setContactSessionId = useSetAtom(
+    contactSessionIdAtomFamily(orgId || "")
+  );
 
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
   const createConversation = useMutation(api.public.conversations.create);
@@ -35,13 +40,11 @@ export default function SmartPromo() {
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
-  /* ---------- Data (Convex) ---------- */
-
+  // ----- Data (Convex)
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip"
   );
-
   const memberAvatars =
     useQuery(
       api.public.users.listOrgAvatars,
@@ -49,8 +52,9 @@ export default function SmartPromo() {
     ) ?? [];
 
   const currentUrl =
-    typeof window !== "undefined" ? parentHref ?? window.location.href : undefined;
-
+    typeof window !== "undefined"
+      ? parentHref ?? window.location.href
+      : undefined;
   const utm =
     typeof window !== "undefined" && currentUrl
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
@@ -63,82 +67,67 @@ export default function SmartPromo() {
         ? { organizationId: orgId, currentUrl, utmSource: utm }
         : "skip"
     ) ?? [];
-
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
     [promos]
   );
-
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
     promoRef.current = promo;
   }, [promo]);
 
-  /* ---------- Helper: démarrer la conversation ---------- */
-  const ensureStartConversation = useCallback(
-    async (): Promise<Id<"conversations"> | null> => {
-      if (!orgId) return null;
+  // ----- Helper: ensure session+conversation then open chat
+  const ensureAndStartChat = async (intent: "chat" | "book") => {
+    if (!orgId) {
+      setScreen("error");
+      return;
+    }
+    setBookingIntent(intent);
+    setStep("consent");
 
-      // 1) ensure contact session
-      const sessionId =
-        contactSessionId ||
-        (await ensureContactSession({ organizationId: orgId }));
-      if (!contactSessionId) setContactSessionId(sessionId);
+    const sessionId: Id<"contactSessions"> =
+      contactSessionId ||
+      (await ensureContactSession({ organizationId: orgId }));
+    if (!contactSessionId) setContactSessionId(sessionId);
 
-      // 2) create conversation
-      const convId = await createConversation({
-        contactSessionId: sessionId,
-        organizationId: orgId,
-      });
+    const convId = await createConversation({
+      contactSessionId: sessionId,
+      organizationId: orgId,
+    });
+    setConversationId(convId);
+    setScreen("chat");
+  };
 
-      setConversationId(convId);
-      return convId;
-    },
-    [
-      orgId,
-      contactSessionId,
-      ensureContactSession,
-      createConversation,
-      setContactSessionId,
-      setConversationId,
-    ]
-  );
-
-  /* ---------- Host → Widget ---------- */
+  // ----- Host → Widget bridge
   useEffect(() => {
-    const onMsg = async (e: MessageEvent) => {
+    const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      // Handshake & position du host
       if (t === "nexus:embed-ready" || t === "nexus:host-ack") setHostAck(true);
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
         setHostAck(true);
       }
 
-      // Clic FAB du host → ouvrir chat + démarrer conv si besoin
       if (t === "nexus:open-chat") {
-        setBookingIntent("chat");
-        setStep("consent");
-        await ensureStartConversation();
-        setScreen("chat");
+        void ensureAndStartChat("chat");
         return;
       }
 
       const p = promoRef.current;
       if (!p) return;
 
-      if (t === "nexus:run-primary-cta" && p.primaryCta) void runCta(p.primaryCta);
+      if (t === "nexus:run-primary-cta" && p.primaryCta)
+        void runCta(p.primaryCta);
       if (t === "nexus:run-secondary-cta" && p.secondaryCta)
         void runCta(p.secondaryCta);
     };
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [setBookingIntent, setScreen, setStep, ensureStartConversation]);
+  }, [orgId, contactSessionId]);
 
-  /* ---------- Payload du nudge ---------- */
-
+  // ----- Payload for host
   const fallbackPayload = useMemo(
     () => ({
       title: "Get help fast or schedule time",
@@ -177,30 +166,26 @@ export default function SmartPromo() {
     return { ...fallbackPayload, avatars, privacyUrl };
   };
 
-  // Envoi vers le host (une seule fois par page) quand prêt
+  // send once to host
   useEffect(() => {
     if (!isEmbedded) return;
     if (!hostAck) return;
     if (sentRef.current) return;
-
     sentRef.current = true;
-    window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
+    window.parent?.postMessage(
+      { type: "nexus:promo", payload: makePayload() },
+      "*"
+    );
   }, [isEmbedded, hostAck, promo, memberAvatars, ws]);
 
-  /* ---------- CTAs ---------- */
+  // ----- CTAs
   const runCta = async (cta: Cta) => {
     if (cta.kind === "open_chat") {
-      setBookingIntent("chat");
-      setStep("consent");
-      await ensureStartConversation();
-      setScreen("chat");
+      await ensureAndStartChat("chat");
       return;
     }
     if (cta.kind === "open_booking") {
-      setBookingIntent("book");
-      setStep("consent");
-      await ensureStartConversation();
-      setScreen("chat");
+      await ensureAndStartChat("book");
       return;
     }
     if (cta.kind === "open_url" && cta.url) {
@@ -208,7 +193,7 @@ export default function SmartPromo() {
     }
   };
 
-  /* ---------- Démo interne (non embarqué) ---------- */
+  // Internal demo view only when not embedded
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 

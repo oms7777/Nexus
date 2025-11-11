@@ -2,11 +2,7 @@
 
 import { Button } from "@workspace/ui/components/button";
 import { WidgetHeader } from "../components/widget-header";
-import {
-  ChevronRightIcon,
-  MessageSquareTextIcon,
-  MicIcon,
-} from "lucide-react";
+import { ChevronRightIcon, MessageSquareTextIcon, MicIcon } from "lucide-react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   contactSessionIdAtomFamily,
@@ -47,23 +43,17 @@ export const WidgetSelectionScreen = () => {
       setErrorMessage("Missing Organization ID");
       return;
     }
-
     setIsPending(true);
-
     try {
       const sessionId =
         contactSessionId ||
-        (await ensureContactSession({
-          organizationId,
-        }));
-
+        (await ensureContactSession({ organizationId }));
       setContactSessionId(sessionId);
 
       const conversationId = await createConversation({
         contactSessionId: sessionId,
         organizationId,
       });
-
       setConversationId(conversationId);
       setScreen("chat");
     } catch (err) {
@@ -75,17 +65,15 @@ export const WidgetSelectionScreen = () => {
     }
   };
 
-  // ✅ In production, auto-start a conversation (SmartPromo opens the chat UI)
+  // In prod, auto-start so the widget is ready when SmartPromo opens it
   const autoStartedRef = useRef(false);
   useEffect(() => {
     if (process.env.NODE_ENV === "development") return;
     if (autoStartedRef.current) return;
     autoStartedRef.current = true;
-    // Fire and forget — any error will be handled by the internal try/catch
     void handleNewConversation();
-  }, []); // run once
+  }, []); // once
 
-  // ✅ In dev, keep the manual buttons visible
   const isDev = process.env.NODE_ENV === "development";
 
   return (
