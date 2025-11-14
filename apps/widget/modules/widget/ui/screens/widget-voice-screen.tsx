@@ -8,94 +8,104 @@ import { useSetAtom } from "jotai";
 import { screenAtom } from "../../atoms/widget-atoms";
 import { WidgetFooter } from "../components/widget-footer";
 import { cn } from "@workspace/ui/lib/utils";
-
+import { useEffect } from "react"; // 👈 ajouté
 
 export const WidgetVoiceScreen = () => {
-    const setScreen = useSetAtom(screenAtom);
-    const {
-        isConnected,
-        isSpeaking,
-        transcript,
-        startCall,
-        endCall,
-        isConnecting
-    } = useVapi();
+  const setScreen = useSetAtom(screenAtom);
+  const {
+    isConnected,
+    isSpeaking,
+    transcript,
+    startCall,
+    endCall,
+    isConnecting,
+  } = useVapi();
 
-    return (
-        <>
-            <WidgetHeader>
-                <div className="flex items-center gap-x-2">
-                    <Button
-                        variant="transparent"
-                        size="icon"
-                        onClick={() => setScreen("selection")}
-                    >
-                        <ArrowLeftIcon />
-                    </Button>
-                    <p>Voice Chat</p>
-                </div>
-            </WidgetHeader>
-            {transcript.length > 0 ? (
-                <AIConversation className="h-full">
-                    <AIConversationContent>
-                        {transcript.map((message, index) => (
-                            <AIMessage
-                                from={message.role}
-                                key={`${message.role}-${index}-${message.text}`}
-                            >
-                                <AIMessageContent>{message.text}</AIMessageContent>
-                            </AIMessage>
-                        ))}
-                    </AIConversationContent>
-                    <AIConversationScrollButton />
-                </AIConversation>
-            ) : (
-                <div className="flex flex-1 h-full flex-col items-center justify-center gap-y-4">
-                    <div className="flex items-center justify-center rounded-full border bg-white p-3">
-                        <MicIcon className="size-6 text-muted-foreground"/>
-                    </div>
-                    <p className="text-muted-foreground">Transcript will appear here</p>
-                </div>
-            )}
-            <div className="border-t bg-background p-4">
-                <div className="flex flex-col items-center gap-y-4">
-                    {isConnected && (
-                        <div className="flex items-center gap-x-2">
-                            <div className={cn(
-                                "size-4 rounded-full",
-                                isSpeaking ? "animate-pulse bg-red-500" : "bg-green-500"
-                            )}/>
-                            <span className="text-muted-foreground text-sm">
-                                {isSpeaking ? "Assistant Speaking..." : "Listening..."}
-                            </span>
-                        </div>
-                    )}
-                    <div className="flex w-full justify-center">
-                        {isConnected ? (
-                            <Button
-                                className="w-full"
-                                size="lg"
-                                variant="destructive"
-                                onClick={() => endCall()}
-                            >
-                                <MicOffIcon />
-                                End call
-                            </Button>
-                        ): (
-                            <Button
-                                className="w-full"
-                                disabled={isConnecting}
-                                size="lg"
-                                onClick={() => startCall()}
-                            >
-                                <MicIcon />
-                                Start call
-                            </Button>
-                        )}
+  // 👉 Auto-start de l'appel dès qu'on arrive sur l'écran Voice
+  useEffect(() => {
+    if (!isConnected && !isConnecting) {
+      startCall();
+    }
+  }, [isConnected, isConnecting, startCall]);
 
-                    </div>
-                </div>
+  return (
+    <>
+      <WidgetHeader>
+        <div className="flex items-center gap-x-2">
+          <Button
+            variant="transparent"
+            size="icon"
+            onClick={() => setScreen("selection")}
+          >
+            <ArrowLeftIcon />
+          </Button>
+          <p>Voice Chat</p>
+        </div>
+      </WidgetHeader>
+
+      {transcript.length > 0 ? (
+        <AIConversation className="h-full">
+          <AIConversationContent>
+            {transcript.map((message, index) => (
+              <AIMessage
+                from={message.role}
+                key={`${message.role}-${index}-${message.text}`}
+              >
+                <AIMessageContent>{message.text}</AIMessageContent>
+              </AIMessage>
+            ))}
+          </AIConversationContent>
+          <AIConversationScrollButton />
+        </AIConversation>
+      ) : (
+        <div className="flex flex-1 h-full flex-col items-center justify-center gap-y-4">
+          <div className="flex items-center justify-center rounded-full border bg-white p-3">
+            <MicIcon className="size-6 text-muted-foreground" />
+          </div>
+          <p className="text-muted-foreground">Transcript will appear here</p>
+        </div>
+      )}
+
+      <div className="border-t bg-background p-4">
+        <div className="flex flex-col items-center gap-y-4">
+          {isConnected && (
+            <div className="flex items-center gap-x-2">
+              <div
+                className={cn(
+                  "size-4 rounded-full",
+                  isSpeaking ? "animate-pulse bg-red-500" : "bg-green-500"
+                )}
+              />
+              <span className="text-muted-foreground text-sm">
+                {isSpeaking ? "Assistant Speaking..." : "Listening..."}
+              </span>
             </div>
-        </>
-    )
-}
+          )}
+          <div className="flex w-full justify-center">
+            {isConnected ? (
+              <Button
+                className="w-full"
+                size="lg"
+                variant="destructive"
+                onClick={() => endCall()}
+              >
+                <MicOffIcon />
+                End call
+              </Button>
+            ) : (
+              <Button
+                className="w-full"
+                disabled={isConnecting}
+                size="lg"
+                onClick={() => startCall()}
+              >
+                <MicIcon />
+                Start call
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
