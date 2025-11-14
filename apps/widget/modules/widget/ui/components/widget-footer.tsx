@@ -5,19 +5,16 @@ import { cn } from "@workspace/ui/lib/utils";
 import { useAtomValue, useSetAtom } from "jotai";
 import { HomeIcon, InboxIcon } from "lucide-react";
 import { screenAtom } from "../../atoms/widget-atoms";
-// import BookDemoButton from "./BookDemoButton"; // ⬅️ intentionally removed
+import BookDemoButton from "./BookDemoButton";
+import VoiceCallButton from "./VoiceCallButton";
 
 export const WidgetFooter = () => {
   const screen = useAtomValue(screenAtom);
   const setScreen = useSetAtom(screenAtom);
 
-  // Optional feature flag to temporarily bring back a footer CTA in dev
-  const showFooterBookCta =
-    process.env.NODE_ENV === "development" &&
-    process.env.NEXT_PUBLIC_SHOW_FOOTER_BOOK_CTA === "1";
-
   return (
     <footer className="flex items-center justify-between border-t bg-background">
+      {/* Bouton Home */}
       <Button
         className="h-14 flex-1 rounded-none"
         onClick={() => setScreen("selection")}
@@ -27,13 +24,15 @@ export const WidgetFooter = () => {
         <HomeIcon className={cn("size-5", screen === "selection" && "text-primary")} />
       </Button>
 
-      {/* ❌ Keep empty unless you explicitly enable NEXT_PUBLIC_SHOW_FOOTER_BOOK_CTA */}
-      {showFooterBookCta && (
-        <div className="h-14 flex-1 rounded-none flex items-center justify-center">
-          {/* <BookDemoButton /> */}
-        </div>
-      )}
+      {/* Zone centrale : Voice + Book a demo */}
+      <div className="h-14 flex flex-[2] items-center justify-center gap-2 px-2">
+        <VoiceCallButton className="h-9 rounded-full px-4 text-xs font-medium" />
+        <BookDemoButton className="h-9 rounded-full px-4 text-xs font-medium">
+          Book a demo
+        </BookDemoButton>
+      </div>
 
+      {/* Bouton Inbox */}
       <Button
         className="h-14 flex-1 rounded-none"
         onClick={() => setScreen("inbox")}
