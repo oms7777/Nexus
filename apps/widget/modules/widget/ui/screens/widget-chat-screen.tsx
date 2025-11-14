@@ -24,6 +24,7 @@ import {
   contactSessionIdAtomFamily,
   organizationIdAtom,
   widgetSettingsAtom,
+  screenAtom,   
 } from "../../atoms/widget-atoms";
 import {
   qualifyDataAtom,
@@ -230,6 +231,7 @@ export const WidgetChatScreen = () => {
   );
   const conversationId = useAtomValue(conversationIdAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
+  const setScreen = useSetAtom(screenAtom);
 
   // Qualif + consent
   const [step, setStep] = useAtom(qualifyStepAtom);
@@ -575,7 +577,7 @@ export const WidgetChatScreen = () => {
     const base = widgetSettings
       ? (Object.values(widgetSettings.defaultSuggestions).filter(Boolean) as string[])
       : [];
-    return ["Book a demo", ...base];
+    return ["Voice call with AI assistant", "Book a demo", ...base];
   }, [widgetSettings]);
 
   return (
@@ -911,6 +913,10 @@ export const WidgetChatScreen = () => {
               key={s}
               suggestion={s}
               onClick={async () => {
+                if (/Voice call with AI assistant/i.test(s)) {
+                  setScreen("voice");   // va afficher WidgetVoiceScreen
+                  return;
+                }
                 if (/book/i.test(s)) {
                   setBookingIntent("book");
                   if (consentCfg?.enabled === false) {
