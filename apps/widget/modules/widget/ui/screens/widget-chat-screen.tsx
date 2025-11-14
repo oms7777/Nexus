@@ -30,6 +30,7 @@ import {
   qualifyStepAtom,
   bookingIntentAtom,
   consentGivenAtom,
+  assignedRepAtom,
 } from "../../atoms/qualify-atoms";
 
 import { WidgetHeader } from "../components/widget-header";
@@ -235,6 +236,7 @@ export const WidgetChatScreen = () => {
   const [qdata, setQdata] = useAtom(qualifyDataAtom);
   const [bookingIntent, setBookingIntent] = useAtom(bookingIntentAtom);
   const [, setConsentGiven] = useAtom(consentGivenAtom);
+  const [, setAssignedRep] = useAtom(assignedRepAtom);
 
   // Reps via routing
   const routingReps = useQuery(
@@ -367,6 +369,12 @@ export const WidgetChatScreen = () => {
     if (!organizationId) return;
 
     setSelectedRep(rep);
+    setAssignedRep({
+      userId: rep.userId,
+      name: rep.name,
+      avatarUrl: rep.avatarUrl,
+      regions: rep.regions ?? [],
+    });
     setStep("picking");
     setLoadingSlots(true);
     try {
