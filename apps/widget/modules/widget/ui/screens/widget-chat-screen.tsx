@@ -4,7 +4,11 @@
  * WidgetChatScreen (prod-safe, no threads API)
  * - Creates a conversation if needed
  * - Waits for conversation.threadId to be populated, then sends
- * - Gracefully prompts the user to resend if thread isn't ready yet
+ * - Booking flow:
+ *   1) consent (optionnel)
+ *   2) qualif (nom, email, company, role)
+ *   3) pick_rep (si plusieurs sales disponibles)
+ *   4) picking (slots pour le rep choisi)
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -62,7 +66,18 @@ import QualifyCard from "../components/QualifyCard";
 /* ---------------- helpers ---------------- */
 
 const formSchema = z.object({ message: z.string().min(1) });
+
 type Slot = { start: number; end: number };
+
+// doit matcher le retour de api.public.routing.listRepsForVisitor
+type PublicRep = {
+  userId: string;
+  name?: string;
+  avatarUrl?: string;
+  role: "sales" | "support";
+  regions: string[];
+  available: boolean;
+};
 
 function formatDay(ts: number) {
   return new Date(ts).toLocaleDateString(undefined, {
@@ -150,6 +165,59 @@ function ConsentInlineModal({
   );
 }
 
+/**
+ * Petit composant pour choisir un sales quand il y en a plusieurs.
+ */
+function RepPicker({
+  reps,
+  onPick,
+}: {
+  reps: PublicRep[];
+  onPick: (rep: PublicRep) => void;
+}) {
+  if (!reps.length) return null;
+
+  return (
+    <div className="p-3">
+      <div className="mb-2 text-sm text-muted-foreground">
+        Choose who you want to meet:
+      </div>
+      <div className="grid grid-cols-1 gap-2">
+        {reps.map((rep) => (
+          <button
+            key={rep.userId}
+            onClick={() => onPick(rep)}
+            className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2 text-left hover:bg-accent transition"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted overflow-hidden">
+              {rep.avatarUrl ? (
+                // si tu as un composant Avatar interne, tu peux le remplacer ici
+                <img
+                  src={rep.avatarUrl}
+                  alt={rep.name ?? rep.userId}
+                  className="h-8 w-8 rounded-full object-cover"
+                />
+              ) : (
+                <span className="text-xs font-medium">
+                  {(rep.name || "S")[0]?.toUpperCase()}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">
+                {rep.name || "Sales rep"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {rep.regions?.length ? rep.regions.join(", ") : "Global team"}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- screen ---------------- */
 
 export const WidgetChatScreen = () => {
@@ -167,6 +235,17 @@ export const WidgetChatScreen = () => {
   const [qdata, setQdata] = useAtom(qualifyDataAtom);
   const [bookingIntent, setBookingIntent] = useAtom(bookingIntentAtom);
   const [, setConsentGiven] = useAtom(consentGivenAtom);
+
+  // Reps via routing
+  const routingReps = useQuery(
+    api.public.routing.listRepsForVisitor,
+    organizationId && contactSessionId
+      ? { organizationId, contactSessionId }
+      : "skip"
+  ) as PublicRep[] | undefined;
+
+  const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
+  const [selectedRep, setSelectedRep] = useState<PublicRep | null>(null);
 
   // Conversation + messages
   const conversation = useQuery(
@@ -212,7 +291,7 @@ export const WidgetChatScreen = () => {
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // calendar
+  // calendar (fallback / compat)
   const calendarAccount = useQuery(
     api.public.calendar.getAccount,
     organizationId ? { organizationId } : "skip"
@@ -252,7 +331,10 @@ export const WidgetChatScreen = () => {
       setStep("ask_name");
       setLocalMsgs((m) => [
         ...m,
-        { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+        {
+          role: "assistant",
+          text: "Great! To book a demo, fill in these quick details.",
+        },
       ]);
     }
 
@@ -260,7 +342,10 @@ export const WidgetChatScreen = () => {
       (async () => {
         try {
           if (!conversation && organizationId && contactSessionId) {
-            const cid = await createConversation({ organizationId, contactSessionId });
+            const cid = await createConversation({
+              organizationId,
+              contactSessionId,
+            });
             setConversationId(cid);
           }
         } catch {}
@@ -277,6 +362,26 @@ export const WidgetChatScreen = () => {
     conversation,
   ]);
 
+  /* -------- helper : charger les slots pour UN rep -------- */
+  const loadSlotsForRep = async (rep: PublicRep) => {
+    if (!organizationId) return;
+
+    setSelectedRep(rep);
+    setStep("picking");
+    setLoadingSlots(true);
+    try {
+      const s = await listSlots({
+        organizationId,
+        userId: rep.userId, // 👈 clé : slots spécifiques à ce sales
+        days: 7,
+        slotMinutes: 30,
+      });
+      setSlots(s);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
   /* -------- Qualif flow -------- */
   const startPickingAfterQualify = async (lead: {
     name: string;
@@ -285,22 +390,53 @@ export const WidgetChatScreen = () => {
     role?: string;
   }) => {
     setQdata(lead);
+
+    // message générique
     setLocalMsgs((m) => [
       ...m,
       {
         role: "assistant",
-        text: calendarAccount
-          ? "Perfect — pick a time below 👇"
-          : "No calendar is connected yet. Please try again later.",
+        text: "Perfect — let’s find the best person for you 👇",
       },
     ]);
 
-    if (calendarAccount && organizationId) {
+    if (!organizationId || !contactSessionId) {
+      setStep("done");
+      return;
+    }
+
+    const reps = (routingReps ?? []) as PublicRep[];
+
+    // 1) Aucun rep dispo selon routing → fallback ancien comportement
+    if (!reps.length) {
+      if (!calendarAccount) {
+        setLocalMsgs((m) => [
+          ...m,
+          {
+            role: "assistant",
+            text: "No teammate is available right now. Please try again later.",
+          },
+        ]);
+        setStep("done");
+        return;
+      }
+
+      // Fallback : un seul calendrier "par défaut"
+      setLocalMsgs((m) => [
+        ...m,
+        {
+          role: "assistant",
+          text: "Our team will assign the right person. Pick any time below 👇",
+        },
+      ]);
+
       setStep("picking");
       setLoadingSlots(true);
       try {
         const s = await listSlots({
           organizationId,
+          // on précise quand même le userId du compte calendar principal
+          userId: calendarAccount.userId,
           days: 7,
           slotMinutes: 30,
         });
@@ -308,9 +444,20 @@ export const WidgetChatScreen = () => {
       } finally {
         setLoadingSlots(false);
       }
-    } else {
-      setStep("done");
+      return;
     }
+
+    if (reps.length === 1) {
+      const onlyRep = reps[0];
+      if (onlyRep) {
+        await loadSlotsForRep(onlyRep);
+      }
+      return;
+    }
+
+    // 3) Plusieurs reps → étape pick_rep
+    setRepChoices(reps);
+    setStep("pick_rep");
   };
 
   /* -------- Send message (thread bootstrap + retry) -------- */
@@ -337,7 +484,10 @@ export const WidgetChatScreen = () => {
         setStep("ask_name");
         setLocalMsgs((m) => [
           ...m,
-          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+          {
+            role: "assistant",
+            text: "Great! To book a demo, fill in these quick details.",
+          },
         ]);
       } else {
         setStep("consent");
@@ -357,7 +507,10 @@ export const WidgetChatScreen = () => {
     } catch {
       setLocalMsgs((m) => [
         ...m,
-        { role: "assistant", text: "One sec… ready now. Please resend your message." },
+        {
+          role: "assistant",
+          text: "One sec… ready now. Please resend your message.",
+        },
       ]);
       return;
     }
@@ -367,7 +520,11 @@ export const WidgetChatScreen = () => {
     if (!thr) {
       setLocalMsgs((m) => [
         ...m,
-        { role: "assistant", text: "Preparing the chat… please resend your message in a moment." },
+        {
+          role: "assistant",
+          text:
+            "Preparing the chat… please resend your message in a moment.",
+        },
       ]);
       return;
     }
@@ -381,7 +538,10 @@ export const WidgetChatScreen = () => {
     } catch {
       setLocalMsgs((m) => [
         ...m,
-        { role: "assistant", text: "Network hiccup—please try again." },
+        {
+          role: "assistant",
+          text: "Network hiccup—please try again.",
+        },
       ]);
     }
   };
@@ -424,7 +584,10 @@ export const WidgetChatScreen = () => {
                 setStep("ask_name");
                 setLocalMsgs((m) => [
                   ...m,
-                  { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+                  {
+                    role: "assistant",
+                    text: "Great! To book a demo, fill in these quick details.",
+                  },
                 ]);
               } else {
                 setStep("consent");
@@ -448,7 +611,11 @@ export const WidgetChatScreen = () => {
                 <AIResponse>{m.text}</AIResponse>
               </AIMessageContent>
               {m.role === "assistant" && (
-                <DicebearAvatar imageUrl="https://app.inboundless.co/logo.svg" seed="assistant" size={32} />
+                <DicebearAvatar
+                  imageUrl="https://app.inboundless.co/logo.svg"
+                  seed="assistant"
+                  size={32}
+                />
               )}
             </AIMessage>
           ))}
@@ -461,7 +628,8 @@ export const WidgetChatScreen = () => {
                   Discover the right solution for your business project.
                 </div>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Our team is available to chat or schedule a quick call to guide you through your needs.
+                  Our team is available to chat or schedule a quick call to
+                  guide you through your needs.
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -471,7 +639,10 @@ export const WidgetChatScreen = () => {
                       if (consentCfg?.enabled === false) {
                         try {
                           if (!conversation && organizationId && contactSessionId) {
-                            const cid2 = await createConversation({ organizationId, contactSessionId });
+                            const cid2 = await createConversation({
+                              organizationId,
+                              contactSessionId,
+                            });
                             setConversationId(cid2);
                           }
                         } catch {}
@@ -493,7 +664,10 @@ export const WidgetChatScreen = () => {
                         setStep("ask_name");
                         setLocalMsgs((m) => [
                           ...m,
-                          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+                          {
+                            role: "assistant",
+                            text: "Great! To book a demo, fill in these quick details.",
+                          },
                         ]);
                       } else {
                         setStep("consent");
@@ -508,102 +682,118 @@ export const WidgetChatScreen = () => {
           )}
 
           {/* consent card */}
-          {step === "consent" && consentCfg && consentCfg.enabled !== false && (
-            <div className="p-3">
-              <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
-                {(consentCfg.title || consentCfg.intro) && (
-                  <div className="mb-2">
-                    {consentCfg.title && <div className="font-medium">{consentCfg.title}</div>}
-                    {consentCfg.intro && <div className="text-muted-foreground">{consentCfg.intro}</div>}
-                  </div>
-                )}
+          {step === "consent" &&
+            consentCfg &&
+            consentCfg.enabled !== false && (
+              <div className="p-3">
+                <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
+                  {(consentCfg.title || consentCfg.intro) && (
+                    <div className="mb-2">
+                      {consentCfg.title && (
+                        <div className="font-medium">{consentCfg.title}</div>
+                      )}
+                      {consentCfg.intro && (
+                        <div className="text-muted-foreground">
+                          {consentCfg.intro}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                <p className="text-xs text-muted-foreground">
-                  {consentCfg.body ||
-                    "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
-                  {(() => {
-                    const linkMode = consentCfg.linkMode ?? "link";
-                    const consentUrl = consentCfg.privacyUrl;
-                    const consentModalText = consentCfg.modalContent;
-                    if (linkMode === "link" && consentUrl) {
-                      return (
-                        <>
-                          I hereby consent to processing of my personal data collected in
-                          the chat in accordance with the rules described{" "}
-                          <a
-                            href={consentUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="underline"
-                          >
-                            here
-                          </a>
-                          .
-                        </>
-                      );
-                    }
-                    return (
-                      <ConsentInlineModal
-                        triggerLabel="here"
-                        title={consentCfg.title ?? "Consent"}
-                        fullText={
-                          (consentModalText?.trim() ||
-                            consentCfg.body?.trim() ||
-                            "Details about how your data may be processed.") +
-                          "\n\nYou can withdraw your consent at any time."
-                        }
-                      />
-                    );
-                  })()}
-                </p>
-              </div>
-
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    setConsentGiven(true);
-
-                    if (bookingIntent === "book") {
-                      setStep("ask_name");
-                      setLocalMsgs((m) => [
-                        ...m,
-                        { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
-                      ]);
-                    } else {
-                      try {
-                        if (!conversation && organizationId && contactSessionId) {
-                          const cid2 = await createConversation({ organizationId, contactSessionId });
-                          setConversationId(cid2);
-                        }
-                      } catch {}
-                      setStep("idle");
-                    }
-
-                    setBookingIntent("none");
-
-                    if (organizationId) {
+                  <p className="text-xs text-muted-foreground">
+                    {consentCfg.body ||
+                      "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
+                    {(() => {
                       const linkMode = consentCfg.linkMode ?? "link";
                       const consentUrl = consentCfg.privacyUrl;
-                      logEvent({
-                        organizationId,
-                        type: "consent_given",
-                        sessionId: contactSessionId || undefined,
-                        meta: {
-                          version: consentCfg.version,
-                          privacyUrl: consentUrl,
-                          linkMode,
-                          intent: bookingIntent,
-                        },
-                      }).catch(() => {});
-                    }
-                  }}
-                >
-                  {consentCfg.acceptLabel?.trim() || "✓ I consent"}
-                </Button>
+                      const consentModalText = consentCfg.modalContent;
+                      if (linkMode === "link" && consentUrl) {
+                        return (
+                          <>
+                            I hereby consent to processing of my personal data
+                            collected in the chat in accordance with the rules
+                            described{" "}
+                            <a
+                              href={consentUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline"
+                            >
+                              here
+                            </a>
+                            .
+                          </>
+                        );
+                      }
+                      return (
+                        <ConsentInlineModal
+                          triggerLabel="here"
+                          title={consentCfg.title ?? "Consent"}
+                          fullText={
+                            (consentModalText?.trim() ||
+                              consentCfg.body?.trim() ||
+                              "Details about how your data may be processed.") +
+                            "\n\nYou can withdraw your consent at any time."
+                          }
+                        />
+                      );
+                    })()}
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      setConsentGiven(true);
+
+                      if (bookingIntent === "book") {
+                        setStep("ask_name");
+                        setLocalMsgs((m) => [
+                          ...m,
+                          {
+                            role: "assistant",
+                            text: "Great! To book a demo, fill in these quick details.",
+                          },
+                        ]);
+                      } else {
+                        try {
+                          if (!conversation && organizationId && contactSessionId) {
+                            const cid2 = await createConversation({
+                              organizationId,
+                              contactSessionId,
+                            });
+                            setConversationId(cid2);
+                          }
+                        } catch {}
+                        setStep("idle");
+                      }
+
+                      const intent = bookingIntent;
+                      setBookingIntent("none");
+
+                      if (organizationId) {
+                        const linkMode = consentCfg.linkMode ?? "link";
+                        const consentUrl = consentCfg.privacyUrl;
+                        logEvent({
+                          organizationId,
+                          type: "consent_given",
+                          sessionId: contactSessionId || undefined,
+                          meta: {
+                            version: consentCfg.version,
+                            privacyUrl: consentUrl,
+                            linkMode,
+                            intent,
+                          },
+                        }).catch(() => {});
+                      }
+                    }}
+                  >
+                    {consentCfg.acceptLabel?.trim() || "✓ I consent"}
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Qualif form */}
           {step === "ask_name" && bookingIntent !== "chat" && (
@@ -629,11 +819,23 @@ export const WidgetChatScreen = () => {
             />
           )}
 
+          {/* Choix du rep (multi-sales) */}
+          {step === "pick_rep" && repChoices.length > 0 && (
+            <RepPicker
+              reps={repChoices}
+              onPick={async (rep) => {
+                await loadSlotsForRep(rep);
+              }}
+            />
+          )}
+
           {/* Slot picker */}
           {step === "picking" && (
             <>
               {loadingSlots && (
-                <div className="p-3 text-sm text-muted-foreground">Loading times…</div>
+                <div className="p-3 text-sm text-muted-foreground">
+                  Loading times…
+                </div>
               )}
               {!loadingSlots && slots && (
                 <SlotsByDay
@@ -649,6 +851,7 @@ export const WidgetChatScreen = () => {
 
                     const res = await bookSlot({
                       organizationId,
+                      userId: selectedRep?.userId, // 👈 réservez bien sur le bon rep
                       contactSessionId,
                       attendeeName: qdata.name,
                       attendeeEmail: qdata.email,
@@ -668,6 +871,8 @@ export const WidgetChatScreen = () => {
                         bookingId: res?.bookingId,
                         meetingUrl: res?.meetingUrl,
                         lead: qdata,
+                        repUserId: selectedRep?.userId,
+                        repName: selectedRep?.name,
                       },
                     }).catch(() => {});
 
@@ -704,7 +909,10 @@ export const WidgetChatScreen = () => {
                     setStep("ask_name");
                     setLocalMsgs((m) => [
                       ...m,
-                      { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+                      {
+                        role: "assistant",
+                        text: "Great! To book a demo, fill in these quick details.",
+                      },
                     ]);
                   } else {
                     setStep("consent");
@@ -737,6 +945,7 @@ export const WidgetChatScreen = () => {
                 disabled={
                   conversation?.status === "resolved" ||
                   step === "ask_name" ||
+                  step === "pick_rep" ||
                   step === "picking"
                 }
                 onChange={field.onChange}
@@ -751,6 +960,8 @@ export const WidgetChatScreen = () => {
                     ? "This conversation has been resolved."
                     : step === "ask_name"
                     ? "Fill the form above to continue…"
+                    : step === "pick_rep"
+                    ? "Choose who you want to meet…"
                     : step === "picking"
                     ? "Pick a time above…"
                     : "Type your message..."
@@ -766,6 +977,7 @@ export const WidgetChatScreen = () => {
                 conversation?.status === "resolved" ||
                 !form.formState.isValid ||
                 step === "ask_name" ||
+                step === "pick_rep" ||
                 step === "picking"
               }
               status="ready"

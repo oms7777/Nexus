@@ -35,6 +35,7 @@ import type * as public_conversations from "../public/conversations.js";
 import type * as public_messages from "../public/messages.js";
 import type * as public_organizations from "../public/organizations.js";
 import type * as public_promos from "../public/promos.js";
+import type * as public_routing from "../public/routing.js";
 import type * as public_secrets from "../public/secrets.js";
 import type * as public_snapshots from "../public/snapshots.js";
 import type * as public_users from "../public/users.js";
@@ -93,6 +94,7 @@ declare const fullApi: ApiFromModules<{
   "public/messages": typeof public_messages;
   "public/organizations": typeof public_organizations;
   "public/promos": typeof public_promos;
+  "public/routing": typeof public_routing;
   "public/secrets": typeof public_secrets;
   "public/snapshots": typeof public_snapshots;
   "public/users": typeof public_users;

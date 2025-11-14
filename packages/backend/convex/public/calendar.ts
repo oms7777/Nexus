@@ -5,15 +5,30 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 
 /* -------------------------------------------------------------
- * Compte Google connecté pour une org (simple, pas d'auth)
+ * Compte Google connecté pour une org + user (multi-reps)
  * ----------------------------------------------------------- */
 export const getAccount = query({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
-    const acct = await ctx.db
-      .query("calendarAccounts")
-      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-      .first();
+  args: {
+    organizationId: v.string(),
+    userId: v.optional(v.string()), // <- rep précis (Clerk userId)
+  },
+  handler: async (ctx, { organizationId, userId }) => {
+    let acct;
+    if (userId) {
+      // Cas normal : on vise un rep précis
+      acct = await ctx.db
+        .query("calendarAccounts")
+        .withIndex("by_org_user", (q) =>
+          q.eq("organizationId", organizationId).eq("userId", userId)
+        )
+        .unique();
+    } else {
+      // Back-compat : on prend "le" compte de l'org
+      acct = await ctx.db
+        .query("calendarAccounts")
+        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+        .first();
+    }
 
     if (!acct) return null;
     return { userId: acct.userId, email: acct.email ?? "" };
@@ -21,21 +36,30 @@ export const getAccount = query({
 });
 
 /* -------------------------------------------------------------
- * Settings (version B) du propriétaire de l’account de l’org
+ * Settings (B-version) pour un user (rep) dans une org
  * ----------------------------------------------------------- */
 export const getSettingsForOrg = query({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
-    const acct = await ctx.db
-      .query("calendarAccounts")
-      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-      .first();
-    if (!acct) return null;
+  args: {
+    organizationId: v.string(),
+    userId: v.optional(v.string()), // <- permet de cibler le rep
+  },
+  handler: async (ctx, { organizationId, userId }) => {
+    let effectiveUserId = userId;
+
+    // Si userId non fourni, on se base sur le premier calendarAccount de l’org
+    if (!effectiveUserId) {
+      const acct = await ctx.db
+        .query("calendarAccounts")
+        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+        .first();
+      if (!acct) return null;
+      effectiveUserId = acct.userId;
+    }
 
     const settings = await ctx.db
       .query("calendarSettings")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", acct.userId)
+        q.eq("organizationId", organizationId).eq("userId", effectiveUserId!)
       )
       .unique();
 
@@ -44,20 +68,27 @@ export const getSettingsForOrg = query({
 });
 
 /* -------------------------------------------------------------
- * Liste des créneaux (N jours) en excluant le busy Google
+ * Liste des créneaux (N jours) pour UN rep (userId)
  * ----------------------------------------------------------- */
 export const listSlots = action({
   args: {
     organizationId: v.string(),
-    days: v.number(),        // ex. 7
-    slotMinutes: v.number(), // ex. 30
+    userId: v.optional(v.string()), // <- rep choisi (obligatoire côté widget)
+    days: v.number(),               // ex. 7
+    slotMinutes: v.number(),        // ex. 30
   },
-  handler: async (ctx, { organizationId, days, slotMinutes }) => {
+  handler: async (ctx, { organizationId, userId, days, slotMinutes }) => {
     // 1) account + settings via queries publiques
-    const acct = await ctx.runQuery(api.public.calendar.getAccount, { organizationId });
+    const acct = await ctx.runQuery(api.public.calendar.getAccount, {
+      organizationId,
+      userId,
+    });
     if (!acct) return [] as Array<{ start: number; end: number }>;
 
-    const settings = await ctx.runQuery(api.public.calendar.getSettingsForOrg, { organizationId });
+    const settings = await ctx.runQuery(api.public.calendar.getSettingsForOrg, {
+      organizationId,
+      userId: acct.userId,
+    });
 
     type Win = { day: number; start: string; end: string };
     const weekly: Win[] =
@@ -83,8 +114,12 @@ export const listSlots = action({
       timeMaxIso: new Date(rangeEnd).toISOString(),
     });
 
-    const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
-      aStart < bEnd && aEnd > bStart;
+    const overlaps = (
+      aStart: number,
+      aEnd: number,
+      bStart: number,
+      bEnd: number
+    ) => aStart < bEnd && aEnd > bStart;
 
     const slots: Array<{ start: number; end: number }> = [];
 
@@ -126,7 +161,9 @@ export const listSlots = action({
         const paddedStart = start - bufferMs;
         const paddedEnd = end + bufferMs;
 
-        const isBusy = busy.some((b) => overlaps(paddedStart, paddedEnd, b.start, b.end));
+        const isBusy = busy.some((b) =>
+          overlaps(paddedStart, paddedEnd, b.start, b.end)
+        );
         if (!isBusy) slots.push({ start, end });
       }
     }
@@ -136,7 +173,12 @@ export const listSlots = action({
       await ctx.runMutation(api.public.analytics.log, {
         organizationId,
         type: "calendar_slots_loaded",
-        meta: { count: Math.min(slots.length, 50), days, slotMinutes },
+        meta: {
+          count: Math.min(slots.length, 50),
+          days,
+          slotMinutes,
+          userId: acct.userId,
+        },
       });
     } catch (e) {
       console.log("analytics.log(calendar_slots_loaded) failed:", e);
@@ -152,6 +194,7 @@ export const listSlots = action({
 export const bookSlot = action({
   args: {
     organizationId: v.string(),
+    userId: v.optional(v.string()), // <- rep choisi
     contactSessionId: v.id("contactSessions"),
     attendeeName: v.string(),
     attendeeEmail: v.string(),
@@ -164,6 +207,7 @@ export const bookSlot = action({
     ctx,
     {
       organizationId,
+      userId,
       contactSessionId,
       attendeeName,
       attendeeEmail,
@@ -173,33 +217,41 @@ export const bookSlot = action({
       attendeeRole,
     }
   ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
-    // 1) account
-    const acct = await ctx.runQuery(api.public.calendar.getAccount, { organizationId });
-    if (!acct) throw new Error("No connected calendar for this organization");
+    // 1) account (rep précis si fourni)
+    const acct = await ctx.runQuery(api.public.calendar.getAccount, {
+      organizationId,
+      userId,
+    });
+    if (!acct) throw new Error("No connected calendar for this organization / user");
 
     // 2) créer l’event Google (NO-AUTH variant)
     const descriptionLines = [
       `Booked via widget (org: ${organizationId})`,
+      `Rep: ${acct.userId}`,
       `Name: ${attendeeName}`,
       `Email: ${attendeeEmail}`,
       attendeeCompany ? `Company: ${attendeeCompany}` : null,
       attendeeRole ? `Role: ${attendeeRole}` : null,
     ].filter(Boolean);
 
-    const event: any = await ctx.runAction(api.private.calendar.createEventForOrgUser, {
-      organizationId,
-      userId: acct.userId,
-      summary: `Demo with ${attendeeName}`,
-      description: descriptionLines.join("\n"),
-      startIso: new Date(start).toISOString(),
-      endIso: new Date(end).toISOString(),
-      attendees: [
-        { email: attendeeEmail, displayName: attendeeName },
-        { email: acct.email || "", displayName: "Organizer" }, // le sales reçoit l’invite
-      ],
-    });
+    const event: any = await ctx.runAction(
+      api.private.calendar.createEventForOrgUser,
+      {
+        organizationId,
+        userId: acct.userId,
+        summary: `Demo with ${attendeeName}`,
+        description: descriptionLines.join("\n"),
+        startIso: new Date(start).toISOString(),
+        endIso: new Date(end).toISOString(),
+        attendees: [
+          { email: attendeeEmail, displayName: attendeeName },
+          { email: acct.email || "", displayName: "Organizer" }, // le sales reçoit l’invite
+        ],
+      }
+    );
 
-    const meetingUrl: string | undefined = event?.hangoutLink ?? event?.htmlLink ?? undefined;
+    const meetingUrl: string | undefined =
+      event?.hangoutLink ?? event?.htmlLink ?? undefined;
 
     // 3) enregistrer le booking
     const bookingId = await ctx.runMutation(api.public.booking.create, {
@@ -209,7 +261,7 @@ export const bookSlot = action({
       attendeeEmail,
       start,
       end,
-      createdByUserId: acct.userId,
+      createdByUserId: acct.userId, // ← rep choisi
       meetingUrl,
       externalEventId: event?.id as string | undefined,
       providerData: {
@@ -256,6 +308,7 @@ export const bookSlot = action({
           end,
           meetingUrl,
           organizerEmail: acct.email ?? null,
+          organizerUserId: acct.userId,
         },
       });
     } catch (e) {

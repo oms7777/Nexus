@@ -8,6 +8,7 @@ export type QualifyStep =
   | "ask_email"
   | "ask_company"
   | "ask_role"
+  | "pick_rep"   // 👈 nouveau : choix du sales
   | "picking"
   | "done";
 
