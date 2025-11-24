@@ -1,4 +1,4 @@
-// apps/web/app/api/realtime/pusher-auth/route.ts
+// apps/widget/app/api/realtime/pusher-auth/route.ts
 import { NextResponse } from "next/server";
 import { pusherServer } from "@/lib/pusher";
 
