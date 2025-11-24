@@ -3,13 +3,18 @@ import { pusherServer } from "@/lib/pusher";
 
 export const runtime = "nodejs";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "https://widget.inboundless.co", // 👈 spécifique
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers":
+    "Content-Type, X-Requested-With, X-CSRF-Token, Authorization, X-Socket-Id, X-Pusher-Channel-Name, X-Pusher-Key",
+  "Access-Control-Allow-Credentials": "true",
+};
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "content-type",
-    },
+    headers: CORS_HEADERS,
   });
 }
 
@@ -17,13 +22,12 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const { channel_name, socket_id, orgId, sessionId } = body || {};
 
-  // Sécurité minimale : n’autorise que nos patterns
   if (
     typeof channel_name !== "string" ||
     typeof socket_id !== "string" ||
     !/^presence\-org_[\w-]+_session_[\w-]+$/.test(channel_name)
   ) {
-    return new NextResponse("Bad channel", { status: 400 });
+    return new NextResponse("Bad channel", { status: 400, headers: CORS_HEADERS });
   }
 
   const presenceData = {
@@ -32,7 +36,12 @@ export async function POST(req: Request) {
   };
 
   const auth = pusherServer.authorizeChannel(socket_id, channel_name, presenceData);
+
   return new NextResponse(JSON.stringify(auth), {
-    headers: { "Access-Control-Allow-Origin": "*" },
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      ...CORS_HEADERS,
+    },
   });
 }

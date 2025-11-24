@@ -19,9 +19,8 @@ export function useVisitorStream(opts: {
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-      authEndpoint: "/api/realtime/pusher-auth", // côté web, un chemin relatif suffit
-      channelAuthorization: { // nécessaire avec pusher-js >=8
-        endpoint: "/api/realtime/pusher-auth",
+      channelAuthorization: {
+        endpoint: "/api/realtime/pusher-auth", // ✅ même origin (app.inboundless.co)
         transport: "ajax",
       },
       forceTLS: true,
