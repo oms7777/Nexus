@@ -11,9 +11,9 @@ export function initVisitorTracking(orgId: string, sessionId: string) {
   const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
     cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
     channelAuthorization: {
-      endpoint: process.env.NEXT_PUBLIC_PUSHER_AUTH_URL!, // ✅ vers app.inboundless.co
+      endpoint: process.env.NEXT_PUBLIC_PUSHER_AUTH_URL!, // https://app.inboundless.co/api/realtime/pusher-auth
       transport: "ajax",
-      params: { orgId, sessionId }, // optionnel mais propre
+      params: { orgId, sessionId }, // facultatif mais pratique pour les logs
     },
     forceTLS: true,
   });
