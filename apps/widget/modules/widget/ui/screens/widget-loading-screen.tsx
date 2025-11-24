@@ -33,6 +33,9 @@ import { WidgetHeader } from "../components/widget-header";
 import { useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
+import { initVisitorTracking } from "../../live/visitor-tracker";
+
+
 
 type InitStep = "org" | "session" | "settings" | "vapi" | "done";
 
@@ -207,6 +210,15 @@ export const WidgetLoadingScreen = ({
     setQualifyStep("consent");
     setScreen("chat");
   }, [step, setQualifyStep, setScreen]);
+
+  useEffect(() => {
+    // on attend que l'init soit terminée
+    if (step !== "done") return;
+    if (!organizationId || !contactSessionId) return;
+
+    // démarre rrweb + pusher côté visiteur
+    initVisitorTracking(organizationId, contactSessionId);
+  }, [step, organizationId, contactSessionId]);
 
   return (
     <>
