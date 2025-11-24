@@ -9,15 +9,12 @@ export function initVisitorTracking(orgId: string, sessionId: string) {
   if (started) return;
   started = true;
 
-  const authUrl =
-    process.env.NEXT_PUBLIC_PUSHER_AUTH_URL ||
-    "/api/realtime/pusher-auth";
-
   const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
     cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-    authEndpoint: authUrl,
+    // same-origin vers le widget
+    authEndpoint: "/api/realtime/pusher-auth",
     channelAuthorization: {
-      endpoint: authUrl,
+      endpoint: "/api/realtime/pusher-auth",
       transport: "ajax",
     },
     forceTLS: true,

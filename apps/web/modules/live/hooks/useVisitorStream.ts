@@ -20,17 +20,16 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!container || !orgId || !sessionId) return;
 
-    const authUrl = "/api/realtime/pusher-auth";
-
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-      authEndpoint: authUrl,
+      authEndpoint: "/api/realtime/pusher-auth",
       channelAuthorization: {
-        endpoint: authUrl,
+        endpoint: "/api/realtime/pusher-auth",
         transport: "ajax",
       },
       forceTLS: true,
     });
+
 
     const chanName = `presence-org_${orgId}_session_${sessionId}`;
     const ch = pusher.subscribe(chanName) as Channel;
