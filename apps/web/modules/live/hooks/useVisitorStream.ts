@@ -22,9 +22,9 @@ export function useVisitorStream(opts: {
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-      authEndpoint: "https://widget.inboundless.co/api/realtime/pusher-auth",
+      authEndpoint: "/api/realtime/pusher-auth",
       channelAuthorization: {
-        endpoint: "https://widget.inboundless.co/api/realtime/pusher-auth",
+        endpoint: "/api/realtime/pusher-auth",
         transport: "ajax",
       },
       forceTLS: true,

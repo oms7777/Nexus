@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin":
     process.env.NODE_ENV === "production"
-      ? "https://widget.inboundless.co"
+      ? "https://app.inboundless.co"
       : "*",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
   "Access-Control-Allow-Headers": "content-type",
