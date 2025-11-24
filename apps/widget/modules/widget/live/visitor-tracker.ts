@@ -1,3 +1,4 @@
+// apps/widget/modules/widget/live/visitor-tracker.ts
 import { record } from "rrweb";
 import type { eventWithTime } from "@rrweb/types";
 import Pusher from "pusher-js";
@@ -8,12 +9,16 @@ export function initVisitorTracking(orgId: string, sessionId: string) {
   if (started) return;
   started = true;
 
+  const authUrl =
+    process.env.NEXT_PUBLIC_PUSHER_AUTH_URL ||
+    "/api/realtime/pusher-auth";
+
   const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
     cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+    authEndpoint: authUrl,
     channelAuthorization: {
-      endpoint: process.env.NEXT_PUBLIC_PUSHER_AUTH_URL!, // https://app.inboundless.co/api/realtime/pusher-auth
+      endpoint: authUrl,
       transport: "ajax",
-      params: { orgId, sessionId }, // facultatif mais pratique pour les logs
     },
     forceTLS: true,
   });
