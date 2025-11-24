@@ -10,9 +10,9 @@ export function initVisitorTracking(orgId: string, sessionId: string) {
 
   const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
     cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-    authEndpoint: "/api/realtime/pusher-auth",
+    authEndpoint: process.env.NEXT_PUBLIC_PUSHER_AUTH_URL,   // 👈 ici
     channelAuthorization: {
-      endpoint: "/api/realtime/pusher-auth",
+      endpoint: process.env.NEXT_PUBLIC_PUSHER_AUTH_URL!,   // 👈 et ici
       transport: "ajax",
     },
     forceTLS: true,
