@@ -18,6 +18,10 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!container || !orgId || !sessionId) return;
 
+    if (typeof window !== "undefined") {
+      (Pusher as any).logToConsole = true;
+    }
+
     console.log("[stream] start", { orgId, sessionId, container });
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
@@ -34,8 +38,17 @@ export function useVisitorStream(opts: {
     const ch = pusher.subscribe(chanName) as Channel;
     chanRef.current = ch;
 
+    if (typeof window !== "undefined") {
+      (window as any).__inboundlessStreamChannel = ch;
+    }
+
     ch.bind("pusher:subscription_succeeded", () => {
       console.log("[stream] subscription_succeeded");
+    });
+
+    // 🟢 test : écouter le ping
+    ch.bind("client-ping", (payload: any) => {
+      console.log("[stream] client-ping reçu:", payload);
     });
 
     // rrweb live replayer
