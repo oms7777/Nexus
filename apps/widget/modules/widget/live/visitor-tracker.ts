@@ -13,9 +13,9 @@ export function initVisitorTracking(orgId: string, sessionId: string) {
 
   const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
     cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-    authEndpoint: "/api/realtime/pusher-auth",
+    authEndpoint: "https://widget.inboundless.co/api/realtime/pusher-auth",
     channelAuthorization: {
-      endpoint: "/api/realtime/pusher-auth",
+      endpoint: "https://widget.inboundless.co/api/realtime/pusher-auth",
       transport: "ajax",
     },
     forceTLS: true,
@@ -24,7 +24,9 @@ export function initVisitorTracking(orgId: string, sessionId: string) {
   const channelName = `presence-org_${orgId}_session_${sessionId}`;
   const channel = pusher.subscribe(channelName);
 
-  console.log("[tracker] subscribing to", channelName);
+  channel.bind("pusher:subscription_succeeded", () => {
+    console.log("[tracker] subscribing to", channelName);
+  });
 
   record({
     emit(event: eventWithTime) {

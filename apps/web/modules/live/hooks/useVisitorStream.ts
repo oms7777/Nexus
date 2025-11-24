@@ -16,26 +16,21 @@ export function useVisitorStream(opts: {
   const chanRef = useRef<Channel | null>(null);
 
   useEffect(() => {
-    if (!container || !orgId || !sessionId) {
-      console.log("[stream] missing data", { orgId, sessionId, container });
-      return;
-    }
+    if (!container || !orgId || !sessionId) return;
 
-    console.log("[stream] start", { orgId, sessionId });
+    console.log("[stream] start", { orgId, sessionId, container });
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-      authEndpoint: "/api/realtime/pusher-auth",
+      authEndpoint: "https://widget.inboundless.co/api/realtime/pusher-auth",
       channelAuthorization: {
-        endpoint: "/api/realtime/pusher-auth",
+        endpoint: "https://widget.inboundless.co/api/realtime/pusher-auth",
         transport: "ajax",
       },
       forceTLS: true,
     });
 
     const chanName = `presence-org_${orgId}_session_${sessionId}`;
-    console.log("[stream] subscribing to", chanName);
-
     const ch = pusher.subscribe(chanName) as Channel;
     chanRef.current = ch;
 
@@ -47,13 +42,44 @@ export function useVisitorStream(opts: {
     repRef.current = new Replayer([], { liveMode: true, root: container });
     repRef.current.startLive();
 
-    ch.bind("client-rrweb", (payload: { events: eventWithTime[] }) => {
-      console.log("[stream] client-rrweb received", payload.events.length);
-      payload.events.forEach((ev) => repRef.current?.addEvent(ev as any));
+    ch.bind("client-rrweb", (payload: any) => {
+      console.log("[stream] client-rrweb raw payload:", payload);
+
+      let events: eventWithTime[] | undefined;
+
+      // 1) cas { events: [...] }
+      if (Array.isArray(payload?.events)) {
+        events = payload.events as eventWithTime[];
+      }
+      // 2) cas déjà tableau
+      else if (Array.isArray(payload)) {
+        events = payload as eventWithTime[];
+      }
+      // 3) cas { event: {...} }
+      else if (payload?.event) {
+        events = [payload.event as eventWithTime];
+      }
+      // 4) cas { data: "json" } (au cas où)
+      else if (typeof payload?.data === "string") {
+        try {
+          const parsed = JSON.parse(payload.data);
+          if (Array.isArray(parsed?.events)) {
+            events = parsed.events as eventWithTime[];
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!events || !events.length) {
+        console.log("[stream] no usable events in payload");
+        return;
+      }
+
+      events.forEach((ev) => repRef.current?.addEvent(ev as any));
     });
 
     ch.bind("client-cursor", (p: { x: number; y: number }) => {
-      // console.log("[stream] client-cursor", p);
       setCursor(p);
     });
 
