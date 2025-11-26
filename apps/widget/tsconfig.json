@@ -19,6 +19,6 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts"
-  ],
+, "../embed/visitor-tracker.ts"  ],
   "exclude": ["node_modules"]
 }

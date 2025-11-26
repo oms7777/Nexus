@@ -1,5 +1,7 @@
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
+import { initVisitorTracking } from "./visitor-tracker";
+
 
 (function () {
   // DOM
@@ -15,6 +17,10 @@ import { chatBubbleIcon, closeIcon } from "./icons";
   let nudgeDismissed = false;             // l’utilisateur a fermé le nudge
   let iframeLoaded = false;
   let TARGET_ORIGIN = "";
+
+  // Tracking
+  let trackingStarted = false;
+  let trackingSessionId: string | null = null;
 
   // Config from <script>
   let organizationId: string | null = null;
@@ -158,6 +164,21 @@ import { chatBubbleIcon, closeIcon } from "./icons";
         iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, TARGET_ORIGIN);
         break;
 
+      case "nexus:session-ready": {
+        if (!organizationId) return;
+        if (!payload || typeof payload.sessionId !== "string") return;
+        if (trackingStarted) return;
+
+        trackingStarted = true;
+        trackingSessionId = payload.sessionId;
+
+        initVisitorTracking({
+          orgId: organizationId,
+          sessionId: payload.sessionId,
+        });
+
+        break;
+      }
       default:
         break;
     }
@@ -430,6 +451,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
     isOpen = false;
     iframeLoaded = false;
     TARGET_ORIGIN = "";
+    trackingStarted = false;
+    trackingSessionId = null;
   }
 
   function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left"; }) {

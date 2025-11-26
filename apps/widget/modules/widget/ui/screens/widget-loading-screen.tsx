@@ -15,6 +15,15 @@
  * - On ne crée plus la conversation automatiquement ici.
  *   => La création est déclenchée uniquement après consent si intent = "chat"
  *      (dans WidgetChatScreen).
+ *
+ * - NOUVEAU :
+ *   Quand la contactSession est prête, on envoie un postMessage au parent
+ *   pour qu’il démarre rrweb + Pusher côté PAGE host :
+ *
+ *      window.parent.postMessage(
+ *        { type: "nexus:session-ready", payload: { sessionId, organizationId } },
+ *        "*"
+ *      );
  */
 
 import { useAtomValue, useSetAtom } from "jotai";
@@ -33,9 +42,6 @@ import { WidgetHeader } from "../components/widget-header";
 import { useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
-import { initVisitorTracking } from "../../live/visitor-tracker";
-
-
 
 type InitStep = "org" | "session" | "settings" | "vapi" | "done";
 
@@ -44,6 +50,35 @@ function getNoChat(): boolean {
   if (typeof window === "undefined") return false;
   const v = new URLSearchParams(window.location.search).get("nochat");
   return v === "1" || v === "true";
+}
+
+/**
+ * Informe la page host (embed.js) que la session est prête.
+ * C’est la page host qui démarrera rrweb + Pusher.
+ */
+function notifyParentSessionReady(params: {
+  organizationId: string;
+  sessionId: string;
+}) {
+  if (typeof window === "undefined") return;
+  if (!window.parent || window.parent === window) return;
+
+  const { organizationId, sessionId } = params;
+
+  try {
+    window.parent.postMessage(
+      {
+        type: "nexus:session-ready",
+        payload: {
+          organizationId,
+          sessionId,
+        },
+      },
+      "*"
+    );
+  } catch (err) {
+    console.error("[widget] failed to post nexus:session-ready", err);
+  }
 }
 
 export const WidgetLoadingScreen = ({
@@ -108,7 +143,9 @@ export const WidgetLoadingScreen = ({
   ]);
 
   /* 2) S’assurer d’avoir une session (mais pas de conversation) */
-  const validateContactSession = useMutation(api.public.contactSessions.validate);
+  const validateContactSession = useMutation(
+    api.public.contactSessions.validate
+  );
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
 
   useEffect(() => {
@@ -116,11 +153,25 @@ export const WidgetLoadingScreen = ({
 
     setLoadingMessage("Checking session...");
 
+    if (!organizationId) {
+      setErrorMessage("Organization ID is required");
+      setScreen("error");
+      return;
+    }
+
+    const notifyIfNeeded = (sessionId: string) => {
+      // informer l’embed côté parent que la session est prête
+      notifyParentSessionReady({
+        organizationId,
+        sessionId,
+      });
+    };
+
     const ensure = async () => {
-      if (!organizationId) return;
       try {
         const id = await ensureContactSession({ organizationId });
         setContactSessionId(id);
+        notifyIfNeeded(id);
         setStep("settings");
       } catch {
         setErrorMessage("Unable to start a session");
@@ -129,14 +180,18 @@ export const WidgetLoadingScreen = ({
     };
 
     if (!contactSessionId) {
-      ensure();
+      void ensure();
       return;
     }
 
     validateContactSession({ contactSessionId })
       .then((res) => {
-        if (res.valid) setStep("settings");
-        else ensure();
+        if (res.valid) {
+          notifyIfNeeded(contactSessionId);
+          setStep("settings");
+        } else {
+          ensure();
+        }
       })
       .catch(() => ensure());
   }, [
@@ -210,15 +265,6 @@ export const WidgetLoadingScreen = ({
     setQualifyStep("consent");
     setScreen("chat");
   }, [step, setQualifyStep, setScreen]);
-
-  useEffect(() => {
-    // on attend que l'init soit terminée
-    if (step !== "done") return;
-    if (!organizationId || !contactSessionId) return;
-
-    // démarre rrweb + pusher côté visiteur
-    initVisitorTracking(organizationId, contactSessionId);
-  }, [step, organizationId, contactSessionId]);
 
   return (
     <>

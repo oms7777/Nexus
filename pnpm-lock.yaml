@@ -30,6 +30,9 @@ importers:
 
   apps/embed:
     dependencies:
+      '@rrweb/types':
+        specifier: 2.0.0-alpha.18
+        version: 2.0.0-alpha.18
       '@workspace/backend':
         specifier: workspace:*
         version: link:../../packages/backend
