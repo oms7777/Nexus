@@ -247,7 +247,7 @@ export default defineSchema({
     }),
     updatedAt: v.number(),
   }).index("by_org_day", ["organizationId", "day"]),
-
+  
   sessionSnapshots: defineTable({
     organizationId: v.string(),
     sessionId: v.id("contactSessions"),
@@ -256,11 +256,11 @@ export default defineSchema({
     title: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
-    storageId: v.id("_storage"),
+    // on garde les events bruts ou un snapshot compressé
+    snapshot: v.optional(v.any()),
   })
     .index("by_session", ["sessionId"])
-    .index("by_org_ts", ["organizationId","ts"]),
-
+    .index("by_org_ts", ["organizationId", "ts"]),
   /* ---------- Promos contextuelles ---------- */
   promos: defineTable({
     organizationId: v.string(),

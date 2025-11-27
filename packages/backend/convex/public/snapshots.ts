@@ -1,68 +1,69 @@
 // packages/backend/convex/public/snapshots.ts
-import { action, mutation } from "../_generated/server";
+import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { api } from "../_generated/api";
-import { query } from "../_generated/server";
 
-/** Mutation: insère la ligne dans la table */
-export const insertRow = mutation({
+/**
+ * Sauvegarde un snapshot rrweb d'une session.
+ * Ici on stocke directement les events JSON dans le champ `snapshot`.
+ */
+export const save = mutation({
   args: {
     organizationId: v.string(),
     sessionId: v.id("contactSessions"),
-    ts: v.number(),
-    pageUrl: v.optional(v.string()),
-    title: v.optional(v.string()),
-    width: v.optional(v.number()),
-    height: v.optional(v.number()),
-    storageId: v.id("_storage"),
+    events: v.array(v.any()), // rrweb events
   },
-  handler: async (ctx, args) => {
-    await ctx.db.insert("sessionSnapshots", args);
-    return { ok: true };
-  },
-});
+  handler: async (ctx, { organizationId, sessionId, events }) => {
+    if (!events.length) {
+      return { ok: false, reason: "no_events" };
+    }
 
-/** Action: reçoit le dataURL, le stocke en blob, puis appelle la mutation ci-dessus */
-export const save = action({
-  args: {
-    organizationId: v.string(),
-    sessionId: v.id("contactSessions"),
-    ts: v.number(),
-    pageUrl: v.optional(v.string()),
-    title: v.optional(v.string()),
-    width: v.optional(v.number()),
-    height: v.optional(v.number()),
-    // ex: "data:image/webp;base64,AAAA..."
-    dataUrl: v.string(),
-  },
-  handler: async (ctx, args) => {
-    // Décoder le dataURL -> Blob
-    const [prefix, base64] = (args.dataUrl || "").split(",");
-    if (!base64) throw new Error("BAD_DATA_URL");
-    const mime = /^data:(.+);base64$/i.exec(prefix || "")?.[1] ?? "image/webp";
+    // 1) ne pas recréer si un snapshot existe déjà pour cette session
+    const existing = await ctx.db
+      .query("sessionSnapshots")
+      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+      .order("asc")
+      .first();
 
-    const bytes = Buffer.from(base64, "base64"); // Uint8Array compatible
-    const blob = new Blob([bytes], { type: mime });
+    if (existing) {
+      return { ok: true, reused: true, id: existing._id };
+    }
 
-    // Stocker le blob
-    const storageId = await ctx.storage.store(blob);
+    // 2) extraire quelques infos utiles depuis un event rrweb (href, title, width, height)
+    let pageUrl: string | undefined;
+    let title: string | undefined;
+    let width: number | undefined;
+    let height: number | undefined;
 
-    // Écrire en base via une mutation
-    await ctx.runMutation(api.public.snapshots.insertRow, {
-      organizationId: args.organizationId,
-      sessionId: args.sessionId,
-      ts: args.ts,
-      pageUrl: args.pageUrl,
-      title: args.title,
-      width: args.width,
-      height: args.height,
-      storageId,
+    const metaEvent: any =
+      events.find((ev: any) => ev?.type === 4 || ev?.type === 2) ?? null;
+
+    if (metaEvent?.data) {
+      const d = metaEvent.data;
+      if (typeof d.href === "string") pageUrl = d.href;
+      if (typeof d.title === "string") title = d.title;
+      if (typeof d.width === "number") width = d.width;
+      if (typeof d.height === "number") height = d.height;
+    }
+
+    // 3) insérer la ligne dans sessionSnapshots
+    const id = await ctx.db.insert("sessionSnapshots", {
+      organizationId,
+      sessionId,
+      ts: Date.now(),
+      pageUrl,
+      title,
+      width,
+      height,
+      snapshot: events, // ✅ on garde les events bruts
     });
 
-    return { ok: true, storageId };
+    return { ok: true, id };
   },
 });
 
+/**
+ * Lister les snapshots récents d'une session
+ */
 export const listRecent = query({
   args: {
     sessionId: v.id("contactSessions"),
@@ -75,13 +76,7 @@ export const listRecent = query({
       .order("desc")
       .take(limit ?? 12);
 
-    const withUrls = await Promise.all(
-      rows.map(async (r) => ({
-        ...r,
-        url: await ctx.storage.getUrl(r.storageId),
-      }))
-    );
-
-    return withUrls;
+    // ici pas de storage, on renvoie juste les lignes
+    return rows;
   },
 });
