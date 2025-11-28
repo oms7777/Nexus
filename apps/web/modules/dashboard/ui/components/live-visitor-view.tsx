@@ -50,6 +50,33 @@ export function LiveVisitorView({
       // Comme dans l’exemple Medium : on lance le replay
       replayer.play();
 
+      // 🔍 IMPORTANT : on scale le contenu rrweb pour qu'il tienne
+      // entièrement dans le panneau de 360px de haut.
+      setTimeout(() => {
+        const root = containerRef.current;
+        if (!root) return;
+
+        // rrweb met son contenu dans le premier enfant du root
+        const content = root.firstElementChild as HTMLElement | null;
+        if (!content) return;
+
+        const rootRect = root.getBoundingClientRect();
+        const contentRect = content.getBoundingClientRect();
+
+        if (!contentRect.width || !contentRect.height) return;
+
+        const scale = Math.min(
+          rootRect.width / contentRect.width,
+          rootRect.height / contentRect.height,
+          1,
+        );
+
+        console.log("[live] apply scale", { scale, rootRect, contentRect });
+
+        content.style.transformOrigin = "top left";
+        content.style.transform = `scale(${scale})`;
+      }, 0);
+
       return () => {
         replayer.pause();
         replayer.destroy();
