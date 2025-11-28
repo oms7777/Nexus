@@ -12,15 +12,12 @@ type VisitorTrackingOptions = {
   sessionId: string;
 };
 
-// 🔑 Clés publiques Pusher (pas sensibles)
+// 🔑 Clés publiques Pusher (ok côté client)
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 
-export function initVisitorTracking({
-  orgId,
-  sessionId,
-}: VisitorTrackingOptions) {
+export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
@@ -35,12 +32,16 @@ export function initVisitorTracking({
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
-    authEndpoint: PUSHER_AUTH_URL,
+    forceTLS: true,
+
+    // ✅ Config supportée par pusher-js v8
+    // Pusher va faire un POST x-www-form-urlencoded vers cette URL
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
+      // (optionnel) si tu veux ajouter des params:
+      // params: { orgId, sessionId },
     },
-    forceTLS: true,
   });
 
   const channelName = `presence-org_${orgId}_session_${sessionId}`;
@@ -71,7 +72,7 @@ export function initVisitorTracking({
             );
           }
 
-          // 2️⃣ Live events (snapshot compris) → Pusher (client-rrweb)
+          // 2️⃣ Live events → Pusher (client-rrweb)
           const payload = { events: [event] };
           const size = JSON.stringify(payload).length;
 
