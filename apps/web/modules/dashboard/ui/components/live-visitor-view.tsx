@@ -45,8 +45,17 @@ export function LiveVisitorView({
 
       // On nettoie un éventuel ancien replayer
       if (replayer) {
-        replayer.pause();
+        try {
+          replayer.pause();
+          // @ts-ignore rrweb expose destroy()
+          replayer.destroy?.();
+        } catch {
+          // ignore
+        }
       }
+
+      // On vide le container pour repartir propre
+      containerEl.innerHTML = "";
 
       const rep = new Replayer(events, {
         root: containerEl,
@@ -58,6 +67,20 @@ export function LiveVisitorView({
     } catch (err) {
       console.error("[live] failed to init Replayer from snapshot", err);
     }
+
+    return () => {
+      // cleanup si le composant unmount ou si snapshot / container change
+      if (replayer) {
+        try {
+          replayer.pause();
+          // @ts-ignore
+          replayer.destroy?.();
+        } catch {
+          // ignore
+        }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerEl, latest?.snapshot]);
 
   // 4) On branche le flux live Pusher (qui alimentera rep.addEvent)

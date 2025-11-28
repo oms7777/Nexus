@@ -1,5 +1,6 @@
 // apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
+
 import { useEffect, useRef, useState } from "react";
 import Pusher, { type Channel } from "pusher-js";
 import type { Replayer } from "rrweb";
@@ -24,8 +25,16 @@ export function useVisitorStream(opts: {
       (Pusher as any).logToConsole = true;
     }
 
-    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
-      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+    const key = process.env.NEXT_PUBLIC_PUSHER_KEY;
+    const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER;
+
+    if (!key || !cluster) {
+      console.error("[stream] Missing NEXT_PUBLIC_PUSHER_KEY or CLUSTER");
+      return;
+    }
+
+    const pusher = new Pusher(key, {
+      cluster,
       authEndpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
       channelAuthorization: {
         endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
@@ -46,7 +55,7 @@ export function useVisitorStream(opts: {
       console.log("[stream] subscription_succeeded");
     });
 
-    ch.bind("client-rrweb", (payload: any) => {
+    ch.bind("client-rrweb", (payload: unknown) => {
       console.log("[stream] client-rrweb raw payload:", payload);
 
       if (!replayer) {
@@ -56,15 +65,17 @@ export function useVisitorStream(opts: {
 
       let events: eventWithTime[] | undefined;
 
-      if (Array.isArray(payload?.events)) {
-        events = payload.events as eventWithTime[];
-      } else if (Array.isArray(payload)) {
-        events = payload as eventWithTime[];
-      } else if (payload?.event) {
-        events = [payload.event as eventWithTime];
-      } else if (typeof payload?.data === "string") {
+      const maybePayload = payload as any;
+
+      if (Array.isArray(maybePayload?.events)) {
+        events = maybePayload.events as eventWithTime[];
+      } else if (Array.isArray(maybePayload)) {
+        events = maybePayload as eventWithTime[];
+      } else if (maybePayload?.event) {
+        events = [maybePayload.event as eventWithTime];
+      } else if (typeof maybePayload?.data === "string") {
         try {
-          const parsed = JSON.parse(payload.data);
+          const parsed = JSON.parse(maybePayload.data);
           if (Array.isArray(parsed?.events)) {
             events = parsed.events as eventWithTime[];
           }
