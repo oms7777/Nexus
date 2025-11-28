@@ -1,24 +1,32 @@
+
 // apps/web/app/api/realtime/pusher-auth/route.ts
 import { NextResponse } from "next/server";
 import { pusherServer } from "@/lib/pusher";
 
 export const runtime = "nodejs";
 
-// CORS global (multi-tenant)
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*", // ✅ tous les sites clients
-  "Access-Control-Allow-Methods": "POST,OPTIONS",
-  "Access-Control-Allow-Headers": "content-type",
-};
+/*
+  Helper CORS universel (widget embarqué sur n'importe quel domaine)
+*/
+function withCors(body: BodyInit | null, init: ResponseInit = {}, origin?: string | null) {
+  const headers = new Headers(init.headers);
 
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: CORS_HEADERS,
-  });
+  headers.set("Access-Control-Allow-Origin", origin || "*");
+  headers.set("Vary", "Origin");
+  headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  headers.set("Access-Control-Allow-Headers", "Content-Type");
+
+  return new NextResponse(body, { ...init, headers });
+}
+
+export async function OPTIONS(req: Request) {
+  const origin = req.headers.get("origin");
+  return withCors(null, { status: 204 }, origin);
 }
 
 export async function POST(req: Request) {
+  const origin = req.headers.get("origin");
+
   try {
     const raw = await req.text();
     let data: any = {};
@@ -35,16 +43,13 @@ export async function POST(req: Request) {
     const orgId: string | undefined = data.orgId;
     const sessionId: string | undefined = data.sessionId;
 
-    // On ne signe que nos channels de tracking
+    // Sécurité basique sur le pattern de channel
     if (
       typeof channelName !== "string" ||
       typeof socketId !== "string" ||
-      !/^presence\-org_[\w-]+_session_[\w-]+$/.test(channelName)
+      !/^presence-org_[\w-]+_session_[\w-]+$/.test(channelName)
     ) {
-      return new NextResponse("Bad channel", {
-        status: 400,
-        headers: CORS_HEADERS,
-      });
+      return withCors("Bad channel", { status: 400 }, origin);
     }
 
     const presenceData = {
@@ -55,21 +60,19 @@ export async function POST(req: Request) {
     const auth = pusherServer.authorizeChannel(
       socketId,
       channelName,
-      presenceData,
+      presenceData
     );
 
-    return new NextResponse(JSON.stringify(auth), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        ...CORS_HEADERS,
+    return withCors(
+      JSON.stringify(auth),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
       },
-    });
+      origin
+    );
   } catch (err) {
     console.error("Pusher auth error:", err);
-    return new NextResponse("Auth error", {
-      status: 500,
-      headers: CORS_HEADERS,
-    });
+    return withCors("Auth error", { status: 500 }, origin);
   }
 }
