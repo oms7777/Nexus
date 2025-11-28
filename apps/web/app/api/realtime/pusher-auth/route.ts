@@ -4,12 +4,9 @@ import { pusherServer } from "@/lib/pusher";
 
 export const runtime = "nodejs";
 
-// 🔥 CORS commun
+// CORS global (multi-tenant)
 const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin":
-    process.env.NODE_ENV === "production"
-      ? "https://app.inboundless.co"
-      : "*",
+  "Access-Control-Allow-Origin": "*", // ✅ tous les sites clients
   "Access-Control-Allow-Methods": "POST,OPTIONS",
   "Access-Control-Allow-Headers": "content-type",
 };
@@ -23,7 +20,6 @@ export async function OPTIONS() {
 
 export async function POST(req: Request) {
   try {
-    // 1) Récupérer le body, en JSON ou x-www-form-urlencoded
     const raw = await req.text();
     let data: any = {};
 
@@ -34,13 +30,12 @@ export async function POST(req: Request) {
       data = Object.fromEntries(params.entries());
     }
 
-    const channelName: string =
-      data.channel_name || data.channelName || "";
+    const channelName: string = data.channel_name || data.channelName || "";
     const socketId: string = data.socket_id || data.socketId || "";
     const orgId: string | undefined = data.orgId;
     const sessionId: string | undefined = data.sessionId;
 
-    // 2) Sécurité minimale : on ne laisse passer que nos channels presence-org_..._session_...
+    // On ne signe que nos channels de tracking
     if (
       typeof channelName !== "string" ||
       typeof socketId !== "string" ||
