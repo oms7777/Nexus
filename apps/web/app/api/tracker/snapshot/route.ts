@@ -5,40 +5,40 @@ import { fetchMutation } from "convex/nextjs";
 
 export const runtime = "nodejs";
 
-/*
-  CORS universel pour widget embarqué
-*/
-function withCors(body: BodyInit | null, init: ResponseInit = {}, origin?: string | null) {
-  const headers = new Headers(init.headers);
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+  Vary: "Origin",
+};
 
-  headers.set("Access-Control-Allow-Origin", origin || "*");
-  headers.set("Vary", "Origin");
-  headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type");
-
-  return new NextResponse(body, { ...init, headers });
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
 }
 
-export async function OPTIONS(req: Request) {
-  const origin = req.headers.get("origin");
-  return withCors(null, { status: 204 }, origin);
+// (optionnel, juste pour ne pas avoir de 405 si tu testes en GET)
+export async function GET() {
+  return new NextResponse("OK", {
+    status: 200,
+    headers: CORS_HEADERS,
+  });
 }
 
 export async function POST(req: Request) {
-  const origin = req.headers.get("origin");
-
   try {
     const { organizationId, sessionId, events } = await req.json();
 
     if (!organizationId || !sessionId || !Array.isArray(events) || events.length === 0) {
-      return withCors(
+      return new NextResponse(
         JSON.stringify({ ok: false, error: "Invalid payload" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-        origin
+        { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } },
       );
     }
 
-    // Extraction des infos depuis le snapshot rrweb
+    // On prend le 1er event (snapshot) pour les meta
     const first = events[0] as any;
 
     const pageUrl: string | undefined = first?.data?.href;
@@ -46,8 +46,7 @@ export async function POST(req: Request) {
     const width: number | undefined = first?.data?.width;
     const height: number | undefined = first?.data?.height;
 
-    // Snapshot stocké sous forme JSON stringifié
-    const snapshot = JSON.stringify(events);
+    const snapshot = JSON.stringify(events); // ✅ string pour Convex
 
     await fetchMutation(api.public.snapshots.save, {
       organizationId,
@@ -56,21 +55,18 @@ export async function POST(req: Request) {
       title,
       width,
       height,
-      snapshot, // ✅ correspond exactement à ton schéma
+      snapshot,
     });
 
-    return withCors(
+    return new NextResponse(
       JSON.stringify({ ok: true }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-      origin
+      { status: 200, headers: { "Content-Type": "application/json", ...CORS_HEADERS } },
     );
   } catch (err) {
     console.error("[snapshot] POST error", err);
-
-    return withCors(
+    return new NextResponse(
       JSON.stringify({ ok: false, error: "Internal error" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-      origin
+      { status: 500, headers: { "Content-Type": "application/json", ...CORS_HEADERS } },
     );
   }
 }
