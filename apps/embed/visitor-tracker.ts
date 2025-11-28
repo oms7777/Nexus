@@ -7,7 +7,7 @@ let started = false;
 let channelRef: Channel | null = null;
 let snapshotSent = false;
 
-// On bufferise tous les events au début
+// On bufferise les events jusqu’au premier FullSnapshot
 let snapshotBuffer: eventWithTime[] = [];
 
 type VisitorTrackingOptions = {
@@ -53,44 +53,48 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     record({
       emit(event: eventWithTime) {
         try {
-          const isFullSnapshot = event.type === 2;
+          const isFullSnapshot = event.type === 2; // rrweb FullSnapshot
 
-          // On garde tout dans un buffer tant que le snapshot n'est pas envoyé
-          snapshotBuffer.push(event);
-
-          // 1️⃣ Quand on voit le premier FullSnapshot → on envoie TOUT le buffer au backend
-          if (isFullSnapshot && !snapshotSent) {
-            snapshotSent = true;
-
-            const snapshotEvents = [...snapshotBuffer]; // copie par sécurité
-
-            console.log("[tracker] sending snapshot with", snapshotEvents.length, "events");
-
-            fetch(SNAPSHOT_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                organizationId: orgId,
-                sessionId,
-                events: snapshotEvents,
-              }),
-            }).catch((err) =>
-              console.error("[tracker] snapshot send failed", err),
-            );
-
-            // On peut vider le buffer si tu veux, il a déjà été envoyé
-            snapshotBuffer = snapshotEvents;
-          }
-
-          // Tant que le snapshot n'est pas envoyé, on NE STREAM RIEN à Pusher
+          // Tant que le snapshot n’est pas envoyé, on bufferise
           if (!snapshotSent) {
+            snapshotBuffer.push(event);
+
+            // Premier FullSnapshot → on envoie tout le buffer au backend
+            if (isFullSnapshot) {
+              snapshotSent = true;
+              const snapshotEvents = [...snapshotBuffer];
+
+              console.log(
+                "[tracker] sending snapshot with",
+                snapshotEvents.length,
+                "events",
+              );
+
+              fetch(SNAPSHOT_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  organizationId: orgId,
+                  sessionId,
+                  events: snapshotEvents,
+                }),
+              }).catch((err) =>
+                console.error("[tracker] snapshot send failed", err),
+              );
+
+              // on peut vider le buffer, il a été persisté
+              snapshotBuffer = [];
+            }
+
+            // Tant que le snapshot n’est pas parti, on ne stream rien
             return;
           }
 
-          // On ne pousse jamais les FullSnapshot dans Pusher (trop gros, pas nécessaire)
+          // Une fois le snapshot envoyé :
+          // - on NE push jamais les FullSnapshot vers Pusher
           if (isFullSnapshot) return;
 
-          // 2️⃣ Live events incrémentaux → Pusher
+          // - on envoie seulement les incrémentaux
           const payload = { events: [event] };
           const size = JSON.stringify(payload).length;
 

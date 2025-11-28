@@ -1,7 +1,7 @@
 // apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
@@ -18,9 +18,9 @@ export function LiveVisitorView({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerEl, setContainerEl] = useState<HTMLElement | null>(null);
-  const [replayer, setReplayer] = useState<Replayer | null>(null);
+  const replayerRef = useRef<Replayer | null>(null);
 
-  // 1) on récupère une vraie ref DOM
+  // 1) récupérer le vrai DOM node
   useEffect(() => {
     if (containerRef.current) {
       setContainerEl(containerRef.current);
@@ -36,7 +36,7 @@ export function LiveVisitorView({
 
   const latest = snaps[0];
 
-  // 3) on instancie le Replayer dès qu'on a container + snapshot
+  // 3) initialiser le Replayer dès qu’on a container + snapshot
   useEffect(() => {
     if (!containerEl || !latest?.snapshot) return;
 
@@ -48,37 +48,54 @@ export function LiveVisitorView({
         containerEl,
       });
 
-      // clean ancien replayer
-      if (replayer) {
-        replayer.pause();
+      // nettoyer replayer précédent si besoin
+      if (replayerRef.current) {
+        replayerRef.current.pause();
+        replayerRef.current = null;
       }
+
       containerEl.innerHTML = "";
 
       const rep = new Replayer(events, {
         root: containerEl,
-        liveMode: true,
+        liveMode: true, // base = snapshot, puis live patches
       });
 
       rep.startLive();
-      setReplayer(rep);
+      replayerRef.current = rep;
+
+      console.log(
+        "[live] replayer root children after start",
+        containerEl.childNodes,
+      );
     } catch (err) {
       console.error("[live] failed to init Replayer from snapshot", err);
     }
-    // on ne met PAS replayer dans le tableau, pour éviter la boucle infinie
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerEl, latest?.snapshot]);
 
-  // 4) flux live Pusher (ne démarre que quand replayer est prêt)
+  // 4) callback stable pour ajouter les events live au Replayer
+  const handleEvents = useCallback((events: eventWithTime[]) => {
+    if (!replayerRef.current) {
+      console.log("[stream] replayer not ready yet, dropping events");
+      return;
+    }
+    events.forEach((ev) => replayerRef.current!.addEvent(ev as any));
+  }, []);
+
+  // 5) flux live Pusher (ne démarre que quand container est prêt)
   const { cursor } = useVisitorStream({
     orgId,
     sessionId,
     container: containerEl,
-    replayer,
+    onEvents: handleEvents,
   });
 
   return (
     <div className="relative rounded-xl border overflow-hidden" style={{ height: 360 }}>
+      {/* rrweb monte DANS ce div */}
       <div ref={containerRef} className="absolute inset-0 bg-black/5" />
+
+      {/* curseur live par dessus */}
       {cursor && (
         <div
           className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70"

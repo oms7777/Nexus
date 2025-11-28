@@ -1,26 +1,24 @@
 // apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
+
 import { useEffect, useRef, useState } from "react";
 import Pusher, { type Channel } from "pusher-js";
-import type { Replayer } from "rrweb";
 import type { eventWithTime } from "@rrweb/types";
 
 export function useVisitorStream(opts: {
   orgId: string;
   sessionId: string;
   container: HTMLElement | null;
-  replayer: Replayer | null;
+  onEvents: (events: eventWithTime[]) => void;
 }) {
-  const { orgId, sessionId, container, replayer } = opts;
+  const { orgId, sessionId, container, onEvents } = opts;
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const chanRef = useRef<Channel | null>(null);
 
   useEffect(() => {
-    // ⭐ on ne démarre que quand TOUT est prêt
-    if (!container || !orgId || !sessionId || !replayer) {
-      console.log("[stream] waiting for container/replayer", {
+    if (!container || !orgId || !sessionId) {
+      console.log("[stream] waiting for container", {
         hasContainer: !!container,
-        hasReplayer: !!replayer,
       });
       return;
     }
@@ -80,7 +78,7 @@ export function useVisitorStream(opts: {
         return;
       }
 
-      events.forEach((ev) => replayer.addEvent(ev as any));
+      onEvents(events);
     });
 
     ch.bind("client-cursor", (p: { x: number; y: number }) => {
@@ -92,7 +90,7 @@ export function useVisitorStream(opts: {
       pusher.unsubscribe(chanName);
       pusher.disconnect();
     };
-  }, [orgId, sessionId, container, replayer]);
+  }, [orgId, sessionId, container]); // ❗ onEvents PAS dans les deps
 
   return { cursor };
 }
