@@ -7,7 +7,7 @@ let started = false;
 let channelRef: Channel | null = null;
 let snapshotSent = false;
 
-// On bufferise les events jusqu’au premier FullSnapshot
+// Buffer de tous les events au début pour construire un snapshot complet
 let snapshotBuffer: eventWithTime[] = [];
 
 type VisitorTrackingOptions = {
@@ -19,13 +19,15 @@ const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
+
+// Limite Pusher ≈ 10 Ko par event client → on reste un peu en dessous
 const MAX_EVENT_BYTES = 9_000;
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
-  // ne jamais tracker dans l’iframe
+  // Ne jamais tracker dans l’iframe du widget
   if (window.self !== window.top) {
     console.log("[tracker] iframe detected – skipping");
     return;
@@ -53,52 +55,48 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     record({
       emit(event: eventWithTime) {
         try {
-          const isFullSnapshot = event.type === 2; // rrweb FullSnapshot
+          const isFullSnapshot = event.type === 2;
 
-          // Tant que le snapshot n’est pas envoyé, on bufferise
-          if (!snapshotSent) {
-            snapshotBuffer.push(event);
+          // On empile tous les events (y compris le FullSnapshot)
+          snapshotBuffer.push(event);
 
-            // Premier FullSnapshot → on envoie tout le buffer au backend
-            if (isFullSnapshot) {
-              snapshotSent = true;
-              const snapshotEvents = [...snapshotBuffer];
+          // 1️⃣ Premier FullSnapshot → on envoie TOUT le buffer au backend
+          if (isFullSnapshot && !snapshotSent) {
+            snapshotSent = true;
 
-              console.log(
-                "[tracker] sending snapshot with",
-                snapshotEvents.length,
-                "events",
-              );
+            const snapshotEvents = [...snapshotBuffer];
 
-              fetch(SNAPSHOT_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  organizationId: orgId,
-                  sessionId,
-                  events: snapshotEvents,
-                }),
-              }).catch((err) =>
-                console.error("[tracker] snapshot send failed", err),
-              );
+            console.log("[tracker] sending snapshot with", snapshotEvents.length, "events");
 
-              // on peut vider le buffer, il a été persisté
-              snapshotBuffer = [];
-            }
+            fetch(SNAPSHOT_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                organizationId: orgId,
+                sessionId,
+                events: snapshotEvents,
+              }),
+            }).catch((err) =>
+              console.error("[tracker] snapshot send failed", err),
+            );
 
-            // Tant que le snapshot n’est pas parti, on ne stream rien
-            return;
+            // On garde le buffer tel quel (sert à replayer, rien de grave)
+            snapshotBuffer = snapshotEvents;
           }
 
-          // Une fois le snapshot envoyé :
-          // - on NE push jamais les FullSnapshot vers Pusher
+          // Tant que le snapshot complet n’est pas persisté, on ne stream rien.
+          if (!snapshotSent) return;
+
+          // On ne push JAMAIS les FullSnapshot dans Pusher (trop gros, pas utile)
           if (isFullSnapshot) return;
 
-          // - on envoie seulement les incrémentaux
+          // 2️⃣ Live events incrémentaux → Pusher
           const payload = { events: [event] };
           const size = JSON.stringify(payload).length;
 
           if (size > MAX_EVENT_BYTES) {
+            // Ce warning concerne uniquement le stream live,
+            // le snapshot complet est DEJA envoyé au backend.
             console.warn("[tracker] event too large skipped", {
               size,
               type: event.type,

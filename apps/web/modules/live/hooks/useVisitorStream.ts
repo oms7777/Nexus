@@ -3,27 +3,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import Pusher, { type Channel } from "pusher-js";
-import type { eventWithTime } from "@rrweb/types";
 
 export function useVisitorStream(opts: {
   orgId: string;
   sessionId: string;
-  container: HTMLElement | null;
-  onEvents: (events: eventWithTime[]) => void;
 }) {
-  const { orgId, sessionId, container, onEvents } = opts;
+  const { orgId, sessionId } = opts;
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const chanRef = useRef<Channel | null>(null);
 
   useEffect(() => {
-    if (!container || !orgId || !sessionId) {
-      console.log("[stream] waiting for container", {
-        hasContainer: !!container,
-      });
-      return;
-    }
+    if (!orgId || !sessionId) return;
 
-    console.log("[stream] start", { orgId, sessionId, container });
+    console.log("[stream] start", { orgId, sessionId });
 
     if (typeof window !== "undefined") {
       (Pusher as any).logToConsole = true;
@@ -51,38 +43,14 @@ export function useVisitorStream(opts: {
       console.log("[stream] subscription_succeeded");
     });
 
-    ch.bind("client-rrweb", (payload: any) => {
-      console.log("[stream] client-rrweb raw payload:", payload);
-
-      let events: eventWithTime[] | undefined;
-
-      if (Array.isArray(payload?.events)) {
-        events = payload.events as eventWithTime[];
-      } else if (Array.isArray(payload)) {
-        events = payload as eventWithTime[];
-      } else if (payload?.event) {
-        events = [payload.event as eventWithTime];
-      } else if (typeof payload?.data === "string") {
-        try {
-          const parsed = JSON.parse(payload.data);
-          if (Array.isArray(parsed?.events)) {
-            events = parsed.events as eventWithTime[];
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      if (!events || !events.length) {
-        console.log("[stream] no usable events in payload");
-        return;
-      }
-
-      onEvents(events);
-    });
-
+    // Live cursor
     ch.bind("client-cursor", (p: { x: number; y: number }) => {
       setCursor(p);
+    });
+
+    // On log juste les events rrweb pour debug (le Replayer les consommera via Convex)
+    ch.bind("client-rrweb", (payload: any) => {
+      console.log("[stream] client-rrweb raw payload:", payload);
     });
 
     return () => {
@@ -90,7 +58,7 @@ export function useVisitorStream(opts: {
       pusher.unsubscribe(chanName);
       pusher.disconnect();
     };
-  }, [orgId, sessionId, container]); // ❗ onEvents PAS dans les deps
+  }, [orgId, sessionId]);
 
   return { cursor };
 }
