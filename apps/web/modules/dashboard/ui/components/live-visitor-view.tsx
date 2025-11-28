@@ -20,14 +20,14 @@ export function LiveVisitorView({
   const [containerEl, setContainerEl] = useState<HTMLElement | null>(null);
   const [replayer, setReplayer] = useState<Replayer | null>(null);
 
-  // 1) Dès que le ref est monté, on le met dans le state
+  // 1) on récupère une vraie ref DOM
   useEffect(() => {
     if (containerRef.current) {
       setContainerEl(containerRef.current);
     }
   }, []);
 
-  // 2) On récupère le DERNIER snapshot de cette session
+  // 2) dernier snapshot pour cette session
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
       sessionId: sessionId as unknown as Id<"contactSessions">,
@@ -36,25 +36,22 @@ export function LiveVisitorView({
 
   const latest = snaps[0];
 
-  // 3) On initialise le Replayer quand on a le container + snapshot
+  // 3) on instancie le Replayer dès qu'on a container + snapshot
   useEffect(() => {
     if (!containerEl || !latest?.snapshot) return;
 
     try {
       const events = JSON.parse(latest.snapshot) as eventWithTime[];
 
-      // On nettoie un éventuel ancien replayer
-      if (replayer) {
-        try {
-          replayer.pause();
-          // @ts-ignore rrweb expose destroy()
-          replayer.destroy?.();
-        } catch {
-          // ignore
-        }
-      }
+      console.log("[live] init Replayer from snapshot", {
+        count: events.length,
+        containerEl,
+      });
 
-      // On vide le container pour repartir propre
+      // clean ancien replayer
+      if (replayer) {
+        replayer.pause();
+      }
       containerEl.innerHTML = "";
 
       const rep = new Replayer(events, {
@@ -67,23 +64,11 @@ export function LiveVisitorView({
     } catch (err) {
       console.error("[live] failed to init Replayer from snapshot", err);
     }
-
-    return () => {
-      // cleanup si le composant unmount ou si snapshot / container change
-      if (replayer) {
-        try {
-          replayer.pause();
-          // @ts-ignore
-          replayer.destroy?.();
-        } catch {
-          // ignore
-        }
-      }
-    };
+    // on ne met PAS replayer dans le tableau, pour éviter la boucle infinie
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerEl, latest?.snapshot]);
 
-  // 4) On branche le flux live Pusher (qui alimentera rep.addEvent)
+  // 4) flux live Pusher (ne démarre que quand replayer est prêt)
   const { cursor } = useVisitorStream({
     orgId,
     sessionId,

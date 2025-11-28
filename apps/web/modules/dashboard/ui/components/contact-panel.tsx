@@ -25,6 +25,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import React, { useCallback, useMemo } from "react";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
+import { SnapshotsStrip } from "./SnapshotsStrip";
 
 
 type InfoItem = {
@@ -421,8 +422,7 @@ export const ContactPanel = () => {
             sessionId={contactSession._id as unknown as string}
           />
 
-          {/* Optionnel: mini galerie de snapshots sous le stream */}
-          {/* <SnapshotsStrip sessionId={contactSession._id as any} limit={8} /> */}
+          <SnapshotsStrip sessionId={contactSession._id as any} limit={8} />
         </div>
       </div>
     </div>
