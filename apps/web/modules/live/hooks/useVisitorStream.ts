@@ -2,17 +2,17 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Pusher, { type Channel } from "pusher-js";
-import { Replayer } from "rrweb";
+import type { Replayer } from "rrweb";
 import type { eventWithTime } from "@rrweb/types";
 
 export function useVisitorStream(opts: {
   orgId: string;
   sessionId: string;
   container: HTMLElement | null;
+  replayer: Replayer | null;
 }) {
-  const { orgId, sessionId, container } = opts;
+  const { orgId, sessionId, container, replayer } = opts;
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
-  const repRef = useRef<Replayer | null>(null);
   const chanRef = useRef<Channel | null>(null);
 
   useEffect(() => {
@@ -46,34 +46,23 @@ export function useVisitorStream(opts: {
       console.log("[stream] subscription_succeeded");
     });
 
-    // 🟢 test : écouter le ping
-    ch.bind("client-ping", (payload: any) => {
-      console.log("[stream] client-ping reçu:", payload);
-    });
-
-    // rrweb live replayer
-    repRef.current = new Replayer([], { liveMode: true, root: container });
-    repRef.current.startLive();
-
     ch.bind("client-rrweb", (payload: any) => {
       console.log("[stream] client-rrweb raw payload:", payload);
 
+      if (!replayer) {
+        console.log("[stream] replayer not ready yet, dropping event");
+        return;
+      }
+
       let events: eventWithTime[] | undefined;
 
-      // 1) cas { events: [...] }
       if (Array.isArray(payload?.events)) {
         events = payload.events as eventWithTime[];
-      }
-      // 2) cas déjà tableau
-      else if (Array.isArray(payload)) {
+      } else if (Array.isArray(payload)) {
         events = payload as eventWithTime[];
-      }
-      // 3) cas { event: {...} }
-      else if (payload?.event) {
+      } else if (payload?.event) {
         events = [payload.event as eventWithTime];
-      }
-      // 4) cas { data: "json" } (au cas où)
-      else if (typeof payload?.data === "string") {
+      } else if (typeof payload?.data === "string") {
         try {
           const parsed = JSON.parse(payload.data);
           if (Array.isArray(parsed?.events)) {
@@ -89,7 +78,7 @@ export function useVisitorStream(opts: {
         return;
       }
 
-      events.forEach((ev) => repRef.current?.addEvent(ev as any));
+      events.forEach((ev) => replayer.addEvent(ev as any));
     });
 
     ch.bind("client-cursor", (p: { x: number; y: number }) => {
@@ -100,11 +89,8 @@ export function useVisitorStream(opts: {
       ch.unbind_all();
       pusher.unsubscribe(chanName);
       pusher.disconnect();
-      repRef.current?.pause();
-      repRef.current = null;
-      chanRef.current = null;
     };
-  }, [orgId, sessionId, container]);
+  }, [orgId, sessionId, container, replayer]);
 
   return { cursor };
 }
