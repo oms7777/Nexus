@@ -12,7 +12,15 @@ type VisitorTrackingOptions = {
   sessionId: string;
 };
 
-export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
+// 🔑 Clés publiques Pusher (pas sensibles)
+const PUSHER_KEY = "913d0c824be3b5eb38bc";
+const PUSHER_CLUSTER = "eu";
+const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
+
+export function initVisitorTracking({
+  orgId,
+  sessionId,
+}: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
@@ -25,19 +33,11 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   started = true;
   console.log("[tracker] START (host page)", { orgId, sessionId });
 
-  const pusherKey = import.meta.env.VITE_PUSHER_KEY;
-  const pusherCluster = import.meta.env.VITE_PUSHER_CLUSTER;
-
-  if (!pusherKey || !pusherCluster) {
-    console.error("[tracker] Missing VITE_PUSHER_KEY or VITE_PUSHER_CLUSTER in embed env");
-    return;
-  }
-
-  const pusher = new Pusher(pusherKey, {
-    cluster: pusherCluster,
-    authEndpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
+  const pusher = new Pusher(PUSHER_KEY, {
+    cluster: PUSHER_CLUSTER,
+    authEndpoint: PUSHER_AUTH_URL,
     channelAuthorization: {
-      endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
+      endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
     },
     forceTLS: true,
@@ -50,10 +50,11 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   channel.bind("pusher:subscription_succeeded", () => {
     console.log("[tracker] subscribed:", channelName);
 
+    // 🎥 rrweb côté VISITEUR
     record({
       emit(event: eventWithTime) {
         try {
-          // ✅ 1. Snapshot envoyé une seule fois au backend
+          // 1️⃣ Snapshot → envoyé UNE FOIS au backend
           if (event.type === 2 && !snapshotSent) {
             snapshotSent = true;
 
@@ -70,7 +71,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
             );
           }
 
-          // ✅ 2. Tous les events (y compris snapshot) → Pusher
+          // 2️⃣ Live events (snapshot compris) → Pusher (client-rrweb)
           const payload = { events: [event] };
           const size = JSON.stringify(payload).length;
 
@@ -86,7 +87,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       },
     });
 
-    // ✅ Curseur live
+    // 🖱 Curseur live
     document.addEventListener("mousemove", (e) => {
       channel.trigger("client-cursor", {
         x: e.clientX / window.innerWidth,
