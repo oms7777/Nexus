@@ -7,25 +7,25 @@ let started = false;
 let channelRef: Channel | null = null;
 let snapshotSent = false;
 
+// On bufferise tous les events au début
+let snapshotBuffer: eventWithTime[] = [];
+
 type VisitorTrackingOptions = {
   orgId: string;
   sessionId: string;
 };
 
-// 🔑 Clés publiques Pusher
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
-
-// Taille maxi pour un event envoyé en live via Pusher
 const MAX_EVENT_BYTES = 9_000;
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
-  // Ne jamais tracker l’iframe du widget
+  // ne jamais tracker dans l’iframe
   if (window.self !== window.top) {
     console.log("[tracker] iframe detected – skipping");
     return;
@@ -50,15 +50,21 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   channel.bind("pusher:subscription_succeeded", () => {
     console.log("[tracker] subscribed:", channelName);
 
-    // 🎥 Enregistrement rrweb côté VISITEUR
     record({
       emit(event: eventWithTime) {
         try {
-          const isSnapshot = event.type === 2; // full snapshot
+          const isFullSnapshot = event.type === 2;
 
-          // 1️⃣ Snapshot → backend UNE SEULE FOIS
-          if (isSnapshot && !snapshotSent) {
+          // On garde tout dans un buffer tant que le snapshot n'est pas envoyé
+          snapshotBuffer.push(event);
+
+          // 1️⃣ Quand on voit le premier FullSnapshot → on envoie TOUT le buffer au backend
+          if (isFullSnapshot && !snapshotSent) {
             snapshotSent = true;
+
+            const snapshotEvents = [...snapshotBuffer]; // copie par sécurité
+
+            console.log("[tracker] sending snapshot with", snapshotEvents.length, "events");
 
             fetch(SNAPSHOT_URL, {
               method: "POST",
@@ -66,17 +72,25 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
               body: JSON.stringify({
                 organizationId: orgId,
                 sessionId,
-                events: [event],
+                events: snapshotEvents,
               }),
             }).catch((err) =>
               console.error("[tracker] snapshot send failed", err),
             );
+
+            // On peut vider le buffer si tu veux, il a déjà été envoyé
+            snapshotBuffer = snapshotEvents;
           }
 
-          // ❌ On NE push JAMAIS le snapshot dans Pusher
-          if (isSnapshot) return;
+          // Tant que le snapshot n'est pas envoyé, on NE STREAM RIEN à Pusher
+          if (!snapshotSent) {
+            return;
+          }
 
-          // 2️⃣ Live events (petits) → Pusher
+          // On ne pousse jamais les FullSnapshot dans Pusher (trop gros, pas nécessaire)
+          if (isFullSnapshot) return;
+
+          // 2️⃣ Live events incrémentaux → Pusher
           const payload = { events: [event] };
           const size = JSON.stringify(payload).length;
 
@@ -95,7 +109,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       },
     });
 
-    // 🖱 Curseur live
+    // Curseur live
     document.addEventListener("mousemove", (e) => {
       channel.trigger("client-cursor", {
         x: e.clientX / window.innerWidth,
