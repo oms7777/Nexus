@@ -1,41 +1,37 @@
-
-// apps/web/app/api/realtime/pusher-auth/route.ts
-// apps/web/app/api/realtime/pusher-auth/route.ts
 import { NextResponse } from "next/server";
 import { pusherServer } from "@/lib/pusher";
 
 export const runtime = "nodejs";
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",          // ✅ n'importe quel domaine
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-  Vary: "Origin",
-};
+// 🧩 Fabrique les bons headers CORS pour n'importe quelle origine
+function makeCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") ?? "*";
 
-// OPTIONS preflight
-export async function OPTIONS() {
+  const headers = new Headers();
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Access-Control-Allow-Methods", "POST,OPTIONS");
+  headers.set("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
+  headers.set("Vary", "Origin");
+
+  return headers;
+}
+
+export async function OPTIONS(req: Request) {
   return new NextResponse(null, {
     status: 204,
-    headers: CORS_HEADERS,
+    headers: makeCorsHeaders(req),
   });
 }
 
-// (facultatif) GET pour éviter le 405 sans CORS si tu ouvres l’URL dans le navigateur
-export async function GET() {
-  return new NextResponse("OK", {
-    status: 200,
-    headers: CORS_HEADERS,
-  });
-}
-
-// Auth réel Pusher (POST ajax depuis le widget)
 export async function POST(req: Request) {
+  const corsHeaders = makeCorsHeaders(req);
+
   try {
     const raw = await req.text();
     let data: any = {};
 
-    // Pusher envoie du x-www-form-urlencoded par défaut
+    // Pusher envoie du JSON ou du x-www-form-urlencoded
     try {
       data = JSON.parse(raw || "{}");
     } catch {
@@ -45,17 +41,19 @@ export async function POST(req: Request) {
 
     const channelName: string = data.channel_name || data.channelName || "";
     const socketId: string = data.socket_id || data.socketId || "";
+
     const orgId: string | undefined = data.orgId;
     const sessionId: string | undefined = data.sessionId;
 
+    // On limite aux channels presence-org_..._session_...
     if (
       typeof channelName !== "string" ||
       typeof socketId !== "string" ||
-      !/^presence-org_[\w-]+_session_[\w-]+$/.test(channelName)
+      !/^presence\-org_[\w-]+_session_[\w-]+$/.test(channelName)
     ) {
       return new NextResponse("Bad channel", {
         status: 400,
-        headers: CORS_HEADERS,
+        headers: corsHeaders,
       });
     }
 
@@ -70,18 +68,17 @@ export async function POST(req: Request) {
       presenceData,
     );
 
+    corsHeaders.set("Content-Type", "application/json");
+
     return new NextResponse(JSON.stringify(auth), {
       status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        ...CORS_HEADERS,
-      },
+      headers: corsHeaders,
     });
   } catch (err) {
     console.error("Pusher auth error:", err);
     return new NextResponse("Auth error", {
       status: 500,
-      headers: CORS_HEADERS,
+      headers: corsHeaders,
     });
   }
 }

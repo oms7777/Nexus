@@ -33,14 +33,10 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
-
-    // ✅ Config supportée par pusher-js v8
-    // Pusher va faire un POST x-www-form-urlencoded vers cette URL
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
-      // (optionnel) si tu veux ajouter des params:
-      // params: { orgId, sessionId },
+      // params: { orgId, sessionId }, // tu peux l’ajouter si tu veux
     },
   });
 
