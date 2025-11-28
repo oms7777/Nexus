@@ -1,4 +1,4 @@
-// apps/web/modules/live/components/LiveVisitorView.tsx
+// apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
 import { useRef, useEffect, useState } from "react";
@@ -14,35 +14,36 @@ export function LiveVisitorView({
   sessionId,
 }: {
   orgId: string;
-  sessionId: string; // contactSession._id casté en string dans ton panel
+  sessionId: string; // contactSession._id casté en string dans ContactPanel
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerEl, setContainerEl] = useState<HTMLElement | null>(null);
   const [replayer, setReplayer] = useState<Replayer | null>(null);
 
-  // 1️⃣ ref → state
+  // 1) Dès que le ref est monté, on le met dans le state
   useEffect(() => {
     if (containerRef.current) {
       setContainerEl(containerRef.current);
     }
   }, []);
 
-  // 2️⃣ on va chercher le dernier snapshot pour cette session
-  const snaps = useQuery(api.public.snapshots.listRecent, {
-    sessionId: sessionId as unknown as Id<"contactSessions">,
-    limit: 1,
-  }) ?? [];
+  // 2) On récupère le DERNIER snapshot de cette session
+  const snaps =
+    useQuery(api.public.snapshots.listRecent, {
+      sessionId: sessionId as unknown as Id<"contactSessions">,
+      limit: 1,
+    }) ?? [];
 
   const latest = snaps[0];
 
-  // 3️⃣ on (ré)initialise le Replayer quand on a container + snapshot
+  // 3) On initialise le Replayer quand on a le container + snapshot
   useEffect(() => {
     if (!containerEl || !latest?.snapshot) return;
 
     try {
       const events = JSON.parse(latest.snapshot) as eventWithTime[];
 
-      // On détruit un éventuel ancien replayer
+      // On nettoie un éventuel ancien replayer
       if (replayer) {
         replayer.pause();
       }
@@ -59,7 +60,7 @@ export function LiveVisitorView({
     }
   }, [containerEl, latest?.snapshot]);
 
-  // 4️⃣ on démarre le flux Pusher (il va appeler rep.addEvent)
+  // 4) On branche le flux live Pusher (qui alimentera rep.addEvent)
   const { cursor } = useVisitorStream({
     orgId,
     sessionId,

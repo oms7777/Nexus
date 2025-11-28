@@ -12,16 +12,20 @@ type VisitorTrackingOptions = {
   sessionId: string;
 };
 
+// 🔑 Clés publiques Pusher
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
+
+// Taille maxi pour un event envoyé en live via Pusher
 const MAX_EVENT_BYTES = 9_000;
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
+  // Ne jamais tracker l’iframe du widget
   if (window.self !== window.top) {
     console.log("[tracker] iframe detected – skipping");
     return;
@@ -46,12 +50,13 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   channel.bind("pusher:subscription_succeeded", () => {
     console.log("[tracker] subscribed:", channelName);
 
+    // 🎥 Enregistrement rrweb côté VISITEUR
     record({
       emit(event: eventWithTime) {
         try {
-          const isSnapshot = event.type === 2;
+          const isSnapshot = event.type === 2; // full snapshot
 
-          // 1️⃣ Snapshot → backend une seule fois
+          // 1️⃣ Snapshot → backend UNE SEULE FOIS
           if (isSnapshot && !snapshotSent) {
             snapshotSent = true;
 
@@ -64,19 +69,22 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
                 events: [event],
               }),
             }).catch((err) =>
-              console.error("[tracker] snapshot send failed", err)
+              console.error("[tracker] snapshot send failed", err),
             );
           }
 
-          // ❌ on ne push jamais le snapshot dans Pusher
+          // ❌ On NE push JAMAIS le snapshot dans Pusher
           if (isSnapshot) return;
 
-          // 2️⃣ Live events → Pusher
+          // 2️⃣ Live events (petits) → Pusher
           const payload = { events: [event] };
           const size = JSON.stringify(payload).length;
 
           if (size > MAX_EVENT_BYTES) {
-            console.warn("[tracker] event too large skipped", { size, type: event.type });
+            console.warn("[tracker] event too large skipped", {
+              size,
+              type: event.type,
+            });
             return;
           }
 
@@ -87,6 +95,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       },
     });
 
+    // 🖱 Curseur live
     document.addEventListener("mousemove", (e) => {
       channel.trigger("client-cursor", {
         x: e.clientX / window.innerWidth,

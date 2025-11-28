@@ -18,11 +18,11 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!container || !orgId || !sessionId) return;
 
+    console.log("[stream] start", { orgId, sessionId, container });
+
     if (typeof window !== "undefined") {
       (Pusher as any).logToConsole = true;
     }
-
-    console.log("[stream] start", { orgId, sessionId, container });
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
