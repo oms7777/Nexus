@@ -3,7 +3,7 @@
 
 import { useOrganization } from "@clerk/nextjs";
 import Image from "next/image";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@workspace/ui/components/button";
@@ -22,10 +22,45 @@ import { CopyIcon } from "lucide-react";
 import { IntegrationId, INTEGRATIONS } from "../../constants";
 import { createScript } from "../../utils";
 
+// 👇 Convex
+import { useQuery } from "convex/react";
+import { api } from "@workspace/backend/_generated/api";
+
 export const IntegrationsView = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSnippet, setSelectedSnippet] = useState("");
   const { organization } = useOrganization();
+
+  // 🔍 Slack integration status
+  const slackIntegration = useQuery(
+    api.integrations.getSlackIntegration,
+    organization
+      ? { organizationId: organization.id }
+      : // petit hack pour skipper la query tant que l’org n’est pas chargée
+        ("skip" as any)
+  );
+
+  const { isSlackConnected, slackTeamLabel, slackChannelLabel } = useMemo(() => {
+    if (!slackIntegration) {
+      return {
+        isSlackConnected: false,
+        slackTeamLabel: "",
+        slackChannelLabel: "",
+      };
+    }
+
+    const team = slackIntegration.teamName || "Slack workspace";
+    const rawChannel = slackIntegration.defaultChannel || "#general";
+    const normalizedChannel = rawChannel.startsWith("#")
+      ? rawChannel
+      : `#${rawChannel}`;
+
+    return {
+      isSlackConnected: true,
+      slackTeamLabel: team,
+      slackChannelLabel: normalizedChannel,
+    };
+  }, [slackIntegration]);
 
   const handleIntegrationClick = (integrationId: IntegrationId) => {
     if (!organization) {
@@ -94,16 +129,34 @@ export const IntegrationsView = () => {
           </div>
 
           {/* Slack integration */}
-          <div className="mt-8 space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label className="text-lg">Slack</Label>
+          <div className="mt-8 space-y-3 rounded-lg border bg-background p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Label className="text-lg">Slack</Label>
+                  {isSlackConnected && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      Connected
+                    </span>
+                  )}
+                </div>
+
                 <p className="text-sm text-muted-foreground">
                   Connect Slack to receive new meeting notifications in your workspace.
                 </p>
+
+                {isSlackConnected && (
+                  <p className="text-xs text-muted-foreground">
+                    Connected to <span className="font-medium">{slackTeamLabel}</span>{" "}
+                    &middot; Notifications sent to{" "}
+                    <span className="font-mono">{slackChannelLabel}</span>.
+                  </p>
+                )}
               </div>
+
               <Button onClick={handleSlackConnect} size="sm" variant="default">
-                Connect Slack
+                {isSlackConnected ? "Reconnect Slack" : "Connect Slack"}
               </Button>
             </div>
           </div>
