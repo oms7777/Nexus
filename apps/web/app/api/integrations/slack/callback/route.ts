@@ -32,6 +32,7 @@ export async function GET(req: Request) {
     return new NextResponse("Missing code or state", { status: 400 });
   }
 
+  // Decode du state (Base64URL -> JSON)
   let parsedState: any = {};
   try {
     const decoded = Buffer.from(stateParam, "base64url").toString("utf8");
@@ -44,6 +45,7 @@ export async function GET(req: Request) {
   const origin = url.origin;
   const redirectUri = `${origin}/api/integrations/slack/callback`;
 
+  // Échange code -> access_token Slack
   const tokenRes = await fetch("https://slack.com/api/oauth.v2.access", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -68,8 +70,10 @@ export async function GET(req: Request) {
   const teamId = data.team?.id ?? "";
   const teamName = data.team?.name ?? "";
 
+  // Token Convex (auth côté backend)
   const convexToken = await authCtx.getToken({ template: "convex" });
 
+  // Sauvegarde de l’intégration dans Convex (mutation publique)
   await fetchMutation(
     api.integrations.saveSlackIntegration,
     {
@@ -82,7 +86,6 @@ export async function GET(req: Request) {
     { token: convexToken ?? undefined }
   );
 
-  return NextResponse.redirect(
-    `${origin}${redirectPath}?slack_connected=1`
-  );
+  // Redirection vers l’UI
+  return NextResponse.redirect(`${origin}${redirectPath}?slack_connected=1`);
 }

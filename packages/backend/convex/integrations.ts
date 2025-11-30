@@ -55,7 +55,7 @@ export const saveSlackIntegration = mutation({
       accessToken: args.accessToken,
       teamId: args.teamId,
       teamName: args.teamName,
-      defaultChannel: args.defaultChannel ?? "#general", // 👈 default ici
+      defaultChannel: args.defaultChannel ?? "#general", // 👈 default
       createdAt: now,
       updatedAt: now,
     });
@@ -72,18 +72,25 @@ export const sendSlackMessage = action({
     channelOverride: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId, text, channelOverride }) => {
-    // ⚠️ dans une action: on utilise runQuery, pas ctx.db
     const integration = await ctx.runQuery(
       api.integrations.getSlackIntegration,
       { organizationId }
     );
 
-    if (!integration) return;
+    if (!integration) {
+      console.log("sendSlackMessage: no Slack integration for org", organizationId);
+      return;
+    }
 
-    const channel =
-      channelOverride ?? integration.defaultChannel ?? "#general";
+    // Normalise le channel : "general" ou "#general" -> "general"
+    const rawChannel =
+      channelOverride ?? integration.defaultChannel ?? "general";
 
-    await fetch("https://slack.com/api/chat.postMessage", {
+    const channel = rawChannel.startsWith("#")
+      ? rawChannel.slice(1)
+      : rawChannel;
+
+    const res = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${integration.accessToken}`,
@@ -91,5 +98,13 @@ export const sendSlackMessage = action({
       },
       body: JSON.stringify({ channel, text }),
     });
+
+    const json: any = await res.json();
+    if (!json.ok) {
+      console.log("Slack chat.postMessage error:", json.error, {
+        channel,
+        organizationId,
+      });
+    }
   },
 });
