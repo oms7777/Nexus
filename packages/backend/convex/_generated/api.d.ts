@@ -42,6 +42,7 @@ import type * as public_secrets from "../public/secrets.js";
 import type * as public_snapshots from "../public/snapshots.js";
 import type * as public_users from "../public/users.js";
 import type * as public_widgetSettings from "../public/widgetSettings.js";
+import type * as routing from "../routing.js";
 import type * as system_ai_agents_supportAgent from "../system/ai/agents/supportAgent.js";
 import type * as system_ai_constants from "../system/ai/constants.js";
 import type * as system_ai_rag from "../system/ai/rag.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   "public/snapshots": typeof public_snapshots;
   "public/users": typeof public_users;
   "public/widgetSettings": typeof public_widgetSettings;
+  routing: typeof routing;
   "system/ai/agents/supportAgent": typeof system_ai_agents_supportAgent;
   "system/ai/constants": typeof system_ai_constants;
   "system/ai/rag": typeof system_ai_rag;

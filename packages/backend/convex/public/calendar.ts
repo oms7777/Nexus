@@ -1,7 +1,7 @@
 // packages/backend/convex/public/calendar.ts
 import { query, action } from "../_generated/server";
 import { v } from "convex/values";
-import { api } from "../_generated/api"; // 👈 ajout de `internal`
+import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 
 /* -------------------------------------------------------------
@@ -74,8 +74,8 @@ export const listSlots = action({
   args: {
     organizationId: v.string(),
     userId: v.optional(v.string()), // <- rep choisi (obligatoire côté widget)
-    days: v.number(),               // ex. 7
-    slotMinutes: v.number(),        // ex. 30
+    days: v.number(), // ex. 7
+    slotMinutes: v.number(), // ex. 30
   },
   handler: async (ctx, { organizationId, userId, days, slotMinutes }) => {
     // 1) account + settings via queries publiques
@@ -195,7 +195,7 @@ export const listSlots = action({
 export const bookSlot = action({
   args: {
     organizationId: v.string(),
-    userId: v.optional(v.string()), // <- rep choisi
+    userId: v.optional(v.string()), // <- rep choisi (facultatif côté widget)
     contactSessionId: v.id("contactSessions"),
     attendeeName: v.string(),
     attendeeEmail: v.string(),
@@ -218,10 +218,30 @@ export const bookSlot = action({
       attendeeRole,
     }
   ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
-    // 1) account (rep précis si fourni)
+    // 0) Choisir le rep (multi-reps routing)
+    let effectiveUserId = userId;
+
+    if (!effectiveUserId) {
+      try {
+        const routedUserId = await ctx.runQuery(
+          api.routing.pickRepForSession,
+          {
+            organizationId,
+            contactSessionId,
+          }
+        );
+        if (routedUserId) {
+          effectiveUserId = routedUserId;
+        }
+      } catch (e) {
+        console.log("pickRepForSession failed, fallback to org-level account:", e);
+      }
+    }
+
+    // 1) account (rep précis si trouvé / fourni)
     const acct = await ctx.runQuery(api.public.calendar.getAccount, {
       organizationId,
-      userId,
+      userId: effectiveUserId,
     });
     if (!acct) throw new Error("No connected calendar for this organization / user");
 
@@ -303,10 +323,9 @@ export const bookSlot = action({
       console.log("Slack sendSlackMessage failed:", e);
     }
 
-
-
     // 5) notifier le sales (email interne) — non bloquant
-    const SALES_NOTIFY_EMAIL = process.env.SALES_NOTIFY_EMAIL || acct.email; // fallback
+    const SALES_NOTIFY_EMAIL =
+      process.env.SALES_NOTIFY_EMAIL || acct.email; // fallback
     if (SALES_NOTIFY_EMAIL) {
       try {
         await ctx.runAction(api.private.notifications.sendBookingEmailToSales, {
