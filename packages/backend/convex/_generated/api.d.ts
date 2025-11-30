@@ -15,6 +15,7 @@ import type * as lib_extractTextContent from "../lib/extractTextContent.js";
 import type * as lib_secrets from "../lib/secrets.js";
 import type * as live from "../live.js";
 import type * as playground from "../playground.js";
+import type * as private_booking from "../private/booking.js";
 import type * as private_calendar from "../private/calendar.js";
 import type * as private_contactSessions from "../private/contactSessions.js";
 import type * as private_conversations from "../private/conversations.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   "lib/secrets": typeof lib_secrets;
   live: typeof live;
   playground: typeof playground;
+  "private/booking": typeof private_booking;
   "private/calendar": typeof private_calendar;
   "private/contactSessions": typeof private_contactSessions;
   "private/conversations": typeof private_conversations;
