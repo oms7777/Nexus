@@ -73,39 +73,43 @@ export default defineSchema({
     expiresAt: v.number(),
     isAnonymous: v.optional(v.boolean()),
     identifiedAt: v.optional(v.number()),
-    metadata: v.optional(v.object({
-      userAgent: v.optional(v.string()),
-      language: v.optional(v.string()),
-      languages: v.optional(v.string()),
-      platform: v.optional(v.string()),
-      vendor: v.optional(v.string()),
-      screenResolution: v.optional(v.string()),
-      viewportSize: v.optional(v.string()),
-      timezone: v.optional(v.string()),
-      timezoneOffset: v.optional(v.number()),
-      cookieEnabled: v.optional(v.boolean()),
-      referrer: v.optional(v.string()),
-      currentUrl: v.optional(v.string()),
-      title: v.optional(v.string()),
-      // GEO
-      ip: v.optional(v.string()),
-      city: v.optional(v.string()),
-      countryCode: v.optional(v.string()),
-      lat: v.optional(v.number()),
-      lng: v.optional(v.number()),
-      // simple analytics
-      pages: v.optional(v.array(v.string())),
+    metadata: v.optional(
+      v.object({
+        userAgent: v.optional(v.string()),
+        language: v.optional(v.string()),
+        languages: v.optional(v.string()),
+        platform: v.optional(v.string()),
+        vendor: v.optional(v.string()),
+        screenResolution: v.optional(v.string()),
+        viewportSize: v.optional(v.string()),
+        timezone: v.optional(v.string()),
+        timezoneOffset: v.optional(v.number()),
+        cookieEnabled: v.optional(v.boolean()),
+        referrer: v.optional(v.string()),
+        currentUrl: v.optional(v.string()),
+        title: v.optional(v.string()),
+        // GEO
+        ip: v.optional(v.string()),
+        city: v.optional(v.string()),
+        countryCode: v.optional(v.string()),
+        lat: v.optional(v.number()),
+        lng: v.optional(v.number()),
+        // simple analytics
+        pages: v.optional(v.array(v.string())),
 
-      // NEW: for anonymous tracking via widget
-      visitorId: v.optional(v.string()),
-      clientIp: v.optional(v.string()),
-    })),
-    consent: v.optional(v.object({
-      given: v.boolean(),
-      ts: v.number(), // ms epoch
-      privacyUrl: v.optional(v.string()),
-      version: v.optional(v.string()),
-    })),
+        // NEW: for anonymous tracking via widget
+        visitorId: v.optional(v.string()),
+        clientIp: v.optional(v.string()),
+      })
+    ),
+    consent: v.optional(
+      v.object({
+        given: v.boolean(),
+        ts: v.number(), // ms epoch
+        privacyUrl: v.optional(v.string()),
+        version: v.optional(v.string()),
+      })
+    ),
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_expires_at", ["expiresAt"]),
@@ -173,14 +177,17 @@ export default defineSchema({
     timezone: v.optional(v.string()),
     durationMin: v.number(),
     bufferMin: v.optional(v.number()),
-    meetingLinkType: v.union(v.literal("google_meet"), v.literal("manual")),
+    meetingLinkType: v.union(
+      v.literal("google_meet"),
+      v.literal("manual"),
+    ),
     manualUrl: v.optional(v.string()),
     weekly: v.array(
       v.object({
-        day: v.number(),  // 1=Mon … 7=Sun
+        day: v.number(), // 1=Mon … 7=Sun
         start: v.string(), // "09:00"
-        end: v.string(),   // "17:00"
-      })
+        end: v.string(), // "17:00"
+      }),
     ),
     updatedAt: v.number(),
   })
@@ -198,11 +205,13 @@ export default defineSchema({
     end: v.number(),
     meetingUrl: v.optional(v.string()),
     externalEventId: v.optional(v.string()),
-    providerData: v.optional(v.object({
-      calendarId: v.optional(v.string()),
-      company: v.optional(v.string()),
-      role: v.optional(v.string()),
-    })),
+    providerData: v.optional(
+      v.object({
+        calendarId: v.optional(v.string()),
+        company: v.optional(v.string()),
+        role: v.optional(v.string()),
+      }),
+    ),
     createdAt: v.number(),
   })
     .index("by_org", ["organizationId"])
@@ -247,7 +256,7 @@ export default defineSchema({
     }),
     updatedAt: v.number(),
   }).index("by_org_day", ["organizationId", "day"]),
-  
+
   sessionSnapshots: defineTable({
     organizationId: v.string(),
     sessionId: v.id("contactSessions"),
@@ -261,6 +270,7 @@ export default defineSchema({
   })
     .index("by_session", ["sessionId"])
     .index("by_org_ts", ["organizationId", "ts"]),
+
   /* ---------- Promos contextuelles ---------- */
   promos: defineTable({
     organizationId: v.string(),
@@ -285,16 +295,29 @@ export default defineSchema({
       label: v.string(),
       url: v.optional(v.string()),
     }),
-    secondaryCta: v.optional(v.object({
-      kind: v.union(
-        v.literal("open_chat"),
-        v.literal("open_booking"),
-        v.literal("open_url"),
-      ),
-      label: v.string(),
-      url: v.optional(v.string()),
-    })),
+    secondaryCta: v.optional(
+      v.object({
+        kind: v.union(
+          v.literal("open_chat"),
+          v.literal("open_booking"),
+          v.literal("open_url"),
+        ),
+        label: v.string(),
+        url: v.optional(v.string()),
+      }),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
+
+  /* ---------- Slack Integrations ---------- */
+  slackIntegrations: defineTable({
+    organizationId: v.string(),
+    accessToken: v.string(),
+    teamId: v.optional(v.string()),
+    teamName: v.optional(v.string()),
+    defaultChannel: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organization_id", ["organizationId"]),
 });

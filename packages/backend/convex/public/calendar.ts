@@ -1,7 +1,7 @@
 // packages/backend/convex/public/calendar.ts
 import { query, action } from "../_generated/server";
 import { v } from "convex/values";
-import { api } from "../_generated/api";
+import { api } from "../_generated/api"; // 👈 ajout de `internal`
 import type { Id } from "../_generated/dataModel";
 
 /* -------------------------------------------------------------
@@ -190,6 +190,7 @@ export const listSlots = action({
 
 /* -------------------------------------------------------------
  * Book: crée l’event Google + enregistre le booking + log analytics
+ * + Slack notification
  * ----------------------------------------------------------- */
 export const bookSlot = action({
   args: {
@@ -271,7 +272,40 @@ export const bookSlot = action({
       },
     });
 
-    // 4) notifier le sales (email interne) — non bloquant
+    // 4) Slack notification — non bloquant
+    try {
+      const startDate = new Date(start);
+
+      const dateLabel = startDate.toLocaleString("en-US", {
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      const lines = [
+        "📅 *New meeting booked!*",
+        `• Client: *${attendeeName}* (${attendeeEmail})`,
+        attendeeCompany ? `• Company: ${attendeeCompany}` : null,
+        attendeeRole ? `• Role: ${attendeeRole}` : null,
+        `• When: *${dateLabel}*`,
+        meetingUrl ? `• Link: ${meetingUrl}` : null,
+      ].filter(Boolean);
+
+      await ctx.runAction(api.integrations.sendSlackMessage, {
+        organizationId,
+        text: lines.join("\n"),
+        // pas de channelOverride -> utilisera defaultChannel (#general)
+      });
+    } catch (e) {
+      console.log("Slack sendSlackMessage failed:", e);
+    }
+
+
+
+    // 5) notifier le sales (email interne) — non bloquant
     const SALES_NOTIFY_EMAIL = process.env.SALES_NOTIFY_EMAIL || acct.email; // fallback
     if (SALES_NOTIFY_EMAIL) {
       try {
@@ -292,7 +326,7 @@ export const bookSlot = action({
       }
     }
 
-    // 5) analytics — non bloquant
+    // 6) analytics — non bloquant
     try {
       await ctx.runMutation(api.public.analytics.log, {
         organizationId,
