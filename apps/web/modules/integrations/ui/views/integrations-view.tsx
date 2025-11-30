@@ -46,6 +46,15 @@ export const IntegrationsView = () => {
     }
   };
 
+  const handleSlackConnect = () => {
+    if (!organization) {
+      toast.error("Organization ID not found");
+      return;
+    }
+    // Redirige vers le start endpoint qui lance le flow OAuth Slack
+    window.location.href = "/api/integrations/slack/start";
+  };
+
   return (
     <>
       <IntegrationsDialog
@@ -60,7 +69,7 @@ export const IntegrationsView = () => {
           <div className="space-y-2">
             <h1 className="text-2xl md:text-4xl">Setup & Integrations</h1>
             <p className="text-muted-foreground">
-              Choose the integration that&apos;s right for you
+              Connect your tools and add the widget to your website.
             </p>
           </div>
 
@@ -84,12 +93,27 @@ export const IntegrationsView = () => {
             </div>
           </div>
 
+          {/* Slack integration */}
+          <div className="mt-8 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label className="text-lg">Slack</Label>
+                <p className="text-sm text-muted-foreground">
+                  Connect Slack to receive new meeting notifications in your workspace.
+                </p>
+              </div>
+              <Button onClick={handleSlackConnect} size="sm" variant="default">
+                Connect Slack
+              </Button>
+            </div>
+          </div>
+
           <Separator className="my-8" />
 
           {/* Widget embed snippets */}
           <div className="space-y-6">
             <div className="space-y-1">
-              <Label className="text-lg">Integrations</Label>
+              <Label className="text-lg">Website widget</Label>
               <p className="text-sm text-muted-foreground">
                 Add the following code to your website to enable the chatbox.
               </p>
@@ -145,7 +169,7 @@ export const IntegrationsDialog = ({
         <DialogHeader>
           <DialogTitle>Integrate with your website</DialogTitle>
           <DialogDescription>
-            Follow these steps to add the chatbox to your website
+            Follow these steps to add the chatbox to your website.
           </DialogDescription>
         </DialogHeader>
 
@@ -173,7 +197,10 @@ export const IntegrationsDialog = ({
             <div className="rounded-md bg-accent p-2 text-sm">
               2. Add the code in your page
             </div>
-            <p>Paste the chatbox code above in your page. You can add it in the HTML head section.</p>
+            <p>
+              Paste the chatbox code above in your page. You can add it in the HTML head
+              section.
+            </p>
           </div>
         </div>
       </DialogContent>
