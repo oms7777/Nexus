@@ -18,6 +18,25 @@ export const listRepsForOrg = query({
 });
 
 /**
+ * Retourne un rep précis (org + userId).
+ * Utilisé pour savoir vers quel DM Slack envoyer la notif.
+ */
+export const getRepForOrgUser = query({
+  args: {
+    organizationId: v.string(),
+    userId: v.string(),
+  },
+  handler: async (ctx, { organizationId, userId }) => {
+    return await ctx.db
+      .query("repsPresence")
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", organizationId).eq("userId", userId)
+      )
+      .unique();
+  },
+});
+
+/**
  * Crée / met à jour un rep pour une org.
  * Utilisé par la page Admin pour assigner :
  * - rôle (sales/support)

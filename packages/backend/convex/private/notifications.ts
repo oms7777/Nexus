@@ -22,7 +22,7 @@ function resolveFromEmail(): string {
     return envFrom.includes("<") ? envFrom : `Nexus <${envFrom}>`;
   }
   // Fallback recommandé par Resend (pas besoin de domaine vérifié)
-  return "Nexus <onboarding@resend.dev>";
+  return "Inboundless <notifications@inboundless.co>";
 }
 
 function bookingEmailHTML(args: {

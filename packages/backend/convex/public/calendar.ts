@@ -223,13 +223,10 @@ export const bookSlot = action({
 
     if (!effectiveUserId) {
       try {
-        const routedUserId = await ctx.runQuery(
-          api.routing.pickRepForSession,
-          {
-            organizationId,
-            contactSessionId,
-          }
-        );
+        const routedUserId = await ctx.runQuery(api.routing.pickRepForSession, {
+          organizationId,
+          contactSessionId,
+        });
         if (routedUserId) {
           effectiveUserId = routedUserId;
         }
@@ -255,21 +252,18 @@ export const bookSlot = action({
       attendeeRole ? `Role: ${attendeeRole}` : null,
     ].filter(Boolean);
 
-    const event: any = await ctx.runAction(
-      api.private.calendar.createEventForOrgUser,
-      {
-        organizationId,
-        userId: acct.userId,
-        summary: `Demo with ${attendeeName}`,
-        description: descriptionLines.join("\n"),
-        startIso: new Date(start).toISOString(),
-        endIso: new Date(end).toISOString(),
-        attendees: [
-          { email: attendeeEmail, displayName: attendeeName },
-          { email: acct.email || "", displayName: "Organizer" }, // le sales reçoit l’invite
-        ],
-      }
-    );
+    const event: any = await ctx.runAction(api.private.calendar.createEventForOrgUser, {
+      organizationId,
+      userId: acct.userId,
+      summary: `Demo with ${attendeeName}`,
+      description: descriptionLines.join("\n"),
+      startIso: new Date(start).toISOString(),
+      endIso: new Date(end).toISOString(),
+      attendees: [
+        { email: attendeeEmail, displayName: attendeeName },
+        { email: acct.email || "", displayName: "Organizer" }, // le sales reçoit l’invite
+      ],
+    });
 
     const meetingUrl: string | undefined =
       event?.hangoutLink ?? event?.htmlLink ?? undefined;
@@ -314,10 +308,19 @@ export const bookSlot = action({
         meetingUrl ? `• Link: ${meetingUrl}` : null,
       ].filter(Boolean);
 
+      // 🔍 on récupère le rep (acct.userId) dans repsPresence pour voir s'il a un DM Slack
+      const rep = await ctx.runQuery(api.team.getRepForOrgUser, {
+        organizationId,
+        userId: acct.userId,
+      });
+
+      const channelOverride = rep?.slackDmChannel;
+
       await ctx.runAction(api.integrations.sendSlackMessage, {
         organizationId,
         text: lines.join("\n"),
-        // pas de channelOverride -> utilisera defaultChannel (#general)
+        // si le rep a un DM, on envoie là ; sinon fallback sur le defaultChannel (#general)
+        channelOverride: channelOverride ?? undefined,
       });
     } catch (e) {
       console.log("Slack sendSlackMessage failed:", e);
