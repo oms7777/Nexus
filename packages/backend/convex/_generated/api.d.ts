@@ -54,6 +54,7 @@ import type * as system_conversations from "../system/conversations.js";
 import type * as system_plugins from "../system/plugins.js";
 import type * as system_secrets from "../system/secrets.js";
 import type * as system_subscriptions from "../system/subscriptions.js";
+import type * as team from "../team.js";
 
 import type {
   ApiFromModules,
@@ -116,6 +117,7 @@ declare const fullApi: ApiFromModules<{
   "system/plugins": typeof system_plugins;
   "system/secrets": typeof system_secrets;
   "system/subscriptions": typeof system_subscriptions;
+  team: typeof team;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

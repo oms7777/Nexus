@@ -131,6 +131,11 @@ export default defineSchema({
     role: v.union(v.literal("sales"), v.literal("support")),
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
+
+    // Slack DM par rep
+    slackUserId: v.optional(v.string()),
+    slackDmChannel: v.optional(v.string()),
+
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId"])
@@ -218,6 +223,16 @@ export default defineSchema({
     .index("by_contact_session", ["contactSessionId"])
     .index("by_org_start", ["organizationId", "start"]),
 
+  /* ---------- User notification prefs ---------- */
+  userNotificationPrefs: defineTable({
+    userId: v.string(),                // Clerk user id (identity.subject)
+    showBadges: v.boolean(),           // Show badges on new leads
+    playSound: v.boolean(),            // Play sound on new lead / meeting
+    autoOpenConversation: v.boolean(), // Auto-open conversation panel
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  /* ---------- Users ---------- */
   users: defineTable({
     organizationId: v.string(),
     externalId: v.string(),
@@ -265,7 +280,6 @@ export default defineSchema({
     title: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
-    // on garde les events bruts ou un snapshot compressé
     snapshot: v.optional(v.any()),
   })
     .index("by_session", ["sessionId"])

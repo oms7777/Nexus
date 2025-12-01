@@ -1,5 +1,5 @@
 // packages/backend/convex/private/notifications.ts
-import { action } from "../_generated/server";
+import { action, query, mutation } from "../_generated/server";
 import { v } from "convex/values";
 
 /** Format helper (pas de lib externe) */
@@ -136,5 +136,73 @@ export const sendBookingEmailToSales = action({
 
     const json = await res.json().catch(() => ({}));
     return { ok: true, id: json?.id };
+  },
+});
+
+/* ------------------------------------------------------------------ */
+/*  User in-app notification preferences                              */
+/* ------------------------------------------------------------------ */
+
+export const meNotificationPrefs = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const doc = await ctx.db
+      .query("userNotificationPrefs")
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
+      .unique();
+
+    if (!doc) {
+      // valeurs par défaut
+      return {
+        showBadges: true,
+        playSound: true,
+        autoOpenConversation: false,
+      };
+    }
+
+    return {
+      showBadges: doc.showBadges ?? true,
+      playSound: doc.playSound ?? true,
+      autoOpenConversation: doc.autoOpenConversation ?? false,
+    };
+  },
+});
+
+export const saveMeNotificationPrefs = mutation({
+  args: {
+    showBadges: v.boolean(),
+    playSound: v.boolean(),
+    autoOpenConversation: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("UNAUTHENTICATED");
+    }
+
+    const existing = await ctx.db
+      .query("userNotificationPrefs")
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
+      .unique();
+
+    const now = Date.now();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        ...args,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+
+    const id = await ctx.db.insert("userNotificationPrefs", {
+      userId: identity.subject,
+      ...args,
+      updatedAt: now,
+    });
+    return id;
   },
 });

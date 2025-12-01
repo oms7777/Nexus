@@ -190,7 +190,7 @@ export const listSlots = action({
 
 /* -------------------------------------------------------------
  * Book: crée l’event Google + enregistre le booking + log analytics
- * + Slack notification
+ * + Slack notification + email au rep
  * ----------------------------------------------------------- */
 export const bookSlot = action({
   args: {
@@ -323,13 +323,12 @@ export const bookSlot = action({
       console.log("Slack sendSlackMessage failed:", e);
     }
 
-    // 5) notifier le sales (email interne) — non bloquant
-    const SALES_NOTIFY_EMAIL =
-      process.env.SALES_NOTIFY_EMAIL || acct.email; // fallback
-    if (SALES_NOTIFY_EMAIL) {
+    // 5) notifier le sales (email interne) — non bloquant, envoyé au rep choisi
+    const salesEmail = acct.email;
+    if (salesEmail) {
       try {
         await ctx.runAction(api.private.notifications.sendBookingEmailToSales, {
-          to: SALES_NOTIFY_EMAIL,
+          to: salesEmail,
           attendeeName,
           attendeeEmail,
           attendeeCompany,
