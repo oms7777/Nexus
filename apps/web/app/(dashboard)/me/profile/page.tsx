@@ -1,10 +1,12 @@
+// apps/web/app/(dashboard)/me/profile/page.tsx
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization, useUser } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
 
 import {
   Card,
@@ -22,11 +24,13 @@ import { toast } from "sonner";
 
 export default function ProfilePage() {
   const { organization } = useOrganization();
+  const { user } = useUser();
+  const searchParams = useSearchParams();
 
   // Gmail connection
   const account = useQuery(api.private.calendar.meConnection, {});
 
-  // User profile
+  // User profile (Convex)
   const me = useQuery(api.private.users.meGet, {});
   const setAvatar = useMutation(api.private.users.meSetAvatar);
   const addFile = useAction(api.private.files.addFile);
@@ -34,21 +38,28 @@ export default function ProfilePage() {
   // Slack user-level integration (repsPresence)
   const reps = useQuery(
     api.team.listRepsForOrg,
-    organization && me ? { organizationId: organization.id } : ("skip" as any)
+    organization ? { organizationId: organization.id } : ("skip" as any)
   );
 
   const slackInfo = useMemo(() => {
-    if (!me || !reps) return null;
-
-    // r.userId = Clerk userId (string)
-    return reps.find((r) => r.userId === me.externalId);
-  }, [reps, me]);
+    if (!user || !reps) return null;
+    // repsPresence.userId === Clerk userId
+    return reps.find((r) => r.userId === user.id) ?? null;
+  }, [reps, user]);
 
   const slackConnected = Boolean(slackInfo?.slackUserId);
 
   const connectSlackUser = () => {
     window.location.href = "/api/integrations/slack/user/start";
   };
+
+  // Show toast once when coming back from Slack OAuth
+  useEffect(() => {
+    const flag = searchParams.get("slack_user_connected");
+    if (flag === "1") {
+      toast.success("Slack connected successfully");
+    }
+  }, [searchParams]);
 
   const [avatarUrl, setAvatarUrl] = useState("");
 
@@ -77,7 +88,7 @@ export default function ProfilePage() {
 
       const { url } = await addFile({
         filename: file.name,
-        mimeType: file.type,
+        mimeType: file.type || "application/octet-stream",
         bytes,
         category: "avatar",
       });
@@ -122,6 +133,7 @@ export default function ProfilePage() {
               {avatarUrl ? (
                 <img
                   src={avatarUrl}
+                  alt="Avatar preview"
                   className="h-14 w-14 rounded-full border object-cover"
                 />
               ) : null}
@@ -132,19 +144,24 @@ export default function ProfilePage() {
           {/* Upload */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
             <div>
-              <Label>Or upload a photo</Label>
+              <Label htmlFor="avatar-file">Or upload a photo</Label>
               <Input
                 id="avatar-file"
                 type="file"
                 accept="image/*"
                 onChange={(e) => onSelectFile(e.target.files?.[0])}
               />
-              <p className="text-xs text-muted-foreground">JPG/PNG recommended.</p>
+              <p className="text-xs text-muted-foreground">
+                JPG/PNG recommended.
+              </p>
             </div>
 
             <Button
+              type="button"
               variant="outline"
-              onClick={() => document.getElementById("avatar-file")?.click()}
+              onClick={() =>
+                document.getElementById("avatar-file")?.click()
+              }
             >
               <Upload className="mr-2 h-4 w-4" />
               Choose file
@@ -162,12 +179,28 @@ export default function ProfilePage() {
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="flex items-center justify-between">
-          {slackConnected ? (
-            <Badge className="bg-green-600">Connected</Badge>
-          ) : (
-            <Badge variant="outline">Not Connected</Badge>
-          )}
+        <CardContent className="flex items-center justify-between gap-4">
+          <div className="space-y-1 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2">
+              {slackConnected ? (
+                <Badge className="bg-green-600">Connected</Badge>
+              ) : (
+                <Badge variant="outline">Not Connected</Badge>
+              )}
+            </div>
+            {slackConnected && slackInfo?.slackDmChannel && (
+              <p className="text-xs text-muted-foreground">
+                DMs will be sent to your Slack account (channel{" "}
+                <span className="font-mono">{slackInfo.slackDmChannel}</span>).
+              </p>
+            )}
+            {!slackConnected && (
+              <p className="text-xs text-muted-foreground">
+                Connect Slack to receive DM notifications when a new meeting is
+                booked.
+              </p>
+            )}
+          </div>
 
           <Button onClick={connectSlackUser}>
             {slackConnected ? "Reconnect Slack" : "Connect Slack"}
@@ -184,11 +217,12 @@ export default function ProfilePage() {
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="flex items-center justify-between">
+        <CardContent className="flex items-center justify-between gap-4">
           <div className="text-sm text-muted-foreground">
             {account ? (
               <>
-                Connected as <span className="font-medium">{account.email}</span>
+                Connected as{" "}
+                <span className="font-medium">{account.email}</span>
               </>
             ) : (
               <>Connect Gmail to send confirmations.</>
