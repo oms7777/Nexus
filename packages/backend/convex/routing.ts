@@ -32,6 +32,13 @@ function ruleMatches(
   return true;
 }
 
+/** Helper safe pour éviter le "possibly undefined" TypeScript */
+function pickRandom<T>(arr: T[]): T | null {
+  if (arr.length === 0) return null;
+  const idx = Math.floor(Math.random() * arr.length);
+  return arr[idx] ?? null;
+}
+
 /**
  * Choisit UN rep pour une session donnée.
  * Retourne son userId (Clerk) ou null.
@@ -93,27 +100,24 @@ export const pickRepForSession = query({
         });
       }
 
-      if (candidates.length > 0) {
-        const chosen =
-          candidates[Math.floor(Math.random() * candidates.length)];
+      const chosen = pickRandom(candidates);
+      if (chosen) {
         return chosen.userId;
       }
     }
 
     // 4) fallback : n'importe quel sales dispo
-    const sales = allReps.filter(
-      (r) => r.available && r.role === "sales"
-    );
+    const sales = allReps.filter((r) => r.available && r.role === "sales");
     if (sales.length) {
-      const chosen = sales[Math.floor(Math.random() * sales.length)];
-      return chosen.userId;
+      const chosen = pickRandom(sales);
+      if (chosen) return chosen.userId;
     }
 
     // 5) dernier fallback : n'importe quel rep dispo
     const available = allReps.filter((r) => r.available);
     if (available.length) {
-      const chosen = available[Math.floor(Math.random() * available.length)];
-      return chosen.userId;
+      const chosen = pickRandom(available);
+      if (chosen) return chosen.userId;
     }
 
     return null;
