@@ -19,7 +19,6 @@ export const listRepsForOrg = query({
 
 /**
  * Retourne un rep précis (org + userId).
- * Utilisé pour savoir vers quel DM Slack envoyer la notif.
  */
 export const getRepForOrgUser = query({
   args: {
@@ -37,12 +36,7 @@ export const getRepForOrgUser = query({
 });
 
 /**
- * Crée / met à jour un rep pour une org.
- * Utilisé par la page Admin pour assigner :
- * - rôle (sales/support)
- * - régions
- * - disponibilité
- * - ids Slack (plus tard)
+ * Crée / met à jour un rep pour une org (utilisé par la page Team).
  */
 export const upsertRepPresence = mutation({
   args: {
@@ -58,7 +52,15 @@ export const upsertRepPresence = mutation({
   },
   handler: async (
     ctx,
-    { organizationId, userId, role, regions, available, slackUserId, slackDmChannel }
+    {
+      organizationId,
+      userId,
+      role,
+      regions,
+      available,
+      slackUserId,
+      slackDmChannel,
+    }
   ) => {
     const existing = await ctx.db
       .query("repsPresence")
@@ -67,7 +69,7 @@ export const upsertRepPresence = mutation({
       )
       .unique();
 
-    const doc = {
+    const base = {
       organizationId,
       userId,
       role,
@@ -79,11 +81,57 @@ export const upsertRepPresence = mutation({
     };
 
     if (existing) {
-      await ctx.db.patch(existing._id, doc);
+      await ctx.db.patch(existing._id, base);
       return existing._id;
     }
 
-    const id = await ctx.db.insert("repsPresence", doc);
+    const id = await ctx.db.insert("repsPresence", base);
+    return id;
+  },
+});
+
+/**
+ * Connect Slack pour UN rep : ne touche qu’aux champs Slack.
+ * – utilisé par le flow "Connect Slack" dans /me/profile
+ */
+export const connectRepSlack = mutation({
+  args: {
+    organizationId: v.string(),
+    userId: v.string(),
+    slackUserId: v.string(),
+    slackDmChannel: v.string(),
+  },
+  handler: async (ctx, { organizationId, userId, slackUserId, slackDmChannel }) => {
+    const existing = await ctx.db
+      .query("repsPresence")
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", organizationId).eq("userId", userId)
+      )
+      .unique();
+
+    const now = Date.now();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        slackUserId,
+        slackDmChannel,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+
+    // Si le rep n’existe pas encore, on crée un profil par défaut
+    const id = await ctx.db.insert("repsPresence", {
+      organizationId,
+      userId,
+      role: "sales",
+      regions: [],
+      available: true,
+      slackUserId,
+      slackDmChannel,
+      updatedAt: now,
+    });
+
     return id;
   },
 });

@@ -1,3 +1,4 @@
+// apps/web/app/api/slack/user/callback/route.ts
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { fetchMutation } from "convex/nextjs";
@@ -56,14 +57,13 @@ export async function GET(req: Request) {
   if (!data.ok)
     return new NextResponse(`Slack OAuth error: ${data.error}`, { status: 500 });
 
-  // Slack user-level
   const accessToken = data.access_token as string;
   const slackUserId = data.authed_user?.id;
 
   if (!slackUserId)
     return new NextResponse("Missing slackUserId", { status: 500 });
 
-  // OPEN DM with this user (Slack API)
+  // Ouvre un DM entre l'app et ce user
   const dmRes = await fetch("https://slack.com/api/conversations.open", {
     method: "POST",
     headers: {
@@ -75,29 +75,25 @@ export async function GET(req: Request) {
 
   const dmData: any = await dmRes.json();
   if (!dmData.ok)
-    return new NextResponse(
-      `Slack DM error: ${dmData.error}`,
-      { status: 500 }
-    );
+    return new NextResponse(`Slack DM error: ${dmData.error}`, { status: 500 });
 
-  const slackDmChannel = dmData.channel?.id;
+  const slackDmChannel = dmData.channel?.id as string;
 
-  // Save to Convex
+  // Save to Convex (NE MODIFIE QUE LES CHAMPS SLACK)
   const convexToken = await authCtx.getToken({ template: "convex" });
 
   await fetchMutation(
-    api.team.upsertRepPresence,
+    api.team.connectRepSlack,
     {
       organizationId: orgId,
       userId,
-      role: "sales", // keep existing if needed
-      regions: [],   // keep existing if needed
-      available: true,
       slackUserId,
       slackDmChannel,
     },
     { token: convexToken ?? undefined }
   );
 
-  return NextResponse.redirect(`${url.origin}${redirectPath}?slack_user_connected=1`);
+  return NextResponse.redirect(
+    `${url.origin}${redirectPath}?slack_user_connected=1`
+  );
 }
