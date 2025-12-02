@@ -19,8 +19,6 @@ import { Separator } from "@workspace/ui/components/separator";
 import { toast } from "sonner";
 import { MultiSelect } from "@/modules/team/ui/multi-select";
 
-
-
 // ⭐ Regions officielles
 const REGION_OPTIONS = [
   { label: "France", value: "FR" },
@@ -40,6 +38,9 @@ type Membership = {
 
 export default function TeamPage() {
   const { organization } = useOrganization();
+
+  // 🔁 Mode de routing (UI seulement pour l’instant : manuel vs auto)
+  const [autoRouting, setAutoRouting] = useState(true);
 
   // 🔹 Load Clerk Members
   const [members, setMembers] = useState<Membership[]>([]);
@@ -133,6 +134,7 @@ export default function TeamPage() {
         role: row.role,
         regions: row.regions,
         available: row.available,
+        // on ne touche pas ici aux champs Slack (gérés par Connect Slack)
         slackUserId: undefined,
         slackDmChannel: undefined,
       });
@@ -157,11 +159,38 @@ export default function TeamPage() {
   return (
     <div className="flex min-h-screen flex-col bg-muted p-8">
       <div className="mx-auto w-full max-w-5xl space-y-6">
+        {/* HEADER */}
         <div className="space-y-2">
           <h1 className="text-2xl md:text-4xl">Team & Territories</h1>
           <p className="text-sm text-muted-foreground">
             Choose which teammates receive inbound leads and which territories they cover.
           </p>
+        </div>
+
+        {/* ROUTING MODE TOGGLE */}
+        <div className="rounded-lg border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Routing mode</p>
+            <p className="text-xs text-muted-foreground">
+              Switch between{" "}
+              <span className="font-medium">auto-assign</span> (using rules + presence)
+              or letting visitors{" "}
+              <span className="font-medium">choose a rep</span> in the widget.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs md:text-sm">
+            <span className={!autoRouting ? "font-medium" : "text-muted-foreground"}>
+              Visitor chooses rep
+            </span>
+            <Switch
+              checked={autoRouting}
+              onCheckedChange={(v) => setAutoRouting(Boolean(v))}
+            />
+            <span className={autoRouting ? "font-medium" : "text-muted-foreground"}>
+              Auto-assign best rep
+            </span>
+          </div>
         </div>
 
         <Separator />
@@ -170,6 +199,7 @@ export default function TeamPage() {
           <p className="text-sm text-muted-foreground">Loading team…</p>
         )}
 
+        {/* TABLE */}
         <div className="overflow-x-auto rounded-lg border bg-background">
           <table className="min-w-full text-sm">
             <thead className="bg-muted/60">
@@ -193,7 +223,10 @@ export default function TeamPage() {
 
               {rows.length === 0 && !loadingMembers && (
                 <tr>
-                  <td className="px-4 py-6 text-center text-muted-foreground" colSpan={5}>
+                  <td
+                    className="px-4 py-6 text-center text-muted-foreground"
+                    colSpan={5}
+                  >
                     No members found in this organization.
                   </td>
                 </tr>
