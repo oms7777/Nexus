@@ -24,7 +24,7 @@ import {
   contactSessionIdAtomFamily,
   organizationIdAtom,
   widgetSettingsAtom,
-  screenAtom,   
+  screenAtom,
 } from "../../atoms/widget-atoms";
 import {
   qualifyDataAtom,
@@ -193,7 +193,6 @@ function RepPicker({
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted overflow-hidden">
               {rep.avatarUrl ? (
-                // si tu as un composant Avatar interne, tu peux le remplacer ici
                 <img
                   src={rep.avatarUrl}
                   alt={rep.name ?? rep.userId}
@@ -266,7 +265,10 @@ export const WidgetChatScreen = () => {
   }, [conversation?.threadId]);
 
   // Wait helper: resolve once threadId exists (short poll)
-  async function waitForThreadId(opts: { timeoutMs?: number; intervalMs?: number } = {}) {
+  async function waitForThreadId(opts: {
+    timeoutMs?: number;
+    intervalMs?: number;
+  } = {}) {
     const timeoutMs = opts.timeoutMs ?? 4000;
     const intervalMs = opts.intervalMs ?? 150;
     const start = Date.now();
@@ -382,7 +384,7 @@ export const WidgetChatScreen = () => {
     try {
       const s = await listSlots({
         organizationId,
-        userId: rep.userId, // 👈 clé : slots spécifiques à ce sales
+        userId: rep.userId, // 👈 slots spécifiques à ce sales
         days: 7,
         slotMinutes: 30,
       });
@@ -401,7 +403,6 @@ export const WidgetChatScreen = () => {
   }) => {
     setQdata(lead);
 
-    // message générique
     setLocalMsgs((m) => [
       ...m,
       {
@@ -417,7 +418,7 @@ export const WidgetChatScreen = () => {
 
     const reps = (routingReps ?? []) as PublicRep[];
 
-    // 1) Aucun rep dispo selon routing → fallback ancien comportement
+    // aucun rep → fallback "ancien comportement"
     if (!reps.length) {
       if (!calendarAccount) {
         setLocalMsgs((m) => [
@@ -431,7 +432,6 @@ export const WidgetChatScreen = () => {
         return;
       }
 
-      // Fallback : un seul calendrier "par défaut"
       setLocalMsgs((m) => [
         ...m,
         {
@@ -445,7 +445,6 @@ export const WidgetChatScreen = () => {
       try {
         const s = await listSlots({
           organizationId,
-          // on précise quand même le userId du compte calendar principal
           userId: calendarAccount.userId,
           days: 7,
           slotMinutes: 30,
@@ -457,15 +456,35 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    if (reps.length === 1) {
-      const onlyRep = reps[0];
-      if (onlyRep) {
-        await loadSlotsForRep(onlyRep);
+    // 🔁 routingMode depuis widgetSettings (auto_assign ou visitor_choice)
+    const routingMode =
+      ((widgetSettings as any)?.routingMode as
+        | "auto_assign"
+        | "visitor_choice"
+        | undefined) ?? "auto_assign";
+
+    // AUTO-ASSIGN → on choisit un rep directement (pas de RepPicker)
+    if (routingMode === "auto_assign") {
+      const idx = Math.floor(Math.random() * reps.length);
+      const chosen: PublicRep = reps[idx];
+
+      if (!chosen) {
+        // Sécurité théorique : si jamais reps était vide malgré le check
+        setRepChoices(reps);
+        setStep("pick_rep");
+        return;
       }
+
+      await loadSlotsForRep(chosen);
       return;
     }
 
-    // 3) Plusieurs reps → étape pick_rep
+    // VISITOR_CHOICE
+    if (reps.length === 1) {
+      await loadSlotsForRep(reps[0]);
+      return;
+    }
+
     setRepChoices(reps);
     setStep("pick_rep");
   };
@@ -532,8 +551,7 @@ export const WidgetChatScreen = () => {
         ...m,
         {
           role: "assistant",
-          text:
-            "Preparing the chat… please resend your message in a moment.",
+          text: "Preparing the chat… please resend your message in a moment.",
         },
       ]);
       return;
@@ -575,7 +593,9 @@ export const WidgetChatScreen = () => {
 
   const suggestions = useMemo(() => {
     const base = widgetSettings
-      ? (Object.values(widgetSettings.defaultSuggestions).filter(Boolean) as string[])
+      ? (Object.values(widgetSettings.defaultSuggestions).filter(
+          Boolean
+        ) as string[])
       : [];
     return ["Voice call with AI assistant", "Book a demo", ...base];
   }, [widgetSettings]);
@@ -676,7 +696,8 @@ export const WidgetChatScreen = () => {
                           ...m,
                           {
                             role: "assistant",
-                            text: "Great! To book a demo, fill in these quick details.",
+                            text:
+                              "Great! To book a demo, fill in these quick details.",
                           },
                         ]);
                       } else {
@@ -763,7 +784,8 @@ export const WidgetChatScreen = () => {
                           ...m,
                           {
                             role: "assistant",
-                            text: "Great! To book a demo, fill in these quick details.",
+                            text:
+                              "Great! To book a demo, fill in these quick details.",
                           },
                         ]);
                       } else {
@@ -914,7 +936,7 @@ export const WidgetChatScreen = () => {
               suggestion={s}
               onClick={async () => {
                 if (/Voice call with AI assistant/i.test(s)) {
-                  setScreen("voice");   // va afficher WidgetVoiceScreen
+                  setScreen("voice"); // va afficher WidgetVoiceScreen
                   return;
                 }
                 if (/book/i.test(s)) {
@@ -925,7 +947,8 @@ export const WidgetChatScreen = () => {
                       ...m,
                       {
                         role: "assistant",
-                        text: "Great! To book a demo, fill in these quick details.",
+                        text:
+                          "Great! To book a demo, fill in these quick details.",
                       },
                     ]);
                   } else {

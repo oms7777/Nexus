@@ -25,6 +25,11 @@ export default defineSchema({
     teamAvatars: v.optional(v.array(v.string())), // up to 3 URLs typically
     brandLogoUrl: v.optional(v.string()),
 
+    // 🔁 NOUVEAU : mode de routing global du widget
+    routingMode: v.optional(
+      v.union(v.literal("auto_assign"), v.literal("visitor_choice"))
+    ),
+
     // Back-compat root privacyUrl + full consent config
     privacyUrl: v.optional(v.string()),
     consent: v.optional(

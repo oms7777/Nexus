@@ -39,8 +39,25 @@ type Membership = {
 export default function TeamPage() {
   const { organization } = useOrganization();
 
-  // 🔁 Mode de routing (UI seulement pour l’instant : manuel vs auto)
+  // 🔹 Widget settings (pour routingMode)
+  const widgetSettings = useQuery(api.private.widgetSettings.getOne, {});
+  const setRoutingMode = useMutation(
+    api.private.widgetSettings.setRoutingMode
+  );
+
+  // 🔁 Mode de routing (UI + backend)
   const [autoRouting, setAutoRouting] = useState(true);
+
+  // Initialise le toggle depuis les settings en base
+  useEffect(() => {
+    if (!widgetSettings) return;
+    const mode =
+      ((widgetSettings as any)?.routingMode as
+        | "auto_assign"
+        | "visitor_choice"
+        | undefined) ?? "auto_assign";
+    setAutoRouting(mode === "auto_assign");
+  }, [widgetSettings]);
 
   // 🔹 Load Clerk Members
   const [members, setMembers] = useState<Membership[]>([]);
@@ -145,6 +162,23 @@ export default function TeamPage() {
     }
   };
 
+  // 🔁 Toggle routing (UI + Convex)
+  const handleToggleRouting = async (checked: boolean) => {
+    const nextAuto = Boolean(checked);
+    setAutoRouting(nextAuto);
+
+    try {
+      await setRoutingMode({
+        routingMode: nextAuto ? "auto_assign" : "visitor_choice",
+      });
+      toast.success("Routing mode updated");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to update routing mode");
+      setAutoRouting(!nextAuto); // rollback si erreur
+    }
+  };
+
   if (!organization) {
     return (
       <div className="p-8">
@@ -185,7 +219,7 @@ export default function TeamPage() {
             </span>
             <Switch
               checked={autoRouting}
-              onCheckedChange={(v) => setAutoRouting(Boolean(v))}
+              onCheckedChange={handleToggleRouting}
             />
             <span className={autoRouting ? "font-medium" : "text-muted-foreground"}>
               Auto-assign best rep

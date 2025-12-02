@@ -1,6 +1,10 @@
+// packages/backend/convex/private/widgetSettings.ts
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 
+/**
+ * Sauvegarde / met à jour les settings du widget pour l'org courante.
+ */
 export const upsert = mutation({
   args: {
     greetMessage: v.string(),
@@ -27,7 +31,7 @@ export const upsert = mutation({
         intro: v.optional(v.string()),
         body: v.optional(v.string()),
         acceptLabel: v.optional(v.string()),
-        // decline kept for fwd/back compat; not used
+        // decline gardé pour compat
         declineLabel: v.optional(v.string()),
         version: v.optional(v.string()),
         linkMode: v.optional(v.union(v.literal("link"), v.literal("modal"))),
@@ -39,7 +43,10 @@ export const upsert = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity?.orgId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Organization not found",
+      });
     }
     const orgId = identity.orgId as string;
 
@@ -48,13 +55,13 @@ export const upsert = mutation({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .unique();
 
-    // IMPORTANT: do not store nulls (Convex optional != null)
+    // IMPORTANT : pas de null (optional != null)
     const patch = {
       greetMessage: args.greetMessage,
       defaultSuggestions: args.defaultSuggestions,
       vapiSettings: args.vapiSettings,
-      teamAvatars: args.teamAvatars,      // undefined if absent
-      brandLogoUrl: args.brandLogoUrl,    // undefined if absent
+      teamAvatars: args.teamAvatars,
+      brandLogoUrl: args.brandLogoUrl,
       privacyUrl: args.privacyUrl,
       consent: args.consent,
     };
@@ -72,19 +79,84 @@ export const upsert = mutation({
   },
 });
 
+/**
+ * Récupère les settings du widget pour l’org courante (dashboard).
+ */
 export const getOne = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity?.orgId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Organization not found",
+      });
     }
 
     const widgetSettings = await ctx.db
       .query("widgetSettings")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", identity.orgId as string))
+      .withIndex("by_organization_id", (q) =>
+        q.eq("organizationId", identity.orgId as string)
+      )
       .unique();
 
     return widgetSettings;
+  },
+});
+
+/**
+ * Change juste le mode de routing (auto_assign vs visitor_choice).
+ * Utilisé par la page Team & Territories.
+ */
+export const setRoutingMode = mutation({
+  args: {
+    routingMode: v.union(
+      v.literal("auto_assign"),
+      v.literal("visitor_choice")
+    ),
+  },
+  handler: async (ctx, { routingMode }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.orgId) {
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Organization not found",
+      });
+    }
+    const orgId = identity.orgId as string;
+
+    const existing = await ctx.db
+      .query("widgetSettings")
+      .withIndex("by_organization_id", (q) =>
+        q.eq("organizationId", orgId)
+      )
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { routingMode });
+      return existing._id;
+    }
+
+    // Si aucun widgetSettings n'existe encore, on crée un record minimal
+    const id = await ctx.db.insert("widgetSettings", {
+      organizationId: orgId,
+      greetMessage: "",
+      defaultSuggestions: {
+        suggestion1: undefined,
+        suggestion2: undefined,
+        suggestion3: undefined,
+      },
+      vapiSettings: {
+        assistantId: undefined,
+        phoneNumber: undefined,
+      },
+      teamAvatars: undefined,
+      brandLogoUrl: undefined,
+      privacyUrl: undefined,
+      consent: undefined,
+      routingMode,
+    });
+
+    return id;
   },
 });

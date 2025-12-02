@@ -1,239 +1,357 @@
-// apps/web/app/(dashboard)/me/profile/page.tsx
+// apps/web/app/(dashboard)/team/page.tsx
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useEffect, useMemo, useState } from "react";
+import { useOrganization } from "@clerk/nextjs";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
-import { useOrganization, useUser } from "@clerk/nextjs";
-import { useSearchParams } from "next/navigation";
-
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
 import { Button } from "@workspace/ui/components/button";
-import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
-import { Badge } from "@workspace/ui/components/badge";
-
-import { MailIcon, UserRoundIcon, Upload, Slack } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select";
+import { Switch } from "@workspace/ui/components/switch";
+import { Separator } from "@workspace/ui/components/separator";
 import { toast } from "sonner";
+import { MultiSelect } from "@/modules/team/ui/multi-select";
 
-export default function ProfilePage() {
+const REGION_OPTIONS = [
+  { label: "France", value: "FR" },
+  { label: "Morocco", value: "MA" },
+  { label: "MENA", value: "MENA" },
+  { label: "Europe", value: "EU" },
+  { label: "North America", value: "NA" },
+  { label: "APAC", value: "APAC" },
+];
+
+type Membership = {
+  id: string;
+  userId: string;
+  email: string;
+  name: string;
+};
+
+export default function TeamPage() {
   const { organization } = useOrganization();
-  const { user } = useUser();
-  const searchParams = useSearchParams();
 
-  // Gmail connection
-  const account = useQuery(api.private.calendar.meConnection, {});
+  // 🔹 Widget settings (pour routingMode)
+  const widgetSettings = useQuery(api.private.widgetSettings.getOne, {}) as
+    | (ReturnType<typeof useQuery> & { routingMode?: "auto_assign" | "visitor_choice" })
+    | undefined;
 
-  // User profile (Convex)
-  const me = useQuery(api.private.users.meGet, {});
-  const setAvatar = useMutation(api.private.users.meSetAvatar);
-  const addFile = useAction(api.private.files.addFile);
+  const setRoutingMode = useMutation(
+    api.private.widgetSettings.setRoutingMode
+  );
 
-  // Slack user-level integration (repsPresence)
+  // 🔁 State local du toggle, initialisé depuis widgetSettings
+  const [autoRouting, setAutoRouting] = useState(true);
+
+  useEffect(() => {
+    if (!widgetSettings) return;
+    // défaut = auto_assign si rien en base
+    const mode = widgetSettings.routingMode ?? "auto_assign";
+    setAutoRouting(mode === "auto_assign");
+  }, [widgetSettings]);
+
+  // 🔹 Members Clerk
+  const [members, setMembers] = useState<Membership[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
+  useEffect(() => {
+    if (!organization) return;
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        setLoadingMembers(true);
+        const res = await organization.getMemberships();
+        const memberships = res.data ?? [];
+
+        if (cancelled) return;
+
+        const mapped: Membership[] = memberships.map((m: any) => {
+          const userData = m.publicUserData ?? {};
+          const name =
+            (userData.firstName || "") +
+            (userData.lastName ? ` ${userData.lastName}` : "");
+          return {
+            id: m.id,
+            userId: userData.userId ?? m.userId,
+            email: userData.identifier ?? "",
+            name: name || userData.identifier || "Unknown user",
+          };
+        });
+
+        setMembers(mapped);
+      } catch (e) {
+        console.error("Failed to load memberships", e);
+        toast.error("Failed to load team members");
+      } finally {
+        if (!cancelled) setLoadingMembers(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [organization]);
+
+  // 🔹 repsPresence
   const reps = useQuery(
     api.team.listRepsForOrg,
     organization ? { organizationId: organization.id } : ("skip" as any)
   );
+  const upsertRep = useMutation(api.team.upsertRepPresence);
 
-  const slackInfo = useMemo(() => {
-    if (!user || !reps) return null;
-    // repsPresence.userId === Clerk userId
-    return reps.find((r) => r.userId === user.id) ?? null;
-  }, [reps, user]);
+  const rows = useMemo(() => {
+    if (!organization) return [];
+    const byUserId =
+      reps?.reduce<Record<string, (typeof reps)[number]>>((acc, rep) => {
+        acc[rep.userId] = rep;
+        return acc;
+      }, {}) ?? {};
 
-  const slackConnected = Boolean(slackInfo?.slackUserId);
+    return members.map((m) => {
+      const rep = byUserId[m.userId];
+      return {
+        member: m,
+        rep,
+        role: (rep?.role as "sales" | "support" | undefined) ?? "sales",
+        regions: (rep?.regions as string[] | undefined) ?? [],
+        available: rep?.available ?? false,
+      };
+    });
+  }, [members, reps, organization]);
 
-  const connectSlackUser = () => {
-    window.location.href = "/api/integrations/slack/user/start";
-  };
+  const handleSave = async (row: {
+    member: Membership;
+    role: "sales" | "support";
+    regions: string[];
+    available: boolean;
+  }) => {
+    if (!organization) return;
 
-  // Show toast once when coming back from Slack OAuth
-  useEffect(() => {
-    const flag = searchParams.get("slack_user_connected");
-    if (flag === "1") {
-      toast.success("Slack connected successfully");
-    }
-  }, [searchParams]);
-
-  const [avatarUrl, setAvatarUrl] = useState("");
-
-  useEffect(() => {
-    const url = (me as any)?.avatarUrl;
-    setAvatarUrl(url ?? "");
-  }, [me]);
-
-  const connectGmail = () => {
-    window.location.href = "/api/google-oauth/start";
-  };
-
-  const saveUrl = async () => {
     try {
-      await setAvatar({ avatarUrl: avatarUrl.trim() || undefined });
-      toast.success("Profile saved");
-    } catch {
-      toast.error("Failed to save");
-    }
-  };
-
-  const onSelectFile = async (file?: File) => {
-    if (!file) return;
-    try {
-      const bytes = await file.arrayBuffer();
-
-      const { url } = await addFile({
-        filename: file.name,
-        mimeType: file.type || "application/octet-stream",
-        bytes,
-        category: "avatar",
+      await upsertRep({
+        organizationId: organization.id,
+        userId: row.member.userId,
+        role: row.role,
+        regions: row.regions,
+        available: row.available,
+        slackUserId: undefined,
+        slackDmChannel: undefined,
       });
-
-      setAvatarUrl(url ?? "");
-      await setAvatar({ avatarUrl: url ?? undefined });
-
-      toast.success("Avatar uploaded");
-    } catch {
-      toast.error("Upload failed");
+      toast.success(`Updated ${row.member.name || row.member.email}`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to save rep settings");
     }
+  };
+
+  const handleToggleRouting = async (checked: boolean) => {
+    const nextAuto = Boolean(checked);
+    setAutoRouting(nextAuto);
+
+    try {
+      await setRoutingMode({
+        routingMode: nextAuto ? "auto_assign" : "visitor_choice",
+      });
+      toast.success("Routing mode updated");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to update routing mode");
+      setAutoRouting(!nextAuto); // rollback
+    }
+  };
+
+  if (!organization) {
+    return (
+      <div className="p-8">
+        <h1 className="text-2xl font-semibold">Team & Routing</h1>
+        <p className="mt-4 text-muted-foreground">
+          You must be in an organization to manage your team.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col bg-muted p-8">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
+        {/* HEADER */}
+        <div className="space-y-2">
+          <h1 className="text-2xl md:text-4xl">Team & Territories</h1>
+          <p className="text-sm text-muted-foreground">
+            Choose which teammates receive inbound leads and which territories they cover.
+          </p>
+        </div>
+
+        {/* ROUTING MODE TOGGLE */}
+        <div className="rounded-lg border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Routing mode</p>
+            <p className="text-xs text-muted-foreground">
+              Switch between{" "}
+              <span className="font-medium">auto-assign</span> (using rules + presence)
+              or letting visitors{" "}
+              <span className="font-medium">choose a rep</span> in the widget.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs md:text-sm">
+            <span className={!autoRouting ? "font-medium" : "text-muted-foreground"}>
+              Visitor chooses rep
+            </span>
+            <Switch
+              checked={autoRouting}
+              onCheckedChange={handleToggleRouting}
+            />
+            <span className={autoRouting ? "font-medium" : "text-muted-foreground"}>
+              Auto-assign best rep
+            </span>
+          </div>
+        </div>
+
+        <Separator />
+
+        {loadingMembers && (
+          <p className="text-sm text-muted-foreground">Loading team…</p>
+        )}
+
+        {/* TABLE */}
+        <div className="overflow-x-auto rounded-lg border bg-background">
+          <table className="min-w-full text-sm">
+            <thead className="bg-muted/60">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium">User</th>
+                <th className="px-4 py-3 text-left font-medium">Role</th>
+                <th className="px-4 py-3 text-left font-medium">Regions</th>
+                <th className="px-4 py-3 text-left font-medium">Receives leads</th>
+                <th className="px-4 py-3 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <TeamRow key={row.member.userId} row={row} onSave={handleSave} />
+              ))}
+              {rows.length === 0 && !loadingMembers && (
+                <tr>
+                  <td
+                    className="px-4 py-6 text-center text-muted-foreground"
+                    colSpan={5}
+                  >
+                    No members found in this organization.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Routing uses these settings together with your rules (geo, URL, UTM…)
+          to pick the right rep for each visitor.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function TeamRow({
+  row,
+  onSave,
+}: {
+  row: {
+    member: Membership;
+    role: "sales" | "support";
+    regions: string[];
+    available: boolean;
+  };
+  onSave: (row: {
+    member: Membership;
+    role: "sales" | "support";
+    regions: string[];
+    available: boolean;
+  }) => void;
+}) {
+  const [role, setRole] = useState<"sales" | "support">(row.role);
+  const [regions, setRegions] = useState<string[]>(row.regions || []);
+  const [available, setAvailable] = useState(row.available);
+  const [saving, setSaving] = useState(false);
+
+  const handleClickSave = async () => {
+    setSaving(true);
+    await onSave({
+      member: row.member,
+      role,
+      regions,
+      available,
+    });
+    setSaving(false);
   };
 
   return (
-    <div className="p-8 max-w-5xl">
-      <h1 className="mb-6 text-2xl md:text-4xl">My Profile</h1>
+    <tr>
+      <td className="px-4 py-3 align-middle">
+        <div className="flex flex-col">
+          <span className="font-medium">
+            {row.member.name || row.member.email}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {row.member.email}
+          </span>
+        </div>
+      </td>
 
-      {/* ACCOUNT */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-        </CardHeader>
+      <td className="px-4 py-3 align-middle">
+        <Select
+          value={role}
+          onValueChange={(v) => setRole(v as "sales" | "support")}
+        >
+          <SelectTrigger className="w-[120px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="sales">Sales</SelectItem>
+            <SelectItem value="support">Support</SelectItem>
+          </SelectContent>
+        </Select>
+      </td>
 
-        <CardContent className="space-y-5">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <UserRoundIcon className="h-4 w-4" />
-            Your profile image may be shown in the on-site promo/nudge.
-          </div>
+      <td className="px-4 py-3 align-middle">
+        <Label className="sr-only">Regions</Label>
+        <MultiSelect
+          options={REGION_OPTIONS}
+          value={regions}
+          onValueChange={setRegions}
+          placeholder="Select regions"
+          className="max-w-xs"
+        />
+      </td>
 
-          {/* Avatar URL */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <div>
-              <Label>My avatar (image URL)</Label>
-              <Input
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                placeholder="https://…/me.jpg"
-              />
-            </div>
+      <td className="px-4 py-3 align-middle">
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={available}
+            onCheckedChange={(v) => setAvailable(Boolean(v))}
+          />
+          <span className="text-xs text-muted-foreground">
+            {available ? "Online" : "Offline"}
+          </span>
+        </div>
+      </td>
 
-            <div className="flex items-center gap-3">
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt="Avatar preview"
-                  className="h-14 w-14 rounded-full border object-cover"
-                />
-              ) : null}
-              <Button onClick={saveUrl}>Save</Button>
-            </div>
-          </div>
-
-          {/* Upload */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <div>
-              <Label htmlFor="avatar-file">Or upload a photo</Label>
-              <Input
-                id="avatar-file"
-                type="file"
-                accept="image/*"
-                onChange={(e) => onSelectFile(e.target.files?.[0])}
-              />
-              <p className="text-xs text-muted-foreground">
-                JPG/PNG recommended.
-              </p>
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                document.getElementById("avatar-file")?.click()
-              }
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              Choose file
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* SLACK USER */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Slack className="size-5 text-blue-500" />
-            Slack Notifications
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent className="flex items-center justify-between gap-4">
-          <div className="space-y-1 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              {slackConnected ? (
-                <Badge className="bg-green-600">Connected</Badge>
-              ) : (
-                <Badge variant="outline">Not Connected</Badge>
-              )}
-            </div>
-            {slackConnected && slackInfo?.slackDmChannel && (
-              <p className="text-xs text-muted-foreground">
-                DMs will be sent to your Slack account (channel{" "}
-                <span className="font-mono">{slackInfo.slackDmChannel}</span>).
-              </p>
-            )}
-            {!slackConnected && (
-              <p className="text-xs text-muted-foreground">
-                Connect Slack to receive DM notifications when a new meeting is
-                booked.
-              </p>
-            )}
-          </div>
-
-          <Button onClick={connectSlackUser}>
-            {slackConnected ? "Reconnect Slack" : "Connect Slack"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* GMAIL */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MailIcon className="size-5" />
-            Gmail
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent className="flex items-center justify-between gap-4">
-          <div className="text-sm text-muted-foreground">
-            {account ? (
-              <>
-                Connected as{" "}
-                <span className="font-medium">{account.email}</span>
-              </>
-            ) : (
-              <>Connect Gmail to send confirmations.</>
-            )}
-          </div>
-
-          <Button onClick={connectGmail}>
-            {account ? "Reconnect Gmail" : "Connect Gmail"}
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
+      <td className="px-4 py-3 align-middle text-right">
+        <Button size="sm" onClick={handleClickSave} disabled={saving}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      </td>
+    </tr>
   );
 }

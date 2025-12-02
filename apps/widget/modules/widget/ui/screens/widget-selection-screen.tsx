@@ -1,9 +1,16 @@
 "use client";
 
+import { useState } from "react";
+import { useAtomValue, useSetAtom } from "jotai";
+import { useMutation } from "convex/react";
+import { ChevronRightIcon, MessageSquareTextIcon, MicIcon } from "lucide-react";
+
+import { api } from "@workspace/backend/_generated/api";
+
 import { Button } from "@workspace/ui/components/button";
 import { WidgetHeader } from "../components/widget-header";
-import { ChevronRightIcon, MessageSquareTextIcon, MicIcon } from "lucide-react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { WidgetFooter } from "../components/widget-footer";
+
 import {
   contactSessionIdAtomFamily,
   conversationIdAtom,
@@ -13,10 +20,6 @@ import {
   screenAtom,
   widgetSettingsAtom,
 } from "../../atoms/widget-atoms";
-import { useMutation } from "convex/react";
-import { api } from "@workspace/backend/_generated/api";
-import { useEffect, useRef, useState } from "react";
-import { WidgetFooter } from "../components/widget-footer";
 
 export const WidgetSelectionScreen = () => {
   const setScreen = useSetAtom(screenAtom);
@@ -26,6 +29,7 @@ export const WidgetSelectionScreen = () => {
   const widgetSettings = useAtomValue(widgetSettingsAtom);
   const hasVapiSecrets = useAtomValue(hasVapiSecretsAtom);
   const organizationId = useAtomValue(organizationIdAtom);
+
   const contactSessionId = useAtomValue(
     contactSessionIdAtomFamily(organizationId || "")
   );
@@ -35,6 +39,7 @@ export const WidgetSelectionScreen = () => {
 
   const createConversation = useMutation(api.public.conversations.create);
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
+
   const [isPending, setIsPending] = useState(false);
 
   const handleNewConversation = async () => {
@@ -43,17 +48,20 @@ export const WidgetSelectionScreen = () => {
       setErrorMessage("Missing Organization ID");
       return;
     }
+
     setIsPending(true);
     try {
       const sessionId =
         contactSessionId ||
         (await ensureContactSession({ organizationId }));
+
       setContactSessionId(sessionId);
 
       const conversationId = await createConversation({
         contactSessionId: sessionId,
         organizationId,
       });
+
       setConversationId(conversationId);
       setScreen("chat");
     } catch (err) {
@@ -65,17 +73,6 @@ export const WidgetSelectionScreen = () => {
     }
   };
 
-  // In prod, auto-start so the widget is ready when SmartPromo opens it
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (process.env.NODE_ENV === "development") return;
-    if (autoStartedRef.current) return;
-    autoStartedRef.current = true;
-    void handleNewConversation();
-  }, []); // once
-
-  const isDev = process.env.NODE_ENV === "development";
-
   return (
     <>
       <WidgetHeader>
@@ -86,36 +83,33 @@ export const WidgetSelectionScreen = () => {
       </WidgetHeader>
 
       <div className="flex flex-1 flex-col gap-y-4 p-4 overflow-y-auto">
-        {isDev && (
-          <>
-            <Button
-              className="h-16 w-full justify-between"
-              variant="outline"
-              onClick={handleNewConversation}
-              disabled={isPending}
-            >
-              <div className="flex items-center gap-x-2">
-                <MessageSquareTextIcon className="size-4" />
-                <span>Start Chat</span>
-              </div>
-              <ChevronRightIcon />
-            </Button>
+        {/* Écran de sélection manuel (debug / nochat=1) */}
+        <Button
+          className="h-16 w-full justify-between"
+          variant="outline"
+          onClick={handleNewConversation}
+          disabled={isPending}
+        >
+          <div className="flex items-center gap-x-2">
+            <MessageSquareTextIcon className="size-4" />
+            <span>Start chat</span>
+          </div>
+          <ChevronRightIcon />
+        </Button>
 
-            {hasVapiSecrets && widgetSettings?.vapiSettings?.assistantId && (
-              <Button
-                className="h-16 w-full justify-between"
-                variant="outline"
-                onClick={() => setScreen("voice")}
-                disabled={isPending}
-              >
-                <div className="flex items-center gap-x-2">
-                  <MicIcon className="size-4" />
-                  <span>Start voice call</span>
-                </div>
-                <ChevronRightIcon />
-              </Button>
-            )}
-          </>
+        {hasVapiSecrets && widgetSettings?.vapiSettings?.assistantId && (
+          <Button
+            className="h-16 w-full justify-between"
+            variant="outline"
+            onClick={() => setScreen("voice")}
+            disabled={isPending}
+          >
+            <div className="flex items-center gap-x-2">
+              <MicIcon className="size-4" />
+              <span>Start voice call</span>
+            </div>
+            <ChevronRightIcon />
+          </Button>
         )}
       </div>
 
