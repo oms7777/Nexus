@@ -36,26 +36,28 @@ type Membership = {
   name: string;
 };
 
+type RoutingMode = "auto_assign" | "visitor_choice";
+
 export default function TeamPage() {
   const { organization } = useOrganization();
 
   // 🔹 Widget settings (pour routingMode)
-  const widgetSettings = useQuery(api.private.widgetSettings.getOne, {});
+  const widgetSettings = useQuery(
+    api.private.widgetSettings.getOne,
+    {}
+  ) as { routingMode?: RoutingMode } | undefined;
+
   const setRoutingMode = useMutation(
     api.private.widgetSettings.setRoutingMode
   );
 
-  // 🔁 Mode de routing (UI + backend)
+  // 🔁 State local du toggle, initialisé depuis widgetSettings
   const [autoRouting, setAutoRouting] = useState(true);
 
-  // Initialise le toggle depuis les settings en base
   useEffect(() => {
     if (!widgetSettings) return;
-    const mode =
-      ((widgetSettings as any)?.routingMode as
-        | "auto_assign"
-        | "visitor_choice"
-        | undefined) ?? "auto_assign";
+    // défaut = auto_assign si rien en base
+    const mode: RoutingMode = widgetSettings.routingMode ?? "auto_assign";
     setAutoRouting(mode === "auto_assign");
   }, [widgetSettings]);
 
@@ -162,7 +164,6 @@ export default function TeamPage() {
     }
   };
 
-  // 🔁 Toggle routing (UI + Convex)
   const handleToggleRouting = async (checked: boolean) => {
     const nextAuto = Boolean(checked);
     setAutoRouting(nextAuto);
