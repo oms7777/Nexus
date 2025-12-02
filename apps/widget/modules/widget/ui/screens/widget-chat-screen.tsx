@@ -369,8 +369,9 @@ export const WidgetChatScreen = () => {
   ]);
 
   /* -------- helper : charger les slots pour UN rep -------- */
-  const loadSlotsForRep = async (rep: PublicRep) => {
-    if (!organizationId) return;
+  const loadSlotsForRep = async (rep?: PublicRep) => {
+    // si pas d'organisation ou pas de rep → on ne fait rien
+    if (!organizationId || !rep) return;
 
     setSelectedRep(rep);
     setAssignedRep({
@@ -381,6 +382,7 @@ export const WidgetChatScreen = () => {
     });
     setStep("picking");
     setLoadingSlots(true);
+
     try {
       const s = await listSlots({
         organizationId,
@@ -393,6 +395,7 @@ export const WidgetChatScreen = () => {
       setLoadingSlots(false);
     }
   };
+
 
   /* -------- Qualif flow -------- */
   const startPickingAfterQualify = async (lead: {
@@ -466,10 +469,10 @@ export const WidgetChatScreen = () => {
     // AUTO-ASSIGN → on choisit un rep directement (pas de RepPicker)
     if (routingMode === "auto_assign") {
       const idx = Math.floor(Math.random() * reps.length);
-      const chosen: PublicRep = reps[idx];
+      const chosen = reps[idx]; // type: PublicRep | undefined
 
+      // Si jamais il y a un bug, on retombe sur le choix manuel
       if (!chosen) {
-        // Sécurité théorique : si jamais reps était vide malgré le check
         setRepChoices(reps);
         setStep("pick_rep");
         return;
@@ -488,6 +491,7 @@ export const WidgetChatScreen = () => {
     setRepChoices(reps);
     setStep("pick_rep");
   };
+
 
   /* -------- Send message (thread bootstrap + retry) -------- */
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
