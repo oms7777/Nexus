@@ -163,24 +163,29 @@ export const listRepsForVisitor = query({
       const byExternalId = new Map(users.map((u) => [u.externalId, u]));
 
       const result: PublicRep[] = matchedReps.map((rep) => {
-        const u = byExternalId.get(rep.userId);
+        const u = byExternalId.get(rep.userId); // ✅ maintenant ça matche
 
-        // displayName = name ou, si vide, title
+        const title =
+          (rep.title as string | undefined) ||
+          (u?.title as string | undefined) ||
+          undefined;
+
         const displayName =
           (u?.name as string | undefined) ||
-          (u?.title as string | undefined) ||
+          title ||
           undefined;
 
         return {
           userId: rep.userId,
-          name: displayName, // 👈 utilisé comme "nom" visible dans le widget
+          name: displayName,
           avatarUrl: (u?.avatarUrl as string | undefined) ?? undefined,
-          title: (u?.title as string | undefined) ?? undefined, // job title
+          title,
           role: rep.role,
           regions: rep.regions ?? [],
           available: rep.available,
         };
       });
+
 
       return result;
 
