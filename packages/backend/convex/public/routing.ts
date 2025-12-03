@@ -165,15 +165,17 @@ export const listRepsForVisitor = query({
       const result: PublicRep[] = matchedReps.map((rep) => {
         const u = byExternalId.get(rep.userId);
 
-        // on ne lit plus u.email (le modèle ne l’a pas)
-        const name =
-          (u?.name as string | undefined) || undefined;
+        // displayName = name ou, si vide, title
+        const displayName =
+          (u?.name as string | undefined) ||
+          (u?.title as string | undefined) ||
+          undefined;
 
         return {
           userId: rep.userId,
-          name: name ?? undefined,
+          name: displayName, // 👈 utilisé comme "nom" visible dans le widget
           avatarUrl: (u?.avatarUrl as string | undefined) ?? undefined,
-          title: (u?.title as string | undefined) ?? undefined, // <- Job title de My Profile
+          title: (u?.title as string | undefined) ?? undefined, // job title
           role: rep.role,
           regions: rep.regions ?? [],
           available: rep.available,
@@ -181,6 +183,8 @@ export const listRepsForVisitor = query({
       });
 
       return result;
+
+
 
     } catch (e) {
       // On ne casse jamais le widget : en cas de bug, on renvoie juste []
