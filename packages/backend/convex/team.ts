@@ -1,5 +1,5 @@
 import { query, mutation } from "./_generated/server";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 
 /**
  * Liste tous les reps d'une organisation (pour la page Admin Team).
@@ -34,9 +34,6 @@ export const getRepForOrgUser = query({
   },
 });
 
-/**
- * Crée / met à jour un rep pour une org (utilisé par la page Team).
- */
 export const upsertRepPresence = mutation({
   args: {
     organizationId: v.string(),
@@ -45,6 +42,9 @@ export const upsertRepPresence = mutation({
     role: v.union(v.literal("sales"), v.literal("support")),
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
+
+    // NEW: titre affiché aux visiteurs (Solutions Engineer EMEA, …)
+    title: v.optional(v.string()),
 
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
@@ -57,10 +57,18 @@ export const upsertRepPresence = mutation({
       role,
       regions,
       available,
+      title,
       slackUserId,
       slackDmChannel,
     },
   ) => {
+    if (!organizationId || !userId) {
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "organizationId and userId are required",
+      });
+    }
+
     const existing = await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q) =>
@@ -68,16 +76,18 @@ export const upsertRepPresence = mutation({
       )
       .unique();
 
-    const base = {
+    const base: any = {
       organizationId,
       userId,
       role,
-      regions,
       available,
-      slackUserId,
-      slackDmChannel,
       updatedAt: Date.now(),
     };
+
+    if (Array.isArray(regions)) base.regions = regions;
+    if (typeof title === "string") base.title = title.trim() || undefined;
+    if (typeof slackUserId === "string") base.slackUserId = slackUserId;
+    if (typeof slackDmChannel === "string") base.slackDmChannel = slackDmChannel;
 
     if (existing) {
       await ctx.db.patch(existing._id, base);
@@ -104,14 +114,14 @@ export const connectRepSlack = mutation({
     ctx,
     { organizationId, userId, slackUserId, slackDmChannel },
   ) => {
+    const now = Date.now();
+
     const existing = await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q) =>
         q.eq("organizationId", organizationId).eq("userId", userId),
       )
       .unique();
-
-    const now = Date.now();
 
     if (existing) {
       await ctx.db.patch(existing._id, {

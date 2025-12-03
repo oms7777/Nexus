@@ -76,10 +76,10 @@ type PublicRep = {
   userId: string;
   name?: string;
   avatarUrl?: string;
-  title?: string; // ex: "Solutions Engineer EMEA"
   role: "sales" | "support";
-  regions: string[]; // territory.key[]
+  regions: string[];
   available: boolean;
+  title?: string; // NEW
 };
 
 function formatDay(ts: number) {
@@ -111,7 +111,7 @@ function SlotsByDay({
     );
   }
   const uniq = Array.from(
-    new Map(slots.map((s) => [`${s.start}-${s.end}`, s])).values()
+    new Map(slots.map((s) => [`${s.start}-${s.end}`, s])).values(),
   );
   const grouped = uniq.reduce<Record<string, Slot[]>>((acc, s) => {
     const k = formatDay(s.start);
@@ -187,11 +187,6 @@ function RepPicker({
       </div>
       <div className="grid grid-cols-1 gap-2">
         {reps.map((rep) => {
-          const subtitle =
-            rep.title && rep.regions?.length
-              ? `${rep.title} • ${rep.regions.join(", ")}`
-              : rep.title || (rep.regions?.length ? rep.regions.join(", ") : "Sales team");
-
           return (
             <button
               key={rep.userId}
@@ -213,10 +208,13 @@ function RepPicker({
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-medium">
-                  {rep.name || "Sales rep"}
+                  {rep.name || "Your expert"}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {subtitle}
+                  {rep.title ||
+                    (rep.regions?.length
+                      ? rep.regions.join(", ")
+                      : "Sales team")}
                 </span>
               </div>
             </button>
@@ -234,7 +232,7 @@ export const WidgetChatScreen = () => {
   const consentCfg = widgetSettings?.consent;
   const organizationId = useAtomValue(organizationIdAtom);
   const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(organizationId || "")
+    contactSessionIdAtomFamily(organizationId || ""),
   );
   const conversationId = useAtomValue(conversationIdAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
@@ -252,7 +250,7 @@ export const WidgetChatScreen = () => {
     api.public.routing.listRepsForVisitor,
     organizationId && contactSessionId
       ? { organizationId, contactSessionId }
-      : "skip"
+      : "skip",
   ) as PublicRep[] | undefined;
 
   const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
@@ -263,7 +261,7 @@ export const WidgetChatScreen = () => {
     api.public.conversations.getOne,
     conversationId && contactSessionId
       ? { conversationId, contactSessionId }
-      : "skip"
+      : "skip",
   );
 
   // Track latest threadId (so polling reads fresh values)
@@ -295,7 +293,7 @@ export const WidgetChatScreen = () => {
     conversation?.threadId && contactSessionId
       ? { threadId: conversation.threadId, contactSessionId }
       : "skip",
-    { initialNumItems: 10 }
+    { initialNumItems: 10 },
   );
 
   // local messages + booking
@@ -308,7 +306,7 @@ export const WidgetChatScreen = () => {
   // calendar (fallback / compat)
   const calendarAccount = useQuery(
     api.public.calendar.getAccount,
-    organizationId ? { organizationId } : "skip"
+    organizationId ? { organizationId } : "skip",
   );
   const listSlots = useAction(api.public.calendar.listSlots);
   const bookSlot = useAction(api.public.calendar.bookSlot);
@@ -317,8 +315,6 @@ export const WidgetChatScreen = () => {
   const logEvent = useMutation(api.public.analytics.log);
   const createConversation = useMutation(api.public.conversations.create);
   const firstMessageSentRef = useRef(false);
-
-  const showWelcomeChoices = !conversationId && step === "idle";
 
   // log widget load
   useEffect(() => {
@@ -600,9 +596,9 @@ export const WidgetChatScreen = () => {
   const uiMsgs = [...filteredBackend, ...localMsgs];
 
   const suggestions = useMemo(() => {
-    const base = widgetSettings
+    const base = widgetSettings?.defaultSuggestions
       ? (Object.values(widgetSettings.defaultSuggestions).filter(
-          Boolean
+          Boolean,
         ) as string[])
       : [];
     return ["Voice call with AI assistant", "Book a demo", ...base];
@@ -676,7 +672,11 @@ export const WidgetChatScreen = () => {
                       setBookingIntent("chat");
                       if (consentCfg?.enabled === false) {
                         try {
-                          if (!conversation && organizationId && contactSessionId) {
+                          if (
+                            !conversation &&
+                            organizationId &&
+                            contactSessionId
+                          ) {
                             const cid2 = await createConversation({
                               organizationId,
                               contactSessionId,
@@ -798,7 +798,11 @@ export const WidgetChatScreen = () => {
                         ]);
                       } else {
                         try {
-                          if (!conversation && organizationId && contactSessionId) {
+                          if (
+                            !conversation &&
+                            organizationId &&
+                            contactSessionId
+                          ) {
                             const cid2 = await createConversation({
                               organizationId,
                               contactSessionId,

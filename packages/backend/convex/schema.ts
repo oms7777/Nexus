@@ -150,10 +150,11 @@ export default defineSchema({
     organizationId: v.string(),
     userId: v.string(), // Clerk userId
     role: v.union(v.literal("sales"), v.literal("support")),
-    // ⚠️ IMPORTANT : ici tu stockes maintenant des territory.key (string),
-    // pas des codes hardcodés.
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
+
+    // NEW: titre affiché dans le widget (Solutions Engineer EMEA, Customer Success, …)
+    title: v.optional(v.string()),
 
     // Slack DM par rep
     slackUserId: v.optional(v.string()),
@@ -164,6 +165,7 @@ export default defineSchema({
     .index("by_org", ["organizationId"])
     .index("by_org_role", ["organizationId", "role"])
     .index("by_org_user", ["organizationId", "userId"]),
+
 
   /* ---------- Routing rules ---------- */
   routingRules: defineTable({

@@ -1,4 +1,3 @@
-// apps/web/app/(dashboard)/team/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -236,7 +235,6 @@ export default function TeamPage() {
         slackUserId?: string;
         slackDmChannel?: string;
         updatedAt: number;
-        // ⚠️ nouveau champ pour l’affichage dans le widget
         title?: string;
       }[]
     | undefined;
@@ -259,9 +257,7 @@ export default function TeamPage() {
         role: (rep?.role as "sales" | "support" | undefined) ?? "sales",
         regions: (rep?.regions as string[] | undefined) ?? [],
         available: rep?.available ?? false,
-        // 🧩 titre affiché dans le widget & confirmation de booking
         title: rep?.title ?? "",
-        // pour ne pas perdre la config Slack quand on sauvegarde
         slackUserId: rep?.slackUserId,
         slackDmChannel: rep?.slackDmChannel,
       };
@@ -286,9 +282,7 @@ export default function TeamPage() {
         role: row.role,
         regions: row.regions,
         available: row.available,
-        // ✅ nouveau : titre affiché côté widget
         title: row.title?.trim() || undefined,
-        // on préserve la config Slack existante
         slackUserId: row.slackUserId,
         slackDmChannel: row.slackDmChannel,
       } as any);
@@ -500,7 +494,6 @@ export default function TeamPage() {
                     onSave={async (payload) =>
                       handleSaveRep({
                         ...payload,
-                        // on repasse la config Slack pour ne pas l’écraser
                         slackUserId: row.slackUserId,
                         slackDmChannel: row.slackDmChannel,
                       })
@@ -524,9 +517,9 @@ export default function TeamPage() {
 
           <p className="text-xs text-muted-foreground">
             Routing uses these settings together with your rules (geo, URL,
-            UTM…) and territories to pick the right rep for each visitor. The
-            <span className="font-medium"> title</span> is what visitors will
-            see in the rep chooser and booking confirmation (e.g.{" "}
+            UTM…) and territories to pick the right rep for each visitor. The{" "}
+            <span className="font-medium">title</span> is what visitors will see
+            in the rep chooser and booking confirmation (e.g.{" "}
             <code className="font-mono">Solutions Engineer EMEA</code>).
           </p>
         </div>
