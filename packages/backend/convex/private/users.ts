@@ -6,18 +6,19 @@ export const meGet = query({
   args: {},
   handler: async (ctx) => {
     const id = await ctx.auth.getUserIdentity();
-    if (!id?.orgId || !id.tokenIdentifier) return null;
+    if (!id?.orgId || !id.subject) return null;
 
     return await ctx.db
       .query("users")
       .withIndex("by_org_external", (q) =>
         q
           .eq("organizationId", id.orgId as string)
-          .eq("externalId", id.tokenIdentifier),
+          .eq("externalId", id.subject), // 👈 plus tokenIdentifier
       )
       .unique();
   },
 });
+
 
 // ⚠️ on garde le nom pour ne rien casser mais ça gère maintenant tout le profil de base
 export const meSetAvatar = mutation({
@@ -27,10 +28,10 @@ export const meSetAvatar = mutation({
   },
   handler: async (ctx, { avatarUrl, title }) => {
     const id = await ctx.auth.getUserIdentity();
-    if (!id?.orgId || !id.tokenIdentifier) throw new Error("UNAUTHORIZED");
+    if (!id?.orgId || !id.subject) throw new Error("UNAUTHORIZED");
 
     const orgId = id.orgId as string;
-    const externalId = id.tokenIdentifier;
+    const externalId = id.subject; // 👈 le Clerk userId (user_...)
 
     const existing = await ctx.db
       .query("users")
