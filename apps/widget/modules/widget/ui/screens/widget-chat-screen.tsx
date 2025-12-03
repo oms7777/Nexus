@@ -170,8 +170,8 @@ function ConsentInlineModal({
 
 /**
  * Choix d’un sales quand il y en a plusieurs.
- * 👉 On affiche en priorité le job title + la région,
- * puis le nom si on l’a. Plus de "Your expert" en dur.
+ * 👉 On affiche en priorité le prénom (ou le nom complet),
+ * puis le job title + la région en sous-titre.
  */
 function RepPicker({
   reps,
@@ -189,17 +189,19 @@ function RepPicker({
       </div>
       <div className="grid grid-cols-1 gap-2">
         {reps.map((rep) => {
-          const primary =
-            rep.name ||
-            rep.title || // si pas de nom, on met directement le job title
-            "Your expert";
+          const primary = rep.name || rep.title || "Your expert";
 
           const subtitleParts: string[] = [];
-          if (rep.title) subtitleParts.push(rep.title);
-          if (rep.regions?.length) subtitleParts.push(rep.regions.join(", "));
-          const subtitle =
-            subtitleParts.join(" • ") ||
-            "Sales team";
+
+          // On n’ajoute le title que s’il est différent du nom affiché
+          if (rep.title && rep.title !== primary) {
+            subtitleParts.push(rep.title);
+          }
+          if (rep.regions?.length) {
+            subtitleParts.push(rep.regions.join(", "));
+          }
+
+          const subtitle = subtitleParts.join(" • ") || "Sales team";
 
           return (
             <button
@@ -231,6 +233,7 @@ function RepPicker({
     </div>
   );
 }
+
 
 /* ---------------- screen ---------------- */
 
@@ -983,30 +986,33 @@ export const WidgetChatScreen = () => {
                     />
                   ) : (
                     <span className="text-sm font-medium">
-                      {(selectedRep.name ||
-                        selectedRep.title ||
-                        "S")[0]?.toUpperCase()}
+                      {(selectedRep.name || selectedRep.title || "S")[0]?.toUpperCase()}
                     </span>
                   )}
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-medium">
-                    {selectedRep.name ||
-                      selectedRep.title ||
-                      "Your expert"}
+                    {selectedRep.name || "our team"}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {selectedRep.title && selectedRep.regions?.length
-                      ? `${selectedRep.title} • ${selectedRep.regions.join(", ")}`
-                      : selectedRep.title ||
-                        (selectedRep.regions?.length
-                          ? selectedRep.regions.join(", ")
-                          : "Sales team")}
+                    {[
+                      selectedRep.title &&
+                      selectedRep.title !== (selectedRep.name || "our team")
+                        ? selectedRep.title
+                        : null,
+                      selectedRep.regions?.length
+                        ? selectedRep.regions.join(", ")
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" • ") || "Sales team"}
                   </span>
                 </div>
               </div>
             </div>
           )}
+
+
         </AIConversationContent>
       </AIConversation>
 
