@@ -169,7 +169,9 @@ function ConsentInlineModal({
 }
 
 /**
- * Petit composant pour choisir un sales quand il y en a plusieurs.
+ * Choix d’un sales quand il y en a plusieurs.
+ * 👉 On affiche en priorité le job title + la région,
+ * puis le nom si on l’a. Plus de "Your expert" en dur.
  */
 function RepPicker({
   reps,
@@ -187,6 +189,18 @@ function RepPicker({
       </div>
       <div className="grid grid-cols-1 gap-2">
         {reps.map((rep) => {
+          const primary =
+            rep.name ||
+            rep.title || // si pas de nom, on met directement le job title
+            "Your expert";
+
+          const subtitleParts: string[] = [];
+          if (rep.title) subtitleParts.push(rep.title);
+          if (rep.regions?.length) subtitleParts.push(rep.regions.join(", "));
+          const subtitle =
+            subtitleParts.join(" • ") ||
+            "Sales team";
+
           return (
             <button
               key={rep.userId}
@@ -202,20 +216,13 @@ function RepPicker({
                   />
                 ) : (
                   <span className="text-xs font-medium">
-                    {(rep.name || "S")[0]?.toUpperCase()}
+                    {(rep.name || rep.title || "S")[0]?.toUpperCase()}
                   </span>
                 )}
               </div>
               <div className="flex flex-col">
-                <span className="text-sm font-medium">
-                  {rep.name || "Your expert"}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {rep.title ||
-                    (rep.regions?.length
-                      ? rep.regions.join(", ")
-                      : "Sales team")}
-                </span>
+                <span className="text-sm font-medium">{primary}</span>
+                <span className="text-xs text-muted-foreground">{subtitle}</span>
               </div>
             </button>
           );
@@ -389,7 +396,7 @@ export const WidgetChatScreen = () => {
     try {
       const s = await listSlots({
         organizationId,
-        userId: rep.userId, // 👈 slots spécifiques à ce sales
+        userId: rep.userId, // slots spécifiques à ce sales
         days: 7,
         slotMinutes: 30,
       });
@@ -461,14 +468,14 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // 🔁 routingMode depuis widgetSettings (auto_assign ou visitor_choice)
+    // routingMode
     const routingMode =
       ((widgetSettings as any)?.routingMode as
         | "auto_assign"
         | "visitor_choice"
         | undefined) ?? "auto_assign";
 
-    // AUTO-ASSIGN → on choisit un rep directement (pas de RepPicker)
+    // AUTO-ASSIGN → direct
     if (routingMode === "auto_assign") {
       const idx = Math.floor(Math.random() * reps.length);
       const chosen = reps[idx];
@@ -921,7 +928,11 @@ export const WidgetChatScreen = () => {
                     }).catch(() => {});
 
                     // ✅ Message de confirmation personnalisé
-                    const repName = selectedRep?.name ?? "our team";
+                    const repDisplayName =
+                      selectedRep?.name ||
+                      selectedRep?.title ||
+                      "our team";
+
                     const subtitleParts: string[] = [];
                     if (selectedRep?.title) subtitleParts.push(selectedRep.title);
                     if (selectedRep?.regions?.length) {
@@ -930,7 +941,7 @@ export const WidgetChatScreen = () => {
                     const subtitle = subtitleParts.join(" • ");
 
                     const lines: string[] = [
-                      `✅ You’re booked with ${repName}`,
+                      `✅ You’re booked with ${repDisplayName}`,
                     ];
                     if (subtitle) {
                       lines.push(subtitle);
@@ -972,13 +983,17 @@ export const WidgetChatScreen = () => {
                     />
                   ) : (
                     <span className="text-sm font-medium">
-                      {(selectedRep.name || "S")[0]?.toUpperCase()}
+                      {(selectedRep.name ||
+                        selectedRep.title ||
+                        "S")[0]?.toUpperCase()}
                     </span>
                   )}
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-medium">
-                    {selectedRep.name || "Your expert"}
+                    {selectedRep.name ||
+                      selectedRep.title ||
+                      "Your expert"}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {selectedRep.title && selectedRep.regions?.length
@@ -1004,7 +1019,7 @@ export const WidgetChatScreen = () => {
               suggestion={s}
               onClick={async () => {
                 if (/Voice call with AI assistant/i.test(s)) {
-                  setScreen("voice"); // va afficher WidgetVoiceScreen
+                  setScreen("voice");
                   return;
                 }
                 if (/book/i.test(s)) {
