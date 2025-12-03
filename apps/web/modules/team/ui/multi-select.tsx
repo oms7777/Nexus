@@ -50,11 +50,22 @@ export function MultiSelect({
           role="combobox"
           className={cn("w-[220px] justify-between", className)}
         >
-          {value.length === 0
-            ? placeholder || "Select"
-            : `${value.length} selected`}
+          {value.length === 0 ? (
+            placeholder || "Select"
+          ) : (
+            <span className="flex flex-wrap gap-1">
+              {options
+                .filter((opt) => value.includes(opt.value))
+                .map((opt) => (
+                  <Badge key={opt.value} variant="secondary">
+                    {opt.label}
+                  </Badge>
+                ))}
+            </span>
+          )}
           <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
         </Button>
+
       </PopoverTrigger>
 
       <PopoverContent className="w-[220px] p-0">
@@ -81,6 +92,17 @@ export function MultiSelect({
               </CommandItem>
             ))}
           </CommandGroup>
+          {value.length > 0 && (
+            <div className="border-t p-2 flex justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onValueChange([])}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
         </Command>
       </PopoverContent>
     </Popover>

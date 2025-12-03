@@ -38,7 +38,7 @@ export default function ProfilePage() {
   // Slack user-level integration (repsPresence)
   const reps = useQuery(
     api.team.listRepsForOrg,
-    organization ? { organizationId: organization.id } : ("skip" as any)
+    organization ? { organizationId: organization.id } : ("skip" as any),
   );
 
   const slackInfo = useMemo(() => {
@@ -62,19 +62,26 @@ export default function ProfilePage() {
   }, [searchParams]);
 
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
 
   useEffect(() => {
-    const url = (me as any)?.avatarUrl;
+    const m = me as any;
+    const url = m?.avatarUrl;
+    const title = m?.title;
     setAvatarUrl(url ?? "");
+    setJobTitle(title ?? "");
   }, [me]);
 
   const connectGmail = () => {
     window.location.href = "/api/google-oauth/start";
   };
 
-  const saveUrl = async () => {
+  const saveProfile = async () => {
     try {
-      await setAvatar({ avatarUrl: avatarUrl.trim() || undefined });
+      await setAvatar({
+        avatarUrl: avatarUrl.trim() || undefined,
+        title: jobTitle.trim() || undefined,
+      });
       toast.success("Profile saved");
     } catch {
       toast.error("Failed to save");
@@ -94,7 +101,10 @@ export default function ProfilePage() {
       });
 
       setAvatarUrl(url ?? "");
-      await setAvatar({ avatarUrl: url ?? undefined });
+      await setAvatar({
+        avatarUrl: url ?? undefined,
+        title: jobTitle.trim() || undefined,
+      });
 
       toast.success("Avatar uploaded");
     } catch {
@@ -103,7 +113,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="max-w-5xl p-8">
       <h1 className="mb-6 text-2xl md:text-4xl">My Profile</h1>
 
       {/* ACCOUNT */}
@@ -115,21 +125,33 @@ export default function ProfilePage() {
         <CardContent className="space-y-5">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <UserRoundIcon className="h-4 w-4" />
-            Your profile image may be shown in the on-site promo/nudge.
+            Your profile image and job title may be shown in on-site nudges
+            and booking confirmations.
           </div>
 
-          {/* Avatar URL */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <div>
-              <Label>My avatar (image URL)</Label>
-              <Input
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                placeholder="https://…/me.jpg"
-              />
+          {/* Avatar URL + title */}
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-end">
+            <div className="space-y-3">
+              <div>
+                <Label>My avatar (image URL)</Label>
+                <Input
+                  value={avatarUrl}
+                  onChange={(e) => setAvatarUrl(e.target.value)}
+                  placeholder="https://…/me.jpg"
+                />
+              </div>
+
+              <div>
+                <Label>Job title</Label>
+                <Input
+                  value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                  placeholder="Solutions Engineer EMEA"
+                />
+              </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center justify-end gap-3">
               {avatarUrl ? (
                 <img
                   src={avatarUrl}
@@ -137,7 +159,7 @@ export default function ProfilePage() {
                   className="h-14 w-14 rounded-full border object-cover"
                 />
               ) : null}
-              <Button onClick={saveUrl}>Save</Button>
+              <Button onClick={saveProfile}>Save</Button>
             </div>
           </div>
 

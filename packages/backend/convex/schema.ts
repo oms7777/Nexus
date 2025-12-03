@@ -25,9 +25,9 @@ export default defineSchema({
     teamAvatars: v.optional(v.array(v.string())), // up to 3 URLs typically
     brandLogoUrl: v.optional(v.string()),
 
-    // 🔁 NOUVEAU : mode de routing global du widget
+    // 🔁 mode de routing global du widget
     routingMode: v.optional(
-      v.union(v.literal("auto_assign"), v.literal("visitor_choice"))
+      v.union(v.literal("auto_assign"), v.literal("visitor_choice")),
     ),
 
     // Back-compat root privacyUrl + full consent config
@@ -43,7 +43,7 @@ export default defineSchema({
         linkMode: v.optional(v.union(v.literal("link"), v.literal("modal"))),
         privacyUrl: v.optional(v.string()),
         modalContent: v.optional(v.string()),
-      })
+      }),
     ),
   }).index("by_organization_id", ["organizationId"]),
 
@@ -105,7 +105,10 @@ export default defineSchema({
         // NEW: for anonymous tracking via widget
         visitorId: v.optional(v.string()),
         clientIp: v.optional(v.string()),
-      })
+
+        // NEW: rep choisi côté widget (visitor_choice)
+        preferredRepUserId: v.optional(v.string()),
+      }),
     ),
     consent: v.optional(
       v.object({
@@ -113,7 +116,7 @@ export default defineSchema({
         ts: v.number(), // ms epoch
         privacyUrl: v.optional(v.string()),
         version: v.optional(v.string()),
-      })
+      }),
     ),
   })
     .index("by_organization_id", ["organizationId"])
@@ -129,11 +132,26 @@ export default defineSchema({
     expiresAt: v.number(),
   }).index("by_ip", ["ip"]),
 
+  /* ---------- Territories dynamiques ---------- */
+  territories: defineTable({
+    organizationId: v.string(),
+    key: v.string(), // slug stable, ex: "france", "emea_enterprise"
+    label: v.string(), // label humain: "France", "EMEA Enterprise"
+    countryCodes: v.optional(v.array(v.string())), // ["FR", "BE", ...]
+    sortOrder: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_key", ["organizationId", "key"]),
+
   /* ---------- Reps presence ---------- */
   repsPresence: defineTable({
     organizationId: v.string(),
     userId: v.string(), // Clerk userId
     role: v.union(v.literal("sales"), v.literal("support")),
+    // ⚠️ IMPORTANT : ici tu stockes maintenant des territory.key (string),
+    // pas des codes hardcodés.
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
 
@@ -159,6 +177,7 @@ export default defineSchema({
     }),
     routeTo: v.object({
       role: v.union(v.literal("sales"), v.literal("support")),
+      // ici aussi on utilisera des keys de territories
       regions: v.optional(v.array(v.string())),
       repIds: v.optional(v.array(v.string())),
     }),
@@ -230,9 +249,9 @@ export default defineSchema({
 
   /* ---------- User notification prefs ---------- */
   userNotificationPrefs: defineTable({
-    userId: v.string(),                // Clerk user id (identity.subject)
-    showBadges: v.boolean(),           // Show badges on new leads
-    playSound: v.boolean(),            // Play sound on new lead / meeting
+    userId: v.string(), // Clerk user id (identity.subject)
+    showBadges: v.boolean(), // Show badges on new leads
+    playSound: v.boolean(), // Play sound on new lead / meeting
     autoOpenConversation: v.boolean(), // Auto-open conversation panel
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
@@ -243,6 +262,7 @@ export default defineSchema({
     externalId: v.string(),
     name: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
+    title: v.optional(v.string()), // 👈 nouveau : job title (Solutions Engineer EMEA)
   })
     .index("by_org_external", ["organizationId", "externalId"])
     .index("by_org", ["organizationId"]),
@@ -324,6 +344,10 @@ export default defineSchema({
         label: v.string(),
         url: v.optional(v.string()),
       }),
+    ),
+    // 👇 nouveau : cible sales / support pour le routing & widget
+    targetRole: v.optional(
+      v.union(v.literal("sales"), v.literal("support")),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),

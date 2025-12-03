@@ -24,10 +24,15 @@ const cardV = v.object({
   badgeText: v.optional(v.string()),
 });
 
+const targetRoleV = v.union(v.literal("sales"), v.literal("support"));
+
 function requireOrgId(identity: any) {
   const orgId = identity?.orgId as string | undefined;
   if (!orgId) {
-    throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+    throw new ConvexError({
+      code: "UNAUTHORIZED",
+      message: "Organization not found",
+    });
   }
   return orgId;
 }
@@ -37,7 +42,10 @@ export const listByOrg = query({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     const orgId = requireOrgId(identity);
-    return await ctx.db.query("promos").withIndex("by_org", q => q.eq("organizationId", orgId)).collect();
+    return await ctx.db
+      .query("promos")
+      .withIndex("by_org", (q) => q.eq("organizationId", orgId))
+      .collect();
   },
 });
 
@@ -50,6 +58,7 @@ export const upsert = mutation({
     card: cardV,
     primaryCta: ctaV,
     secondaryCta: v.optional(ctaV),
+    targetRole: v.optional(targetRoleV), // 👈 sales / support
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -61,6 +70,7 @@ export const upsert = mutation({
       await ctx.db.patch(_id, { ...rest, organizationId, updatedAt: now });
       return _id;
     }
+
     return await ctx.db.insert("promos", {
       organizationId,
       ...args,

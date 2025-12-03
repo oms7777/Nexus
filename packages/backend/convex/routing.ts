@@ -1,4 +1,3 @@
-// packages/backend/convex/routing.ts
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
@@ -9,7 +8,7 @@ import type { Doc } from "./_generated/dataModel";
  */
 function ruleMatches(
   rule: Doc<"routingRules">,
-  ctx: { countryCode?: string; currentUrl?: string }
+  ctx: { countryCode?: string; currentUrl?: string },
 ): boolean {
   const m = rule.match ?? {};
 
@@ -24,7 +23,7 @@ function ruleMatches(
   if (m.urlIncludes && m.urlIncludes.length > 0) {
     if (!ctx.currentUrl) return false;
     const ok = m.urlIncludes.some((sub: string) =>
-      ctx.currentUrl!.toLowerCase().includes(sub.toLowerCase())
+      ctx.currentUrl!.toLowerCase().includes(sub.toLowerCase()),
     );
     if (!ok) return false;
   }
@@ -37,6 +36,27 @@ function pickRandom<T>(arr: T[]): T | null {
   if (arr.length === 0) return null;
   const idx = Math.floor(Math.random() * arr.length);
   return arr[idx] ?? null;
+}
+
+/**
+ * Calcule la liste des territory.key qui couvrent un countryCode donné.
+ */
+async function resolveTerritoryKeysForCountry(
+  ctx: any,
+  organizationId: string,
+  countryCode?: string,
+): Promise<string[]> {
+  if (!countryCode) return [];
+  const cc = countryCode.toUpperCase();
+
+  const territories = (await ctx.db
+    .query("territories")
+    .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
+    .collect()) as Doc<"territories">[];
+
+  return territories
+    .filter((t) => (t.countryCodes ?? []).includes(cc))
+    .map((t) => t.key);
 }
 
 /**
@@ -60,14 +80,25 @@ export const pickRepForSession = query({
     };
 
     // 2) récupérer tous les reps de l’org
-    const allReps = await ctx.db
+    const allReps = (await ctx.db
       .query("repsPresence")
       .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-      .collect();
+      .collect()) as Doc<"repsPresence">[];
 
     if (!allReps.length) return null;
 
-    // 3) routingRules par priorité
+    // 2bis) Si le visiteur a explicitement choisi un rep côté widget
+    const preferredRepUserId =
+      session.metadata?.preferredRepUserId as string | undefined;
+
+    if (preferredRepUserId) {
+      const preferred = allReps.find((r) => r.userId === preferredRepUserId);
+      if (preferred && preferred.available) {
+        return preferred.userId;
+      }
+    }
+
+    // 3) routingRules par priorité (override "entreprise")
     const rules = await ctx.db
       .query("routingRules")
       .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
@@ -76,23 +107,23 @@ export const pickRepForSession = query({
 
     for (const rule of rules) {
       if (rule.enabled === false) continue;
-      if (!ruleMatches(rule, matchCtx)) continue;
+      if (!ruleMatches(rule as Doc<"routingRules">, matchCtx)) continue;
 
       const target = rule.routeTo;
 
       // candidats: reps dispo + bon rôle
       let candidates = allReps.filter(
-        (r) => r.available && r.role === target.role
+        (r) => r.available && r.role === target.role,
       );
 
       // filtre repIds si défini
       if (target.repIds && target.repIds.length > 0) {
         candidates = candidates.filter((r) =>
-          target.repIds!.includes(r.userId)
+          target.repIds!.includes(r.userId),
         );
       }
 
-      // filtre regions si défini
+      // filtre regions si défini (ici ce sont des territory.key)
       if (target.regions && target.regions.length > 0) {
         candidates = candidates.filter((r) => {
           const repRegions = r.regions ?? [];
@@ -106,14 +137,34 @@ export const pickRepForSession = query({
       }
     }
 
-    // 4) fallback : n'importe quel sales dispo
+    // 4) Fallback intelligent territories: countryCode → territories → reps
+    if (matchCtx.countryCode) {
+      const territoryKeys = await resolveTerritoryKeysForCountry(
+        ctx,
+        organizationId,
+        matchCtx.countryCode,
+      );
+
+      if (territoryKeys.length > 0) {
+        const geoCandidates = allReps.filter((r) => {
+          if (!r.available || r.role !== "sales") return false;
+          const repRegions = r.regions ?? [];
+          return repRegions.some((reg) => territoryKeys.includes(reg));
+        });
+
+        const chosen = pickRandom(geoCandidates);
+        if (chosen) return chosen.userId;
+      }
+    }
+
+    // 5) fallback : n'importe quel sales dispo
     const sales = allReps.filter((r) => r.available && r.role === "sales");
     if (sales.length) {
       const chosen = pickRandom(sales);
       if (chosen) return chosen.userId;
     }
 
-    // 5) dernier fallback : n'importe quel rep dispo
+    // 6) dernier fallback : n'importe quel rep dispo
     const available = allReps.filter((r) => r.available);
     if (available.length) {
       const chosen = pickRandom(available);

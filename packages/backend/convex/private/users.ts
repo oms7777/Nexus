@@ -11,15 +11,21 @@ export const meGet = query({
     return await ctx.db
       .query("users")
       .withIndex("by_org_external", (q) =>
-        q.eq("organizationId", id.orgId as string).eq("externalId", id.tokenIdentifier)
+        q
+          .eq("organizationId", id.orgId as string)
+          .eq("externalId", id.tokenIdentifier),
       )
       .unique();
   },
 });
 
+// ⚠️ on garde le nom pour ne rien casser mais ça gère maintenant tout le profil de base
 export const meSetAvatar = mutation({
-  args: { avatarUrl: v.optional(v.string()) },
-  handler: async (ctx, { avatarUrl }) => {
+  args: {
+    avatarUrl: v.optional(v.string()),
+    title: v.optional(v.string()),
+  },
+  handler: async (ctx, { avatarUrl, title }) => {
     const id = await ctx.auth.getUserIdentity();
     if (!id?.orgId || !id.tokenIdentifier) throw new Error("UNAUTHORIZED");
 
@@ -29,15 +35,16 @@ export const meSetAvatar = mutation({
     const existing = await ctx.db
       .query("users")
       .withIndex("by_org_external", (q) =>
-        q.eq("organizationId", orgId).eq("externalId", externalId)
+        q.eq("organizationId", orgId).eq("externalId", externalId),
       )
       .unique();
 
     const doc = {
       organizationId: orgId,
       externalId,
-      name: id.name ?? undefined,        // <- undefined, not null
-      avatarUrl: avatarUrl ?? undefined, // <- undefined, not null
+      name: id.name ?? undefined,
+      avatarUrl: avatarUrl ?? undefined,
+      title: title ?? undefined,
     };
 
     if (existing) {

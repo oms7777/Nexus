@@ -26,6 +26,7 @@ import type * as private_notifications from "../private/notifications.js";
 import type * as private_plugins from "../private/plugins.js";
 import type * as private_promos from "../private/promos.js";
 import type * as private_secrets from "../private/secrets.js";
+import type * as private_territories from "../private/territories.js";
 import type * as private_users from "../private/users.js";
 import type * as private_vapi from "../private/vapi.js";
 import type * as private_widgetSettings from "../private/widgetSettings.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   "private/plugins": typeof private_plugins;
   "private/promos": typeof private_promos;
   "private/secrets": typeof private_secrets;
+  "private/territories": typeof private_territories;
   "private/users": typeof private_users;
   "private/vapi": typeof private_vapi;
   "private/widgetSettings": typeof private_widgetSettings;

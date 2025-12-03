@@ -1,4 +1,3 @@
-// packages/backend/convex/team.ts
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
@@ -29,7 +28,7 @@ export const getRepForOrgUser = query({
     return await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId)
+        q.eq("organizationId", organizationId).eq("userId", userId),
       )
       .unique();
   },
@@ -60,12 +59,12 @@ export const upsertRepPresence = mutation({
       available,
       slackUserId,
       slackDmChannel,
-    }
+    },
   ) => {
     const existing = await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId)
+        q.eq("organizationId", organizationId).eq("userId", userId),
       )
       .unique();
 
@@ -101,11 +100,14 @@ export const connectRepSlack = mutation({
     slackUserId: v.string(),
     slackDmChannel: v.string(),
   },
-  handler: async (ctx, { organizationId, userId, slackUserId, slackDmChannel }) => {
+  handler: async (
+    ctx,
+    { organizationId, userId, slackUserId, slackDmChannel },
+  ) => {
     const existing = await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId)
+        q.eq("organizationId", organizationId).eq("userId", userId),
       )
       .unique();
 

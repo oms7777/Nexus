@@ -7,14 +7,31 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { Button } from "@workspace/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@workspace/ui/components/card";
 import { Input } from "@workspace/ui/components/input";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { Label } from "@workspace/ui/components/label";
 import { Switch } from "@workspace/ui/components/switch";
 import { Separator } from "@workspace/ui/components/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@workspace/ui/components/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@workspace/ui/components/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select";
 import { toast } from "sonner";
 
 const PromoSchema = z.object({
@@ -33,6 +50,8 @@ const PromoSchema = z.object({
   secondaryKind: z.enum(["none", "open_chat", "open_booking", "open_url"]),
   secondaryLabel: z.string().optional(),
   secondaryUrl: z.string().url().optional(),
+  // 👇 nouveau: cible de la promo
+  targetRole: z.enum(["sales", "support"]).optional(),
 });
 type PromoForm = z.infer<typeof PromoSchema>;
 
@@ -57,43 +76,64 @@ export default function PromosPanel() {
       primaryLabel: "Chat with AI Assistant",
       secondaryKind: "open_booking",
       secondaryLabel: "Book a meeting",
+      targetRole: "sales",
     },
   });
 
   const applyPresetDual = () =>
     form.reset({
+      id: form.getValues("id"),
       name: "Dual CTA • Chat or Book",
       active: true,
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
       badgeText: "Live",
+      pathPrefix: form.getValues("pathPrefix") || "",
+      urlIncludes: form.getValues("urlIncludes") || "",
+      utmSource: form.getValues("utmSource") || "",
       primaryKind: "open_chat",
       primaryLabel: "Chat with AI Assistant",
       secondaryKind: "open_booking",
       secondaryLabel: "Book a meeting",
+      primaryUrl: form.getValues("primaryUrl"),
+      secondaryUrl: form.getValues("secondaryUrl"),
+      targetRole: form.getValues("targetRole") ?? "sales",
     });
 
   const applyPresetSales = () =>
     form.reset({
+      id: form.getValues("id"),
       name: "Sales CTA",
       active: true,
       title: "Scale freely, adapt quickly",
       body: "Book a short call to learn how we help teams like yours.",
       badgeText: "Promo",
+      pathPrefix: form.getValues("pathPrefix") || "",
+      urlIncludes: form.getValues("urlIncludes") || "",
+      utmSource: form.getValues("utmSource") || "",
       primaryKind: "open_booking",
       primaryLabel: "Book a meeting",
       secondaryKind: "open_chat",
       secondaryLabel: "Chat with AI Assistant",
+      primaryUrl: form.getValues("primaryUrl"),
+      secondaryUrl: form.getValues("secondaryUrl"),
+      targetRole: "sales",
     });
 
   const onSubmit: SubmitHandler<PromoForm> = async (values) => {
     const rules = {
       pathPrefix: values.pathPrefix || undefined,
       urlIncludes: values.urlIncludes
-        ? values.urlIncludes.split(",").map((s) => s.trim()).filter(Boolean)
+        ? values.urlIncludes
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
         : undefined,
       utmSource: values.utmSource
-        ? values.utmSource.split(",").map((s) => s.trim()).filter(Boolean)
+        ? values.utmSource
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
         : undefined,
     };
 
@@ -107,9 +147,15 @@ export default function PromosPanel() {
       values.secondaryKind === "none"
         ? undefined
         : {
-            kind: values.secondaryKind as "open_chat" | "open_booking" | "open_url",
+            kind: values.secondaryKind as
+              | "open_chat"
+              | "open_booking"
+              | "open_url",
             label: values.secondaryLabel || "",
-            url: values.secondaryKind === "open_url" ? values.secondaryUrl : undefined,
+            url:
+              values.secondaryKind === "open_url"
+                ? values.secondaryUrl
+                : undefined,
           };
 
     try {
@@ -118,9 +164,14 @@ export default function PromosPanel() {
         name: values.name,
         active: values.active,
         rules,
-        card: { title: values.title, body: values.body, badgeText: values.badgeText || undefined },
+        card: {
+          title: values.title,
+          body: values.body,
+          badgeText: values.badgeText || undefined,
+        },
         primaryCta,
         secondaryCta,
+        targetRole: values.targetRole,
       } as any);
       toast.success("Promo saved");
       setDialogOpen(false);
@@ -147,6 +198,7 @@ export default function PromosPanel() {
       secondaryLabel: "Book a meeting",
       primaryUrl: undefined,
       secondaryUrl: undefined,
+      targetRole: "sales",
     });
     setDialogOpen(true);
   }
@@ -168,6 +220,7 @@ export default function PromosPanel() {
       secondaryKind: p.secondaryCta?.kind ?? "none",
       secondaryLabel: p.secondaryCta?.label ?? "",
       secondaryUrl: p.secondaryCta?.url ?? undefined,
+      targetRole: p.targetRole ?? "sales",
     });
     setDialogOpen(true);
   }
@@ -179,26 +232,40 @@ export default function PromosPanel() {
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button size="sm" onClick={openForCreate}>New Promo</Button>
+            <Button size="sm" onClick={openForCreate}>
+              New Promo
+            </Button>
           </DialogTrigger>
 
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>{form.watch("id") ? "Edit promo" : "Create a promo"}</DialogTitle>
+              <DialogTitle>
+                {form.watch("id") ? "Edit promo" : "Create a promo"}
+              </DialogTitle>
             </DialogHeader>
 
             <div className="mb-3 flex gap-2">
-              <Button variant="outline" size="sm" onClick={applyPresetDual}>Preset: Chat + Book</Button>
-              <Button variant="outline" size="sm" onClick={applyPresetSales}>Preset: Sales push</Button>
+              <Button variant="outline" size="sm" onClick={applyPresetDual}>
+                Preset: Chat + Book
+              </Button>
+              <Button variant="outline" size="sm" onClick={applyPresetSales}>
+                Preset: Sales push
+              </Button>
             </div>
 
-            <form className="grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(onSubmit)}>
+            <form
+              className="grid grid-cols-1 gap-4 md:grid-cols-2"
+              onSubmit={form.handleSubmit(onSubmit)}
+            >
               <input type="hidden" {...form.register("id")} />
 
-              <div className="col-span-2 flex items-center justify-between">
+              <div className="col-span-2 flex items-center justify-between gap-4">
                 <div className="flex flex-col gap-1">
                   <Label>Name</Label>
-                  <Input {...form.register("name")} placeholder="Internal name" />
+                  <Input
+                    {...form.register("name")}
+                    placeholder="Internal name"
+                  />
                 </div>
                 <div className="flex items-center gap-2">
                   <Label>Active</Label>
@@ -213,15 +280,46 @@ export default function PromosPanel() {
 
               <div>
                 <Label>Path prefix (optional)</Label>
-                <Input {...form.register("pathPrefix")} placeholder="/solutions" />
+                <Input
+                  {...form.register("pathPrefix")}
+                  placeholder="/solutions"
+                />
               </div>
               <div>
                 <Label>URL includes (comma)</Label>
-                <Input {...form.register("urlIncludes")} placeholder="observability,kubernetes" />
+                <Input
+                  {...form.register("urlIncludes")}
+                  placeholder="observability,kubernetes"
+                />
               </div>
               <div>
                 <Label>UTM source (comma)</Label>
-                <Input {...form.register("utmSource")} placeholder="ads,newsletter" />
+                <Input
+                  {...form.register("utmSource")}
+                  placeholder="ads,newsletter"
+                />
+              </div>
+
+              <div>
+                <Label>Target team</Label>
+                <Select
+                  value={form.watch("targetRole") ?? "sales"}
+                  onValueChange={(v) =>
+                    form.setValue("targetRole", v as "sales" | "support")
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose team…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sales">Sales</SelectItem>
+                    <SelectItem value="support">Support</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Determines which reps (sales or support) can receive this
+                  promo’s leads.
+                </p>
               </div>
 
               <Separator className="col-span-2" />
@@ -236,7 +334,10 @@ export default function PromosPanel() {
               </div>
               <div>
                 <Label>Badge (optional)</Label>
-                <Input {...form.register("badgeText")} placeholder="Limited time" />
+                <Input
+                  {...form.register("badgeText")}
+                  placeholder="Limited time"
+                />
               </div>
 
               <Separator className="col-span-2" />
@@ -247,21 +348,33 @@ export default function PromosPanel() {
                 <div className="mt-2 flex gap-2">
                   <Select
                     value={form.watch("primaryKind")}
-                    onValueChange={(v) => form.setValue("primaryKind", v as any)}
+                    onValueChange={(v) =>
+                      form.setValue("primaryKind", v as any)
+                    }
                   >
                     <SelectTrigger className="w-40">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="open_chat">Open chat</SelectItem>
-                      <SelectItem value="open_booking">Open booking</SelectItem>
+                      <SelectItem value="open_booking">
+                        Open booking
+                      </SelectItem>
                       <SelectItem value="open_url">Open URL</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Input className="flex-1" {...form.register("primaryLabel")} placeholder="Button label" />
+                  <Input
+                    className="flex-1"
+                    {...form.register("primaryLabel")}
+                    placeholder="Button label"
+                  />
                 </div>
                 {form.watch("primaryKind") === "open_url" && (
-                  <Input className="mt-2" {...form.register("primaryUrl")} placeholder="https://…" />
+                  <Input
+                    className="mt-2"
+                    {...form.register("primaryUrl")}
+                    placeholder="https://…"
+                  />
                 )}
               </div>
 
@@ -271,7 +384,9 @@ export default function PromosPanel() {
                 <div className="mt-2 flex gap-2">
                   <Select
                     value={form.watch("secondaryKind")}
-                    onValueChange={(v) => form.setValue("secondaryKind", v as any)}
+                    onValueChange={(v) =>
+                      form.setValue("secondaryKind", v as any)
+                    }
                   >
                     <SelectTrigger className="w-40">
                       <SelectValue />
@@ -279,7 +394,9 @@ export default function PromosPanel() {
                     <SelectContent>
                       <SelectItem value="none">None</SelectItem>
                       <SelectItem value="open_chat">Open chat</SelectItem>
-                      <SelectItem value="open_booking">Open booking</SelectItem>
+                      <SelectItem value="open_booking">
+                        Open booking
+                      </SelectItem>
                       <SelectItem value="open_url">Open URL</SelectItem>
                     </SelectContent>
                   </Select>
@@ -291,12 +408,18 @@ export default function PromosPanel() {
                   />
                 </div>
                 {form.watch("secondaryKind") === "open_url" && (
-                  <Input className="mt-2" {...form.register("secondaryUrl")} placeholder="https://…" />
+                  <Input
+                    className="mt-2"
+                    {...form.register("secondaryUrl")}
+                    placeholder="https://…"
+                  />
                 )}
               </div>
 
               <div className="col-span-2 flex justify-end">
-                <Button type="submit">{form.watch("id") ? "Update promo" : "Save promo"}</Button>
+                <Button type="submit">
+                  {form.watch("id") ? "Update promo" : "Save promo"}
+                </Button>
               </div>
             </form>
           </DialogContent>
@@ -305,12 +428,24 @@ export default function PromosPanel() {
 
       <CardContent className="space-y-4">
         <Separator />
-        {!list?.length && <p className="text-sm text-muted-foreground">No promos yet.</p>}
+        {!list?.length && (
+          <p className="text-sm text-muted-foreground">No promos yet.</p>
+        )}
 
         {list?.map((p) => (
-          <div key={p._id} className="flex items-center justify-between rounded-lg border p-3">
+          <div
+            key={p._id}
+            className="flex items-center justify-between rounded-lg border p-3"
+          >
             <div className="min-w-0">
-              <div className="truncate font-medium">{p.name}</div>
+              <div className="truncate font-medium">
+                {p.name}
+                {p.targetRole && (
+                  <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                    {p.targetRole === "sales" ? "Sales" : "Support"}
+                  </span>
+                )}
+              </div>
               <div className="truncate text-xs text-muted-foreground">
                 {p.card?.title} — {p.card?.body}
               </div>
@@ -328,13 +463,18 @@ export default function PromosPanel() {
                       card: p.card,
                       primaryCta: p.primaryCta,
                       secondaryCta: p.secondaryCta,
+                      targetRole: p.targetRole,
                     } as any);
                   } catch {
                     toast.error("Update failed");
                   }
                 }}
               />
-              <Button variant="outline" size="sm" onClick={() => openForEdit(p)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openForEdit(p)}
+              >
                 Edit
               </Button>
               <Button

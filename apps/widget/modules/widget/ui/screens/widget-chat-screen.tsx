@@ -76,8 +76,9 @@ type PublicRep = {
   userId: string;
   name?: string;
   avatarUrl?: string;
+  title?: string; // ex: "Solutions Engineer EMEA"
   role: "sales" | "support";
-  regions: string[];
+  regions: string[]; // territory.key[]
   available: boolean;
 };
 
@@ -185,35 +186,42 @@ function RepPicker({
         Choose who you want to meet:
       </div>
       <div className="grid grid-cols-1 gap-2">
-        {reps.map((rep) => (
-          <button
-            key={rep.userId}
-            onClick={() => onPick(rep)}
-            className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2 text-left hover:bg-accent transition"
-          >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted overflow-hidden">
-              {rep.avatarUrl ? (
-                <img
-                  src={rep.avatarUrl}
-                  alt={rep.name ?? rep.userId}
-                  className="h-8 w-8 rounded-full object-cover"
-                />
-              ) : (
-                <span className="text-xs font-medium">
-                  {(rep.name || "S")[0]?.toUpperCase()}
+        {reps.map((rep) => {
+          const subtitle =
+            rep.title && rep.regions?.length
+              ? `${rep.title} • ${rep.regions.join(", ")}`
+              : rep.title || (rep.regions?.length ? rep.regions.join(", ") : "Sales team");
+
+          return (
+            <button
+              key={rep.userId}
+              onClick={() => onPick(rep)}
+              className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2 text-left hover:bg-accent transition"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted overflow-hidden">
+                {rep.avatarUrl ? (
+                  <img
+                    src={rep.avatarUrl}
+                    alt={rep.name ?? rep.userId}
+                    className="h-8 w-8 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="text-xs font-medium">
+                    {(rep.name || "S")[0]?.toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-sm font-medium">
+                  {rep.name || "Sales rep"}
                 </span>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-medium">
-                {rep.name || "Sales rep"}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {rep.regions?.length ? rep.regions.join(", ") : "Global team"}
-              </span>
-            </div>
-          </button>
-        ))}
+                <span className="text-xs text-muted-foreground">
+                  {subtitle}
+                </span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -370,7 +378,6 @@ export const WidgetChatScreen = () => {
 
   /* -------- helper : charger les slots pour UN rep -------- */
   const loadSlotsForRep = async (rep?: PublicRep) => {
-    // si pas d'organisation ou pas de rep → on ne fait rien
     if (!organizationId || !rep) return;
 
     setSelectedRep(rep);
@@ -395,7 +402,6 @@ export const WidgetChatScreen = () => {
       setLoadingSlots(false);
     }
   };
-
 
   /* -------- Qualif flow -------- */
   const startPickingAfterQualify = async (lead: {
@@ -469,9 +475,8 @@ export const WidgetChatScreen = () => {
     // AUTO-ASSIGN → on choisit un rep directement (pas de RepPicker)
     if (routingMode === "auto_assign") {
       const idx = Math.floor(Math.random() * reps.length);
-      const chosen = reps[idx]; // type: PublicRep | undefined
+      const chosen = reps[idx];
 
-      // Si jamais il y a un bug, on retombe sur le choix manuel
       if (!chosen) {
         setRepChoices(reps);
         setStep("pick_rep");
@@ -491,7 +496,6 @@ export const WidgetChatScreen = () => {
     setRepChoices(reps);
     setStep("pick_rep");
   };
-
 
   /* -------- Send message (thread bootstrap + retry) -------- */
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
@@ -887,7 +891,7 @@ export const WidgetChatScreen = () => {
 
                     const res = await bookSlot({
                       organizationId,
-                      userId: selectedRep?.userId, // 👈 réservez bien sur le bon rep
+                      userId: selectedRep?.userId,
                       contactSessionId,
                       attendeeName: qdata.name,
                       attendeeEmail: qdata.email,
@@ -912,13 +916,35 @@ export const WidgetChatScreen = () => {
                       },
                     }).catch(() => {});
 
+                    // ✅ Message de confirmation personnalisé
+                    const repName = selectedRep?.name ?? "our team";
+                    const subtitleParts: string[] = [];
+                    if (selectedRep?.title) subtitleParts.push(selectedRep.title);
+                    if (selectedRep?.regions?.length) {
+                      subtitleParts.push(selectedRep.regions.join(", "));
+                    }
+                    const subtitle = subtitleParts.join(" • ");
+
+                    const lines: string[] = [
+                      `✅ You’re booked with ${repName}`,
+                    ];
+                    if (subtitle) {
+                      lines.push(subtitle);
+                    }
+                    lines.push("");
+                    if (res?.meetingUrl) {
+                      lines.push(`Join with this link: ${res.meetingUrl}`);
+                    } else {
+                      lines.push("Check your inbox for the invite.");
+                    }
+
+                    const msgText = lines.join("\n");
+
                     setLocalMsgs((m) => [
                       ...m,
                       {
                         role: "assistant",
-                        text: res?.meetingUrl
-                          ? `You're booked! Join with this link: ${res.meetingUrl}`
-                          : "You're booked! Check your inbox for the invite.",
+                        text: msgText,
                       },
                     ]);
                     setSlots(null);
@@ -927,6 +953,40 @@ export const WidgetChatScreen = () => {
                 />
               )}
             </>
+          )}
+
+          {/* Card de confirmation avec avatar du rep */}
+          {step === "done" && selectedRep && (
+            <div className="p-3">
+              <div className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2">
+                <div className="h-10 w-10 rounded-full overflow-hidden bg-muted flex items-center justify-center">
+                  {selectedRep.avatarUrl ? (
+                    <img
+                      src={selectedRep.avatarUrl}
+                      alt={selectedRep.name ?? selectedRep.userId}
+                      className="h-10 w-10 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-sm font-medium">
+                      {(selectedRep.name || "S")[0]?.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">
+                    {selectedRep.name || "Your expert"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedRep.title && selectedRep.regions?.length
+                      ? `${selectedRep.title} • ${selectedRep.regions.join(", ")}`
+                      : selectedRep.title ||
+                        (selectedRep.regions?.length
+                          ? selectedRep.regions.join(", ")
+                          : "Sales team")}
+                  </span>
+                </div>
+              </div>
+            </div>
           )}
         </AIConversationContent>
       </AIConversation>
