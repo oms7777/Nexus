@@ -20,7 +20,7 @@ export type PublicRep = {
 /**
  * Liste les reps "éligibles" pour un visiteur en appliquant:
  * - les routingRules (priorité)
- * - la presence (only available)
+ * - la présence (only available)
  * - la géo et l'URL de la session (contactSessions.metadata)
  *
  * Le widget pourra ensuite afficher:
@@ -97,6 +97,20 @@ export const listRepsForVisitor = query({
         return [] as PublicRep[];
       }
 
+      // 3ter) Résoudre les territoires pour le pays du visiteur (FR -> ["france", "europe", ...])
+      let visitorTerritoryKeys: string[] = [];
+      if (visitorCountry) {
+        const cc = visitorCountry.toUpperCase();
+        const territories = (await ctx.db
+          .query("territories")
+          .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+          .collect()) as Doc<"territories">[];
+
+        visitorTerritoryKeys = territories
+          .filter((t) => (t.countryCodes ?? []).includes(cc))
+          .map((t) => t.key);
+      }
+
       // 4) Charger les routingRules par org + priorité
       const rules = await ctx.db
         .query("routingRules")
@@ -141,6 +155,7 @@ export const listRepsForVisitor = query({
 
       // 6) Appliquer les règles dans l'ordre de priorité (index by_org_prio)
       let matchedReps = availableReps;
+      let ruleApplied = false;
 
       for (const rule of rules) {
         if (rule.enabled === false) continue;
@@ -164,7 +179,20 @@ export const listRepsForVisitor = query({
 
         if (subset.length) {
           matchedReps = subset;
+          ruleApplied = true;
           break; // première règle qui matche -> on s'arrête
+        }
+      }
+
+      // 6bis) Si AUCUNE règle n'a matché, appliquer un fallback géographique
+      if (!ruleApplied && visitorTerritoryKeys.length > 0) {
+        const geoFiltered = availableReps.filter((r) => {
+          const repsRegions: string[] = r.regions ?? [];
+          return repsRegions.some((reg) => visitorTerritoryKeys.includes(reg));
+        });
+
+        if (geoFiltered.length > 0) {
+          matchedReps = geoFiltered;
         }
       }
 
