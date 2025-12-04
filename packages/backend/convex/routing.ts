@@ -80,25 +80,36 @@ export const pickRepForSession = query({
     };
 
     // 2) récupérer tous les reps de l’org
-    const allReps = (await ctx.db
+    const rawReps = (await ctx.db
       .query("repsPresence")
       .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
       .collect()) as Doc<"repsPresence">[];
 
-    if (!allReps.length) return null;
+    if (!rawReps.length) return null;
 
-    // 2bis) Si le visiteur a explicitement choisi un rep côté widget
+    // 2bis) charger les users de l’org et filtrer les reps qui n'ont plus de user
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+      .collect();
+
+    const byExternalId = new Map(users.map((u) => [u.externalId, u]));
+
+    const reps = rawReps.filter((r) => byExternalId.has(r.userId));
+    if (!reps.length) return null;
+
+    // 3) Si le visiteur a explicitement choisi un rep côté widget
     const preferredRepUserId =
       session.metadata?.preferredRepUserId as string | undefined;
 
     if (preferredRepUserId) {
-      const preferred = allReps.find((r) => r.userId === preferredRepUserId);
+      const preferred = reps.find((r) => r.userId === preferredRepUserId);
       if (preferred && preferred.available) {
         return preferred.userId;
       }
     }
 
-    // 3) routingRules par priorité (override "entreprise")
+    // 4) routingRules par priorité (override "entreprise")
     const rules = await ctx.db
       .query("routingRules")
       .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
@@ -112,7 +123,7 @@ export const pickRepForSession = query({
       const target = rule.routeTo;
 
       // candidats: reps dispo + bon rôle
-      let candidates = allReps.filter(
+      let candidates = reps.filter(
         (r) => r.available && r.role === target.role,
       );
 
@@ -137,7 +148,7 @@ export const pickRepForSession = query({
       }
     }
 
-    // 4) Fallback intelligent territories: countryCode → territories → reps
+    // 5) Fallback intelligent territories: countryCode → territories → reps
     if (matchCtx.countryCode) {
       const territoryKeys = await resolveTerritoryKeysForCountry(
         ctx,
@@ -146,7 +157,7 @@ export const pickRepForSession = query({
       );
 
       if (territoryKeys.length > 0) {
-        const geoCandidates = allReps.filter((r) => {
+        const geoCandidates = reps.filter((r) => {
           if (!r.available || r.role !== "sales") return false;
           const repRegions = r.regions ?? [];
           return repRegions.some((reg) => territoryKeys.includes(reg));
@@ -157,15 +168,15 @@ export const pickRepForSession = query({
       }
     }
 
-    // 5) fallback : n'importe quel sales dispo
-    const sales = allReps.filter((r) => r.available && r.role === "sales");
+    // 6) fallback : n'importe quel sales dispo
+    const sales = reps.filter((r) => r.available && r.role === "sales");
     if (sales.length) {
       const chosen = pickRandom(sales);
       if (chosen) return chosen.userId;
     }
 
-    // 6) dernier fallback : n'importe quel rep dispo
-    const available = allReps.filter((r) => r.available);
+    // 7) dernier fallback : n'importe quel rep dispo
+    const available = reps.filter((r) => r.available);
     if (available.length) {
       const chosen = pickRandom(available);
       if (chosen) return chosen.userId;

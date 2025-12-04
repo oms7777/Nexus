@@ -235,7 +235,6 @@ export default function TeamPage() {
         slackUserId?: string;
         slackDmChannel?: string;
         updatedAt: number;
-        title?: string;
       }[]
     | undefined;
 
@@ -257,7 +256,6 @@ export default function TeamPage() {
         role: (rep?.role as "sales" | "support" | undefined) ?? "sales",
         regions: (rep?.regions as string[] | undefined) ?? [],
         available: rep?.available ?? false,
-        title: rep?.title ?? "",
         slackUserId: rep?.slackUserId,
         slackDmChannel: rep?.slackDmChannel,
       };
@@ -269,7 +267,6 @@ export default function TeamPage() {
     role: "sales" | "support";
     regions: string[];
     available: boolean;
-    title?: string;
     slackUserId?: string;
     slackDmChannel?: string;
   }) => {
@@ -282,7 +279,6 @@ export default function TeamPage() {
         role: row.role,
         regions: row.regions,
         available: row.available,
-        title: row.title?.trim() || undefined,
         slackUserId: row.slackUserId,
         slackDmChannel: row.slackDmChannel,
       } as any);
@@ -416,7 +412,7 @@ export default function TeamPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-muted p-8">
-      <div className="mx-auto w-full max-w-5xl space-y-8">
+      <div className="mx-auto w০০full max-w-5xl space-y-8">
         {/* HEADER */}
         <div className="space-y-2">
           <h1 className="text-2xl md:text-4xl">Team & Territories</h1>
@@ -471,9 +467,6 @@ export default function TeamPage() {
               <thead className="bg-muted/60">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">User</th>
-                  <th className="px-4 py-3 text-left font-medium">
-                    Title (shown to visitors)
-                  </th>
                   <th className="px-4 py-3 text-left font-medium">Role</th>
                   <th className="px-4 py-3 text-left font-medium">
                     Territories
@@ -505,7 +498,7 @@ export default function TeamPage() {
                   <tr>
                     <td
                       className="px-4 py-6 text-center text-muted-foreground"
-                      colSpan={6}
+                      colSpan={5}
                     >
                       No members found in this organization.
                     </td>
@@ -517,16 +510,14 @@ export default function TeamPage() {
 
           <p className="text-xs text-muted-foreground">
             Routing uses these settings together with your rules (geo, URL,
-            UTM…) and territories to pick the right rep for each visitor. The{" "}
-            <span className="font-medium">title</span> is what visitors will see
-            in the rep chooser and booking confirmation (e.g.{" "}
-            <code className="font-mono">Solutions Engineer EMEA</code>).
+            UTM…) and territories to pick the right rep for each visitor.
           </p>
         </div>
 
         <Separator />
 
         {/* TERRITORIES SECTION (même module) */}
+        {/* La section Territories reste identique à ta version originale */}
         <div className="space-y-3">
           <h2 className="text-lg font-semibold">Territories</h2>
           <Card>
@@ -707,7 +698,6 @@ function TeamRow({
     role: "sales" | "support";
     regions: string[]; // = territories.key[]
     available: boolean;
-    title?: string;
   };
   territoryOptions: TerritoryOption[];
   onSave: (row: {
@@ -715,13 +705,11 @@ function TeamRow({
     role: "sales" | "support";
     regions: string[];
     available: boolean;
-    title?: string;
   }) => void;
 }) {
   const [role, setRole] = useState<"sales" | "support">(row.role);
   const [regions, setRegions] = useState<string[]>(row.regions || []);
   const [available, setAvailable] = useState(row.available);
-  const [title, setTitle] = useState(row.title ?? "");
   const [saving, setSaving] = useState(false);
 
   const handleClickSave = async () => {
@@ -731,7 +719,6 @@ function TeamRow({
       role,
       regions,
       available,
-      title,
     });
     setSaving(false);
   };
@@ -748,16 +735,6 @@ function TeamRow({
             {row.member.email}
           </span>
         </div>
-      </td>
-
-      {/* TITLE (affiché dans le widget) */}
-      <td className="px-4 py-3 align-middle max-w-xs">
-        <Label className="sr-only">Title</Label>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Solutions Engineer EMEA, Account Executive France…"
-        />
       </td>
 
       {/* ROLE */}

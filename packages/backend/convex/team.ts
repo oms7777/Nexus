@@ -1,3 +1,4 @@
+// packages/backend/convex/team.ts
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 
@@ -43,9 +44,6 @@ export const upsertRepPresence = mutation({
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
 
-    // NEW: titre affiché aux visiteurs (Solutions Engineer EMEA, …)
-    title: v.optional(v.string()),
-
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
   },
@@ -57,7 +55,6 @@ export const upsertRepPresence = mutation({
       role,
       regions,
       available,
-      title,
       slackUserId,
       slackDmChannel,
     },
@@ -76,18 +73,18 @@ export const upsertRepPresence = mutation({
       )
       .unique();
 
+    const now = Date.now();
+
     const base: any = {
       organizationId,
       userId,
       role,
       available,
-      updatedAt: Date.now(),
+      updatedAt: now,
+      regions: Array.isArray(regions) ? regions : [],
+      slackUserId: slackUserId || undefined,
+      slackDmChannel: slackDmChannel || undefined,
     };
-
-    if (Array.isArray(regions)) base.regions = regions;
-    if (typeof title === "string") base.title = title.trim() || undefined;
-    if (typeof slackUserId === "string") base.slackUserId = slackUserId;
-    if (typeof slackDmChannel === "string") base.slackDmChannel = slackDmChannel;
 
     if (existing) {
       await ctx.db.patch(existing._id, base);
@@ -101,7 +98,6 @@ export const upsertRepPresence = mutation({
 
 /**
  * Connect Slack pour UN rep : ne touche qu’aux champs Slack.
- * – utilisé par le flow "Connect Slack" dans /me/profile
  */
 export const connectRepSlack = mutation({
   args: {
@@ -132,7 +128,6 @@ export const connectRepSlack = mutation({
       return existing._id;
     }
 
-    // Si le rep n’existe pas encore, on crée un profil par défaut
     const id = await ctx.db.insert("repsPresence", {
       organizationId,
       userId,

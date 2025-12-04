@@ -39,7 +39,7 @@ export const listRepsForVisitor = query({
   },
   handler: async (
     ctx,
-    { organizationId, contactSessionId, countryCode, currentUrl, utmSource }
+    { organizationId, contactSessionId, countryCode, currentUrl, utmSource },
   ) => {
     try {
       if (!organizationId) return [] as PublicRep[];
@@ -72,15 +72,26 @@ export const listRepsForVisitor = query({
         }
       }
 
-      // 3) Tous les reps "sales" disponibles pour cette org
-      const reps = await ctx.db
+      // 3) Tous les reps "sales" de cette org
+      const rawReps = await ctx.db
         .query("repsPresence")
         .withIndex("by_org_role", (q) =>
-          q.eq("organizationId", organizationId).eq("role", "sales")
+          q.eq("organizationId", organizationId).eq("role", "sales"),
         )
         .collect();
 
-      const availableReps = reps.filter((r) => r.available);
+      // 3bis) Charger les users de l'org et filtrer les reps qui n'ont plus de user
+      const users = await ctx.db
+        .query("users")
+        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+        .collect();
+
+      const byExternalId = new Map(users.map((u) => [u.externalId, u]));
+
+      const availableReps = rawReps.filter(
+        (r) => r.available && byExternalId.has(r.userId),
+      );
+
       if (!availableReps.length) {
         // Aucun rep dispo -> le widget gère le fallback
         return [] as PublicRep[];
@@ -97,7 +108,7 @@ export const listRepsForVisitor = query({
         const match = rule.match ?? {};
         const matchCountries: string[] | undefined = match.countries;
         const matchUrlIncludes: string[] | undefined = match.urlIncludes;
-        const matchUtmSource: string[] | undefined = match.utmSource;
+        const matchUtmSourceArr: string[] | undefined = match.utmSource;
 
         // pays
         if (matchCountries && matchCountries.length) {
@@ -110,14 +121,17 @@ export const listRepsForVisitor = query({
         if (matchUrlIncludes && matchUrlIncludes.length) {
           if (!visitorUrl) return false;
           const ok = matchUrlIncludes.some((sub: string) =>
-            visitorUrl.includes(sub)
+            visitorUrl.includes(sub),
           );
           if (!ok) return false;
         }
 
         // utm_source
-        if (matchUtmSource && matchUtmSource.length) {
-          if (!visitorUtmSource || !matchUtmSource.includes(visitorUtmSource)) {
+        if (matchUtmSourceArr && matchUtmSourceArr.length) {
+          if (
+            !visitorUtmSource ||
+            !matchUtmSourceArr.includes(visitorUtmSource)
+          ) {
             return false;
           }
         }
@@ -154,26 +168,12 @@ export const listRepsForVisitor = query({
         }
       }
 
-      // 7) Joindre avec table users pour récupérer name + avatar + title (profil)
-      const users = await ctx.db
-        .query("users")
-        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-        .collect();
-
-      const byExternalId = new Map(users.map((u) => [u.externalId, u]));
-
+      // 7) Construire la réponse publique à partir des users (profil)
       const result: PublicRep[] = matchedReps.map((rep) => {
-        const u = byExternalId.get(rep.userId); // ✅ maintenant ça matche
+        const u = byExternalId.get(rep.userId);
 
-        const title =
-          (rep.title as string | undefined) ||
-          (u?.title as string | undefined) ||
-          undefined;
-
-        const displayName =
-          (u?.name as string | undefined) ||
-          title ||
-          undefined;
+        const title = (u?.title as string | undefined) || undefined;
+        const displayName = (u?.name as string | undefined) || undefined;
 
         return {
           userId: rep.userId,
@@ -186,11 +186,7 @@ export const listRepsForVisitor = query({
         };
       });
 
-
       return result;
-
-
-
     } catch (e) {
       // On ne casse jamais le widget : en cas de bug, on renvoie juste []
       console.log("routing.listRepsForVisitor error:", e);

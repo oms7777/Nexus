@@ -73,7 +73,7 @@ export default function ProfilePage() {
   }, [me]);
 
   const connectGmail = () => {
-    window.location.href = "/api/google-oauth/start";
+    window.location.href = "/api/integrations/google/start";
   };
 
   const saveProfile = async () => {
