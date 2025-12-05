@@ -346,11 +346,9 @@ function BookingSplitLayout({
       {/* RIGHT PANEL : CALENDAR */}
       <div className="flex-1 p-3">
         <CalendarContainerBeautified
-          rep={rep}
           slots={slots}
           loading={loading}
           onPick={onPick}
-          onBack={onBack}
         />
       </div>
     </div>
