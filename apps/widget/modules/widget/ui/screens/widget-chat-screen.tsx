@@ -64,6 +64,7 @@ import {
   DialogTrigger,
 } from "@workspace/ui/components/dialog";
 import QualifyCard from "../components/QualifyCard";
+import CalendarContainerBeautified from "../components/CalendarContainerBeautified";
 
 /* ---------------- helpers ---------------- */
 
@@ -72,7 +73,7 @@ const formSchema = z.object({ message: z.string().min(1) });
 type Slot = { start: number; end: number };
 
 // doit matcher le retour de api.public.routing.listRepsForVisitor
-type PublicRep = {
+export type PublicRep = {
   userId: string;
   name?: string;
   avatarUrl?: string;
@@ -146,7 +147,6 @@ function SlotsByDay({
 
   return (
     <div className="space-y-3 p-3">
-
       {/* ---------- Bandeau de jours ---------- */}
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
         {dayOrder.map((day: string, idx: number) => {
@@ -194,8 +194,6 @@ function SlotsByDay({
     </div>
   );
 }
-
-
 
 function ConsentInlineModal({
   triggerLabel,
@@ -289,6 +287,75 @@ function RepPicker({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*           NEW LAYOUT : SIDEBAR SALES (LEFT) + CALENDAR (RIGHT)             */
+/* -------------------------------------------------------------------------- */
+
+function BookingSplitLayout({
+  rep,
+  slots,
+  loading,
+  onPick,
+  onBack,
+}: {
+  rep: PublicRep | null;
+  slots: Slot[] | null;
+  loading: boolean;
+  onPick: (s: Slot) => void;
+  onBack: () => void;
+}) {
+  if (!rep) return null;
+
+  return (
+    <div className="flex flex-col sm:flex-row w-full h-full bg-white">
+      {/* LEFT SIDEBAR (Sales Rep) */}
+      <div className="sm:w-1/3 w-full border-r bg-gray-50 p-5 flex flex-col items-center text-center">
+        <div className="w-16 h-16 rounded-full overflow-hidden bg-muted mb-3">
+          {rep.avatarUrl ? (
+            <img src={rep.avatarUrl} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-lg flex h-full items-center justify-center">
+              {(rep.name || rep.title || "S")[0]?.toUpperCase()}
+            </span>
+          )}
+        </div>
+
+        <h3 className="text-lg font-semibold">{rep.name || "Your expert"}</h3>
+
+        <p className="text-sm text-muted-foreground">
+          {[rep.title, rep.regions?.join(", ")]
+            .filter(Boolean)
+            .join(" • ")}
+        </p>
+
+        <div className="mt-4 text-xs text-muted-foreground">
+          Your time zone:{" "}
+          {new Intl.DateTimeFormat(undefined, {
+            timeZoneName: "short",
+          }).format(new Date())}
+        </div>
+
+        <button
+          onClick={onBack}
+          className="mt-6 px-3 py-1 text-sm rounded-md border bg-white hover:bg-accent transition"
+        >
+          ← Change sales rep
+        </button>
+      </div>
+
+      {/* RIGHT PANEL : CALENDAR */}
+      <div className="flex-1 p-3">
+        <CalendarContainerBeautified
+          rep={rep}
+          slots={slots}
+          loading={loading}
+          onPick={onPick}
+          onBack={onBack}
+        />
+      </div>
+    </div>
+  );
+}
 
 /* ---------------- screen ---------------- */
 
@@ -297,7 +364,7 @@ export const WidgetChatScreen = () => {
   const consentCfg = widgetSettings?.consent;
   const organizationId = useAtomValue(organizationIdAtom);
   const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(organizationId || ""),
+    contactSessionIdAtomFamily(organizationId || "")
   );
   const conversationId = useAtomValue(conversationIdAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
@@ -315,7 +382,7 @@ export const WidgetChatScreen = () => {
     api.public.routing.listRepsForVisitor,
     organizationId && contactSessionId
       ? { organizationId, contactSessionId }
-      : "skip",
+      : "skip"
   ) as PublicRep[] | undefined;
 
   const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
@@ -326,7 +393,7 @@ export const WidgetChatScreen = () => {
     api.public.conversations.getOne,
     conversationId && contactSessionId
       ? { conversationId, contactSessionId }
-      : "skip",
+      : "skip"
   );
 
   // Track latest threadId (so polling reads fresh values)
@@ -358,7 +425,7 @@ export const WidgetChatScreen = () => {
     conversation?.threadId && contactSessionId
       ? { threadId: conversation.threadId, contactSessionId }
       : "skip",
-    { initialNumItems: 10 },
+    { initialNumItems: 10 }
   );
 
   // local messages + booking
@@ -371,7 +438,7 @@ export const WidgetChatScreen = () => {
   // calendar (fallback / compat)
   const calendarAccount = useQuery(
     api.public.calendar.getAccount,
-    organizationId ? { organizationId } : "skip",
+    organizationId ? { organizationId } : "skip"
   );
   const listSlots = useAction(api.public.calendar.listSlots);
   const bookSlot = useAction(api.public.calendar.bookSlot);
@@ -663,7 +730,7 @@ export const WidgetChatScreen = () => {
   const suggestions = useMemo(() => {
     const base = widgetSettings?.defaultSuggestions
       ? (Object.values(widgetSettings.defaultSuggestions).filter(
-          Boolean,
+          Boolean
         ) as string[])
       : [];
     return ["Voice call with AI assistant", "Book a demo", ...base];
@@ -938,94 +1005,87 @@ export const WidgetChatScreen = () => {
             />
           )}
 
-          {/* Slot picker */}
+          {/* NEW picking flow : Sidebar rep + Calendar à droite */}
           {step === "picking" && (
-            <>
-              {loadingSlots && (
-                <div className="p-3 text-sm text-muted-foreground">
-                  Loading times…
-                </div>
-              )}
-              {!loadingSlots && slots && (
-                <SlotsByDay
-                  slots={slots}
-                  onPick={async (s) => {
-                    if (
-                      !organizationId ||
-                      !contactSessionId ||
-                      !qdata.name ||
-                      !qdata.email
-                    )
-                      return;
+            <div className="p-0 m-0 w-full">
+              <BookingSplitLayout
+                rep={selectedRep}
+                slots={slots}
+                loading={loadingSlots}
+                onPick={async (s) => {
+                  if (
+                    !organizationId ||
+                    !contactSessionId ||
+                    !qdata.name ||
+                    !qdata.email
+                  )
+                    return;
 
-                    const res = await bookSlot({
-                      organizationId,
-                      userId: selectedRep?.userId,
-                      contactSessionId,
-                      attendeeName: qdata.name,
-                      attendeeEmail: qdata.email,
-                      attendeeCompany: qdata.company,
-                      attendeeRole: qdata.role,
+                  const res = await bookSlot({
+                    organizationId,
+                    userId: selectedRep?.userId,
+                    contactSessionId,
+                    attendeeName: qdata.name,
+                    attendeeEmail: qdata.email,
+                    attendeeCompany: qdata.company,
+                    attendeeRole: qdata.role,
+                    start: s.start,
+                    end: s.end,
+                  });
+
+                  logEvent({
+                    organizationId,
+                    type: "meeting_booked",
+                    sessionId: contactSessionId,
+                    meta: {
                       start: s.start,
                       end: s.end,
-                    });
+                      bookingId: res?.bookingId,
+                      meetingUrl: res?.meetingUrl,
+                      lead: qdata,
+                      repUserId: selectedRep?.userId,
+                      repName: selectedRep?.name,
+                    },
+                  }).catch(() => {});
 
-                    logEvent({
-                      organizationId,
-                      type: "meeting_booked",
-                      sessionId: contactSessionId,
-                      meta: {
-                        start: s.start,
-                        end: s.end,
-                        bookingId: res?.bookingId,
-                        meetingUrl: res?.meetingUrl,
-                        lead: qdata,
-                        repUserId: selectedRep?.userId,
-                        repName: selectedRep?.name,
-                      },
-                    }).catch(() => {});
+                  const repDisplayName =
+                    selectedRep?.name || selectedRep?.title || "our team";
 
-                    // ✅ Message de confirmation personnalisé
-                    const repDisplayName =
-                      selectedRep?.name ||
-                      selectedRep?.title ||
-                      "our team";
+                  const subtitle = [
+                    selectedRep?.title,
+                    selectedRep?.regions?.join(", "),
+                  ]
+                    .filter(Boolean)
+                    .join(" • ");
 
-                    const subtitleParts: string[] = [];
-                    if (selectedRep?.title) subtitleParts.push(selectedRep.title);
-                    if (selectedRep?.regions?.length) {
-                      subtitleParts.push(selectedRep.regions.join(", "));
-                    }
-                    const subtitle = subtitleParts.join(" • ");
+                  const msgLines: string[] = [
+                    `✅ You’re booked with ${repDisplayName}`,
+                  ];
+                  if (subtitle) msgLines.push(subtitle);
+                  msgLines.push("");
+                  if (res?.meetingUrl) {
+                    msgLines.push(`Join with this link: ${res.meetingUrl}`);
+                  } else {
+                    msgLines.push("Check your inbox for the invite.");
+                  }
 
-                    const lines: string[] = [
-                      `✅ You’re booked with ${repDisplayName}`,
-                    ];
-                    if (subtitle) {
-                      lines.push(subtitle);
-                    }
-                    lines.push("");
-                    if (res?.meetingUrl) {
-                      lines.push(`Join with this link: ${res.meetingUrl}`);
-                    } else {
-                      lines.push("Check your inbox for the invite.");
-                    }
+                  const msgText = msgLines.join("\n");
 
-                    const msgText = lines.join("\n");
-
-                    setLocalMsgs((m) => [
-                      ...m,
-                      {
-                        role: "assistant",
-                        text: msgText,
-                      },
-                    ]);
-                    setSlots(null);
-                    setStep("done");
-                  }}
-                />
-              )}
-            </>
+                  setLocalMsgs((m) => [
+                    ...m,
+                    {
+                      role: "assistant",
+                      text: msgText,
+                    },
+                  ]);
+                  setSlots(null);
+                  setStep("done");
+                }}
+                onBack={() => {
+                  setStep("pick_rep");
+                }}
+              />
+            </div>
           )}
 
           {/* Card de confirmation avec avatar du rep */}
@@ -1041,7 +1101,11 @@ export const WidgetChatScreen = () => {
                     />
                   ) : (
                     <span className="text-sm font-medium">
-                      {(selectedRep.name || selectedRep.title || "S")[0]?.toUpperCase()}
+                      {(
+                        selectedRep.name ||
+                        selectedRep.title ||
+                        "S"
+                      )[0]?.toUpperCase()}
                     </span>
                   )}
                 </div>
@@ -1066,8 +1130,6 @@ export const WidgetChatScreen = () => {
               </div>
             </div>
           )}
-
-
         </AIConversationContent>
       </AIConversation>
 
