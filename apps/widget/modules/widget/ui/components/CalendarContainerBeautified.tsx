@@ -21,7 +21,7 @@ export default function CalendarContainerBeautified({
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
-  /* ---------------- LOADING ---------------- */
+  /* ---------------- LOADING / EMPTY ---------------- */
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -30,7 +30,6 @@ export default function CalendarContainerBeautified({
     );
   }
 
-  /* ---------------- NO SLOTS ---------------- */
   if (!slots || slots.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -39,13 +38,16 @@ export default function CalendarContainerBeautified({
     );
   }
 
-  /* ---------------- PROCESSING SLOTS ---------------- */
+  /* ---------------- PREP SLOTS SAFELY ---------------- */
+
+  // Deduplicate
   const uniq: Slot[] = Array.from(
     new Map<string, Slot>(
       slots.map((s: Slot) => [`${s.start}-${s.end}`, s])
     ).values()
   );
 
+  // Group by day
   const grouped: Record<string, Slot[]> = {};
   uniq.forEach((s: Slot) => {
     const d = formatDay(s.start);
@@ -53,43 +55,68 @@ export default function CalendarContainerBeautified({
     grouped[d].push(s);
   });
 
-  const days = Object.keys(grouped);
+  const days: string[] = Object.keys(grouped);
+
+  // Avoid undefined
   const safeIndex = Math.min(activeIndex, days.length - 1);
+
   const currentDay: string = days[safeIndex] ?? "";
   const currentSlots: Slot[] = grouped[currentDay] ?? [];
 
-  /* ---------------- RENDER ---------------- */
+  /* ---------------- UI ---------------- */
+
   return (
-    <div className="w-full h-full flex flex-col gap-4">
+    <div className="w-full flex flex-col gap-4">
 
-      {/* --------- CARD WRAPPER --------- */}
-      <div className="bg-white rounded-xl shadow-sm border p-5">
+      {/* HEADER — Sales info like Calendly */}
+      <div className="flex items-center gap-3">
+        <img
+          src={rep.avatarUrl || ""}
+          className="w-12 h-12 rounded-full object-cover bg-muted"
+        />
+        <div className="flex flex-col">
+          <span className="font-semibold text-base">{rep.name}</span>
+          <span className="text-xs text-muted-foreground">
+            {[rep.title, rep.regions?.join(", ")].filter(Boolean).join(" • ")}
+          </span>
+          <span className="text-[11px] text-muted-foreground mt-1">
+            Your timezone:{" "}
+            {new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).format(
+              new Date()
+            )}
+          </span>
+        </div>
+      </div>
 
-        {/* Header */}
-        <h3 className="text-lg font-semibold mb-1">Pick a time</h3>
-        <p className="text-xs text-muted-foreground mb-4">
-          Times shown in your local timezone.
-        </p>
+      {/* BACK BUTTON */}
+      <button
+        onClick={onBack}
+        className="text-xs underline text-muted-foreground w-fit"
+      >
+        ← Change sales rep
+      </button>
 
-        {/* DAYS TABS */}
-        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1 mb-4">
-          {days.map((day, idx) => {
-            const active = idx === safeIndex;
+      {/* CALENDAR CARD */}
+      <div className="bg-white rounded-lg border shadow-sm p-4">
+
+        {/* DAYS */}
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-3">
+          {days.map((day: string, idx: number) => {
             const [weekday, ...rest] = day.split(" ");
+            const active = idx === safeIndex;
 
             return (
               <button
                 key={day}
                 onClick={() => setActiveIndex(idx)}
                 className={[
-                  "min-w-[100px] rounded-full px-4 py-2 text-left border transition-all",
-                  "flex flex-col justify-center shadow-sm",
+                  "min-w-[95px] rounded-full px-3 py-2 border text-left transition",
                   active
-                    ? "bg-primary text-primary-foreground border-primary scale-[1.02]"
-                    : "bg-white hover:bg-accent text-foreground",
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    : "bg-white hover:bg-accent",
                 ].join(" ")}
               >
-                <div className="uppercase text-[10px] font-semibold tracking-wide">
+                <div className="uppercase text-[11px] tracking-wide font-medium">
                   {weekday}
                 </div>
                 <div className="text-sm font-semibold">{rest.join(" ")}</div>
@@ -98,28 +125,26 @@ export default function CalendarContainerBeautified({
           })}
         </div>
 
-        {/* TIME SLOTS */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {currentSlots.map((slot, idx) => (
+        {/* SLOTS */}
+        <div className="grid grid-cols-2 gap-2">
+          {currentSlots.map((slot: Slot, idx: number) => (
             <button
               key={`${slot.start}-${slot.end}-${idx}`}
               onClick={() => onPick(slot)}
-              className="rounded-xl border px-4 py-3 text-sm bg-white 
-                         hover:bg-primary hover:text-white 
-                         shadow-sm transition-all active:scale-[0.97]"
+              className="rounded-lg border px-3 py-2 bg-white hover:bg-primary hover:text-primary-foreground shadow-sm transition text-sm"
             >
-              <div className="font-medium">
-                {formatTime(slot.start)} – {formatTime(slot.end)}
-              </div>
+              {formatTime(slot.start)} – {formatTime(slot.end)}
             </button>
           ))}
         </div>
+
       </div>
     </div>
   );
 }
 
 /* ---------------- HELPERS ---------------- */
+
 function formatDay(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
     weekday: "short",
