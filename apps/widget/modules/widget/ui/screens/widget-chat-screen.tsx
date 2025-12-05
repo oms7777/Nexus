@@ -522,8 +522,7 @@ export const WidgetChatScreen = () => {
       const s = await listSlots({
         organizationId,
         userId: rep.userId, // slots spécifiques à ce sales
-        days: 7,
-        slotMinutes: 30,
+        days: 21,
       });
       setSlots(s);
     } finally {
@@ -583,8 +582,7 @@ export const WidgetChatScreen = () => {
         const s = await listSlots({
           organizationId,
           userId: calendarAccount.userId,
-          days: 7,
-          slotMinutes: 30,
+          days: 21,
         });
         setSlots(s);
       } finally {

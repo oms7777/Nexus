@@ -75,7 +75,7 @@ export const listSlots = action({
     organizationId: v.string(),
     userId: v.optional(v.string()), // <- rep choisi (obligatoire côté widget)
     days: v.number(), // ex. 7
-    slotMinutes: v.number(), // ex. 30
+    slotMinutes: v.optional(v.number()), // ex. 30
   },
   handler: async (ctx, { organizationId, userId, days, slotMinutes }) => {
     // 1) account + settings via queries publiques
@@ -100,8 +100,18 @@ export const listSlots = action({
         { day: 5, start: "09:00", end: "17:00" },
       ];
 
-    const durationMin = settings?.durationMin ?? slotMinutes;
+    // durée d’un meeting choisie par le rep dans /me/calendar
+    const durationMin =
+      settings?.durationMin       // 1) valeur définie dans la page Calendar
+      ?? slotMinutes              // 2) éventuel override passé par l'appelant
+      ?? 30;                      // 3) fallback
+
     const bufferMin = settings?.bufferMin ?? 0;
+
+    // On veut que chaque créneau = 1 meeting → step = duration
+    const durationMs = durationMin * 60 * 1000;
+    const stepMs = durationMs;
+    const bufferMs = bufferMin * 60 * 1000;
 
     // 2) périodes occupées Google (NO-AUTH variant)
     const now = Date.now();
@@ -146,9 +156,6 @@ export const listSlots = action({
       return { startMs: mkTs(rec.start), endMs: mkTs(rec.end) };
     };
 
-    const stepMs = slotMinutes * 60 * 1000;
-    const durationMs = durationMin * 60 * 1000;
-    const bufferMs = bufferMin * 60 * 1000;
 
     for (let i = 0; i < days; i++) {
       const day = new Date(now + i * 24 * 60 * 60 * 1000);
@@ -176,7 +183,7 @@ export const listSlots = action({
         meta: {
           count: Math.min(slots.length, 50),
           days,
-          slotMinutes,
+          slotMinutes: durationMin,
           userId: acct.userId,
         },
       });
