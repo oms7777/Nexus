@@ -89,10 +89,10 @@ function formatDay(ts: number) {
     month: "short",
   });
 }
-function formatSlot(ts: number) {
-  return new Date(ts).toLocaleString([], {
-    dateStyle: "medium",
-    timeStyle: "short",
+function formatSlotTime(ts: number) {
+  return new Date(ts).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -103,6 +103,8 @@ function SlotsByDay({
   slots: Slot[];
   onPick: (s: Slot) => void;
 }) {
+  const [activeIndex, setActiveIndex] = useState<number>(0);
+
   if (!slots.length) {
     return (
       <div className="p-3 text-sm text-muted-foreground">
@@ -110,37 +112,90 @@ function SlotsByDay({
       </div>
     );
   }
-  const uniq = Array.from(
-    new Map(slots.map((s) => [`${s.start}-${s.end}`, s])).values(),
+
+  // ✔ Dédupe safe
+  const uniq: Slot[] = Array.from(
+    new Map(slots.map((s: Slot) => [`${s.start}-${s.end}`, s])).values()
   );
-  const grouped = uniq.reduce<Record<string, Slot[]>>((acc, s) => {
-    const k = formatDay(s.start);
-    (acc[k] ||= []).push(s);
-    return acc;
-  }, {});
+
+  // ✔ Group by formatted day
+  const grouped: Record<string, Slot[]> = uniq.reduce(
+    (acc: Record<string, Slot[]>, s: Slot) => {
+      const k = formatDay(s.start);
+      if (!acc[k]) acc[k] = [];
+      acc[k].push(s);
+      return acc;
+    },
+    {}
+  );
+
+  const dayOrder: string[] = Object.keys(grouped);
+
+  if (dayOrder.length === 0) {
+    return (
+      <div className="p-3 text-sm text-muted-foreground">
+        No availability found.
+      </div>
+    );
+  }
+
+  // ✔ Plus d'undefined ici !
+  const safeIndex = Math.min(activeIndex, dayOrder.length - 1);
+  const currentDayKey: string = dayOrder[safeIndex] ?? "";
+  const currentSlots: Slot[] = grouped[currentDayKey] ?? [];
+
   return (
     <div className="space-y-3 p-3">
-      {Object.entries(grouped).map(([day, list]) => (
-        <div key={day}>
-          <div className="px-1 pb-1 text-xs uppercase tracking-wide text-muted-foreground">
-            {day}
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {list.map((s, i) => (
-              <button
-                key={`${s.start}-${s.end}-${i}`}
-                className="rounded-lg border px-4 py-3 text-sm shadow-sm hover:shadow transition active:scale-[0.99] bg-background hover:bg-accent"
-                onClick={() => onPick(s)}
-              >
-                {formatSlot(s.start)}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
+
+      {/* ---------- Bandeau de jours ---------- */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        {dayOrder.map((day: string, idx: number) => {
+          const isActive = idx === safeIndex;
+          const [weekday, ...rest] = day.split(" ");
+          return (
+            <button
+              key={day}
+              type="button"
+              onClick={() => setActiveIndex(idx)}
+              className={[
+                "min-w-[96px] rounded-lg border px-3 py-2 text-left text-xs font-medium transition",
+                "flex flex-col justify-center",
+                isActive
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "bg-background hover:bg-accent text-foreground",
+              ].join(" ")}
+            >
+              <span className="uppercase tracking-wide">{weekday}</span>
+              <span className="text-sm font-semibold">{rest.join(" ")}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ---------- Créneaux ---------- */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {currentSlots.map((s: Slot, i: number) => (
+          <button
+            key={`${s.start}-${s.end}-${i}`}
+            type="button"
+            className="rounded-lg border px-3 py-2 text-sm shadow-sm hover:shadow transition active:scale-[0.99] bg-background hover:bg-accent"
+            onClick={() => onPick(s)}
+          >
+            <div className="font-medium">
+              {formatSlotTime(s.start)} – {formatSlotTime(s.end)}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground">
+        Times shown in your local timezone.
+      </p>
     </div>
   );
 }
+
+
 
 function ConsentInlineModal({
   triggerLabel,
