@@ -201,7 +201,7 @@ export const listSlots = action({
         organizationId,
         type: "calendar_slots_loaded",
         meta: {
-          count: Math.min(slots.length, 50),
+          count: Math.min(slots.length, 200),
           days,
           slotMinutes: durationMin,
           userId: acct.userId,
@@ -211,7 +211,7 @@ export const listSlots = action({
       console.log("analytics.log(calendar_slots_loaded) failed:", e);
     }
 
-    return slots.slice(0, 50);
+    return slots;
   },
 });
 
