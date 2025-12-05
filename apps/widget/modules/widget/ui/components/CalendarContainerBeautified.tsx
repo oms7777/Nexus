@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { PublicRep } from "../screens/widget-chat-screen";
 
-
 type Slot = { start: number; end: number };
 
 export default function CalendarContainerBeautified({
@@ -21,7 +20,7 @@ export default function CalendarContainerBeautified({
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
-  /* ---------------- LOADING / EMPTY ---------------- */
+  /* Loading */
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -30,6 +29,7 @@ export default function CalendarContainerBeautified({
     );
   }
 
+  /* No slots */
   if (!slots || slots.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -38,16 +38,13 @@ export default function CalendarContainerBeautified({
     );
   }
 
-  /* ---------------- PREP SLOTS SAFELY ---------------- */
-
-  // Deduplicate
+  /* Process slots */
   const uniq: Slot[] = Array.from(
     new Map<string, Slot>(
-      slots.map((s: Slot) => [`${s.start}-${s.end}`, s])
+      slots.map((s) => [`${s.start}-${s.end}`, s])
     ).values()
   );
 
-  // Group by day
   const grouped: Record<string, Slot[]> = {};
   uniq.forEach((s: Slot) => {
     const d = formatDay(s.start);
@@ -55,96 +52,87 @@ export default function CalendarContainerBeautified({
     grouped[d].push(s);
   });
 
-  const days: string[] = Object.keys(grouped);
-
-  // Avoid undefined
+  const days = Object.keys(grouped);
   const safeIndex = Math.min(activeIndex, days.length - 1);
 
   const currentDay: string = days[safeIndex] ?? "";
   const currentSlots: Slot[] = grouped[currentDay] ?? [];
 
-  /* ---------------- UI ---------------- */
-
   return (
-    <div className="w-full flex flex-col gap-4">
+    <div className="w-full flex flex-col gap-3">
 
-      {/* HEADER — Sales info like Calendly */}
-      <div className="flex items-center gap-3">
+      {/* Header */}
+      <div className="flex flex-col items-center text-center mb-2">
         <img
           src={rep.avatarUrl || ""}
-          className="w-12 h-12 rounded-full object-cover bg-muted"
+          className="w-14 h-14 rounded-full object-cover mb-2"
         />
-        <div className="flex flex-col">
-          <span className="font-semibold text-base">{rep.name}</span>
-          <span className="text-xs text-muted-foreground">
-            {[rep.title, rep.regions?.join(", ")].filter(Boolean).join(" • ")}
-          </span>
-          <span className="text-[11px] text-muted-foreground mt-1">
-            Your timezone:{" "}
-            {new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).format(
-              new Date()
-            )}
-          </span>
+
+        <div className="text-base font-semibold">{rep.name}</div>
+
+        <div className="text-xs text-muted-foreground">
+          {[rep.title, rep.regions?.join(", ")].filter(Boolean).join(" • ")}
         </div>
+
+        <button
+          onClick={onBack}
+          className="text-[11px] underline text-muted-foreground mt-2"
+        >
+          ← Change sales rep
+        </button>
       </div>
 
-      {/* BACK BUTTON */}
-      <button
-        onClick={onBack}
-        className="text-xs underline text-muted-foreground w-fit"
-      >
-        ← Change sales rep
-      </button>
+      {/* Calendar Box */}
+      <div className="bg-white border rounded-xl p-3 shadow-sm">
 
-      {/* CALENDAR CARD */}
-      <div className="bg-white rounded-lg border shadow-sm p-4">
-
-        {/* DAYS */}
+        {/* Days (Calendly style compact) */}
         <div className="flex gap-2 overflow-x-auto pb-1 mb-3">
-          {days.map((day: string, idx: number) => {
-            const [weekday, ...rest] = day.split(" ");
+          {days.map((day, idx) => {
             const active = idx === safeIndex;
+            const [weekday, ...rest] = day.split(" ");
 
             return (
               <button
                 key={day}
                 onClick={() => setActiveIndex(idx)}
                 className={[
-                  "min-w-[95px] rounded-full px-3 py-2 border text-left transition",
+                  "min-w-[85px] rounded-full px-3 py-1.5 border text-left transition",
+                  "flex flex-col justify-center",
                   active
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    ? "bg-primary text-white border-primary"
                     : "bg-white hover:bg-accent",
                 ].join(" ")}
+                style={{ fontSize: "11px" }}
               >
-                <div className="uppercase text-[11px] tracking-wide font-medium">
+                <span className="uppercase text-[10px] font-medium tracking-wide">
                   {weekday}
-                </div>
-                <div className="text-sm font-semibold">{rest.join(" ")}</div>
+                </span>
+                <span className="text-[13px] font-semibold">{rest.join(" ")}</span>
               </button>
             );
           })}
         </div>
 
-        {/* SLOTS */}
+        {/* Slots (compact, like Calendly) */}
         <div className="grid grid-cols-2 gap-2">
-          {currentSlots.map((slot: Slot, idx: number) => (
+          {currentSlots.map((slot, idx) => (
             <button
               key={`${slot.start}-${slot.end}-${idx}`}
               onClick={() => onPick(slot)}
-              className="rounded-lg border px-3 py-2 bg-white hover:bg-primary hover:text-primary-foreground shadow-sm transition text-sm"
+              className="rounded-lg border px-3 py-2 text-xs shadow-sm 
+                         hover:bg-primary hover:text-white transition"
+              style={{ fontSize: "13px" }}
             >
               {formatTime(slot.start)} – {formatTime(slot.end)}
             </button>
           ))}
         </div>
-
       </div>
     </div>
   );
 }
 
-/* ---------------- HELPERS ---------------- */
-
+/* Helpers */
 function formatDay(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
     weekday: "short",
