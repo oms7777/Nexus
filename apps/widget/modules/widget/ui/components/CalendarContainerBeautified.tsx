@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PublicRep } from "../screens/widget-chat-screen";
+import type { PublicRep } from "../screens/widget-chat-screen";
 
 type Slot = { start: number; end: number };
 
@@ -20,28 +20,28 @@ export default function CalendarContainerBeautified({
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
-  /* Loading */
+  /* ---------------- LOADING ---------------- */
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
         Loading availability…
       </div>
     );
   }
 
-  /* No slots */
+  /* ---------------- NO SLOTS ---------------- */
   if (!slots || slots.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
         No availability found.
       </div>
     );
   }
 
-  /* Process slots */
+  /* ---------------- PROCESS SLOTS ---------------- */
   const uniq: Slot[] = Array.from(
     new Map<string, Slot>(
-      slots.map((s) => [`${s.start}-${s.end}`, s])
+      slots.map((s: Slot) => [`${s.start}-${s.end}`, s])
     ).values()
   );
 
@@ -52,87 +52,100 @@ export default function CalendarContainerBeautified({
     grouped[d].push(s);
   });
 
-  const days = Object.keys(grouped);
+  const days: string[] = Object.keys(grouped);
   const safeIndex = Math.min(activeIndex, days.length - 1);
-
   const currentDay: string = days[safeIndex] ?? "";
   const currentSlots: Slot[] = grouped[currentDay] ?? [];
 
+  /* ---------------- RENDER ---------------- */
   return (
     <div className="w-full flex flex-col gap-3">
 
-      {/* Header */}
-      <div className="flex flex-col items-center text-center mb-2">
-        <img
-          src={rep.avatarUrl || ""}
-          className="w-14 h-14 rounded-full object-cover mb-2"
-        />
-
-        <div className="text-base font-semibold">{rep.name}</div>
-
-        <div className="text-xs text-muted-foreground">
-          {[rep.title, rep.regions?.join(", ")].filter(Boolean).join(" • ")}
+      {/* --------- HEADER REP (compact) --------- */}
+      <div className="flex flex-col items-center text-center">
+        {rep.avatarUrl && (
+          <img
+            src={rep.avatarUrl}
+            alt={rep.name ?? rep.userId}
+            className="w-14 h-14 rounded-full object-cover mb-2"
+          />
+        )}
+        <div className="text-sm font-semibold">
+          {rep.name || "Your expert"}
         </div>
-
+        <div className="text-[11px] text-muted-foreground">
+          {[rep.title, rep.regions?.join(", ")]
+            .filter(Boolean)
+            .join(" • ")}
+        </div>
         <button
           onClick={onBack}
-          className="text-[11px] underline text-muted-foreground mt-2"
+          className="mt-1 text-[11px] underline text-muted-foreground"
         >
           ← Change sales rep
         </button>
       </div>
 
-      {/* Calendar Box */}
-      <div className="bg-white border rounded-xl p-3 shadow-sm">
+      {/* --------- CALENDAR BOX (mode Calendly compact) --------- */}
+      <div className="rounded-lg border bg-white px-3 py-2 shadow-sm">
 
-        {/* Days (Calendly style compact) */}
-        <div className="flex gap-2 overflow-x-auto pb-1 mb-3">
-          {days.map((day, idx) => {
+        {/* Days row */}
+        <div className="flex gap-1 overflow-x-auto pb-1 mb-2">
+          {days.map((day: string, idx: number) => {
             const active = idx === safeIndex;
             const [weekday, ...rest] = day.split(" ");
 
             return (
               <button
                 key={day}
+                type="button"
                 onClick={() => setActiveIndex(idx)}
                 className={[
-                  "min-w-[85px] rounded-full px-3 py-1.5 border text-left transition",
+                  "min-w-[78px] rounded-full px-3 py-1 border text-left transition",
                   "flex flex-col justify-center",
                   active
-                    ? "bg-primary text-white border-primary"
-                    : "bg-white hover:bg-accent",
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-white hover:bg-accent text-foreground",
                 ].join(" ")}
-                style={{ fontSize: "11px" }}
               >
-                <span className="uppercase text-[10px] font-medium tracking-wide">
+                <span className="uppercase text-[9px] font-medium tracking-wide leading-none">
                   {weekday}
                 </span>
-                <span className="text-[13px] font-semibold">{rest.join(" ")}</span>
+                <span className="text-[12px] font-semibold leading-tight">
+                  {rest.join(" ")}
+                </span>
               </button>
             );
           })}
         </div>
 
-        {/* Slots (compact, like Calendly) */}
-        <div className="grid grid-cols-2 gap-2">
-          {currentSlots.map((slot, idx) => (
-            <button
-              key={`${slot.start}-${slot.end}-${idx}`}
-              onClick={() => onPick(slot)}
-              className="rounded-lg border px-3 py-2 text-xs shadow-sm 
-                         hover:bg-primary hover:text-white transition"
-              style={{ fontSize: "13px" }}
-            >
-              {formatTime(slot.start)} – {formatTime(slot.end)}
-            </button>
-          ))}
+        {/* Slots list → compact, comme Calendly */}
+        <div className="max-h-52 overflow-y-auto pr-1">
+          <div className="grid grid-cols-2 gap-2">
+            {currentSlots.map((slot: Slot, idx: number) => (
+              <button
+                key={`${slot.start}-${slot.end}-${idx}`}
+                type="button"
+                onClick={() => onPick(slot)}
+                className="rounded-lg border px-3 py-2 text-[12px] leading-tight
+                           bg-white hover:bg-primary hover:text-primary-foreground
+                           shadow-sm transition active:scale-[0.98]"
+              >
+                {formatTime(slot.start)} – {formatTime(slot.end)}
+              </button>
+            ))}
+          </div>
         </div>
+
+        <p className="mt-2 text-[10px] text-muted-foreground text-center">
+          Times shown in your local timezone.
+        </p>
       </div>
     </div>
   );
 }
 
-/* Helpers */
+/* ---------------- HELPERS ---------------- */
 function formatDay(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
     weekday: "short",
