@@ -13,27 +13,47 @@ export const getAccount = query({
     userId: v.optional(v.string()), // <- rep précis (Clerk userId)
   },
   handler: async (ctx, { organizationId, userId }) => {
-    let acct;
+    let acct: { userId: string; email?: string } | null = null;
+
     if (userId) {
-      // Cas normal : on vise un rep précis
-      acct = await ctx.db
+      // 1) On tente d'abord le compte du rep
+      const byUser = await ctx.db
         .query("calendarAccounts")
         .withIndex("by_org_user", (q) =>
-          q.eq("organizationId", organizationId).eq("userId", userId)
+          q.eq("organizationId", organizationId).eq("userId", userId),
         )
         .unique();
+
+      if (byUser) {
+        acct = byUser;
+      } else {
+        // 2) Fallback back-compat : on prend "le" compte de l’org
+        const byOrg = await ctx.db
+          .query("calendarAccounts")
+          .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+          .first();
+
+        if (byOrg) {
+          acct = byOrg;
+        }
+      }
     } else {
-      // Back-compat : on prend "le" compte de l'org
-      acct = await ctx.db
+      // Cas ancien : on ne regarde que l’org
+      const byOrg = await ctx.db
         .query("calendarAccounts")
         .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
         .first();
+
+      if (byOrg) {
+        acct = byOrg;
+      }
     }
 
     if (!acct) return null;
     return { userId: acct.userId, email: acct.email ?? "" };
   },
 });
+
 
 /* -------------------------------------------------------------
  * Settings (B-version) pour un user (rep) dans une org
