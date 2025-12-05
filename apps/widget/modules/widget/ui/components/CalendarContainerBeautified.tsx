@@ -21,6 +21,7 @@ export default function CalendarContainerBeautified({
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
+  /* ---------------- LOADING ---------------- */
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -29,6 +30,7 @@ export default function CalendarContainerBeautified({
     );
   }
 
+  /* ---------------- NO SLOTS ---------------- */
   if (!slots || slots.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -37,12 +39,13 @@ export default function CalendarContainerBeautified({
     );
   }
 
-  // Deduplicate with correct typing
+  /* ---------------- PROCESSING SLOTS ---------------- */
   const uniq: Slot[] = Array.from(
-    new Map<string, Slot>(slots.map((s: Slot) => [`${s.start}-${s.end}`, s])).values()
+    new Map<string, Slot>(
+      slots.map((s: Slot) => [`${s.start}-${s.end}`, s])
+    ).values()
   );
 
-  // Group slots by day
   const grouped: Record<string, Slot[]> = {};
   uniq.forEach((s: Slot) => {
     const d = formatDay(s.start);
@@ -50,68 +53,73 @@ export default function CalendarContainerBeautified({
     grouped[d].push(s);
   });
 
-  const days: string[] = Object.keys(grouped);
-
-  // Avoid undefined index
+  const days = Object.keys(grouped);
   const safeIndex = Math.min(activeIndex, days.length - 1);
-
-  // Force type → plus d’erreur “undefined cannot be used as index type”
   const currentDay: string = days[safeIndex] ?? "";
   const currentSlots: Slot[] = grouped[currentDay] ?? [];
 
+  /* ---------------- RENDER ---------------- */
   return (
-    <div className="h-full flex flex-col p-3">
+    <div className="w-full h-full flex flex-col gap-4">
 
-      {/* Header */}
-      <div className="mb-3">
-        <h3 className="text-base font-semibold">Pick a time</h3>
-        <p className="text-xs text-muted-foreground">
+      {/* --------- CARD WRAPPER --------- */}
+      <div className="bg-white rounded-xl shadow-sm border p-5">
+
+        {/* Header */}
+        <h3 className="text-lg font-semibold mb-1">Pick a time</h3>
+        <p className="text-xs text-muted-foreground mb-4">
           Times shown in your local timezone.
         </p>
-      </div>
 
-      {/* Days */}
-      <div className="flex gap-2 overflow-x-auto pb-1 mb-3">
-        {days.map((day: string, idx: number) => {
-          const active = idx === safeIndex;
-          const [weekday, ...rest] = day.split(" ");
+        {/* DAYS TABS */}
+        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1 mb-4">
+          {days.map((day, idx) => {
+            const active = idx === safeIndex;
+            const [weekday, ...rest] = day.split(" ");
 
-          return (
+            return (
+              <button
+                key={day}
+                onClick={() => setActiveIndex(idx)}
+                className={[
+                  "min-w-[100px] rounded-full px-4 py-2 text-left border transition-all",
+                  "flex flex-col justify-center shadow-sm",
+                  active
+                    ? "bg-primary text-primary-foreground border-primary scale-[1.02]"
+                    : "bg-white hover:bg-accent text-foreground",
+                ].join(" ")}
+              >
+                <div className="uppercase text-[10px] font-semibold tracking-wide">
+                  {weekday}
+                </div>
+                <div className="text-sm font-semibold">{rest.join(" ")}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* TIME SLOTS */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {currentSlots.map((slot, idx) => (
             <button
-              key={day}
-              onClick={() => setActiveIndex(idx)}
-              className={[
-                "min-w-[110px] rounded-xl px-3 py-2 text-left transition border",
-                active
-                  ? "bg-primary border-primary text-primary-foreground shadow"
-                  : "bg-background hover:bg-accent text-foreground",
-              ].join(" ")}
+              key={`${slot.start}-${slot.end}-${idx}`}
+              onClick={() => onPick(slot)}
+              className="rounded-xl border px-4 py-3 text-sm bg-white 
+                         hover:bg-primary hover:text-white 
+                         shadow-sm transition-all active:scale-[0.97]"
             >
-              <div className="uppercase text-[11px] tracking-wide">{weekday}</div>
-              <div className="font-semibold text-sm">{rest.join(" ")}</div>
+              <div className="font-medium">
+                {formatTime(slot.start)} – {formatTime(slot.end)}
+              </div>
             </button>
-          );
-        })}
-      </div>
-
-      {/* Slots */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 overflow-y-auto pr-1">
-        {currentSlots.map((slot: Slot, idx: number) => (
-          <button
-            key={`${slot.start}-${slot.end}-${idx}`}
-            onClick={() => onPick(slot)}
-            className="rounded-lg border px-3 py-2 text-sm shadow-sm hover:shadow transition active:scale-[0.98] bg-background hover:bg-accent"
-          >
-            <div className="font-medium">
-              {formatTime(slot.start)} – {formatTime(slot.end)}
-            </div>
-          </button>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
+/* ---------------- HELPERS ---------------- */
 function formatDay(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
     weekday: "short",
