@@ -2,6 +2,7 @@ import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
 import { initVisitorTracking } from "./visitor-tracker";
 
+const NUDGE_ENABLED = false; 
 
 (function () {
   // DOM
@@ -130,7 +131,7 @@ import { initVisitorTracking } from "./visitor-tracker";
     window.addEventListener("scroll", placeNudge, { passive: true });
 
     // 🔥 Fallback instantané (aucun délai) — remplacé dès réception de nexus:promo
-    if (!nudgeDismissed) {
+    if (NUDGE_ENABLED && !nudgeDismissed) {
       renderNudge(localFallback());
     }
   }
@@ -157,12 +158,18 @@ import { initVisitorTracking } from "./visitor-tracker";
         break;
 
       case "nexus:promo":
-        // L’iframe envoie la promo personnalisée → on remplace le contenu du nudge
-        hasPromoPayload = true;
+        // L’iframe envoie la promo… on l’ACK mais on n’affiche rien si le nudge est off
         iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, TARGET_ORIGIN);
-        renderNudge(payload);
-        iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, TARGET_ORIGIN);
+        iframe?.contentWindow?.postMessage(
+          { type: "nexus:hide-internal-promo" },
+          TARGET_ORIGIN
+        );
+        if (NUDGE_ENABLED) {
+          hasPromoPayload = true;
+          renderNudge(payload);
+        }
         break;
+
 
       case "nexus:session-ready": {
         if (!organizationId) return;
