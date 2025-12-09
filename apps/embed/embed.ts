@@ -317,6 +317,8 @@ type PromoPayload = {
     const primaryTextColor = palette.primaryTextColor || "#ffffff";
     const secondaryColor = palette.secondaryColor || "#ffffff";
     const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
+    const secondaryTextColor = palette.primaryTextColor || "#111827";
+
 
     if (!nudge) {
       nudge = document.createElement("div");
@@ -453,7 +455,7 @@ type PromoPayload = {
                         padding:0 12px;
                         border-radius:8px;
                         background:${secondaryColor};
-                        color:#111827;
+                        color:${secondaryTextColor};
                         border:1px solid #e5e7eb;
                         cursor:pointer;
                         font-weight:600;

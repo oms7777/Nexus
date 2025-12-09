@@ -1,3 +1,5 @@
+"use client";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "@workspace/backend/_generated/api";
 import { Doc } from "@workspace/backend/_generated/dataModel";
@@ -22,7 +24,7 @@ import { Input } from "@workspace/ui/components/input";
 import { Separator } from "@workspace/ui/components/separator";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { Switch } from "@workspace/ui/components/switch";
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import z from "zod";
@@ -43,6 +45,7 @@ export const CustomizationForm = ({
   hasVapiPlugin,
 }: CustomizationFormProps) => {
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
+  const addFile = useAction(api.private.files.addFile);
 
   const form = useForm<FormSchema>({
     resolver: zodResolver(widgetSettingsSchema) as any,
@@ -93,6 +96,43 @@ export const CustomizationForm = ({
       },
     },
   });
+
+  const logoUrl = form.watch("brandLogoUrl");
+  const consentEnabled = form.watch("consent")?.enabled ?? true;
+  const linkMode = form.watch("consent")?.linkMode ?? "link";
+  const submitting = form.formState.isSubmitting;
+
+  // ---- Upload logo file → Convex storage → set brandLogoUrl ----
+  const onSelectLogoFile = async (file?: File) => {
+    if (!file) return;
+
+    try {
+      const bytes = await file.arrayBuffer();
+
+      const { url } = await addFile({
+        filename: file.name,
+        mimeType: file.type || "application/octet-stream",
+        bytes,
+        // on réutilise la même catégorie que l’avatar pour rester compatible
+        category: "avatar",
+      });
+
+      if (!url) {
+        toast.error("Upload failed — no URL returned");
+        return;
+      }
+
+      form.setValue("brandLogoUrl", url, {
+        shouldDirty: true,
+        shouldTouch: true,
+      });
+
+      toast.success("Logo uploaded — don’t forget to Save settings");
+    } catch (err) {
+      console.error(err);
+      toast.error("Logo upload failed");
+    }
+  };
 
   const onSubmit: SubmitHandler<FormSchema> = async (values) => {
     try {
@@ -156,10 +196,6 @@ export const CustomizationForm = ({
     toast.error("Validation error — check highlighted fields");
   };
 
-  const consentEnabled = form.watch("consent")?.enabled ?? true;
-  const linkMode = form.watch("consent")?.linkMode ?? "link";
-  const submitting = form.formState.isSubmitting;
-
   return (
     <Form {...(form as any)}>
       <form
@@ -175,12 +211,13 @@ export const CustomizationForm = ({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* Logo: URL + upload + preview */}
             <FormField
               control={form.control as any}
               name="brandLogoUrl"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Logo URL</FormLabel>
+                <FormItem className="space-y-3">
+                  <FormLabel>Logo</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -188,13 +225,51 @@ export const CustomizationForm = ({
                     />
                   </FormControl>
                   <FormDescription>
-                    Used in the chat header and promo nudge. PNG/SVG recommended.
+                    Used in the chat header, promo nudge and chat bubble.
+                    PNG/SVG with transparent background recommended.
                   </FormDescription>
+
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1">
+                      <FormLabel className="text-xs font-normal">
+                        Or upload a logo file
+                      </FormLabel>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) =>
+                          onSelectLogoFile(e.target.files?.[0] ?? undefined)
+                        }
+                        className="max-w-xs"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        JPG / PNG / SVG. Square or horizontal works best.
+                      </p>
+                    </div>
+
+                    {logoUrl ? (
+                      <div className="flex flex-col items-end gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          Preview
+                        </span>
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full border bg-muted/40 p-1">
+                          <img
+                            src={logoUrl}
+                            alt="Logo preview"
+                            className="max-h-full max-w-full object-contain"
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
                   <FormMessage />
                 </FormItem>
               )}
             />
+
             <Separator />
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <FormField
                 control={form.control as any}
@@ -337,8 +412,8 @@ export const CustomizationForm = ({
                     />
                   </FormControl>
                   <FormDescription>
-                    The first message customers see when they open the chat
-                    (hors flow booking).
+                    The first message customers see when they open the chat (hors
+                    flow booking).
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -348,7 +423,7 @@ export const CustomizationForm = ({
             <div className="space-y-4">
               <div>
                 <h3 className="mb-4 text-sm">Default suggestions</h3>
-                <p className="mb-4 text-muted-foreground text-sm">
+                <p className="mb-4 text-sm text-muted-foreground">
                   Quick reply suggestions shown to customers to help guide the
                   conversation
                 </p>
@@ -411,7 +486,9 @@ export const CustomizationForm = ({
         <Card>
           <CardHeader>
             <CardTitle>Consent Block</CardTitle>
-            <CardDescription>Shown when user starts a booking flow.</CardDescription>
+            <CardDescription>
+              Shown when user starts a booking flow.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <FormField
@@ -421,7 +498,10 @@ export const CustomizationForm = ({
                 <FormItem className="flex items-center justify-between">
                   <FormLabel>Enable consent card</FormLabel>
                   <FormControl>
-                    <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                    <Switch
+                      checked={!!field.value}
+                      onCheckedChange={field.onChange}
+                    />
                   </FormControl>
                 </FormItem>
               )}
@@ -448,7 +528,11 @@ export const CustomizationForm = ({
                   <FormItem>
                     <FormLabel>Version</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="v1.0" disabled={!consentEnabled} />
+                      <Input
+                        {...field}
+                        placeholder="v1.0"
+                        disabled={!consentEnabled}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -462,7 +546,11 @@ export const CustomizationForm = ({
                   <FormItem className="md:col-span-2">
                     <FormLabel>Intro</FormLabel>
                     <FormControl>
-                      <Textarea rows={2} {...field} disabled={!consentEnabled} />
+                      <Textarea
+                        rows={2}
+                        {...field}
+                        disabled={!consentEnabled}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -475,7 +563,11 @@ export const CustomizationForm = ({
                   <FormItem className="md:col-span-2">
                     <FormLabel>Body (before the “here” link)</FormLabel>
                     <FormControl>
-                      <Textarea rows={2} {...field} disabled={!consentEnabled} />
+                      <Textarea
+                        rows={2}
+                        {...field}
+                        disabled={!consentEnabled}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -489,12 +581,18 @@ export const CustomizationForm = ({
                   <FormItem>
                     <FormLabel>“here” opens</FormLabel>
                     <FormControl>
-                      <select {...field} className="h-9 w-full rounded-md border px-2" disabled={!consentEnabled}>
+                      <select
+                        {...field}
+                        className="h-9 w-full rounded-md border px-2"
+                        disabled={!consentEnabled}
+                      >
                         <option value="link">External page</option>
                         <option value="modal">Inline text modal</option>
                       </select>
                     </FormControl>
-                    <FormDescription>Choose what happens when clicking “here”.</FormDescription>
+                    <FormDescription>
+                      Choose what happens when clicking “here”.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -508,7 +606,11 @@ export const CustomizationForm = ({
                     <FormItem>
                       <FormLabel>Privacy URL</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="https://yourdomain.com/privacy" disabled={!consentEnabled} />
+                        <Input
+                          {...field}
+                          placeholder="https://yourdomain.com/privacy"
+                          disabled={!consentEnabled}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -520,9 +622,16 @@ export const CustomizationForm = ({
                   name="consent.modalContent"
                   render={({ field }) => (
                     <FormItem className="md:col-span-2">
-                      <FormLabel>Modal text (shown when clicking “here”)</FormLabel>
+                      <FormLabel>
+                        Modal text (shown when clicking “here”)
+                      </FormLabel>
                       <FormControl>
-                        <Textarea rows={6} {...field} placeholder="Paste your GDPR/consent text..." disabled={!consentEnabled} />
+                        <Textarea
+                          rows={6}
+                          {...field}
+                          placeholder="Paste your GDPR/consent text..."
+                          disabled={!consentEnabled}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
