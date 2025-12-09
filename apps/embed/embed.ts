@@ -224,25 +224,6 @@ const NUDGE_ENABLED = true; // 👉 un seul nudge, piloté par SmartPromo
 
   /* ---------------- Nudge ---------------- */
 
-  // garde localFallback au cas où, mais il n’est plus utilisé par défaut
-  function localFallback() {
-    return {
-      title: "Get help fast or schedule time",
-      body: "Chat now or book a 15-min demo.",
-      primary: "Chat with AI Assistant",
-      secondary: "Book a meeting",
-      primaryCta: {
-        kind: "open_chat" as const,
-        label: "Chat with AI Assistant",
-      },
-      secondaryCta: {
-        kind: "open_booking" as const,
-        label: "Book a meeting",
-      },
-      avatars: [] as string[],
-    };
-  }
-
   function renderNudge(payload: {
     title?: string;
     body?: string;
