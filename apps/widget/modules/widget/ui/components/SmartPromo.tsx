@@ -122,14 +122,20 @@ export default function SmartPromo() {
       }
       if (t === "nexus:run-primary-cta") {
         const p = promoRef.current;
-        if (p?.primaryCta) { void runCta(p.primaryCta); }
-        else { void ensureAndStartChat("chat"); }   // fallback sans promo
+        if (p?.primaryCta) {
+          void runCta(p.primaryCta);
+        } else {
+          void ensureAndStartChat("chat"); // fallback sans promo
+        }
         return;
       }
       if (t === "nexus:run-secondary-cta") {
         const p = promoRef.current;
-        if (p?.secondaryCta) { void runCta(p.secondaryCta); }
-        else { void ensureAndStartChat("book"); }   // ✅ fallback booking
+        if (p?.secondaryCta) {
+          void runCta(p.secondaryCta);
+        } else {
+          void ensureAndStartChat("book"); // ✅ fallback booking
+        }
         return;
       }
     };
@@ -139,20 +145,10 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, contactSessionId, currentIntent, currentStep]);
 
-  // ----- Payload for host
-  const fallbackPayload = useMemo(
-    () => ({
-      title: "Get help fast or schedule time",
-      body: "Chat now or book a 15-min demo.",
-      primary: "Chat with AI",
-      secondary: "Book a meeting",
-      primaryCta: { kind: "open_chat" as const, label: "Chat with AI" },
-      secondaryCta: { kind: "open_booking" as const, label: "Book a meeting" },
-    }),
-    []
-  );
-
+  // ----- Payload for host (plus AUCUN fallback)
   const makePayload = () => {
+    if (!promo) return null; // 👉 pas de promo = pas de nudge
+
     const avatars: string[] =
       (Array.isArray(memberAvatars) && memberAvatars.length
         ? memberAvatars
@@ -162,28 +158,28 @@ export default function SmartPromo() {
     const privacyUrl =
       (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined;
 
-    if (promo) {
-      return {
-        title: promo.card?.title,
-        body: promo.card?.body,
-        primary: promo.primaryCta?.label,
-        secondary: promo.secondaryCta?.label,
-        primaryCta: promo.primaryCta,
-        secondaryCta: promo.secondaryCta,
-        avatars,
-        badgeText: promo.card?.badgeText || undefined,
-        privacyUrl,
-      };
-    }
-    return { ...fallbackPayload, avatars, privacyUrl };
+    return {
+      title: promo.card?.title,
+      body: promo.card?.body,
+      primary: promo.primaryCta?.label,
+      secondary: promo.secondaryCta?.label,
+      primaryCta: promo.primaryCta,
+      secondaryCta: promo.secondaryCta,
+      avatars,
+      badgeText: promo.card?.badgeText || undefined,
+      privacyUrl,
+    };
   };
 
-  // ---- Envoi fiable au host : immédiat + petits retries (sans attendre hostAck)
+  // ---- Envoi fiable au host : uniquement si promo prête
   useEffect(() => {
     if (!isEmbedded) return;
 
+    const payload = makePayload();
+    if (!payload) return; // ❌ rien tant qu'il n'y a pas de promo → pas de vieux nudge
+
     const send = () =>
-      window.parent?.postMessage({ type: "nexus:promo", payload: makePayload() }, "*");
+      window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
 
     // on évite d'empiler trop d'envois si l'effet boucle
     if (sentRef.current) {
@@ -235,9 +231,12 @@ export default function SmartPromo() {
             {promo.card.badgeText}
           </div>
         )}
-        <div className="font-semibold">{promo?.card?.title ?? "Need a hand?"}</div>
+        <div className="font-semibold">
+          {promo?.card?.title ?? "Need a hand?"}
+        </div>
         <div className="mt-1 text-sm text-muted-foreground">
-          {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
+          {promo?.card?.body ??
+            "Chat with our assistant or book a 15-min demo."}
         </div>
         <div className="mt-3 flex gap-2">
           <button
