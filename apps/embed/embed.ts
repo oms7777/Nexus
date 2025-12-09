@@ -30,7 +30,7 @@ type PromoPayload = {
   avatars?: string[];
   badgeText?: string;
   privacyUrl?: string;
-  // NEW
+  // NEW: thème + logo envoyés par le widget
   theme?: ThemePayload;
   brandLogoUrl?: string;
 };
@@ -56,14 +56,16 @@ type PromoPayload = {
 
   // Config from <script>
   let organizationId: string | null = null;
-  let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
+  let position: "bottom-right" | "bottom-left" =
+    EMBED_CONFIG.DEFAULT_POSITION;
 
   // THEME
   let theme: ThemePayload | null = null;
   let brandLogoUrl: string | null = null;
 
-  // Read attributes
+  // ----- Read attributes from <script> -----
   const currentScript = document.currentScript as HTMLScriptElement | null;
+
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
     position =
@@ -73,8 +75,9 @@ type PromoPayload = {
   } else {
     const scripts = document.querySelectorAll('script[src*="widget"]');
     const embedScript = Array.from(scripts).find((s) =>
-      s.hasAttribute("data-organization-id")
+      s.hasAttribute("data-organization-id"),
     ) as HTMLScriptElement | undefined;
+
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
       position =
@@ -100,7 +103,7 @@ type PromoPayload = {
   }
 
   function render() {
-    // FAB
+    // ----- FAB (chat bubble) -----
     button = document.createElement("button");
     button.id = "nexus-widget-button";
     button.innerHTML = chatBubbleIcon;
@@ -113,7 +116,8 @@ type PromoPayload = {
       background: #3b82f6; color: #ffffff; cursor: pointer;
       z-index: 2147483000;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 4px 24px rgba(59,130,246,.35); transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
+      box-shadow: 0 4px 24px rgba(59,130,246,.35);
+      transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
     `;
     button.addEventListener("click", () => {
       if (isOpen) {
@@ -134,7 +138,7 @@ type PromoPayload = {
     });
     document.body.appendChild(button);
 
-    // Container
+    // ----- Container -----
     container = document.createElement("div");
     container.id = "nexus-widget-container";
     container.style.cssText = `
@@ -151,7 +155,7 @@ type PromoPayload = {
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
     `;
 
-    // Iframe
+    // ----- Iframe -----
     iframe = document.createElement("iframe");
     iframe.src = buildWidgetUrl();
     iframe.allow = "microphone; clipboard-read; clipboard-write";
@@ -187,6 +191,7 @@ type PromoPayload = {
   function handleMessage(event: MessageEvent) {
     if (!iframeLoaded || !TARGET_ORIGIN || event.origin !== TARGET_ORIGIN)
       return;
+
     const { type, payload } = event.data || {};
 
     switch (type) {
@@ -202,21 +207,21 @@ type PromoPayload = {
       case "nexus:promo": {
         const promoPayload = payload as PromoPayload;
 
-        // Ack + hide internal promo, comme avant
+        // Ack + hide internal promo
         iframe?.contentWindow?.postMessage(
           { type: "nexus:host-ack" },
-          TARGET_ORIGIN
+          TARGET_ORIGIN,
         );
         iframe?.contentWindow?.postMessage(
           { type: "nexus:hide-internal-promo" },
-          TARGET_ORIGIN
+          TARGET_ORIGIN,
         );
 
         if (!NUDGE_ENABLED) return;
 
         hasPromoPayload = true;
 
-        // NEW: on récupère theme + logo
+        // Thème + logo venant du widget
         theme = promoPayload.theme || null;
         brandLogoUrl = promoPayload.brandLogoUrl || null;
         applyThemeToFab();
@@ -247,12 +252,39 @@ type PromoPayload = {
   }
 
   function applyThemeToFab() {
-    if (!button || !theme) return;
+    if (!button) return;
+
     const bubbleColor =
-      theme.chatBubbleColor || theme.primaryColor || "#3b82f6";
-    const textColor = theme.primaryTextColor || "#ffffff";
+      theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
+    const textColor = theme?.primaryTextColor || "#ffffff";
+
     button.style.background = bubbleColor;
     button.style.color = textColor;
+
+    // Si le widget est ouvert, on garde le X
+    if (isOpen) return;
+
+    // Si un logo est défini → on l'affiche dans la bulle
+    if (brandLogoUrl) {
+      const safeLogo = escapeAttr(brandLogoUrl);
+      button.innerHTML = `
+        <div style="
+          width:70%;height:70%;
+          border-radius:9999px;
+          overflow:hidden;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          background:rgba(255,255,255,0.9);
+        ">
+          <img src="${safeLogo}" alt="Chat"
+            style="width:100%;height:100%;object-fit:contain;" />
+        </div>
+      `;
+    } else {
+      // Fallback : icône bulle par défaut
+      button.innerHTML = chatBubbleIcon;
+    }
   }
 
   function postToWidget(msg: any) {
@@ -329,7 +361,7 @@ type PromoPayload = {
 
     let identityHtml = "";
 
-    // NEW: priorité au logo de la marque
+    // Priorité au logo de la marque
     if (brandLogoUrl) {
       const safeLogo = escapeAttr(brandLogoUrl);
       identityHtml = `
@@ -355,7 +387,7 @@ type PromoPayload = {
             position: relative; ${
               i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
             }
-          " />`
+          " />`,
         )
         .join("");
     }
@@ -370,7 +402,8 @@ type PromoPayload = {
       : "";
 
     const title =
-      payload.title || "Discover the right solution for your business project.";
+      payload.title ||
+      "Discover the right solution for your business project.";
     const body =
       payload.body || "Chat with our assistant or book a 15-min demo.";
 
@@ -441,7 +474,7 @@ type PromoPayload = {
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
                     <a href="${escapeAttr(
-                      payload.privacyUrl
+                      payload.privacyUrl,
                     )}" target="_blank" rel="noopener noreferrer"
                       style="color:#6b7280;font-size:11px;text-decoration:underline">
                       This chat may be recorded. View our privacy policy.
@@ -462,7 +495,8 @@ type PromoPayload = {
       </div>
     `;
 
-    const primaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
+    const primaryBtn =
+      nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
     const secondaryBtn =
       nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
@@ -513,6 +547,7 @@ type PromoPayload = {
     const r = nudge.getBoundingClientRect();
     const overflowRight = r.right - window.innerWidth;
     const overflowLeft = -r.left;
+
     if (overflowRight > 0 && position === "bottom-right") {
       const currRight = parseFloat(getComputedStyle(nudge).right || "20");
       nudge.style.right = `${Math.max(12, currRight + overflowRight)}px`;
@@ -543,10 +578,10 @@ type PromoPayload = {
           ">": "&gt;",
           '"': "&quot;",
           "'": "&#39;",
-        }[m]!
-        )
+        }[m]!),
     );
   }
+
   function escapeAttr(s: string) {
     return s.replace(/"/g, "&quot;");
   }
@@ -556,6 +591,7 @@ type PromoPayload = {
   function show() {
     if (!container || !button) return;
     isOpen = true;
+
     if (nudge) nudge.style.display = "none";
     if (caret) caret.style.display = "none";
 
@@ -566,6 +602,7 @@ type PromoPayload = {
         container.style.transform = "translateY(0)";
       }
     }, 10);
+
     button.innerHTML = closeIcon;
     applyThemeToFab();
 
@@ -579,6 +616,7 @@ type PromoPayload = {
     container.style.opacity = "0";
     container.style.transform = "translateY(10px)";
     setTimeout(() => container && (container.style.display = "none"), 300);
+
     button.innerHTML = chatBubbleIcon;
     applyThemeToFab();
 
@@ -597,6 +635,7 @@ type PromoPayload = {
     show();
     setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 50);
   }
+
   function openBooking() {
     show();
     setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 50);
@@ -610,6 +649,7 @@ type PromoPayload = {
     window.removeEventListener("resize", placeNudge);
     window.removeEventListener("scroll", placeNudge);
     removeNudge();
+
     if (container) {
       container.remove();
       container = null;
@@ -619,6 +659,7 @@ type PromoPayload = {
       button.remove();
       button = null;
     }
+
     isOpen = false;
     iframeLoaded = false;
     TARGET_ORIGIN = "";
