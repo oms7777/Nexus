@@ -400,6 +400,10 @@ export const WidgetChatScreen = () => {
     threadIdRef.current = conversation?.threadId ?? null;
   }, [conversation?.threadId]);
 
+  const brandLogoUrl =
+  (widgetSettings as any)?.brandLogoUrl ??
+  "https://app.inboundless.co/logo.svg";
+
   // Wait helper: resolve once threadId exists (short poll)
   async function waitForThreadId(opts: {
     timeoutMs?: number;
@@ -774,7 +778,7 @@ export const WidgetChatScreen = () => {
               </AIMessageContent>
               {m.role === "assistant" && (
                 <DicebearAvatar
-                  imageUrl="https://app.inboundless.co/logo.svg"
+                  imageUrl={brandLogoUrl}
                   seed="assistant"
                   size={32}
                 />

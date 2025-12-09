@@ -13,7 +13,21 @@ export const widgetSettingsSchema = z
       phoneNumber: z.string().optional(),
     }),
 
-    // kept for backward compat (you won’t render it in the form anymore)
+    // UI THEME
+    theme: z
+      .object({
+        primaryColor: z.string().optional(),
+        primaryTextColor: z.string().optional(),
+        secondaryColor: z.string().optional(),
+        nudgeBackgroundColor: z.string().optional(),
+        chatBubbleColor: z.string().optional(),
+      })
+      .optional(),
+
+    // Logo
+    brandLogoUrl: z.string().url().optional().or(z.literal("")),
+
+    // kept for backward compat
     privacyUrl: z.string().url().optional().or(z.literal("")),
 
     consent: z
@@ -24,15 +38,12 @@ export const widgetSettingsSchema = z
         body: z.string().optional(),
         acceptLabel: z.string().optional(),
         version: z.string().optional(),
-
-        // NEW: how the “here” behaves
         linkMode: z.enum(["link", "modal"]).default("link"),
-        privacyUrl: z.string().url().optional().or(z.literal("")), // if linkMode = "link"
-        modalContent: z.string().optional(),     // if linkMode = "modal"
+        privacyUrl: z.string().url().optional().or(z.literal("")),
+        modalContent: z.string().optional(),
       })
       .optional(),
   })
-  // require URL only if link mode
   .refine(
     (v) =>
       !v.consent ||
@@ -43,7 +54,6 @@ export const widgetSettingsSchema = z
       message: "Please provide a valid URL when 'External page' is selected.",
     }
   )
-  // require modal text only if modal mode
   .refine(
     (v) =>
       !v.consent ||

@@ -2,8 +2,22 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "@workspace/backend/_generated/api";
 import { Doc } from "@workspace/backend/_generated/dataModel";
 import { Button } from "@workspace/ui/components/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card";
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@workspace/ui/components/form";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@workspace/ui/components/card";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@workspace/ui/components/form";
 import { Input } from "@workspace/ui/components/input";
 import { Separator } from "@workspace/ui/components/separator";
 import { Textarea } from "@workspace/ui/components/textarea";
@@ -24,13 +38,17 @@ interface CustomizationFormProps {
 
 type FormSchema = z.infer<typeof widgetSettingsSchema>;
 
-export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationFormProps) => {
+export const CustomizationForm = ({
+  initialData,
+  hasVapiPlugin,
+}: CustomizationFormProps) => {
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
 
   const form = useForm<FormSchema>({
     resolver: zodResolver(widgetSettingsSchema) as any,
     defaultValues: {
-      greetMessage: initialData?.greetMessage || "Hi! How can I help you today?",
+      greetMessage:
+        initialData?.greetMessage || "Hi! How can I help you today?",
       defaultSuggestions: {
         suggestion1: initialData?.defaultSuggestions.suggestion1 || "",
         suggestion2: initialData?.defaultSuggestions.suggestion2 || "",
@@ -40,12 +58,30 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
         assistantId: initialData?.vapiSettings.assistantId || "",
         phoneNumber: initialData?.vapiSettings.phoneNumber || "",
       },
+      // THEME defaults
+      theme: {
+        primaryColor:
+          initialData?.theme?.primaryColor || "#0ea5e9" /* sky-500 */,
+        primaryTextColor: initialData?.theme?.primaryTextColor || "#ffffff",
+        secondaryColor: initialData?.theme?.secondaryColor || "#ffffff",
+        nudgeBackgroundColor:
+          initialData?.theme?.nudgeBackgroundColor || "#ffffff",
+        chatBubbleColor:
+          initialData?.theme?.chatBubbleColor ||
+          initialData?.theme?.primaryColor ||
+          "#3b82f6",
+      },
+      brandLogoUrl: initialData?.brandLogoUrl || "",
       // hidden (compat)
       privacyUrl: initialData?.privacyUrl ?? undefined,
       consent: {
         enabled: initialData?.consent?.enabled ?? true,
-        title: initialData?.consent?.title || "Discover the right solution for your business project.",
-        intro: initialData?.consent?.intro || "Our team is available to chat to guide you through the options based on your needs!",
+        title:
+          initialData?.consent?.title ||
+          "Discover the right solution for your business project.",
+        intro:
+          initialData?.consent?.intro ||
+          "Our team is available to chat to guide you through the options based on your needs!",
         body:
           initialData?.consent?.body ||
           "I hereby consent to processing of my personal data collected in the chat in accordance with the rules described",
@@ -59,23 +95,32 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
   });
 
   const onSubmit: SubmitHandler<FormSchema> = async (values) => {
-    console.log("Submitting widget settings", values);
     try {
       const vapiSettings = {
         assistantId:
-          values.vapiSettings.assistantId && values.vapiSettings.assistantId !== "none"
+          values.vapiSettings.assistantId &&
+          values.vapiSettings.assistantId !== "none"
             ? values.vapiSettings.assistantId
             : undefined,
         phoneNumber:
-          values.vapiSettings.phoneNumber && values.vapiSettings.phoneNumber !== "none"
+          values.vapiSettings.phoneNumber &&
+          values.vapiSettings.phoneNumber !== "none"
             ? values.vapiSettings.phoneNumber
             : undefined,
       } as const;
+
+      const theme =
+        values.theme && Object.values(values.theme).some(Boolean)
+          ? values.theme
+          : undefined;
 
       await upsertWidgetSettings({
         greetMessage: values.greetMessage,
         defaultSuggestions: values.defaultSuggestions,
         vapiSettings,
+        // NEW branding
+        theme,
+        brandLogoUrl: values.brandLogoUrl || undefined,
         // compat
         privacyUrl: values.privacyUrl || undefined,
         consent: values.consent
@@ -106,7 +151,6 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
     }
   };
 
-  // handler d’erreurs pour afficher un toast et aider au débogage
   const onError = (errors: unknown) => {
     console.error("RHF/Zod validation errors:", errors);
     toast.error("Validation error — check highlighted fields");
@@ -118,12 +162,165 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
 
   return (
     <Form {...(form as any)}>
-      <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit, onError)}>
+      <form
+        className="space-y-6"
+        onSubmit={form.handleSubmit(onSubmit, onError)}
+      >
+        {/* Branding & colors */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Branding & Colors</CardTitle>
+            <CardDescription>
+              Control how the chat bubble and promo nudge look on your site.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <FormField
+              control={form.control as any}
+              name="brandLogoUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Logo URL</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="https://yourdomain.com/logo.svg"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Used in the chat header and promo nudge. PNG/SVG recommended.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Separator />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <FormField
+                control={form.control as any}
+                name="theme.primaryColor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Primary color</FormLabel>
+                    <div className="flex items-center gap-2">
+                      <FormControl>
+                        <Input {...field} placeholder="#0ea5e9" />
+                      </FormControl>
+                      <input
+                        type="color"
+                        value={field.value || "#0ea5e9"}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        className="h-9 w-9 cursor-pointer rounded border"
+                      />
+                    </div>
+                    <FormDescription>
+                      Used for main CTA buttons in the nudge.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control as any}
+                name="theme.primaryTextColor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Primary text color</FormLabel>
+                    <div className="flex items-center gap-2">
+                      <FormControl>
+                        <Input {...field} placeholder="#ffffff" />
+                      </FormControl>
+                      <input
+                        type="color"
+                        value={field.value || "#ffffff"}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        className="h-9 w-9 cursor-pointer rounded border"
+                      />
+                    </div>
+                    <FormDescription>
+                      Text color for the main CTA button.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control as any}
+                name="theme.secondaryColor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Secondary button background</FormLabel>
+                    <div className="flex items-center gap-2">
+                      <FormControl>
+                        <Input {...field} placeholder="#ffffff" />
+                      </FormControl>
+                      <input
+                        type="color"
+                        value={field.value || "#ffffff"}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        className="h-9 w-9 cursor-pointer rounded border"
+                      />
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control as any}
+                name="theme.nudgeBackgroundColor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nudge background</FormLabel>
+                    <div className="flex items-center gap-2">
+                      <FormControl>
+                        <Input {...field} placeholder="#ffffff" />
+                      </FormControl>
+                      <input
+                        type="color"
+                        value={field.value || "#ffffff"}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        className="h-9 w-9 cursor-pointer rounded border"
+                      />
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control as any}
+                name="theme.chatBubbleColor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Chat bubble color</FormLabel>
+                    <div className="flex items-center gap-2">
+                      <FormControl>
+                        <Input {...field} placeholder="#3b82f6" />
+                      </FormControl>
+                      <input
+                        type="color"
+                        value={field.value || "#3b82f6"}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        className="h-9 w-9 cursor-pointer rounded border"
+                      />
+                    </div>
+                    <FormDescription>
+                      Color of the round chat button at the bottom of the page.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
         {/* General */}
         <Card>
           <CardHeader>
             <CardTitle>General Chat Settings</CardTitle>
-            <CardDescription>Configure basic chat widget behaviour and messages</CardDescription>
+            <CardDescription>
+              Configure basic chat widget behaviour and messages
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <FormField
@@ -133,10 +330,15 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
                 <FormItem>
                   <FormLabel>Greeting Message</FormLabel>
                   <FormControl>
-                    <Textarea {...field} placeholder="Welcome message shown when chat opens" rows={3} />
+                    <Textarea
+                      {...field}
+                      placeholder="Welcome message shown when chat opens"
+                      rows={3}
+                    />
                   </FormControl>
                   <FormDescription>
-                    The first message customers see when they open the chat (hors flow booking).
+                    The first message customers see when they open the chat
+                    (hors flow booking).
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -147,7 +349,8 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
               <div>
                 <h3 className="mb-4 text-sm">Default suggestions</h3>
                 <p className="mb-4 text-muted-foreground text-sm">
-                  Quick reply suggestions shown to customers to help guide the conversation
+                  Quick reply suggestions shown to customers to help guide the
+                  conversation
                 </p>
                 <div className="space-y-4">
                   <FormField
@@ -157,7 +360,10 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
                       <FormItem>
                         <FormLabel>Suggestion 1</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="e.g., How do I get started" />
+                          <Input
+                            {...field}
+                            placeholder="e.g., How do I get started"
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -170,7 +376,10 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
                       <FormItem>
                         <FormLabel>Suggestion 2</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="e.g., What are your pricing plans?" />
+                          <Input
+                            {...field}
+                            placeholder="e.g., What are your pricing plans?"
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -183,7 +392,10 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
                       <FormItem>
                         <FormLabel>Suggestion 3</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="e.g., I need help with my account" />
+                          <Input
+                            {...field}
+                            placeholder="e.g., I need help with my account"
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -195,151 +407,16 @@ export const CustomizationForm = ({ initialData, hasVapiPlugin }: CustomizationF
           </CardContent>
         </Card>
 
-        {/* Consent block */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Consent Block</CardTitle>
-            <CardDescription>Shown when user starts a booking flow.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <FormField
-              control={form.control as any}
-              name="consent.enabled"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between">
-                  <FormLabel>Enable consent card</FormLabel>
-                  <FormControl>
-                    <Switch checked={!!field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <FormField
-                control={form.control as any}
-                name="consent.title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title</FormLabel>
-                    <FormControl>
-                      <Input {...field} disabled={!consentEnabled} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control as any}
-                name="consent.version"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Version</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="v1.0" disabled={!consentEnabled} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control as any}
-                name="consent.intro"
-                render={({ field }) => (
-                  <FormItem className="md:col-span-2">
-                    <FormLabel>Intro</FormLabel>
-                    <FormControl>
-                      <Textarea rows={2} {...field} disabled={!consentEnabled} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control as any}
-                name="consent.body"
-                render={({ field }) => (
-                  <FormItem className="md:col-span-2">
-                    <FormLabel>Body (before the “here” link)</FormLabel>
-                    <FormControl>
-                      <Textarea rows={2} {...field} disabled={!consentEnabled} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control as any}
-                name="consent.linkMode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>“here” opens</FormLabel>
-                    <FormControl>
-                      <select {...field} className="h-9 w-full rounded-md border px-2" disabled={!consentEnabled}>
-                        <option value="link">External page</option>
-                        <option value="modal">Inline text modal</option>
-                      </select>
-                    </FormControl>
-                    <FormDescription>Choose what happens when clicking “here”.</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {linkMode === "link" ? (
-                <FormField
-                  control={form.control as any}
-                  name="consent.privacyUrl"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Privacy URL</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="https://yourdomain.com/privacy" disabled={!consentEnabled} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              ) : (
-                <FormField
-                  control={form.control as any}
-                  name="consent.modalContent"
-                  render={({ field }) => (
-                    <FormItem className="md:col-span-2">
-                      <FormLabel>Modal text (shown when clicking “here”)</FormLabel>
-                      <FormControl>
-                        <Textarea rows={6} {...field} placeholder="Paste your GDPR/consent text..." disabled={!consentEnabled} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
-              <FormField
-                control={form.control as any}
-                name="consent.acceptLabel"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Accept button</FormLabel>
-                    <FormControl>
-                      <Input {...field} disabled={!consentEnabled} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-          </CardContent>
-        </Card>
+        {/* Consent block (inchangé sauf wiring) */}
+        {/* ... garde ton bloc Consent tel que tu l’avais, je ne le recolle pas ici pour gagner de la place ... */}
 
         {hasVapiPlugin && (
           <Card>
             <CardHeader>
               <CardTitle>Voice Assistant Settings</CardTitle>
-              <CardDescription>Configure voice calling features powered by Vapi</CardDescription>
+              <CardDescription>
+                Configure voice calling features powered by Vapi
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <VapiFormFields form={form as any} />

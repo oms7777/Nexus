@@ -1,10 +1,6 @@
-// packages/backend/convex/private/widgetSettings.ts
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 
-/**
- * Sauvegarde / met à jour les settings du widget pour l'org courante.
- */
 export const upsert = mutation({
   args: {
     greetMessage: v.string(),
@@ -18,9 +14,18 @@ export const upsert = mutation({
       phoneNumber: v.optional(v.string()),
     }),
 
-    // Optional marketing
-    teamAvatars: v.optional(v.array(v.string())), // max 3 URLs
+    // Optional marketing / branding
+    teamAvatars: v.optional(v.array(v.string())),
     brandLogoUrl: v.optional(v.string()),
+    theme: v.optional(
+      v.object({
+        primaryColor: v.optional(v.string()),
+        primaryTextColor: v.optional(v.string()),
+        secondaryColor: v.optional(v.string()),
+        nudgeBackgroundColor: v.optional(v.string()),
+        chatBubbleColor: v.optional(v.string()),
+      })
+    ),
 
     // Back-compat + full consent
     privacyUrl: v.optional(v.string()),
@@ -31,7 +36,6 @@ export const upsert = mutation({
         intro: v.optional(v.string()),
         body: v.optional(v.string()),
         acceptLabel: v.optional(v.string()),
-        // decline gardé pour compat
         declineLabel: v.optional(v.string()),
         version: v.optional(v.string()),
         linkMode: v.optional(v.union(v.literal("link"), v.literal("modal"))),
@@ -55,13 +59,13 @@ export const upsert = mutation({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .unique();
 
-    // IMPORTANT : pas de null (optional != null)
     const patch = {
       greetMessage: args.greetMessage,
       defaultSuggestions: args.defaultSuggestions,
       vapiSettings: args.vapiSettings,
       teamAvatars: args.teamAvatars,
       brandLogoUrl: args.brandLogoUrl,
+      theme: args.theme,
       privacyUrl: args.privacyUrl,
       consent: args.consent,
     };
@@ -79,9 +83,6 @@ export const upsert = mutation({
   },
 });
 
-/**
- * Récupère les settings du widget pour l’org courante (dashboard).
- */
 export const getOne = query({
   args: {},
   handler: async (ctx) => {
@@ -104,10 +105,6 @@ export const getOne = query({
   },
 });
 
-/**
- * Change juste le mode de routing (auto_assign vs visitor_choice).
- * Utilisé par la page Team & Territories.
- */
 export const setRoutingMode = mutation({
   args: {
     routingMode: v.union(
@@ -127,9 +124,7 @@ export const setRoutingMode = mutation({
 
     const existing = await ctx.db
       .query("widgetSettings")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", orgId)
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .unique();
 
     if (existing) {
@@ -137,7 +132,6 @@ export const setRoutingMode = mutation({
       return existing._id;
     }
 
-    // Si aucun widgetSettings n'existe encore, on crée un record minimal
     const id = await ctx.db.insert("widgetSettings", {
       organizationId: orgId,
       greetMessage: "",
@@ -152,6 +146,7 @@ export const setRoutingMode = mutation({
       },
       teamAvatars: undefined,
       brandLogoUrl: undefined,
+      theme: undefined,
       privacyUrl: undefined,
       consent: undefined,
       routingMode,

@@ -25,6 +25,17 @@ export default defineSchema({
     teamAvatars: v.optional(v.array(v.string())), // up to 3 URLs typically
     brandLogoUrl: v.optional(v.string()),
 
+    // ⭐️ NOUVEAU : thème UI du widget / nudge / bubble
+    theme: v.optional(
+      v.object({
+        primaryColor: v.optional(v.string()),
+        primaryTextColor: v.optional(v.string()),
+        secondaryColor: v.optional(v.string()),
+        nudgeBackgroundColor: v.optional(v.string()),
+        chatBubbleColor: v.optional(v.string()),
+      }),
+    ),
+
     // 🔁 mode de routing global du widget
     routingMode: v.optional(
       v.union(v.literal("auto_assign"), v.literal("visitor_choice")),
@@ -46,6 +57,7 @@ export default defineSchema({
       }),
     ),
   }).index("by_organization_id", ["organizationId"]),
+
 
   plugins: defineTable({
     organizationId: v.string(),

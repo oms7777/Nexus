@@ -15,6 +15,14 @@ import type { Doc, Id } from "@workspace/backend/_generated/dataModel";
 
 type Cta = Doc<"promos">["primaryCta"];
 
+type ThemePayload = {
+  primaryColor?: string;
+  primaryTextColor?: string;
+  secondaryColor?: string;
+  nudgeBackgroundColor?: string;
+  chatBubbleColor?: string;
+};
+
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
 
@@ -23,7 +31,6 @@ export default function SmartPromo() {
   const setStep = useSetAtom(qualifyStepAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
 
-  // état courant (pour futures guards si besoin)
   const currentStep = useAtomValue(qualifyStepAtom);
   const currentIntent = useAtomValue(bookingIntentAtom);
 
@@ -38,7 +45,7 @@ export default function SmartPromo() {
   const createConversation = useMutation(api.public.conversations.create);
 
   const [parentHref, setParentHref] = useState<string>();
-  const sentRef = useRef(false); // non critique désormais, on renvoie avec retries
+  const sentRef = useRef(false);
 
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
@@ -79,7 +86,6 @@ export default function SmartPromo() {
     promoRef.current = promo;
   }, [promo]);
 
-  // ----- Helper: ensure session+conversation puis ouvrir l'écran
   const ensureAndStartChat = async (intent: "chat" | "book") => {
     if (!orgId) {
       setScreen("error");
@@ -93,7 +99,6 @@ export default function SmartPromo() {
       (await ensureContactSession({ organizationId: orgId }));
     if (!contactSessionId) setContactSessionId(sessionId);
 
-    // pour le booking on peut (optionnellement) supprimer le greet côté backend
     const convId = await createConversation({
       contactSessionId: sessionId,
       organizationId: orgId,
@@ -103,19 +108,18 @@ export default function SmartPromo() {
     setScreen("chat");
   };
 
-  // ----- Host → Widget bridge
+  // Host → Widget bridge
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
       if (t === "nexus:embed-ready") {
-        // rien de spécial; l'envoi promo est robuste via retries ci-dessous
+        // rien de spécial
       }
       if (t === "nexus:parent-location" && typeof e.data.href === "string") {
         setParentHref(e.data.href);
       }
 
-      // Toujours supportés, même sans promo personnalisée
       if (t === "nexus:open-chat") {
         void ensureAndStartChat("chat");
         return;
@@ -125,7 +129,7 @@ export default function SmartPromo() {
         if (p?.primaryCta) {
           void runCta(p.primaryCta);
         } else {
-          void ensureAndStartChat("chat"); // fallback sans promo
+          void ensureAndStartChat("chat");
         }
         return;
       }
@@ -134,7 +138,7 @@ export default function SmartPromo() {
         if (p?.secondaryCta) {
           void runCta(p.secondaryCta);
         } else {
-          void ensureAndStartChat("book"); // ✅ fallback booking
+          void ensureAndStartChat("book");
         }
         return;
       }
@@ -145,18 +149,22 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, contactSessionId, currentIntent, currentStep]);
 
-  // ----- Payload for host (plus AUCUN fallback)
+  // ----- Payload for host (avec thème + logo)
   const makePayload = () => {
-    if (!promo) return null; // 👉 pas de promo = pas de nudge
+    if (!promo) return null;
 
     const avatars: string[] =
       (Array.isArray(memberAvatars) && memberAvatars.length
         ? memberAvatars
         : (ws as any)?.teamAvatars?.slice?.(0, 3)) ||
-      ((ws as any)?.brandLogoUrl ? [(ws as any).brandLogoUrl] : []);
+      ((ws as any)?.brandLogoUrl ? [] : []); // avatars seulement; logo géré à part
 
     const privacyUrl =
       (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined;
+
+    const theme: ThemePayload | undefined = (ws as any)?.theme;
+
+    const brandLogoUrl: string | undefined = (ws as any)?.brandLogoUrl;
 
     return {
       title: promo.card?.title,
@@ -168,6 +176,8 @@ export default function SmartPromo() {
       avatars,
       badgeText: promo.card?.badgeText || undefined,
       privacyUrl,
+      theme,
+      brandLogoUrl,
     };
   };
 
@@ -176,20 +186,17 @@ export default function SmartPromo() {
     if (!isEmbedded) return;
 
     const payload = makePayload();
-    if (!payload) return; // ❌ rien tant qu'il n'y a pas de promo → pas de vieux nudge
+    if (!payload) return;
 
     const send = () =>
       window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
 
-    // on évite d'empiler trop d'envois si l'effet boucle
     if (sentRef.current) {
-      // on renvoie quand même une fois pour rafraichir sur changement réel
       send();
       return;
     }
     sentRef.current = true;
 
-    // envoi immédiat + retries courts pour couvrir hydrate/ready/CDN
     send();
     const t1 = setTimeout(send, 120);
     const t2 = setTimeout(send, 600);
@@ -198,10 +205,8 @@ export default function SmartPromo() {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-    // relancer si promo/settings/avatars/URL changent
   }, [isEmbedded, promo, memberAvatars, ws, parentHref]);
 
-  // ----- CTAs
   const runCta = async (cta: Cta) => {
     if (cta.kind === "open_chat") {
       await ensureAndStartChat("chat");
@@ -216,10 +221,10 @@ export default function SmartPromo() {
     }
   };
 
-  // Internal demo view only when not embedded
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 
+  // simple preview interne
   return (
     <div
       className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg"
