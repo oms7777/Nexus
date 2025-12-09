@@ -92,55 +92,56 @@ const VapiPluginForm = ({
                 <DialogDescription>
                     Your API keys are safely encrypted and stored using AWS Secrets Manager.
                 </DialogDescription>
-                <Form {...form}>
-                    <form
-                        className="flex flex-col gap-y-4"
-                        onSubmit={form.handleSubmit(onSubmit)}
+                <Form {...(form as any)}>
+                <form
+                    className="flex flex-col gap-y-4"
+                    onSubmit={form.handleSubmit(onSubmit)}
+                >
+                    <FormField
+                    control={form.control as any}
+                    name="publicApiKey"
+                    render={({ field }) => (
+                        <FormItem>
+                        <Label>Public API key</Label>
+                        <FormControl>
+                            <Input
+                            {...field}
+                            placeholder="Your public API key"
+                            type="text"
+                            />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <FormField
+                    control={form.control as any}
+                    name="privateApiKey"
+                    render={({ field }) => (
+                        <FormItem>
+                        <Label>Private API key</Label>
+                        <FormControl>
+                            <Input
+                            {...field}
+                            placeholder="Your private API key"
+                            type="text"
+                            />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <DialogFooter>
+                    <Button
+                        disabled={form.formState.isSubmitting}
+                        type="submit"
                     >
-                        <FormField 
-                            control={form.control}
-                            name="publicApiKey"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <Label>Public API key</Label>
-                                    <FormControl>
-                                        <Input 
-                                            {...field}
-                                            placeholder="Your public API key"
-                                            type="text"
-                                        />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField 
-                            control={form.control}
-                            name="privateApiKey"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <Label>Private API key</Label>
-                                    <FormControl>
-                                        <Input 
-                                            {...field}
-                                            placeholder="Your private API key"
-                                            type="text"
-                                        />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <DialogFooter>
-                            <Button
-                                disabled={form.formState.isSubmitting}
-                                type="submit"
-                            >
-                                {form.formState.isSubmitting ? "Connecting..." : "Connect"}
-                            </Button>
-                        </DialogFooter>
-                    </form>
+                        {form.formState.isSubmitting ? "Connecting..." : "Connect"}
+                    </Button>
+                    </DialogFooter>
+                </form>
                 </Form>
+
             </DialogContent>
         </Dialog>
     )
