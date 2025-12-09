@@ -407,8 +407,145 @@ export const CustomizationForm = ({
           </CardContent>
         </Card>
 
-        {/* Consent block (inchangé sauf wiring) */}
-        {/* ... garde ton bloc Consent tel que tu l’avais, je ne le recolle pas ici pour gagner de la place ... */}
+        {/* Consent block */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Consent Block</CardTitle>
+            <CardDescription>Shown when user starts a booking flow.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <FormField
+              control={form.control as any}
+              name="consent.enabled"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between">
+                  <FormLabel>Enable consent card</FormLabel>
+                  <FormControl>
+                    <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <FormField
+                control={form.control as any}
+                name="consent.title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Title</FormLabel>
+                    <FormControl>
+                      <Input {...field} disabled={!consentEnabled} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control as any}
+                name="consent.version"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Version</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="v1.0" disabled={!consentEnabled} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control as any}
+                name="consent.intro"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2">
+                    <FormLabel>Intro</FormLabel>
+                    <FormControl>
+                      <Textarea rows={2} {...field} disabled={!consentEnabled} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control as any}
+                name="consent.body"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2">
+                    <FormLabel>Body (before the “here” link)</FormLabel>
+                    <FormControl>
+                      <Textarea rows={2} {...field} disabled={!consentEnabled} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control as any}
+                name="consent.linkMode"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>“here” opens</FormLabel>
+                    <FormControl>
+                      <select {...field} className="h-9 w-full rounded-md border px-2" disabled={!consentEnabled}>
+                        <option value="link">External page</option>
+                        <option value="modal">Inline text modal</option>
+                      </select>
+                    </FormControl>
+                    <FormDescription>Choose what happens when clicking “here”.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {linkMode === "link" ? (
+                <FormField
+                  control={form.control as any}
+                  name="consent.privacyUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Privacy URL</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="https://yourdomain.com/privacy" disabled={!consentEnabled} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <FormField
+                  control={form.control as any}
+                  name="consent.modalContent"
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-2">
+                      <FormLabel>Modal text (shown when clicking “here”)</FormLabel>
+                      <FormControl>
+                        <Textarea rows={6} {...field} placeholder="Paste your GDPR/consent text..." disabled={!consentEnabled} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              <FormField
+                control={form.control as any}
+                name="consent.acceptLabel"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Accept button</FormLabel>
+                    <FormControl>
+                      <Input {...field} disabled={!consentEnabled} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         {hasVapiPlugin && (
           <Card>
