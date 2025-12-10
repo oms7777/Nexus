@@ -157,13 +157,12 @@ export default function SmartPromo() {
       (Array.isArray(memberAvatars) && memberAvatars.length
         ? memberAvatars
         : (ws as any)?.teamAvatars?.slice?.(0, 3)) ||
-      ((ws as any)?.brandLogoUrl ? [] : []); // avatars seulement; logo géré à part
+      ((ws as any)?.brandLogoUrl ? [] : []);
 
     const privacyUrl =
       (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined;
 
     const theme: ThemePayload | undefined = (ws as any)?.theme;
-
     const brandLogoUrl: string | undefined = (ws as any)?.brandLogoUrl;
 
     return {
@@ -178,8 +177,10 @@ export default function SmartPromo() {
       privacyUrl,
       theme,
       brandLogoUrl,
+      identityMode: promo.identityMode ?? "auto", // 👈 NEW
     };
   };
+
 
   // ---- Envoi fiable au host : uniquement si promo prête
   useEffect(() => {

@@ -1,5 +1,7 @@
+// apps/web/modules/customization/ui/components/customization-form.tsx
 "use client";
 
+import { useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "@workspace/backend/_generated/api";
 import { Doc } from "@workspace/backend/_generated/dataModel";
@@ -24,7 +26,7 @@ import { Input } from "@workspace/ui/components/input";
 import { Separator } from "@workspace/ui/components/separator";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { Switch } from "@workspace/ui/components/switch";
-import { useAction, useMutation } from "convex/react";
+import { useMutation, useAction } from "convex/react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import z from "zod";
@@ -46,6 +48,9 @@ export const CustomizationForm = ({
 }: CustomizationFormProps) => {
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
   const addFile = useAction(api.private.files.addFile);
+
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const form = useForm<FormSchema>({
     resolver: zodResolver(widgetSettingsSchema) as any,
@@ -98,39 +103,39 @@ export const CustomizationForm = ({
   });
 
   const logoUrl = form.watch("brandLogoUrl");
-  const consentEnabled = form.watch("consent")?.enabled ?? true;
-  const linkMode = form.watch("consent")?.linkMode ?? "link";
-  const submitting = form.formState.isSubmitting;
 
-  // ---- Upload logo file → Convex storage → set brandLogoUrl ----
-  const onSelectLogoFile = async (file?: File) => {
+  const handleLogoFile = async (file?: File) => {
     if (!file) return;
-
     try {
+      setUploadingLogo(true);
       const bytes = await file.arrayBuffer();
 
       const { url } = await addFile({
         filename: file.name,
         mimeType: file.type || "application/octet-stream",
         bytes,
-        // on réutilise la même catégorie que l’avatar pour rester compatible
-        category: "avatar",
+        category: "brand_logo",
       });
 
       if (!url) {
-        toast.error("Upload failed — no URL returned");
+        toast.error("Upload failed (no URL returned)");
         return;
       }
 
       form.setValue("brandLogoUrl", url, {
         shouldDirty: true,
-        shouldTouch: true,
+        shouldValidate: true,
       });
 
-      toast.success("Logo uploaded — don’t forget to Save settings");
+      toast.success("Logo uploaded");
     } catch (err) {
       console.error(err);
-      toast.error("Logo upload failed");
+      toast.error("Upload failed");
+    } finally {
+      setUploadingLogo(false);
+      if (logoFileInputRef.current) {
+        logoFileInputRef.current.value = "";
+      }
     }
   };
 
@@ -196,6 +201,10 @@ export const CustomizationForm = ({
     toast.error("Validation error — check highlighted fields");
   };
 
+  const consentEnabled = form.watch("consent")?.enabled ?? true;
+  const linkMode = form.watch("consent")?.linkMode ?? "link";
+  const submitting = form.formState.isSubmitting;
+
   return (
     <Form {...(form as any)}>
       <form
@@ -211,13 +220,13 @@ export const CustomizationForm = ({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Logo: URL + upload + preview */}
+            {/* Logo URL + upload */}
             <FormField
               control={form.control as any}
               name="brandLogoUrl"
               render={({ field }) => (
                 <FormItem className="space-y-3">
-                  <FormLabel>Logo</FormLabel>
+                  <FormLabel>Logo URL</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -225,45 +234,64 @@ export const CustomizationForm = ({
                     />
                   </FormControl>
                   <FormDescription>
-                    Used in the chat header, promo nudge and chat bubble.
-                    PNG/SVG with transparent background recommended.
+                    Used in the chat header and promo nudge. PNG/SVG
+                    recommended.
                   </FormDescription>
+                  <FormMessage />
 
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="space-y-1">
-                      <FormLabel className="text-xs font-normal">
-                        Or upload a logo file
-                      </FormLabel>
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) =>
-                          onSelectLogoFile(e.target.files?.[0] ?? undefined)
-                        }
-                        className="max-w-xs"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        JPG / PNG / SVG. Square or horizontal works best.
-                      </p>
+                  {/* Upload + preview */}
+                  <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1 text-xs text-muted-foreground">
+                      <p>Or upload a logo from your computer.</p>
+                      <p>We’ll store it securely and reuse it across promos.</p>
                     </div>
 
-                    {logoUrl ? (
-                      <div className="flex flex-col items-end gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          Preview
-                        </span>
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full border bg-muted/40 p-1">
-                          <img
-                            src={logoUrl}
-                            alt="Logo preview"
-                            className="max-h-full max-w-full object-contain"
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
+                    <div className="flex items-center gap-3">
+                      {logoUrl ? (
+                        <img
+                          src={logoUrl}
+                          alt="Logo preview"
+                          className="h-10 w-10 rounded-full border bg-white object-contain"
+                        />
+                      ) : null}
 
-                  <FormMessage />
+                      <input
+                        ref={logoFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) =>
+                          handleLogoFile(e.target.files?.[0] || undefined)
+                        }
+                      />
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={uploadingLogo}
+                        onClick={() => logoFileInputRef.current?.click()}
+                      >
+                        {uploadingLogo ? "Uploading…" : "Upload logo"}
+                      </Button>
+
+                      {logoUrl && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            form.setValue("brandLogoUrl", "", {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            })
+                          }
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </FormItem>
               )}
             />
@@ -412,8 +440,8 @@ export const CustomizationForm = ({
                     />
                   </FormControl>
                   <FormDescription>
-                    The first message customers see when they open the chat (hors
-                    flow booking).
+                    The first message customers see when they open the chat
+                    (hors flow booking).
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

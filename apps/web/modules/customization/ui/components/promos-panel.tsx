@@ -1,3 +1,4 @@
+// apps/web/modules/customization/ui/components/promos-panel.tsx
 "use client";
 
 import { useState } from "react";
@@ -50,9 +51,11 @@ const PromoSchema = z.object({
   secondaryKind: z.enum(["none", "open_chat", "open_booking", "open_url"]),
   secondaryLabel: z.string().optional(),
   secondaryUrl: z.string().url().optional(),
-  // 👇 nouveau: cible de la promo
   targetRole: z.enum(["sales", "support"]).optional(),
+  // NEW: contrôle visuel du nudge
+  identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
 });
+
 type PromoForm = z.infer<typeof PromoSchema>;
 
 export default function PromosPanel() {
@@ -77,6 +80,7 @@ export default function PromosPanel() {
       secondaryKind: "open_booking",
       secondaryLabel: "Book a meeting",
       targetRole: "sales",
+      identityMode: "auto",
     },
   });
 
@@ -98,6 +102,7 @@ export default function PromosPanel() {
       primaryUrl: form.getValues("primaryUrl"),
       secondaryUrl: form.getValues("secondaryUrl"),
       targetRole: form.getValues("targetRole") ?? "sales",
+      identityMode: form.getValues("identityMode") ?? "auto",
     });
 
   const applyPresetSales = () =>
@@ -118,6 +123,7 @@ export default function PromosPanel() {
       primaryUrl: form.getValues("primaryUrl"),
       secondaryUrl: form.getValues("secondaryUrl"),
       targetRole: "sales",
+      identityMode: form.getValues("identityMode") ?? "auto",
     });
 
   const onSubmit: SubmitHandler<PromoForm> = async (values) => {
@@ -172,6 +178,7 @@ export default function PromosPanel() {
         primaryCta,
         secondaryCta,
         targetRole: values.targetRole,
+        identityMode: values.identityMode ?? "auto",
       } as any);
       toast.success("Promo saved");
       setDialogOpen(false);
@@ -199,6 +206,7 @@ export default function PromosPanel() {
       primaryUrl: undefined,
       secondaryUrl: undefined,
       targetRole: "sales",
+      identityMode: "auto",
     });
     setDialogOpen(true);
   }
@@ -221,6 +229,7 @@ export default function PromosPanel() {
       secondaryLabel: p.secondaryCta?.label ?? "",
       secondaryUrl: p.secondaryCta?.url ?? undefined,
       targetRole: p.targetRole ?? "sales",
+      identityMode: p.identityMode ?? "auto",
     });
     setDialogOpen(true);
   }
@@ -319,6 +328,37 @@ export default function PromosPanel() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   Determines which reps (sales or support) can receive this
                   promo’s leads.
+                </p>
+              </div>
+
+              {/* NEW: identity toggle */}
+              <div>
+                <Label>Identity in nudge</Label>
+                <Select
+                  value={form.watch("identityMode") ?? "auto"}
+                  onValueChange={(v) =>
+                    form.setValue(
+                      "identityMode",
+                      v as "auto" | "logo" | "avatars",
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Auto" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">
+                      Auto (logo if set, otherwise reps)
+                    </SelectItem>
+                    <SelectItem value="logo">Always use logo</SelectItem>
+                    <SelectItem value="avatars">
+                      Use team avatars only
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Choose whether the nudge shows your company logo or the 3
+                  sales avatars.
                 </p>
               </div>
 
@@ -445,6 +485,15 @@ export default function PromosPanel() {
                     {p.targetRole === "sales" ? "Sales" : "Support"}
                   </span>
                 )}
+                {p.identityMode && (
+                  <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                    {p.identityMode === "logo"
+                      ? "Logo"
+                      : p.identityMode === "avatars"
+                      ? "Avatars"
+                      : "Auto"}
+                  </span>
+                )}
               </div>
               <div className="truncate text-xs text-muted-foreground">
                 {p.card?.title} — {p.card?.body}
@@ -464,6 +513,7 @@ export default function PromosPanel() {
                       primaryCta: p.primaryCta,
                       secondaryCta: p.secondaryCta,
                       targetRole: p.targetRole,
+                      identityMode: p.identityMode ?? "auto",
                     } as any);
                   } catch {
                     toast.error("Update failed");

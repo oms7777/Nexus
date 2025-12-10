@@ -26,6 +26,12 @@ const cardV = v.object({
 
 const targetRoleV = v.union(v.literal("sales"), v.literal("support"));
 
+const identityModeV = v.union(
+  v.literal("auto"),
+  v.literal("logo"),
+  v.literal("avatars"),
+);
+
 function requireOrgId(identity: any) {
   const orgId = identity?.orgId as string | undefined;
   if (!orgId) {
@@ -58,7 +64,8 @@ export const upsert = mutation({
     card: cardV,
     primaryCta: ctaV,
     secondaryCta: v.optional(ctaV),
-    targetRole: v.optional(targetRoleV), // 👈 sales / support
+    targetRole: v.optional(targetRoleV),
+    identityMode: v.optional(identityModeV), // 👈 NEW
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();

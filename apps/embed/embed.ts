@@ -30,9 +30,11 @@ type PromoPayload = {
   avatars?: string[];
   badgeText?: string;
   privacyUrl?: string;
-  // NEW: thème + logo envoyés par le widget
+  // Thème & branding envoyés par le widget
   theme?: ThemePayload;
   brandLogoUrl?: string;
+  // NEW : contrôle de l’identité visuelle
+  identityMode?: "auto" | "logo" | "avatars";
 };
 
 (function () {
@@ -319,7 +321,6 @@ type PromoPayload = {
     const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
     const secondaryTextColor = palette.primaryTextColor || "#111827";
 
-
     if (!nudge) {
       nudge = document.createElement("div");
       nudge.id = "nexus-nudge";
@@ -361,37 +362,77 @@ type PromoPayload = {
       ? payload.avatars.slice(0, 3)
       : [];
 
+    // --- NEW : mode identité dans le nudge ---
+    const identityMode: "auto" | "logo" | "avatars" =
+      payload.identityMode || "auto";
+
     let identityHtml = "";
 
-    // Priorité au logo de la marque
-    if (brandLogoUrl) {
-      const safeLogo = escapeAttr(brandLogoUrl);
-      identityHtml = `
-        <div style="
-          width:32px;height:32px;border-radius:9999px;
-          background:#f3f4f6;
-          display:flex;align-items:center;justify-content:center;
-          overflow:hidden;
-          border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
-        ">
-          <img src="${safeLogo}" alt="logo"
-            style="width:100%;height:100%;object-fit:contain;" />
-        </div>
-      `;
-    } else if (avatars.length) {
-      identityHtml = avatars
-        .map(
-          (src, i) => `
-        <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
-          style="
-            width:26px;height:26px;border-radius:9999px;object-fit:cover;
-            border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
-            position: relative; ${
-              i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
-            }
-          " />`,
-        )
-        .join("");
+    if (identityMode === "logo") {
+      // Forcer le logo si dispo
+      if (brandLogoUrl) {
+        const safeLogo = escapeAttr(brandLogoUrl);
+        identityHtml = `
+          <div style="
+            width:32px;height:32px;border-radius:9999px;
+            background:#f3f4f6;
+            display:flex;align-items:center;justify-content:center;
+            overflow:hidden;
+            border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
+          ">
+            <img src="${safeLogo}" alt="logo"
+              style="width:100%;height:100%;object-fit:contain;" />
+          </div>
+        `;
+      }
+    } else if (identityMode === "avatars") {
+      // Forcer les avatars si présents
+      if (avatars.length) {
+        identityHtml = avatars
+          .map(
+            (src, i) => `
+          <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
+            style="
+              width:26px;height:26px;border-radius:9999px;object-fit:cover;
+              border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
+              position: relative; ${
+                i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
+              }
+            " />`,
+          )
+          .join("");
+      }
+    } else {
+      // auto : logo si dispo, sinon avatars
+      if (brandLogoUrl) {
+        const safeLogo = escapeAttr(brandLogoUrl);
+        identityHtml = `
+          <div style="
+            width:32px;height:32px;border-radius:9999px;
+            background:#f3f4f6;
+            display:flex;align-items:center;justify-content:center;
+            overflow:hidden;
+            border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
+          ">
+            <img src="${safeLogo}" alt="logo"
+              style="width:100%;height:100%;object-fit:contain;" />
+          </div>
+        `;
+      } else if (avatars.length) {
+        identityHtml = avatars
+          .map(
+            (src, i) => `
+          <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
+            style="
+              width:26px;height:26px;border-radius:9999px;object-fit:cover;
+              border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
+              position: relative; ${
+                i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
+              }
+            " />`,
+          )
+          .join("");
+      }
     }
 
     const badgeHtml = payload.badgeText

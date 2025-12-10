@@ -359,13 +359,28 @@ export default defineSchema({
         url: v.optional(v.string()),
       }),
     ),
-    // 👇 nouveau : cible sales / support pour le routing & widget
+
+    // 👇 cible sales / support pour le routing & widget
     targetRole: v.optional(
       v.union(v.literal("sales"), v.literal("support")),
     ),
+
+    // 👇 NEW : contrôle de l’identité visuelle dans le nudge
+    // "auto" = logo si dispo sinon avatars
+    // "logo" = toujours logo si brandLogoUrl
+    // "avatars" = toujours avatars si présents
+    identityMode: v.optional(
+      v.union(
+        v.literal("auto"),
+        v.literal("logo"),
+        v.literal("avatars"),
+      ),
+    ),
+
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
+
 
   /* ---------- Slack Integrations ---------- */
   slackIntegrations: defineTable({
