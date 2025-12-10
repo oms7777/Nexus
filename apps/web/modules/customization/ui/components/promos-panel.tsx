@@ -1,8 +1,7 @@
-// apps/web/modules/customization/ui/components/promos-panel.tsx
 "use client";
 
 import { useState } from "react";
-import { useForm, SubmitHandler } from "react-hook-form";
+import { useForm, SubmitHandler, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "convex/react";
@@ -45,15 +44,17 @@ const PromoSchema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   badgeText: z.string().optional(),
-  primaryKind: z.enum(["open_chat", "open_booking", "open_url"]),
-  primaryLabel: z.string().min(1),
-  primaryUrl: z.string().url().optional(),
-  secondaryKind: z.enum(["none", "open_chat", "open_booking", "open_url"]),
-  secondaryLabel: z.string().optional(),
-  secondaryUrl: z.string().url().optional(),
   targetRole: z.enum(["sales", "support"]).optional(),
-  // NEW: contrôle visuel du nudge
   identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
+  ctas: z
+    .array(
+      z.object({
+        kind: z.enum(["open_chat", "open_booking", "open_url"]),
+        label: z.string().min(1),
+        url: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 type PromoForm = z.infer<typeof PromoSchema>;
@@ -75,16 +76,30 @@ export default function PromosPanel() {
       pathPrefix: "",
       urlIncludes: "",
       utmSource: "",
-      primaryKind: "open_chat",
-      primaryLabel: "Chat with AI Assistant",
-      secondaryKind: "open_booking",
-      secondaryLabel: "Book a meeting",
       targetRole: "sales",
       identityMode: "auto",
+      ctas: [
+        {
+          kind: "open_chat",
+          label: "Chat with AI Assistant",
+          url: "",
+        },
+        {
+          kind: "open_booking",
+          label: "Book a meeting",
+          url: "",
+        },
+      ],
     },
   });
 
-  const applyPresetDual = () =>
+  const { fields, append, remove: removeCta } = useFieldArray({
+    control: form.control,
+    name: "ctas",
+  });
+
+  const applyPresetDual = () => {
+    const existingCtas = form.getValues("ctas") || [];
     form.reset({
       id: form.getValues("id"),
       name: "Dual CTA • Chat or Book",
@@ -95,17 +110,28 @@ export default function PromosPanel() {
       pathPrefix: form.getValues("pathPrefix") || "",
       urlIncludes: form.getValues("urlIncludes") || "",
       utmSource: form.getValues("utmSource") || "",
-      primaryKind: "open_chat",
-      primaryLabel: "Chat with AI Assistant",
-      secondaryKind: "open_booking",
-      secondaryLabel: "Book a meeting",
-      primaryUrl: form.getValues("primaryUrl"),
-      secondaryUrl: form.getValues("secondaryUrl"),
       targetRole: form.getValues("targetRole") ?? "sales",
       identityMode: form.getValues("identityMode") ?? "auto",
+      ctas:
+        existingCtas && existingCtas.length
+          ? existingCtas
+          : [
+              {
+                kind: "open_chat",
+                label: "Chat with AI Assistant",
+                url: "",
+              },
+              {
+                kind: "open_booking",
+                label: "Book a meeting",
+                url: "",
+              },
+            ],
     });
+  };
 
-  const applyPresetSales = () =>
+  const applyPresetSales = () => {
+    const existingCtas = form.getValues("ctas") || [];
     form.reset({
       id: form.getValues("id"),
       name: "Sales CTA",
@@ -116,15 +142,25 @@ export default function PromosPanel() {
       pathPrefix: form.getValues("pathPrefix") || "",
       urlIncludes: form.getValues("urlIncludes") || "",
       utmSource: form.getValues("utmSource") || "",
-      primaryKind: "open_booking",
-      primaryLabel: "Book a meeting",
-      secondaryKind: "open_chat",
-      secondaryLabel: "Chat with AI Assistant",
-      primaryUrl: form.getValues("primaryUrl"),
-      secondaryUrl: form.getValues("secondaryUrl"),
       targetRole: "sales",
       identityMode: form.getValues("identityMode") ?? "auto",
+      ctas:
+        existingCtas && existingCtas.length
+          ? existingCtas
+          : [
+              {
+                kind: "open_booking",
+                label: "Book a meeting",
+                url: "",
+              },
+              {
+                kind: "open_chat",
+                label: "Chat with AI Assistant",
+                url: "",
+              },
+            ],
     });
+  };
 
   const onSubmit: SubmitHandler<PromoForm> = async (values) => {
     const rules = {
@@ -143,26 +179,26 @@ export default function PromosPanel() {
         : undefined,
     };
 
-    const primaryCta = {
-      kind: values.primaryKind,
-      label: values.primaryLabel,
-      url: values.primaryKind === "open_url" ? values.primaryUrl : undefined,
-    };
+    const rawCtas =
+      (values.ctas || []).filter(
+        (c) => c && c.label && c.label.trim().length > 0,
+      ) || [];
 
-    const secondaryCta =
-      values.secondaryKind === "none"
-        ? undefined
-        : {
-            kind: values.secondaryKind as
-              | "open_chat"
-              | "open_booking"
-              | "open_url",
-            label: values.secondaryLabel || "",
-            url:
-              values.secondaryKind === "open_url"
-                ? values.secondaryUrl
-                : undefined,
-          };
+    // Transforme en ctaList propre (URL seulement pour open_url)
+    const ctaList = rawCtas.map((c) => ({
+      kind: c.kind,
+      label: c.label.trim(),
+      url: c.kind === "open_url" ? c.url : undefined,
+    }));
+
+    // Compat : primary / secondary dérivés des 2 premiers
+    const primaryCta =
+      ctaList[0] || ({
+        kind: "open_chat",
+        label: "Chat with AI Assistant",
+      } as const);
+
+    const secondaryCta = ctaList[1] ?? undefined;
 
     try {
       await upsert({
@@ -179,6 +215,7 @@ export default function PromosPanel() {
         secondaryCta,
         targetRole: values.targetRole,
         identityMode: values.identityMode ?? "auto",
+        ctaList: ctaList.length ? ctaList : undefined,
       } as any);
       toast.success("Promo saved");
       setDialogOpen(false);
@@ -199,21 +236,76 @@ export default function PromosPanel() {
       pathPrefix: "",
       urlIncludes: "",
       utmSource: "",
-      primaryKind: "open_chat",
-      primaryLabel: "Chat with AI Assistant",
-      secondaryKind: "open_booking",
-      secondaryLabel: "Book a meeting",
-      primaryUrl: undefined,
-      secondaryUrl: undefined,
       targetRole: "sales",
       identityMode: "auto",
+      ctas: [
+        {
+          kind: "open_chat",
+          label: "Chat with AI Assistant",
+          url: "",
+        },
+        {
+          kind: "open_booking",
+          label: "Book a meeting",
+          url: "",
+        },
+      ],
     });
     setDialogOpen(true);
   }
 
   function openForEdit(p: any) {
+    const existingList = (p.ctaList ?? []) as {
+      kind: "open_chat" | "open_booking" | "open_url";
+      label: string;
+      url?: string;
+    }[];
+
+    // On dérive les CTAs à partir de ctaList ou des primary/secondary legacy
+    const derivedCtas = (
+      existingList.length > 0
+        ? existingList
+        : [
+            p.primaryCta
+              ? {
+                  kind: p.primaryCta
+                    .kind as "open_chat" | "open_booking" | "open_url",
+                  label: p.primaryCta.label as string,
+                  url: p.primaryCta.url as string | undefined,
+                }
+              : undefined,
+            p.secondaryCta
+              ? {
+                  kind: p.secondaryCta
+                    .kind as "open_chat" | "open_booking" | "open_url",
+                  label: p.secondaryCta.label as string,
+                  url: p.secondaryCta.url as string | undefined,
+                }
+              : undefined,
+          ]
+    ).filter(
+      (
+        c,
+      ): c is {
+        kind: "open_chat" | "open_booking" | "open_url";
+        label: string;
+        url?: string;
+      } => !!c && typeof c.label === "string" && c.label.length > 0,
+    );
+
+    const ctasForForm: PromoForm["ctas"] =
+      derivedCtas.length > 0
+        ? derivedCtas
+        : [
+            {
+              kind: "open_chat",
+              label: "Chat with AI Assistant",
+              url: "",
+            },
+          ];
+
     form.reset({
-      id: p._id,
+      id: p._id as string,
       name: p.name ?? "",
       active: !!p.active,
       title: p.card?.title ?? "",
@@ -222,17 +314,14 @@ export default function PromosPanel() {
       pathPrefix: p.rules?.pathPrefix ?? "",
       urlIncludes: (p.rules?.urlIncludes ?? []).join(","),
       utmSource: (p.rules?.utmSource ?? []).join(","),
-      primaryKind: p.primaryCta?.kind ?? "open_chat",
-      primaryLabel: p.primaryCta?.label ?? "",
-      primaryUrl: p.primaryCta?.url ?? undefined,
-      secondaryKind: p.secondaryCta?.kind ?? "none",
-      secondaryLabel: p.secondaryCta?.label ?? "",
-      secondaryUrl: p.secondaryCta?.url ?? undefined,
-      targetRole: p.targetRole ?? "sales",
-      identityMode: p.identityMode ?? "auto",
+      targetRole: (p.targetRole as "sales" | "support") ?? "sales",
+      identityMode: (p.identityMode as "auto" | "logo" | "avatars") ?? "auto",
+      ctas: ctasForForm,
     });
+
     setDialogOpen(true);
   }
+
 
   return (
     <Card>
@@ -291,14 +380,14 @@ export default function PromosPanel() {
                 <Label>Path prefix (optional)</Label>
                 <Input
                   {...form.register("pathPrefix")}
-                  placeholder="/solutions"
+                  placeholder="/pricing"
                 />
               </div>
               <div>
                 <Label>URL includes (comma)</Label>
                 <Input
                   {...form.register("urlIncludes")}
-                  placeholder="observability,kubernetes"
+                  placeholder="pricing,plans"
                 />
               </div>
               <div>
@@ -331,7 +420,7 @@ export default function PromosPanel() {
                 </p>
               </div>
 
-              {/* NEW: identity toggle */}
+              {/* Identity toggle */}
               <div>
                 <Label>Identity in nudge</Label>
                 <Select
@@ -382,78 +471,119 @@ export default function PromosPanel() {
 
               <Separator className="col-span-2" />
 
-              {/* Primary CTA */}
-              <div>
-                <Label>Primary CTA</Label>
-                <div className="mt-2 flex gap-2">
-                  <Select
-                    value={form.watch("primaryKind")}
-                    onValueChange={(v) =>
-                      form.setValue("primaryKind", v as any)
+              {/* Multi-CTA list */}
+              <div className="col-span-2">
+                <div className="mb-2 flex items-center justify-between">
+                  <Label>Call-to-actions</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      append({
+                        kind: "open_chat",
+                        label: "New CTA",
+                        url: "",
+                      })
                     }
                   >
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="open_chat">Open chat</SelectItem>
-                      <SelectItem value="open_booking">
-                        Open booking
-                      </SelectItem>
-                      <SelectItem value="open_url">Open URL</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    className="flex-1"
-                    {...form.register("primaryLabel")}
-                    placeholder="Button label"
-                  />
+                    Add CTA
+                  </Button>
                 </div>
-                {form.watch("primaryKind") === "open_url" && (
-                  <Input
-                    className="mt-2"
-                    {...form.register("primaryUrl")}
-                    placeholder="https://…"
-                  />
-                )}
-              </div>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Buttons will be shown vertically in the promo nudge (top =
+                  primary style).
+                </p>
 
-              {/* Secondary CTA */}
-              <div>
-                <Label>Secondary CTA</Label>
-                <div className="mt-2 flex gap-2">
-                  <Select
-                    value={form.watch("secondaryKind")}
-                    onValueChange={(v) =>
-                      form.setValue("secondaryKind", v as any)
-                    }
-                  >
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="open_chat">Open chat</SelectItem>
-                      <SelectItem value="open_booking">
-                        Open booking
-                      </SelectItem>
-                      <SelectItem value="open_url">Open URL</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    disabled={form.watch("secondaryKind") === "none"}
-                    className="flex-1"
-                    {...form.register("secondaryLabel")}
-                    placeholder="Button label"
-                  />
+                <div className="space-y-3">
+                  {fields.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No CTA yet. Add at least one.
+                    </p>
+                  )}
+
+                  {fields.map((field, index) => (
+                    <div
+                      key={field.id}
+                      className="rounded-md border p-3 text-sm"
+                    >
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="font-medium">
+                          CTA #{index + 1}
+                          {index === 0 && (
+                            <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-700">
+                              Primary
+                            </span>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {fields.length > 1 && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => removeCta(index)}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 md:flex-row">
+                        <div className="md:w-40">
+                          <Label className="text-xs">Type</Label>
+                          <Select
+                            value={
+                              form.watch(`ctas.${index}.kind`) ||
+                              "open_chat"
+                            }
+                            onValueChange={(v) =>
+                              form.setValue(
+                                `ctas.${index}.kind`,
+                                v as "open_chat" | "open_booking" | "open_url",
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="open_chat">
+                                Open chat
+                              </SelectItem>
+                              <SelectItem value="open_booking">
+                                Open booking
+                              </SelectItem>
+                              <SelectItem value="open_url">
+                                Open URL
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex-1">
+                          <Label className="text-xs">Label</Label>
+                          <Input
+                            className="h-8"
+                            {...form.register(`ctas.${index}.label` as const)}
+                            placeholder="Button label"
+                          />
+                        </div>
+                      </div>
+
+                      {form.watch(`ctas.${index}.kind`) === "open_url" && (
+                        <div className="mt-2">
+                          <Label className="text-xs">URL</Label>
+                          <Input
+                            className="h-8"
+                            {...form.register(`ctas.${index}.url` as const)}
+                            placeholder="https://…"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                {form.watch("secondaryKind") === "open_url" && (
-                  <Input
-                    className="mt-2"
-                    {...form.register("secondaryUrl")}
-                    placeholder="https://…"
-                  />
-                )}
               </div>
 
               <div className="col-span-2 flex justify-end">
@@ -514,6 +644,7 @@ export default function PromosPanel() {
                       secondaryCta: p.secondaryCta,
                       targetRole: p.targetRole,
                       identityMode: p.identityMode ?? "auto",
+                      ctaList: p.ctaList,
                     } as any);
                   } catch {
                     toast.error("Update failed");

@@ -35,10 +35,10 @@ export default function SmartPromo() {
   const currentIntent = useAtomValue(bookingIntentAtom);
 
   const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(orgId || "")
+    contactSessionIdAtomFamily(orgId || ""),
   );
   const setContactSessionId = useSetAtom(
-    contactSessionIdAtomFamily(orgId || "")
+    contactSessionIdAtomFamily(orgId || ""),
   );
 
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
@@ -53,12 +53,12 @@ export default function SmartPromo() {
   // ----- Data (Convex)
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip"
+    orgId ? { organizationId: orgId } : "skip",
   );
   const memberAvatars =
     useQuery(
       api.public.users.listOrgAvatars,
-      orgId ? { organizationId: orgId, limit: 3 } : "skip"
+      orgId ? { organizationId: orgId, limit: 3 } : "skip",
     ) ?? [];
 
   const currentUrl =
@@ -75,11 +75,11 @@ export default function SmartPromo() {
       api.public.promos.listForPage,
       orgId && currentUrl
         ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip"
+        : "skip",
     ) ?? [];
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos]
+    [promos],
   );
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
@@ -106,6 +106,20 @@ export default function SmartPromo() {
     } as any);
     setConversationId(convId);
     setScreen("chat");
+  };
+
+  const runCta = async (cta: Cta) => {
+    if (cta.kind === "open_chat") {
+      await ensureAndStartChat("chat");
+      return;
+    }
+    if (cta.kind === "open_booking") {
+      await ensureAndStartChat("book");
+      return;
+    }
+    if (cta.kind === "open_url" && cta.url) {
+      window.open(cta.url, "_blank", "noopener,noreferrer");
+    }
   };
 
   // Host → Widget bridge
@@ -142,6 +156,34 @@ export default function SmartPromo() {
         }
         return;
       }
+      if (t === "nexus:run-cta" && typeof e.data.index === "number") {
+        const idx = e.data.index as number;
+        const p = promoRef.current;
+        if (!p) {
+          void ensureAndStartChat("chat");
+          return;
+        }
+        const list = (p as any).ctaList as Cta[] | undefined;
+        const fromList = list && list[idx];
+
+        if (fromList) {
+          void runCta(fromList);
+          return;
+        }
+
+        // Fallback : index 0/1 → primary/secondary
+        if (idx === 0 && p.primaryCta) {
+          void runCta(p.primaryCta);
+          return;
+        }
+        if (idx === 1 && p.secondaryCta) {
+          void runCta(p.secondaryCta);
+          return;
+        }
+
+        void ensureAndStartChat("chat");
+        return;
+      }
     };
 
     window.addEventListener("message", onMsg);
@@ -149,7 +191,7 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, contactSessionId, currentIntent, currentStep]);
 
-  // ----- Payload for host (avec thème + logo)
+  // ----- Payload for host (avec thème + logo + multi-CTA)
   const makePayload = () => {
     if (!promo) return null;
 
@@ -165,6 +207,16 @@ export default function SmartPromo() {
     const theme: ThemePayload | undefined = (ws as any)?.theme;
     const brandLogoUrl: string | undefined = (ws as any)?.brandLogoUrl;
 
+    const ctaList = (promo as any).ctaList as Cta[] | undefined;
+    const simpleCtaList =
+      ctaList && ctaList.length
+        ? ctaList.map((c) => ({
+            kind: c.kind,
+            label: c.label,
+            url: c.url,
+          }))
+        : undefined;
+
     return {
       title: promo.card?.title,
       body: promo.card?.body,
@@ -177,10 +229,10 @@ export default function SmartPromo() {
       privacyUrl,
       theme,
       brandLogoUrl,
-      identityMode: promo.identityMode ?? "auto", // 👈 NEW
+      identityMode: promo.identityMode ?? "auto",
+      ctaList: simpleCtaList,
     };
   };
-
 
   // ---- Envoi fiable au host : uniquement si promo prête
   useEffect(() => {
@@ -208,24 +260,10 @@ export default function SmartPromo() {
     };
   }, [isEmbedded, promo, memberAvatars, ws, parentHref]);
 
-  const runCta = async (cta: Cta) => {
-    if (cta.kind === "open_chat") {
-      await ensureAndStartChat("chat");
-      return;
-    }
-    if (cta.kind === "open_booking") {
-      await ensureAndStartChat("book");
-      return;
-    }
-    if (cta.kind === "open_url" && cta.url) {
-      window.open(cta.url, "_blank", "noopener,noreferrer");
-    }
-  };
-
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 
-  // simple preview interne
+  // simple preview interne (on garde primary/secondary comme démo)
   return (
     <div
       className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg"
@@ -244,16 +282,18 @@ export default function SmartPromo() {
           {promo?.card?.body ??
             "Chat with our assistant or book a 15-min demo."}
         </div>
-        <div className="mt-3 flex gap-2">
-          <button
-            className="h-9 flex-1 rounded-md bg-sky-500 px-3 font-medium text-white"
-            onClick={() => promo?.primaryCta && runCta(promo.primaryCta)}
-          >
-            {promo?.primaryCta?.label ?? "Chat"}
-          </button>
-          {promo?.secondaryCta && (
+        <div className="mt-3 flex flex-col gap-2">
+          {promo.primaryCta && (
             <button
-              className="h-9 flex-1 rounded-md border px-3 font-medium"
+              className="h-9 w-full rounded-md bg-sky-500 px-3 font-medium text-white"
+              onClick={() => runCta(promo.primaryCta!)}
+            >
+              {promo.primaryCta.label ?? "Chat"}
+            </button>
+          )}
+          {promo.secondaryCta && (
+            <button
+              className="h-9 w-full rounded-md border px-3 font-medium"
               onClick={() => runCta(promo.secondaryCta!)}
             >
               {promo.secondaryCta.label}

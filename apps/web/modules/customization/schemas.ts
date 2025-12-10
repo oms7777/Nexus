@@ -80,11 +80,13 @@ export const promoSchema = z.object({
     body: z.string().min(1),
     badgeText: z.string().optional(),
   }),
-  primaryCta: z.object({
-    kind: z.enum(["open_chat", "open_booking", "open_url"]),
-    label: z.string().min(1),
-    url: z.string().url().optional(),
-  }),
+  primaryCta: z
+    .object({
+      kind: z.enum(["open_chat", "open_booking", "open_url"]),
+      label: z.string().min(1),
+      url: z.string().url().optional(),
+    })
+    .optional(),
   secondaryCta: z
     .object({
       kind: z.enum(["open_chat", "open_booking", "open_url"]),
@@ -92,6 +94,16 @@ export const promoSchema = z.object({
       url: z.string().url().optional(),
     })
     .optional(),
+  ctaList: z
+    .array(
+      z.object({
+        kind: z.enum(["open_chat", "open_booking", "open_url"]),
+        label: z.string().min(1),
+        url: z.string().url().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export type PromoForm = z.infer<typeof promoSchema>;
+

@@ -1,4 +1,3 @@
-// packages/backend/convex/private/promos.ts
 import { mutation, query } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
 
@@ -65,7 +64,8 @@ export const upsert = mutation({
     primaryCta: ctaV,
     secondaryCta: v.optional(ctaV),
     targetRole: v.optional(targetRoleV),
-    identityMode: v.optional(identityModeV), // 👈 NEW
+    identityMode: v.optional(identityModeV),
+    ctaList: v.optional(v.array(ctaV)),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();

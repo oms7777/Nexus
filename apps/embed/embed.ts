@@ -12,29 +12,29 @@ type ThemePayload = {
   chatBubbleColor?: string;
 };
 
+type SimpleCta = {
+  kind: "open_chat" | "open_booking" | "open_url";
+  label: string;
+  url?: string;
+};
+
 type PromoPayload = {
   title?: string;
   body?: string;
   primary?: string;
   secondary?: string;
-  primaryCta?: {
-    kind: "open_chat" | "open_booking" | "open_url";
-    label: string;
-    url?: string;
-  };
-  secondaryCta?: {
-    kind: "open_chat" | "open_booking" | "open_url";
-    label: string;
-    url?: string;
-  };
+  primaryCta?: SimpleCta;
+  secondaryCta?: SimpleCta;
   avatars?: string[];
   badgeText?: string;
   privacyUrl?: string;
   // Thème & branding envoyés par le widget
   theme?: ThemePayload;
   brandLogoUrl?: string;
-  // NEW : contrôle de l’identité visuelle
+  // contrôle de l’identité visuelle
   identityMode?: "auto" | "logo" | "avatars";
+  // NEW: multi-CTAs
+  ctaList?: SimpleCta[];
 };
 
 (function () {
@@ -362,14 +362,20 @@ type PromoPayload = {
       ? payload.avatars.slice(0, 3)
       : [];
 
-    // --- NEW : mode identité dans le nudge ---
+    const ctaList: SimpleCta[] =
+      Array.isArray(payload.ctaList) && payload.ctaList.length
+        ? payload.ctaList
+        : [];
+
+    const hasMulti = ctaList.length > 0;
+
+    // --- identité visuelle ---
     const identityMode: "auto" | "logo" | "avatars" =
       payload.identityMode || "auto";
 
     let identityHtml = "";
 
     if (identityMode === "logo") {
-      // Forcer le logo si dispo
       if (brandLogoUrl) {
         const safeLogo = escapeAttr(brandLogoUrl);
         identityHtml = `
@@ -386,7 +392,6 @@ type PromoPayload = {
         `;
       }
     } else if (identityMode === "avatars") {
-      // Forcer les avatars si présents
       if (avatars.length) {
         identityHtml = avatars
           .map(
@@ -403,7 +408,6 @@ type PromoPayload = {
           .join("");
       }
     } else {
-      // auto : logo si dispo, sinon avatars
       if (brandLogoUrl) {
         const safeLogo = escapeAttr(brandLogoUrl);
         identityHtml = `
@@ -450,6 +454,110 @@ type PromoPayload = {
     const body =
       payload.body || "Chat with our assistant or book a 15-min demo.";
 
+    const buttonsHtml = hasMulti
+      ? `
+        <div id="nexus-cta-stack"
+          style="
+            display:flex;
+            flex-direction:column;
+            gap:8px;
+            margin-top:12px;
+          ">
+          ${ctaList
+            .map((cta, index) => {
+              const isPrimary = index === 0;
+              const bg = isPrimary ? primaryColor : secondaryColor;
+              const color = isPrimary ? primaryTextColor : secondaryTextColor;
+              const border = isPrimary ? "" : "border:1px solid #e5e7eb;";
+              const label =
+                cta.label && cta.label.trim().length
+                  ? cta.label
+                  : defaultLabelForKind(cta.kind);
+              return `
+                <button data-cta-index="${index}"
+                  style="
+                    all: unset;
+                    width:100%;
+                    min-height:36px;
+                    padding:0 12px;
+                    border-radius:8px;
+                    background:${bg};
+                    color:${color};
+                    ${border}
+                    cursor:pointer;
+                    font-weight:600;
+                    font-size:13px;
+                    display:inline-flex;
+                    align-items:center;
+                    justify-content:center;
+                    text-align:center;
+                    box-sizing:border-box;
+                    white-space:normal;
+                  ">
+                  ${escapeHtml(label)}
+                </button>
+              `;
+            })
+            .join("")}
+        </div>
+      `
+      : `
+        <div style="
+          display:flex;
+          flex-direction:column;
+          gap:8px;
+          margin-top:12px;
+        ">
+          <button id="nexus-primary"
+            style="
+              all: unset;
+              width:100%;
+              min-height:36px;
+              padding:0 12px;
+              border-radius:8px;
+              background:${primaryColor};
+              color:${primaryTextColor};
+              cursor:pointer;
+              font-weight:600;
+              font-size:13px;
+              display:inline-flex;
+              align-items:center;
+              justify-content:center;
+              text-align:center;
+              box-sizing:border-box;
+              white-space:normal;
+            ">
+            ${escapeHtml(payload.primary || "Chat with AI Assistant")}
+          </button>
+          ${
+            payload.secondary !== undefined
+              ? `<button id="nexus-secondary"
+                  style="
+                    all: unset;
+                    width:100%;
+                    min-height:36px;
+                    padding:0 12px;
+                    border-radius:8px;
+                    background:${secondaryColor};
+                    color:${secondaryTextColor};
+                    border:1px solid #e5e7eb;
+                    cursor:pointer;
+                    font-weight:600;
+                    font-size:13px;
+                    display:inline-flex;
+                    align-items:center;
+                    justify-content:center;
+                    text-align:center;
+                    box-sizing:border-box;
+                    white-space:normal;
+                  ">
+                  ${escapeHtml(payload.secondary || "Book a meeting")}
+                </button>`
+              : ""
+          }
+        </div>
+      `;
+
     nudge!.innerHTML = `
       <div style="position:relative">
         ${badgeHtml}
@@ -464,55 +572,7 @@ type PromoPayload = {
             <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;word-break:break-word;">
               ${escapeHtml(body)}
             </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button id="nexus-primary"
-                style="
-                  all: unset;
-                  flex:1;
-                  min-height:36px;
-                  padding:0 12px;
-                  border-radius:8px;
-                  background:${primaryColor};
-                  color:${primaryTextColor};
-                  cursor:pointer;
-                  font-weight:600;
-                  font-size:13px;
-                  display:inline-flex;
-                  align-items:center;
-                  justify-content:center;
-                  text-align:center;
-                  box-sizing:border-box;
-                  white-space:normal;
-                ">
-                ${escapeHtml(payload.primary || "Chat with AI Assistant")}
-              </button>
-              ${
-                payload.secondary !== undefined
-                  ? `<button id="nexus-secondary"
-                      style="
-                        all: unset;
-                        flex:1;
-                        min-height:36px;
-                        padding:0 12px;
-                        border-radius:8px;
-                        background:${secondaryColor};
-                        color:${secondaryTextColor};
-                        border:1px solid #e5e7eb;
-                        cursor:pointer;
-                        font-weight:600;
-                        font-size:13px;
-                        display:inline-flex;
-                        align-items:center;
-                        justify-content:center;
-                        text-align:center;
-                        box-sizing:border-box;
-                        white-space:normal;
-                      ">
-                      ${escapeHtml(payload.secondary || "Book a meeting")}
-                    </button>`
-                  : ""
-              }
-            </div>
+            ${buttonsHtml}
             ${
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
@@ -538,14 +598,24 @@ type PromoPayload = {
       </div>
     `;
 
-    const primaryBtn =
-      nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
-    const secondaryBtn =
-      nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
 
-    primaryBtn?.addEventListener("click", () => openChat());
-    secondaryBtn?.addEventListener("click", () => openBooking());
+    if (hasMulti) {
+      const btns =
+        nudge!.querySelectorAll<HTMLButtonElement>("button[data-cta-index]");
+      btns.forEach((btn) => {
+        const idx = Number(btn.getAttribute("data-cta-index") || "0");
+        btn.addEventListener("click", () => runNudgeCta(idx));
+      });
+    } else {
+      const primaryBtn =
+        nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
+      const secondaryBtn =
+        nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
+      primaryBtn?.addEventListener("click", () => openChat());
+      secondaryBtn?.addEventListener("click", () => openBooking());
+    }
+
     closeBtn?.addEventListener("click", () => {
       nudgeDismissed = true;
       removeNudge();
@@ -561,6 +631,22 @@ type PromoPayload = {
         if (caret) caret.style.opacity = "1";
       });
     }
+  }
+
+  function runNudgeCta(index: number) {
+    show();
+    setTimeout(() => {
+      postToWidget({
+        type: "nexus:run-cta",
+        index,
+      });
+    }, 50);
+  }
+
+  function defaultLabelForKind(kind: SimpleCta["kind"]): string {
+    if (kind === "open_chat") return "Chat with AI Assistant";
+    if (kind === "open_booking") return "Book a meeting";
+    return "Open link";
   }
 
   function placeNudge() {

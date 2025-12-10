@@ -339,6 +339,8 @@ export default defineSchema({
       body: v.string(),
       badgeText: v.optional(v.string()),
     }),
+
+    // CTA legacy (toujours supportés)
     primaryCta: v.object({
       kind: v.union(
         v.literal("open_chat"),
@@ -360,15 +362,27 @@ export default defineSchema({
       }),
     ),
 
-    // 👇 cible sales / support pour le routing & widget
+    // Nouveau : liste complète de CTAs (multi-boutons)
+    ctaList: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(
+            v.literal("open_chat"),
+            v.literal("open_booking"),
+            v.literal("open_url"),
+          ),
+          label: v.string(),
+          url: v.optional(v.string()),
+        }),
+      ),
+    ),
+
+    // cible sales / support
     targetRole: v.optional(
       v.union(v.literal("sales"), v.literal("support")),
     ),
 
-    // 👇 NEW : contrôle de l’identité visuelle dans le nudge
-    // "auto" = logo si dispo sinon avatars
-    // "logo" = toujours logo si brandLogoUrl
-    // "avatars" = toujours avatars si présents
+    // identité visuelle (logo / avatars / auto)
     identityMode: v.optional(
       v.union(
         v.literal("auto"),
@@ -380,6 +394,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
+
 
 
   /* ---------- Slack Integrations ---------- */
