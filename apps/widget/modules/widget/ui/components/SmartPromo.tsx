@@ -61,10 +61,12 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip",
     ) ?? [];
 
+  // 🔑 IMPORTANT : utiliser parentHref OU document.referrer avant window.location
   const currentUrl =
     typeof window !== "undefined"
-      ? parentHref ?? window.location.href
+      ? parentHref || document.referrer || window.location.href
       : undefined;
+
   const utm =
     typeof window !== "undefined" && currentUrl
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
@@ -77,10 +79,12 @@ export default function SmartPromo() {
         ? { organizationId: orgId, currentUrl, utmSource: utm }
         : "skip",
     ) ?? [];
+
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
     [promos],
   );
+
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
     promoRef.current = promo;
