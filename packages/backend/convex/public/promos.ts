@@ -2,33 +2,60 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 
-function matches(
-  url: string,
-  utm: string | undefined,
-  rules?: {
-    pathPrefix?: string;
-    urlIncludes?: string[];
-    utmSource?: string[];
-  }
-) {
+type Rules = {
+  pathPrefix?: string;
+  urlIncludes?: string[];
+  utmSource?: string[];
+};
+
+function normalizeRules(rules?: Rules | null): Rules | undefined {
+  if (!rules) return undefined;
+
+  const pathPrefix = rules.pathPrefix?.trim() || undefined;
+
+  const urlIncludes =
+    rules.urlIncludes
+      ?.map((s) => s.trim())
+      .filter(Boolean) || undefined;
+
+  const utmSource =
+    rules.utmSource
+      ?.map((s) => s.trim())
+      .filter(Boolean) || undefined;
+
+  if (!pathPrefix && !urlIncludes && !utmSource) return undefined;
+
+  return { pathPrefix, urlIncludes, utmSource };
+}
+
+function matches(url: string, utm: string | undefined, rawRules?: Rules) {
+  const rules = normalizeRules(rawRules);
   if (!rules) return true;
+
   try {
     const u = new URL(url);
 
-    if (rules.pathPrefix && !u.pathname.startsWith(rules.pathPrefix)) return false;
+    // 1) Path prefix
+    if (rules.pathPrefix && !u.pathname.startsWith(rules.pathPrefix)) {
+      return false;
+    }
 
+    // 2) URL includes (pathname ou query)
     if (rules.urlIncludes?.length) {
-      const hit = rules.urlIncludes.some(s => u.pathname.includes(s) || u.search.includes(s));
+      const hit = rules.urlIncludes.some(
+        (s) => u.pathname.includes(s) || u.search.includes(s),
+      );
       if (!hit) return false;
     }
 
+    // 3) UTM source
     if (rules.utmSource?.length) {
       if (!utm || !rules.utmSource.includes(utm)) return false;
     }
 
     return true;
-  } catch {
-    // invalid currentUrl → just no match
+  } catch (err) {
+    console.error("promos.matches – invalid URL", url, err);
     return false;
   }
 }
@@ -41,16 +68,29 @@ export const listForPage = query({
   },
   handler: async (ctx, { organizationId, currentUrl, utmSource }) => {
     try {
-      // If args are missing, treat as "no promos" instead of throwing.
       if (!organizationId || !currentUrl) return [];
 
       const all = await ctx.db
         .query("promos")
-        .withIndex("by_org", q => q.eq("organizationId", organizationId))
+        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
         .collect();
 
-      const active = all.filter(p => p.active);
-      return active.filter(p => matches(currentUrl, utmSource, p.rules));
+      const active = all.filter((p) => p.active);
+
+      const matched = active.filter((p) =>
+        matches(currentUrl, utmSource, p.rules as Rules),
+      );
+
+      // Debug léger si tu veux voir dans le log Convex
+      console.log("promos:listForPage", {
+        org: organizationId,
+        currentUrl,
+        utmSource,
+        active: active.length,
+        matched: matched.length,
+      });
+
+      return matched;
     } catch (err) {
       console.error("promos:listForPage failed", err);
       return [];
