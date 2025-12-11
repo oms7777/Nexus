@@ -1,3 +1,4 @@
+// apps/web/modules/customization/ui/views/customization-view.tsx
 "use client";
 
 import { api } from "@workspace/backend/_generated/api";
@@ -8,20 +9,19 @@ import PromosPanel from "../components/promos-panel";
 
 export const CustomizationView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
-  const vapiPlugin = useQuery(api.private.plugins.getOne, { service: "vapi" });
 
-  const isLoading = widgetSettings === undefined || vapiPlugin === undefined;
+  const isLoading = widgetSettings === undefined;
 
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-y-2 bg-muted">
         <Loader2Icon className="h-6 w-6 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Loading widget settings…</p>
+        <p className="text-sm text-muted-foreground">
+          Loading widget settings…
+        </p>
       </div>
     );
   }
-
-  const hasVapiPlugin = !!vapiPlugin;
 
   const theme = widgetSettings?.theme ?? null;
   const brandLogoUrl = widgetSettings?.brandLogoUrl ?? null;
@@ -59,12 +59,9 @@ export const CustomizationView = () => {
 
         {/* Main content */}
         <main className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)]">
-          {/* LEFT: global settings (branding, chat, consent, voice) */}
+          {/* LEFT: global settings (branding, chat, consent) */}
           <section className="space-y-6">
-            <CustomizationForm
-              initialData={widgetSettings}
-              hasVapiPlugin={hasVapiPlugin}
-            />
+            <CustomizationForm initialData={widgetSettings} />
           </section>
 
           {/* RIGHT: promos & helper */}

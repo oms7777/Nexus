@@ -25,7 +25,7 @@ export function ConsentCard({
   intro?: string;
   body?: string;
   linkMode?: LinkMode;
-  privacyUrl?: string;   // required if linkMode="link"
+  privacyUrl?: string; // required if linkMode="link"
   modalContent?: string; // required if linkMode="modal"
   acceptLabel?: string;
   onAccept: () => void;
@@ -41,15 +41,24 @@ export function ConsentCard({
             "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
           {linkMode === "link" && privacyUrl ? (
             <>
-              I hereby consent to processing of my personal data collected in the chat in accordance with the rules described{" "}
-              <a href={privacyUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:opacity-80">
+              I hereby consent to processing of my personal data collected in
+              the chat in accordance with the rules described{" "}
+              <a
+                href={privacyUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2 hover:opacity-80"
+              >
                 here
-              </a>.
+              </a>
+              .
             </>
           ) : (
             <Dialog>
               <DialogTrigger asChild>
-                <button className="underline underline-offset-2 hover:opacity-80">here</button>
+                <button className="underline underline-offset-2 hover:opacity-80">
+                  here
+                </button>
               </DialogTrigger>
               <DialogContent className="max-w-lg">
                 <DialogHeader>
@@ -57,7 +66,8 @@ export function ConsentCard({
                 </DialogHeader>
                 <div className="whitespace-pre-wrap text-sm text-muted-foreground">
                   {modalContent?.trim() ||
-                    (body?.trim() || "Details about how your data may be processed.") +
+                    (body?.trim() ||
+                      "Details about how your data may be processed.") +
                       "\n\nYou can withdraw your consent at any time."}
                 </div>
               </DialogContent>

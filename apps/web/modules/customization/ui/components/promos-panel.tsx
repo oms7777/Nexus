@@ -1,4 +1,3 @@
-// apps/web/modules/customization/ui/components/promos-panel.tsx
 "use client";
 
 import { useState } from "react";
@@ -78,7 +77,13 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const list = useQuery(api.private.promos.listByOrg, {});
   const upsert = useMutation(api.private.promos.upsert);
   const remove = useMutation(api.private.promos.remove);
+
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Style des CTA pour le PREVIEW uniquement
+  const [ctaStyle, setCtaStyle] = useState<
+    "all_primary" | "primary_plus_secondary"
+  >("all_primary");
 
   const form = useForm<PromoForm>({
     resolver: zodResolver(PromoSchema),
@@ -285,26 +290,18 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         ? existingList
         : [
             p.primaryCta
-              ? ({
+              ? {
                   kind: p.primaryCta.kind,
                   label: p.primaryCta.label,
                   url: p.primaryCta.url,
-                } as {
-                  kind: "open_chat" | "open_booking" | "open_url";
-                  label: string;
-                  url?: string;
-                })
+                }
               : undefined,
             p.secondaryCta
-              ? ({
+              ? {
                   kind: p.secondaryCta.kind,
                   label: p.secondaryCta.label,
                   url: p.secondaryCta.url,
-                } as {
-                  kind: "open_chat" | "open_booking" | "open_url";
-                  label: string;
-                  url?: string;
-                })
+                }
               : undefined,
           ]
     ).filter(
@@ -362,8 +359,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const identityMode = form.watch("identityMode") ?? "auto";
 
-
-  // theming coming from Branding
+  // theming venant du module Branding
   const primaryColor = theme?.primaryColor || "#0ea5e9";
   const primaryTextColor = theme?.primaryTextColor || "#ffffff";
   const secondaryColor = theme?.secondaryColor || "#ffffff";
@@ -376,6 +372,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const showAvatars =
     identityMode === "avatars" ||
     (identityMode === "auto" && !brandLogoUrl);
+
+  // Toujours afficher quelque chose dans le preview
+  const effectivePreviewCtas =
+    previewCtas.length > 0
+      ? previewCtas
+      : [
+          { kind: "open_chat" as const, label: "Chat with AI Assistant" },
+          { kind: "open_booking" as const, label: "Book a meeting" },
+        ];
 
   /* ----------------- Render ----------------- */
 
@@ -425,7 +430,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               <div className="flex flex-col overflow-hidden">
                 <form
                   onSubmit={form.handleSubmit(onSubmit)}
-                  className="flex-1 overflow-y-auto pr-4 space-y-4"
+                  className="flex-1 space-y-4 overflow-y-auto pr-4"
                 >
                   <input type="hidden" {...form.register("id")} />
 
@@ -603,6 +608,49 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </div>
                     </div>
 
+                    {/* CTA style toggle (preview only) */}
+                    <div className="rounded-lg bg-background px-3 py-2 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-slate-700">
+                            CTA style
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Choose whether all buttons look primary, or only the
+                            first one is highlighted.
+                          </p>
+                        </div>
+                        <div className="inline-flex rounded-full bg-muted p-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={
+                              ctaStyle === "all_primary" ? "default" : "ghost"
+                            }
+                            className="h-7 rounded-full px-3 text-xs"
+                            onClick={() => setCtaStyle("all_primary")}
+                          >
+                            All primary
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={
+                              ctaStyle === "primary_plus_secondary"
+                                ? "default"
+                                : "ghost"
+                            }
+                            className="h-7 rounded-full px-3 text-xs"
+                            onClick={() =>
+                              setCtaStyle("primary_plus_secondary")
+                            }
+                          >
+                            1 primary + secondary
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
                     <Separator />
 
                     {/* Multi-CTA list */}
@@ -741,7 +789,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               </div>
 
               {/* Right column: live preview (branding + promo combiné) */}
-              <div className="hidden md:flex md:flex-col min-w-[360px] pl-4">
+              <div className="hidden min-w-[360px] pl-4 md:flex md:flex-col">
                 <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Promo preview
                 </div>
@@ -802,45 +850,36 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     </p>
 
                     <div className="space-y-2">
-                      {previewCtas.length === 0 && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-8 w-full justify-center text-sm"
-                          style={{
-                            backgroundColor: primaryColor,
-                            color: primaryTextColor,
-                            borderColor: primaryColor,
-                          }}
-                        >
-                          Chat with AI Assistant
-                        </Button>
-                      )}
+                      {effectivePreviewCtas.map((cta, index) => {
+                        const isPrimary =
+                          ctaStyle === "all_primary" || index === 0;
 
-                      {previewCtas.map((cta, index) => (
-                        <Button
-                          key={index}
-                          type="button"
-                          size="sm"
-                          variant={index === 0 ? "default" : "outline"}
-                          className="h-8 w-full justify-center text-sm"
-                          style={
-                            index === 0
-                              ? {
-                                  backgroundColor: primaryColor,
-                                  color: primaryTextColor,
-                                  borderColor: primaryColor,
-                                }
-                              : {
-                                  backgroundColor: secondaryColor,
-                                }
-                          }
-                        >
-                          {cta.label}
-                        </Button>
-                      ))}
+                        const style = isPrimary
+                          ? {
+                              backgroundColor: primaryColor,
+                              color: primaryTextColor,
+                              borderColor: primaryColor,
+                            }
+                          : {
+                              backgroundColor: secondaryColor,
+                              color: primaryColor,
+                              borderColor: primaryColor,
+                            };
+
+                        return (
+                          <Button
+                            key={index}
+                            type="button"
+                            size="sm"
+                            className="h-8 w-full justify-center text-sm"
+                            variant={isPrimary ? "default" : "outline"}
+                            style={style}
+                          >
+                            {cta.label}
+                          </Button>
+                        );
+                      })}
                     </div>
-
 
                     <p className="text-[10px] text-slate-400">
                       This is how the promo nudge will appear on your site,
@@ -863,7 +902,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         {list?.map((p) => (
           <div
             key={p._id}
-            className="flex items-center justify-between gap-4 rounded-lg border bg-background px-3 py-2.5 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)] hover:bg-muted/60 transition-colors"
+            className="flex items-center justify-between gap-4 rounded-lg border bg-background px-3 py-2.5 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)] transition-colors hover:bg-muted/60"
           >
             <div className="min-w-0 space-y-0.5">
               <div className="flex flex-wrap items-center gap-2">

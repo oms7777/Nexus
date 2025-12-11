@@ -30,7 +30,6 @@ import { useMutation, useAction } from "convex/react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import z from "zod";
-import { VapiFormFields } from "./vapi-form-fields";
 import { widgetSettingsSchema } from "../../schemas";
 import { MessageCircle } from "lucide-react";
 
@@ -38,15 +37,11 @@ type WidgetSettings = Doc<"widgetSettings">;
 
 interface CustomizationFormProps {
   initialData?: WidgetSettings | null;
-  hasVapiPlugin: boolean;
 }
 
 type FormSchema = z.infer<typeof widgetSettingsSchema>;
 
-export const CustomizationForm = ({
-  initialData,
-  hasVapiPlugin,
-}: CustomizationFormProps) => {
+export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
   const addFile = useAction(api.private.files.addFile);
 
@@ -63,10 +58,6 @@ export const CustomizationForm = ({
         suggestion2: initialData?.defaultSuggestions.suggestion2 || "",
         suggestion3: initialData?.defaultSuggestions.suggestion3 || "",
       },
-      vapiSettings: {
-        assistantId: initialData?.vapiSettings.assistantId || "",
-        phoneNumber: initialData?.vapiSettings.phoneNumber || "",
-      },
       // THEME defaults
       theme: {
         primaryColor:
@@ -81,7 +72,7 @@ export const CustomizationForm = ({
           "#3b82f6",
       },
       brandLogoUrl: initialData?.brandLogoUrl || "",
-      // hidden (compat)
+      // compat (consent)
       privacyUrl: initialData?.privacyUrl ?? undefined,
       consent: {
         enabled: initialData?.consent?.enabled ?? true,
@@ -106,12 +97,9 @@ export const CustomizationForm = ({
   const logoUrl = form.watch("brandLogoUrl");
 
   // live theme values for preview
-  const primaryColor =
-    form.watch("theme.primaryColor") || "#0ea5e9";
-  const primaryTextColor =
-    form.watch("theme.primaryTextColor") || "#ffffff";
-  const secondaryColor =
-    form.watch("theme.secondaryColor") || "#ffffff";
+  const primaryColor = form.watch("theme.primaryColor") || "#0ea5e9";
+  const primaryTextColor = form.watch("theme.primaryTextColor") || "#ffffff";
+  const secondaryColor = form.watch("theme.secondaryColor") || "#ffffff";
   const nudgeBackgroundColor =
     form.watch("theme.nudgeBackgroundColor") || "#ffffff";
   const chatBubbleColor =
@@ -156,19 +144,6 @@ export const CustomizationForm = ({
 
   const onSubmit: SubmitHandler<FormSchema> = async (values) => {
     try {
-      const vapiSettings = {
-        assistantId:
-          values.vapiSettings.assistantId &&
-          values.vapiSettings.assistantId !== "none"
-            ? values.vapiSettings.assistantId
-            : undefined,
-        phoneNumber:
-          values.vapiSettings.phoneNumber &&
-          values.vapiSettings.phoneNumber !== "none"
-            ? values.vapiSettings.phoneNumber
-            : undefined,
-      } as const;
-
       const theme =
         values.theme && Object.values(values.theme).some(Boolean)
           ? values.theme
@@ -177,11 +152,9 @@ export const CustomizationForm = ({
       await upsertWidgetSettings({
         greetMessage: values.greetMessage,
         defaultSuggestions: values.defaultSuggestions,
-        vapiSettings,
-        // NEW branding
+        // ⚠️ plus de vapiSettings ici
         theme,
         brandLogoUrl: values.brandLogoUrl || undefined,
-        // compat
         privacyUrl: values.privacyUrl || undefined,
         consent: values.consent
           ? {
@@ -202,7 +175,7 @@ export const CustomizationForm = ({
                   : undefined,
             }
           : undefined,
-      });
+      } as any);
 
       toast.success("Widget settings saved");
     } catch (error) {
@@ -774,20 +747,6 @@ export const CustomizationForm = ({
             </div>
           </CardContent>
         </Card>
-
-        {hasVapiPlugin && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Voice Assistant Settings</CardTitle>
-              <CardDescription>
-                Configure voice calling features powered by Vapi
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <VapiFormFields form={form as any} />
-            </CardContent>
-          </Card>
-        )}
 
         <div className="flex justify-end">
           <Button disabled={submitting} type="submit">
