@@ -1,3 +1,4 @@
+// apps/web/modules/customization/ui/components/promos-panel.tsx
 "use client";
 
 import { useState } from "react";
@@ -6,6 +7,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
+
 import { Button } from "@workspace/ui/components/button";
 import {
   Card,
@@ -59,7 +61,20 @@ const PromoSchema = z.object({
 
 type PromoForm = z.infer<typeof PromoSchema>;
 
-export default function PromosPanel() {
+type ThemePreview = {
+  primaryColor?: string | null;
+  primaryTextColor?: string | null;
+  secondaryColor?: string | null;
+  nudgeBackgroundColor?: string | null;
+  chatBubbleColor?: string | null;
+};
+
+interface PromosPanelProps {
+  theme?: ThemePreview | null;
+  brandLogoUrl?: string | null;
+}
+
+export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const list = useQuery(api.private.promos.listByOrg, {});
   const upsert = useMutation(api.private.promos.upsert);
   const remove = useMutation(api.private.promos.remove);
@@ -97,6 +112,8 @@ export default function PromosPanel() {
     control: form.control,
     name: "ctas",
   });
+
+  /* ----------------- Presets ----------------- */
 
   const applyPresetDual = () => {
     const existingCtas = form.getValues("ctas") || [];
@@ -162,6 +179,8 @@ export default function PromosPanel() {
     });
   };
 
+  /* ----------------- Submit ----------------- */
+
   const onSubmit: SubmitHandler<PromoForm> = async (values) => {
     const rules = {
       pathPrefix: values.pathPrefix || undefined,
@@ -184,14 +203,12 @@ export default function PromosPanel() {
         (c) => c && c.label && c.label.trim().length > 0,
       ) || [];
 
-    // Transforme en ctaList propre (URL seulement pour open_url)
     const ctaList = rawCtas.map((c) => ({
       kind: c.kind,
       label: c.label.trim(),
       url: c.kind === "open_url" ? c.url : undefined,
     }));
 
-    // Compat : primary / secondary dérivés des 2 premiers
     const primaryCta =
       ctaList[0] || ({
         kind: "open_chat",
@@ -217,6 +234,7 @@ export default function PromosPanel() {
         identityMode: values.identityMode ?? "auto",
         ctaList: ctaList.length ? ctaList : undefined,
       } as any);
+
       toast.success("Promo saved");
       setDialogOpen(false);
     } catch {
@@ -224,7 +242,8 @@ export default function PromosPanel() {
     }
   };
 
-  // --- Dialog helpers
+  /* ----------------- Dialog helpers ----------------- */
+
   function openForCreate() {
     form.reset({
       id: undefined,
@@ -261,26 +280,31 @@ export default function PromosPanel() {
       url?: string;
     }[];
 
-    // On dérive les CTAs à partir de ctaList ou des primary/secondary legacy
     const derivedCtas = (
       existingList.length > 0
         ? existingList
         : [
             p.primaryCta
-              ? {
-                  kind: p.primaryCta
-                    .kind as "open_chat" | "open_booking" | "open_url",
-                  label: p.primaryCta.label as string,
-                  url: p.primaryCta.url as string | undefined,
-                }
+              ? ({
+                  kind: p.primaryCta.kind,
+                  label: p.primaryCta.label,
+                  url: p.primaryCta.url,
+                } as {
+                  kind: "open_chat" | "open_booking" | "open_url";
+                  label: string;
+                  url?: string;
+                })
               : undefined,
             p.secondaryCta
-              ? {
-                  kind: p.secondaryCta
-                    .kind as "open_chat" | "open_booking" | "open_url",
-                  label: p.secondaryCta.label as string,
-                  url: p.secondaryCta.url as string | undefined,
-                }
+              ? ({
+                  kind: p.secondaryCta.kind,
+                  label: p.secondaryCta.label,
+                  url: p.secondaryCta.url,
+                } as {
+                  kind: "open_chat" | "open_booking" | "open_url";
+                  label: string;
+                  url?: string;
+                })
               : undefined,
           ]
     ).filter(
@@ -322,6 +346,38 @@ export default function PromosPanel() {
     setDialogOpen(true);
   }
 
+  /* ----------------- Preview values ----------------- */
+
+  const previewTitle =
+    form.watch("title") || "Get help fast or schedule time";
+  const previewBody =
+    form.watch("body") ||
+    "Talk to the assistant now or book a 15-min demo.";
+  const previewBadge = form.watch("badgeText") || "Limited time";
+
+  const rawPreviewCtas = form.watch("ctas") || [];
+  const previewCtas = rawPreviewCtas.filter(
+    (c) => c && c.label && c.label.trim().length > 0,
+  );
+
+  const identityMode = form.watch("identityMode") ?? "auto";
+
+
+  // theming coming from Branding
+  const primaryColor = theme?.primaryColor || "#0ea5e9";
+  const primaryTextColor = theme?.primaryTextColor || "#ffffff";
+  const secondaryColor = theme?.secondaryColor || "#ffffff";
+  const nudgeBackgroundColor = theme?.nudgeBackgroundColor || "#ffffff";
+  const chatBubbleColor = theme?.chatBubbleColor || primaryColor;
+
+  const showLogo =
+    (identityMode === "logo" && !!brandLogoUrl) ||
+    (identityMode === "auto" && !!brandLogoUrl);
+  const showAvatars =
+    identityMode === "avatars" ||
+    (identityMode === "auto" && !brandLogoUrl);
+
+  /* ----------------- Render ----------------- */
 
   return (
     <Card>
@@ -335,263 +391,465 @@ export default function PromosPanel() {
             </Button>
           </DialogTrigger>
 
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>
+          <DialogContent
+            className="
+              w-full
+              max-w-[95vw]
+              sm:max-w-[1200px]
+              max-h-[85vh]
+              overflow-hidden
+              rounded-xl
+              p-0
+            "
+          >
+            <DialogHeader className="px-6 pt-4 pb-2">
+              <DialogTitle className="text-base font-semibold">
                 {form.watch("id") ? "Edit promo" : "Create a promo"}
               </DialogTitle>
             </DialogHeader>
 
-            <div className="mb-3 flex gap-2">
-              <Button variant="outline" size="sm" onClick={applyPresetDual}>
-                Preset: Chat + Book
-              </Button>
-              <Button variant="outline" size="sm" onClick={applyPresetSales}>
-                Preset: Sales push
-              </Button>
-            </div>
-
-            <form
-              className="grid grid-cols-1 gap-4 md:grid-cols-2"
-              onSubmit={form.handleSubmit(onSubmit)}
+            <div
+              className="
+                h-[75vh]
+                grid
+                grid-cols-1
+                gap-6
+                md:grid-cols-[2fr_1fr]
+                px-6
+                pb-6
+                pt-0
+                overflow-hidden
+              "
             >
-              <input type="hidden" {...form.register("id")} />
-
-              <div className="col-span-2 flex items-center justify-between gap-4">
-                <div className="flex flex-col gap-1">
-                  <Label>Name</Label>
-                  <Input
-                    {...form.register("name")}
-                    placeholder="Internal name"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label>Active</Label>
-                  <Switch
-                    checked={!!form.watch("active")}
-                    onCheckedChange={(v) => form.setValue("active", v)}
-                  />
-                </div>
-              </div>
-
-              <Separator className="col-span-2" />
-
-              <div>
-                <Label>Path prefix (optional)</Label>
-                <Input
-                  {...form.register("pathPrefix")}
-                  placeholder="/pricing"
-                />
-              </div>
-              <div>
-                <Label>URL includes (comma)</Label>
-                <Input
-                  {...form.register("urlIncludes")}
-                  placeholder="pricing,plans"
-                />
-              </div>
-              <div>
-                <Label>UTM source (comma)</Label>
-                <Input
-                  {...form.register("utmSource")}
-                  placeholder="ads,newsletter"
-                />
-              </div>
-
-              <div>
-                <Label>Target team</Label>
-                <Select
-                  value={form.watch("targetRole") ?? "sales"}
-                  onValueChange={(v) =>
-                    form.setValue("targetRole", v as "sales" | "support")
-                  }
+              {/* Left column: form (scrollable) */}
+              <div className="flex flex-col overflow-hidden">
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="flex-1 overflow-y-auto pr-4 space-y-4"
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose team…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sales">Sales</SelectItem>
-                    <SelectItem value="support">Support</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Determines which reps (sales or support) can receive this
-                  promo’s leads.
-                </p>
-              </div>
+                  <input type="hidden" {...form.register("id")} />
 
-              {/* Identity toggle */}
-              <div>
-                <Label>Identity in nudge</Label>
-                <Select
-                  value={form.watch("identityMode") ?? "auto"}
-                  onValueChange={(v) =>
-                    form.setValue(
-                      "identityMode",
-                      v as "auto" | "logo" | "avatars",
-                    )
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Auto" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">
-                      Auto (logo if set, otherwise reps)
-                    </SelectItem>
-                    <SelectItem value="logo">Always use logo</SelectItem>
-                    <SelectItem value="avatars">
-                      Use team avatars only
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Choose whether the nudge shows your company logo or the 3
-                  sales avatars.
-                </p>
-              </div>
-
-              <Separator className="col-span-2" />
-
-              <div className="col-span-2">
-                <Label>Title</Label>
-                <Input {...form.register("title")} />
-              </div>
-              <div className="col-span-2">
-                <Label>Body</Label>
-                <Textarea rows={3} {...form.register("body")} />
-              </div>
-              <div>
-                <Label>Badge (optional)</Label>
-                <Input
-                  {...form.register("badgeText")}
-                  placeholder="Limited time"
-                />
-              </div>
-
-              <Separator className="col-span-2" />
-
-              {/* Multi-CTA list */}
-              <div className="col-span-2">
-                <div className="mb-2 flex items-center justify-between">
-                  <Label>Call-to-actions</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      append({
-                        kind: "open_chat",
-                        label: "New CTA",
-                        url: "",
-                      })
-                    }
-                  >
-                    Add CTA
-                  </Button>
-                </div>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Buttons will be shown vertically in the promo nudge (top =
-                  primary style).
-                </p>
-
-                <div className="space-y-3">
-                  {fields.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No CTA yet. Add at least one.
-                    </p>
-                  )}
-
-                  {fields.map((field, index) => (
-                    <div
-                      key={field.id}
-                      className="rounded-md border p-3 text-sm"
-                    >
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="font-medium">
-                          CTA #{index + 1}
-                          {index === 0 && (
-                            <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-700">
-                              Primary
-                            </span>
-                          )}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {fields.length > 1 && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => removeCta(index)}
-                            >
-                              Remove
-                            </Button>
-                          )}
+                  {/* Basic info + presets */}
+                  <section className="space-y-3 rounded-xl border bg-muted/40 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 space-y-1">
+                        <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Basic info
+                        </Label>
+                        <div>
+                          <Label>Name</Label>
+                          <Input
+                            {...form.register("name")}
+                            placeholder="Internal name"
+                          />
                         </div>
                       </div>
+                      <div className="flex items-center gap-2 pt-6">
+                        <Label className="text-xs text-muted-foreground">
+                          Active
+                        </Label>
+                        <Switch
+                          checked={!!form.watch("active")}
+                          onCheckedChange={(v) => form.setValue("active", v)}
+                        />
+                      </div>
+                    </div>
 
-                      <div className="flex flex-col gap-2 md:flex-row">
-                        <div className="md:w-40">
-                          <Label className="text-xs">Type</Label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Start from a preset:
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={applyPresetDual}
+                      >
+                        Chat + Book
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={applyPresetSales}
+                      >
+                        Sales push
+                      </Button>
+                    </div>
+                  </section>
+
+                  {/* Targeting */}
+                  <section className="space-y-3 rounded-xl border bg-muted/40 p-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Targeting
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Control when and for which team this promo appears.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <Label>Path prefix (optional)</Label>
+                        <Input
+                          {...form.register("pathPrefix")}
+                          placeholder="/pricing"
+                        />
+                      </div>
+                      <div>
+                        <Label>URL includes (comma)</Label>
+                        <Input
+                          {...form.register("urlIncludes")}
+                          placeholder="pricing,plans"
+                        />
+                      </div>
+                      <div>
+                        <Label>UTM source (comma)</Label>
+                        <Input
+                          {...form.register("utmSource")}
+                          placeholder="ads,newsletter"
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Target team</Label>
+                        <Select
+                          value={form.watch("targetRole") ?? "sales"}
+                          onValueChange={(v) =>
+                            form.setValue(
+                              "targetRole",
+                              v as "sales" | "support",
+                            )
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose team…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sales">Sales</SelectItem>
+                            <SelectItem value="support">Support</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Determines which reps (sales or support) can receive
+                          this promo’s leads.
+                        </p>
+                      </div>
+
+                      <div className="md:col-span-2 md:flex md:items-center md:gap-3">
+                        <div className="flex-1">
+                          <Label>Identity in nudge</Label>
                           <Select
-                            value={
-                              form.watch(`ctas.${index}.kind`) ||
-                              "open_chat"
-                            }
+                            value={identityMode}
                             onValueChange={(v) =>
                               form.setValue(
-                                `ctas.${index}.kind`,
-                                v as "open_chat" | "open_booking" | "open_url",
+                                "identityMode",
+                                v as "auto" | "logo" | "avatars",
                               )
                             }
                           >
-                            <SelectTrigger className="h-8">
-                              <SelectValue />
+                            <SelectTrigger>
+                              <SelectValue placeholder="Auto" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="open_chat">
-                                Open chat
+                              <SelectItem value="auto">
+                                Auto (logo if set, otherwise reps)
                               </SelectItem>
-                              <SelectItem value="open_booking">
-                                Open booking
+                              <SelectItem value="logo">
+                                Always use logo
                               </SelectItem>
-                              <SelectItem value="open_url">
-                                Open URL
+                              <SelectItem value="avatars">
+                                Use team avatars only
                               </SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="flex-1">
-                          <Label className="text-xs">Label</Label>
-                          <Input
-                            className="h-8"
-                            {...form.register(`ctas.${index}.label` as const)}
-                            placeholder="Button label"
-                          />
+                        <p className="mt-1 text-xs text-muted-foreground md:w-1/2">
+                          Choose whether the nudge shows your company logo or
+                          the 3 sales avatars.
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Message & CTAs */}
+                  <section className="space-y-4 rounded-xl border bg-muted/40 p-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Message & buttons
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        This is the content visitors will see in the promo
+                        nudge.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <Label>Title</Label>
+                        <Input {...form.register("title")} />
+                      </div>
+                      <div>
+                        <Label>Body</Label>
+                        <Textarea rows={3} {...form.register("body")} />
+                      </div>
+                      <div className="max-w-xs">
+                        <Label>Badge (optional)</Label>
+                        <Input
+                          {...form.register("badgeText")}
+                          placeholder="Limited time"
+                        />
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Multi-CTA list */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label>Call-to-actions</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Buttons are shown vertically in the promo (top =
+                            primary style).
+                          </p>
                         </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            append({
+                              kind: "open_chat",
+                              label: "New CTA",
+                              url: "",
+                            })
+                          }
+                        >
+                          Add CTA
+                        </Button>
                       </div>
 
-                      {form.watch(`ctas.${index}.kind`) === "open_url" && (
-                        <div className="mt-2">
-                          <Label className="text-xs">URL</Label>
-                          <Input
-                            className="h-8"
-                            {...form.register(`ctas.${index}.url` as const)}
-                            placeholder="https://…"
-                          />
-                        </div>
-                      )}
+                      <div className="space-y-3">
+                        {fields.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            No CTA yet. Add at least one.
+                          </p>
+                        )}
+
+                        {fields.map((field, index) => (
+                          <div
+                            key={field.id}
+                            className="space-y-2 rounded-lg border bg-background p-3 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)]"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium uppercase tracking-wide text-slate-700">
+                                  CTA #{index + 1}
+                                </span>
+                                {index === 0 && (
+                                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
+                                    Primary
+                                  </span>
+                                )}
+                              </div>
+                              {fields.length > 1 && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-xs text-muted-foreground hover:text-destructive"
+                                  onClick={() => removeCta(index)}
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </div>
+
+                            <div className="flex flex-col gap-2 md:flex-row">
+                              <div className="md:w-40">
+                                <Label className="text-xs">Type</Label>
+                                <Select
+                                  value={
+                                    form.watch(`ctas.${index}.kind`) ||
+                                    "open_chat"
+                                  }
+                                  onValueChange={(v) =>
+                                    form.setValue(
+                                      `ctas.${index}.kind`,
+                                      v as
+                                        | "open_chat"
+                                        | "open_booking"
+                                        | "open_url",
+                                    )
+                                  }
+                                >
+                                  <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="open_chat">
+                                      Open chat
+                                    </SelectItem>
+                                    <SelectItem value="open_booking">
+                                      Open booking
+                                    </SelectItem>
+                                    <SelectItem value="open_url">
+                                      Open URL
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="flex-1">
+                                <Label className="text-xs">Label</Label>
+                                <Input
+                                  className="h-8 text-sm"
+                                  {...form.register(
+                                    `ctas.${index}.label` as const,
+                                  )}
+                                  placeholder="Button label"
+                                />
+                              </div>
+                            </div>
+
+                            {form.watch(`ctas.${index}.kind`) ===
+                              "open_url" && (
+                              <div>
+                                <Label className="text-xs">URL</Label>
+                                <Input
+                                  className="h-8 text-sm"
+                                  {...form.register(
+                                    `ctas.${index}.url` as const,
+                                  )}
+                                  placeholder="https://…"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
+
+                    <div className="flex justify-end border-t pt-3">
+                      <Button type="submit">
+                        {form.watch("id") ? "Update promo" : "Save promo"}
+                      </Button>
+                    </div>
+                  </section>
+                </form>
               </div>
 
-              <div className="col-span-2 flex justify-end">
-                <Button type="submit">
-                  {form.watch("id") ? "Update promo" : "Save promo"}
-                </Button>
+              {/* Right column: live preview (branding + promo combiné) */}
+              <div className="hidden md:flex md:flex-col min-w-[360px] pl-4">
+                <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Promo preview
+                </div>
+                <div className="flex flex-1 items-center justify-center rounded-xl border bg-slate-50 px-4 py-6">
+                  <div
+                    className="w-full max-w-sm space-y-3 rounded-2xl border p-4 shadow-lg shadow-slate-200"
+                    style={{ backgroundColor: nudgeBackgroundColor }}
+                  >
+                    <div className="flex items-center gap-3">
+                      {showLogo && brandLogoUrl ? (
+                        <img
+                          src={brandLogoUrl}
+                          alt="Logo"
+                          className="h-9 w-9 rounded-full border bg-white object-contain"
+                        />
+                      ) : null}
+
+                      {showAvatars && (
+                        <div className="flex -space-x-1">
+                          <div className="h-7 w-7 rounded-full border border-white bg-slate-200" />
+                          <div className="h-7 w-7 rounded-full border border-white bg-slate-300" />
+                          <div className="h-7 w-7 rounded-full border border-white bg-slate-400" />
+                        </div>
+                      )}
+
+                      {!showLogo && !showAvatars && (
+                        <div
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
+                          style={{
+                            backgroundColor: chatBubbleColor,
+                            color: primaryTextColor,
+                          }}
+                        >
+                          AI
+                        </div>
+                      )}
+
+                      <div className="min-w-0 space-y-1">
+                        {previewBadge && (
+                          <div
+                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                            style={{
+                              backgroundColor: `${primaryColor}1A`,
+                              color: primaryColor,
+                            }}
+                          >
+                            {previewBadge}
+                          </div>
+                        )}
+                        <div className="truncate text-sm font-semibold text-slate-900">
+                          {previewTitle}
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs leading-relaxed text-slate-600">
+                      {previewBody}
+                    </p>
+
+                    <div className="space-y-2">
+                      {previewCtas.length === 0 && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 w-full justify-center text-sm"
+                          style={{
+                            backgroundColor: primaryColor,
+                            color: primaryTextColor,
+                            borderColor: primaryColor,
+                          }}
+                        >
+                          Chat with AI Assistant
+                        </Button>
+                      )}
+
+                      {previewCtas.map((cta, index) => (
+                        <Button
+                          key={index}
+                          type="button"
+                          size="sm"
+                          variant={index === 0 ? "default" : "outline"}
+                          className="h-8 w-full justify-center text-sm"
+                          style={
+                            index === 0
+                              ? {
+                                  backgroundColor: primaryColor,
+                                  color: primaryTextColor,
+                                  borderColor: primaryColor,
+                                }
+                              : {
+                                  backgroundColor: secondaryColor,
+                                }
+                          }
+                        >
+                          {cta.label}
+                        </Button>
+                      ))}
+                    </div>
+
+
+                    <p className="text-[10px] text-slate-400">
+                      This is how the promo nudge will appear on your site,
+                      with your current branding.
+                    </p>
+                  </div>
+                </div>
               </div>
-            </form>
+            </div>
           </DialogContent>
         </Dialog>
       </CardHeader>
@@ -605,18 +863,18 @@ export default function PromosPanel() {
         {list?.map((p) => (
           <div
             key={p._id}
-            className="flex items-center justify-between rounded-lg border p-3"
+            className="flex items-center justify-between gap-4 rounded-lg border bg-background px-3 py-2.5 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)] hover:bg-muted/60 transition-colors"
           >
-            <div className="min-w-0">
-              <div className="truncate font-medium">
-                {p.name}
+            <div className="min-w-0 space-y-0.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="truncate font-medium">{p.name}</div>
                 {p.targetRole && (
-                  <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
                     {p.targetRole === "sales" ? "Sales" : "Support"}
                   </span>
                 )}
                 {p.identityMode && (
-                  <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-500">
                     {p.identityMode === "logo"
                       ? "Logo"
                       : p.identityMode === "avatars"
@@ -624,12 +882,40 @@ export default function PromosPanel() {
                       : "Auto"}
                   </span>
                 )}
+                {!p.active && (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                    Paused
+                  </span>
+                )}
               </div>
               <div className="truncate text-xs text-muted-foreground">
                 {p.card?.title} — {p.card?.body}
               </div>
+
+              {(p.rules?.pathPrefix ||
+                p.rules?.urlIncludes?.length ||
+                p.rules?.utmSource?.length) && (
+                <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                  {p.rules?.pathPrefix && (
+                    <span className="rounded bg-slate-50 px-1.5 py-0.5">
+                      path: <code>{p.rules.pathPrefix}</code>
+                    </span>
+                  )}
+                  {p.rules?.urlIncludes?.length ? (
+                    <span className="rounded bg-slate-50 px-1.5 py-0.5">
+                      url: {p.rules.urlIncludes.join(", ")}
+                    </span>
+                  ) : null}
+                  {p.rules?.utmSource?.length ? (
+                    <span className="rounded bg-slate-50 px-1.5 py-0.5">
+                      utm: {p.rules.utmSource.join(", ")}
+                    </span>
+                  ) : null}
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="ml-auto flex items-center gap-2">
               <Switch
                 checked={p.active}
                 onCheckedChange={async (v) => {

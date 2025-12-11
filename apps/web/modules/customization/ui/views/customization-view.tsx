@@ -23,9 +23,12 @@ export const CustomizationView = () => {
 
   const hasVapiPlugin = !!vapiPlugin;
 
+  const theme = widgetSettings?.theme ?? null;
+  const brandLogoUrl = widgetSettings?.brandLogoUrl ?? null;
+
   return (
     <div className="min-h-screen bg-muted px-4 py-8 md:px-8">
-      <div className="mx-auto w-full max-w-6xl space-y-8">
+      <div className="w-full space-y-8 xl:pr-10">
         {/* Page header */}
         <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="space-y-2">
@@ -66,7 +69,7 @@ export const CustomizationView = () => {
 
           {/* RIGHT: promos & helper */}
           <aside className="space-y-4">
-            <PromosPanel />
+            <PromosPanel theme={theme} brandLogoUrl={brandLogoUrl} />
 
             <div className="rounded-lg border bg-background p-4 text-sm text-muted-foreground">
               <h2 className="mb-1 text-sm font-medium text-foreground">

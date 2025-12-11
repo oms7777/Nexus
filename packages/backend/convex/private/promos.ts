@@ -1,3 +1,4 @@
+// packages/backend/convex/private/promos.ts
 import { mutation, query } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
 
@@ -47,6 +48,7 @@ export const listByOrg = query({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     const orgId = requireOrgId(identity);
+
     return await ctx.db
       .query("promos")
       .withIndex("by_org", (q) => q.eq("organizationId", orgId))
@@ -65,6 +67,8 @@ export const upsert = mutation({
     secondaryCta: v.optional(ctaV),
     targetRole: v.optional(targetRoleV),
     identityMode: v.optional(identityModeV),
+
+    // ⭐️ nouvelle liste multi-CTA
     ctaList: v.optional(v.array(ctaV)),
   },
   handler: async (ctx, args) => {
@@ -74,7 +78,11 @@ export const upsert = mutation({
 
     if (args._id) {
       const { _id, ...rest } = args;
-      await ctx.db.patch(_id, { ...rest, organizationId, updatedAt: now });
+      await ctx.db.patch(_id, {
+        ...rest,
+        organizationId,
+        updatedAt: now,
+      });
       return _id;
     }
 
@@ -92,6 +100,7 @@ export const remove = mutation({
   handler: async (ctx, { _id }) => {
     const identity = await ctx.auth.getUserIdentity();
     requireOrgId(identity);
+
     await ctx.db.delete(_id);
     return { ok: true };
   },

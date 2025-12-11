@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import z from "zod";
 import { VapiFormFields } from "./vapi-form-fields";
 import { widgetSettingsSchema } from "../../schemas";
+import { MessageCircle } from "lucide-react";
 
 type WidgetSettings = Doc<"widgetSettings">;
 
@@ -103,6 +104,20 @@ export const CustomizationForm = ({
   });
 
   const logoUrl = form.watch("brandLogoUrl");
+
+  // live theme values for preview
+  const primaryColor =
+    form.watch("theme.primaryColor") || "#0ea5e9";
+  const primaryTextColor =
+    form.watch("theme.primaryTextColor") || "#ffffff";
+  const secondaryColor =
+    form.watch("theme.secondaryColor") || "#ffffff";
+  const nudgeBackgroundColor =
+    form.watch("theme.nudgeBackgroundColor") || "#ffffff";
+  const chatBubbleColor =
+    form.watch("theme.chatBubbleColor") || primaryColor;
+  const greetMessage =
+    form.watch("greetMessage") || "Hi! How can I help you today?";
 
   const handleLogoFile = async (file?: File) => {
     if (!file) return;
@@ -219,200 +234,276 @@ export const CustomizationForm = ({
               Control how the chat bubble and promo nudge look on your site.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Logo URL + upload */}
-            <FormField
-              control={form.control as any}
-              name="brandLogoUrl"
-              render={({ field }) => (
-                <FormItem className="space-y-3">
-                  <FormLabel>Logo URL</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="https://yourdomain.com/logo.svg"
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Used in the chat header and promo nudge. PNG/SVG
-                    recommended.
-                  </FormDescription>
-                  <FormMessage />
+          <CardContent>
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)]">
+              {/* LEFT: form fields */}
+              <div className="space-y-6">
+                {/* Logo URL + upload */}
+                <FormField
+                  control={form.control as any}
+                  name="brandLogoUrl"
+                  render={({ field }) => (
+                    <FormItem className="space-y-3">
+                      <FormLabel>Logo URL</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="https://yourdomain.com/logo.svg"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Used in the chat header and promo nudge. PNG/SVG
+                        recommended.
+                      </FormDescription>
+                      <FormMessage />
 
-                  {/* Upload + preview */}
-                  <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="space-y-1 text-xs text-muted-foreground">
-                      <p>Or upload a logo from your computer.</p>
-                      <p>We’ll store it securely and reuse it across promos.</p>
+                      {/* Upload + preview */}
+                      <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="space-y-1 text-xs text-muted-foreground">
+                          <p>Or upload a logo from your computer.</p>
+                          <p>
+                            We’ll store it securely and reuse it across promos.
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {logoUrl ? (
+                            <img
+                              src={logoUrl}
+                              alt="Logo preview"
+                              className="h-10 w-10 rounded-full border bg-white object-contain"
+                            />
+                          ) : null}
+
+                          <input
+                            ref={logoFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) =>
+                              handleLogoFile(e.target.files?.[0] || undefined)
+                            }
+                          />
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={uploadingLogo}
+                            onClick={() => logoFileInputRef.current?.click()}
+                          >
+                            {uploadingLogo ? "Uploading…" : "Upload logo"}
+                          </Button>
+
+                          {logoUrl && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                form.setValue("brandLogoUrl", "", {
+                                  shouldDirty: true,
+                                  shouldValidate: true,
+                                })
+                              }
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+
+                <Separator />
+
+                {/* Colors */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <FormField
+                    control={form.control as any}
+                    name="theme.primaryColor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Primary color</FormLabel>
+                        <div className="flex items-center gap-2">
+                          <FormControl>
+                            <Input {...field} placeholder="#0ea5e9" />
+                          </FormControl>
+                          <input
+                            type="color"
+                            value={field.value || "#0ea5e9"}
+                            onChange={(e) => field.onChange(e.target.value)}
+                            className="h-9 w-9 cursor-pointer rounded border"
+                          />
+                        </div>
+                        <FormDescription>
+                          Used for main CTA buttons in the nudge.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control as any}
+                    name="theme.primaryTextColor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Primary text color</FormLabel>
+                        <div className="flex items-center gap-2">
+                          <FormControl>
+                            <Input {...field} placeholder="#ffffff" />
+                          </FormControl>
+                          <input
+                            type="color"
+                            value={field.value || "#ffffff"}
+                            onChange={(e) => field.onChange(e.target.value)}
+                            className="h-9 w-9 cursor-pointer rounded border"
+                          />
+                        </div>
+                        <FormDescription>
+                          Text color for the main CTA button.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control as any}
+                    name="theme.secondaryColor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Secondary button background</FormLabel>
+                        <div className="flex items-center gap-2">
+                          <FormControl>
+                            <Input {...field} placeholder="#ffffff" />
+                          </FormControl>
+                          <input
+                            type="color"
+                            value={field.value || "#ffffff"}
+                            onChange={(e) => field.onChange(e.target.value)}
+                            className="h-9 w-9 cursor-pointer rounded border"
+                          />
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control as any}
+                    name="theme.nudgeBackgroundColor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nudge background</FormLabel>
+                        <div className="flex items-center gap-2">
+                          <FormControl>
+                            <Input {...field} placeholder="#ffffff" />
+                          </FormControl>
+                          <input
+                            type="color"
+                            value={field.value || "#ffffff"}
+                            onChange={(e) => field.onChange(e.target.value)}
+                            className="h-9 w-9 cursor-pointer rounded border"
+                          />
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control as any}
+                    name="theme.chatBubbleColor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Chat bubble color</FormLabel>
+                        <div className="flex items-center gap-2">
+                          <FormControl>
+                            <Input {...field} placeholder="#3b82f6" />
+                          </FormControl>
+                          <input
+                            type="color"
+                            value={field.value || "#3b82f6"}
+                            onChange={(e) => field.onChange(e.target.value)}
+                            className="h-9 w-9 cursor-pointer rounded border"
+                          />
+                        </div>
+                        <FormDescription>
+                          Color of the round chat button at the bottom of the
+                          page.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* RIGHT: global widget preview */}
+              <div className="flex flex-col">
+                <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Widget preview
+                </div>
+                <div className="flex h-full items-end justify-center rounded-xl border bg-slate-50 px-4 pb-6 pt-4">
+                  <div className="relative h-72 w-full max-w-sm rounded-2xl border bg-white shadow-sm">
+                    {/* Fake page header */}
+                    <div className="flex items-center justify-between border-b px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        {logoUrl ? (
+                          <img
+                            src={logoUrl}
+                            alt="Logo"
+                            className="h-7 w-7 rounded-full border bg-white object-contain"
+                          />
+                        ) : (
+                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100">
+                            <MessageCircle className="h-4 w-4 text-slate-500" />
+                          </div>
+                        )}
+                        <span className="text-xs font-medium text-slate-800">
+                          Your assistant
+                        </span>
+                      </div>
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+                        Live
+                      </span>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      {logoUrl ? (
-                        <img
-                          src={logoUrl}
-                          alt="Logo preview"
-                          className="h-10 w-10 rounded-full border bg-white object-contain"
-                        />
-                      ) : null}
-
-                      <input
-                        ref={logoFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) =>
-                          handleLogoFile(e.target.files?.[0] || undefined)
-                        }
-                      />
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={uploadingLogo}
-                        onClick={() => logoFileInputRef.current?.click()}
-                      >
-                        {uploadingLogo ? "Uploading…" : "Upload logo"}
-                      </Button>
-
-                      {logoUrl && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            form.setValue("brandLogoUrl", "", {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            })
-                          }
+                    {/* Chat snippet */}
+                    <div className="space-y-2 px-4 py-3">
+                      <div className="inline-flex max-w-[80%] rounded-2xl bg-slate-100 px-3 py-2 text-[11px] text-slate-700">
+                        {greetMessage}
+                      </div>
+                      <div className="flex justify-end">
+                        <div
+                          className="inline-flex max-w-[80%] rounded-2xl px-3 py-2 text-[11px]"
+                          style={{
+                            backgroundColor: primaryColor,
+                            color: primaryTextColor,
+                          }}
                         >
-                          Remove
-                        </Button>
-                      )}
+                          “Show me the pricing options”
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Chat bubble */}
+                    <div className="pointer-events-none absolute bottom-4 right-4 flex items-center gap-2">
+                      <div className="rounded-full bg-white/70 px-2 py-1 text-[10px] text-slate-600 shadow-sm">
+                        Chat bubble on your page
+                      </div>
+                      <div
+                        className="flex h-10 w-10 items-center justify-center rounded-full shadow-md"
+                        style={{ backgroundColor: chatBubbleColor }}
+                      >
+                        <MessageCircle
+                          className="h-5 w-5"
+                          style={{ color: primaryTextColor }}
+                        />
+                      </div>
                     </div>
                   </div>
-                </FormItem>
-              )}
-            />
-
-            <Separator />
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <FormField
-                control={form.control as any}
-                name="theme.primaryColor"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Primary color</FormLabel>
-                    <div className="flex items-center gap-2">
-                      <FormControl>
-                        <Input {...field} placeholder="#0ea5e9" />
-                      </FormControl>
-                      <input
-                        type="color"
-                        value={field.value || "#0ea5e9"}
-                        onChange={(e) => field.onChange(e.target.value)}
-                        className="h-9 w-9 cursor-pointer rounded border"
-                      />
-                    </div>
-                    <FormDescription>
-                      Used for main CTA buttons in the nudge.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control as any}
-                name="theme.primaryTextColor"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Primary text color</FormLabel>
-                    <div className="flex items-center gap-2">
-                      <FormControl>
-                        <Input {...field} placeholder="#ffffff" />
-                      </FormControl>
-                      <input
-                        type="color"
-                        value={field.value || "#ffffff"}
-                        onChange={(e) => field.onChange(e.target.value)}
-                        className="h-9 w-9 cursor-pointer rounded border"
-                      />
-                    </div>
-                    <FormDescription>
-                      Text color for the main CTA button.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control as any}
-                name="theme.secondaryColor"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Secondary button background</FormLabel>
-                    <div className="flex items-center gap-2">
-                      <FormControl>
-                        <Input {...field} placeholder="#ffffff" />
-                      </FormControl>
-                      <input
-                        type="color"
-                        value={field.value || "#ffffff"}
-                        onChange={(e) => field.onChange(e.target.value)}
-                        className="h-9 w-9 cursor-pointer rounded border"
-                      />
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control as any}
-                name="theme.nudgeBackgroundColor"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nudge background</FormLabel>
-                    <div className="flex items-center gap-2">
-                      <FormControl>
-                        <Input {...field} placeholder="#ffffff" />
-                      </FormControl>
-                      <input
-                        type="color"
-                        value={field.value || "#ffffff"}
-                        onChange={(e) => field.onChange(e.target.value)}
-                        className="h-9 w-9 cursor-pointer rounded border"
-                      />
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control as any}
-                name="theme.chatBubbleColor"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Chat bubble color</FormLabel>
-                    <div className="flex items-center gap-2">
-                      <FormControl>
-                        <Input {...field} placeholder="#3b82f6" />
-                      </FormControl>
-                      <input
-                        type="color"
-                        value={field.value || "#3b82f6"}
-                        onChange={(e) => field.onChange(e.target.value)}
-                        className="h-9 w-9 cursor-pointer rounded border"
-                      />
-                    </div>
-                    <FormDescription>
-                      Color of the round chat button at the bottom of the page.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -8,25 +8,25 @@ type Rules = {
   utmSource?: string[];
 };
 
+/* -------------------- Normalisation -------------------- */
+
 function normalizeRules(rules?: Rules | null): Rules | undefined {
   if (!rules) return undefined;
 
   const pathPrefix = rules.pathPrefix?.trim() || undefined;
 
   const urlIncludes =
-    rules.urlIncludes
-      ?.map((s) => s.trim())
-      .filter(Boolean) || undefined;
+    rules.urlIncludes?.map((s) => s.trim()).filter(Boolean) || undefined;
 
   const utmSource =
-    rules.utmSource
-      ?.map((s) => s.trim())
-      .filter(Boolean) || undefined;
+    rules.utmSource?.map((s) => s.trim()).filter(Boolean) || undefined;
 
   if (!pathPrefix && !urlIncludes && !utmSource) return undefined;
 
   return { pathPrefix, urlIncludes, utmSource };
 }
+
+/* -------------------- Matching -------------------- */
 
 function matches(url: string, utm: string | undefined, rawRules?: Rules) {
   const rules = normalizeRules(rawRules);
@@ -40,7 +40,7 @@ function matches(url: string, utm: string | undefined, rawRules?: Rules) {
       return false;
     }
 
-    // 2) URL includes (pathname ou query)
+    // 2) URL includes
     if (rules.urlIncludes?.length) {
       const hit = rules.urlIncludes.some(
         (s) => u.pathname.includes(s) || u.search.includes(s),
@@ -48,7 +48,7 @@ function matches(url: string, utm: string | undefined, rawRules?: Rules) {
       if (!hit) return false;
     }
 
-    // 3) UTM source
+    // 3) utmSource
     if (rules.utmSource?.length) {
       if (!utm || !rules.utmSource.includes(utm)) return false;
     }
@@ -59,6 +59,30 @@ function matches(url: string, utm: string | undefined, rawRules?: Rules) {
     return false;
   }
 }
+
+/* -------------------- Specificity ranking -------------------- */
+// But : la promo la plus précise gagne
+// Exemple : "/pricing/team" > "/pricing" > "/"
+
+function ruleSpecificity(rawRules?: Rules | null): number {
+  const rules = normalizeRules(rawRules);
+  if (!rules) return 0;
+
+  let score = 0;
+
+  // Longueur du pathPrefix = signal principal
+  if (rules.pathPrefix) score += rules.pathPrefix.length * 10;
+
+  // Includes = bonus
+  if (rules.urlIncludes?.length) score += rules.urlIncludes.length * 5;
+
+  // UTM = bonus léger
+  if (rules.utmSource?.length) score += rules.utmSource.length * 3;
+
+  return score;
+}
+
+/* -------------------- Query principale -------------------- */
 
 export const listForPage = query({
   args: {
@@ -81,13 +105,17 @@ export const listForPage = query({
         matches(currentUrl, utmSource, p.rules as Rules),
       );
 
-      // Debug léger si tu veux voir dans le log Convex
+      // 👉 Tri automatique : plus spécifique en premier
+      matched.sort(
+        (a, b) =>
+          ruleSpecificity(b.rules as Rules) - ruleSpecificity(a.rules as Rules),
+      );
+
       console.log("promos:listForPage", {
         org: organizationId,
         currentUrl,
-        utmSource,
-        active: active.length,
         matched: matched.length,
+        chosen: matched[0]?._id,
       });
 
       return matched;
