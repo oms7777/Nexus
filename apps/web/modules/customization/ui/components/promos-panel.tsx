@@ -47,6 +47,12 @@ const PromoSchema = z.object({
   badgeText: z.string().optional(),
   targetRole: z.enum(["sales", "support"]).optional(),
   identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
+
+  // ✅ persisted
+  ctaEmphasisMode: z
+    .enum(["first_primary", "last_primary", "all_primary", "none_primary"])
+    .optional(),
+
   ctas: z
     .array(
       z.object({
@@ -73,17 +79,32 @@ interface PromosPanelProps {
   brandLogoUrl?: string | null;
 }
 
+function getPrimaryIndex(mode: PromoForm["ctaEmphasisMode"], len: number) {
+  if (!len) return 0;
+  if (mode === "last_primary") return Math.max(0, len - 1);
+  // first_primary | all_primary | none_primary => legacy primary index = 0
+  return 0;
+}
+
+function isPrimaryButton(
+  mode: PromoForm["ctaEmphasisMode"],
+  index: number,
+  len: number,
+) {
+  const m = mode ?? "first_primary";
+  if (m === "all_primary") return true;
+  if (m === "none_primary") return false;
+  if (m === "last_primary") return index === Math.max(0, len - 1);
+  // default: first_primary
+  return index === 0;
+}
+
 export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const list = useQuery(api.private.promos.listByOrg, {});
   const upsert = useMutation(api.private.promos.upsert);
   const remove = useMutation(api.private.promos.remove);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-
-  // Style des CTA pour le PREVIEW uniquement
-  const [ctaStyle, setCtaStyle] = useState<
-    "all_primary" | "primary_plus_secondary"
-  >("all_primary");
 
   const form = useForm<PromoForm>({
     resolver: zodResolver(PromoSchema),
@@ -98,17 +119,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       utmSource: "",
       targetRole: "sales",
       identityMode: "auto",
+      ctaEmphasisMode: "first_primary",
       ctas: [
-        {
-          kind: "open_chat",
-          label: "Chat with AI Assistant",
-          url: "",
-        },
-        {
-          kind: "open_booking",
-          label: "Book a meeting",
-          url: "",
-        },
+        { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
+        { kind: "open_booking", label: "Book a meeting", url: "" },
       ],
     },
   });
@@ -134,20 +148,13 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       utmSource: form.getValues("utmSource") || "",
       targetRole: form.getValues("targetRole") ?? "sales",
       identityMode: form.getValues("identityMode") ?? "auto",
+      ctaEmphasisMode: form.getValues("ctaEmphasisMode") ?? "first_primary",
       ctas:
         existingCtas && existingCtas.length
           ? existingCtas
           : [
-              {
-                kind: "open_chat",
-                label: "Chat with AI Assistant",
-                url: "",
-              },
-              {
-                kind: "open_booking",
-                label: "Book a meeting",
-                url: "",
-              },
+              { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
+              { kind: "open_booking", label: "Book a meeting", url: "" },
             ],
     });
   };
@@ -166,20 +173,13 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       utmSource: form.getValues("utmSource") || "",
       targetRole: "sales",
       identityMode: form.getValues("identityMode") ?? "auto",
+      ctaEmphasisMode: form.getValues("ctaEmphasisMode") ?? "first_primary",
       ctas:
         existingCtas && existingCtas.length
           ? existingCtas
           : [
-              {
-                kind: "open_booking",
-                label: "Book a meeting",
-                url: "",
-              },
-              {
-                kind: "open_chat",
-                label: "Chat with AI Assistant",
-                url: "",
-              },
+              { kind: "open_booking", label: "Book a meeting", url: "" },
+              { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
             ],
     });
   };
@@ -214,13 +214,20 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       url: c.kind === "open_url" ? c.url : undefined,
     }));
 
+    const mode = values.ctaEmphasisMode ?? "first_primary";
+    const primaryIndex = getPrimaryIndex(mode, ctaList.length);
+
     const primaryCta =
-      ctaList[0] || ({
+      ctaList[primaryIndex] ||
+      ({
         kind: "open_chat",
         label: "Chat with AI Assistant",
       } as const);
 
-    const secondaryCta = ctaList[1] ?? undefined;
+    const secondaryCta =
+      ctaList.length > 1
+        ? ctaList.find((_, idx) => idx !== primaryIndex)
+        : undefined;
 
     try {
       await upsert({
@@ -238,11 +245,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         targetRole: values.targetRole,
         identityMode: values.identityMode ?? "auto",
         ctaList: ctaList.length ? ctaList : undefined,
+
+        // ✅ persisted
+        ctaEmphasisMode: mode,
       } as any);
 
       toast.success("Promo saved");
       setDialogOpen(false);
-    } catch {
+    } catch (e) {
+      console.error(e);
       toast.error("Failed to save promo");
     }
   };
@@ -262,17 +273,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       utmSource: "",
       targetRole: "sales",
       identityMode: "auto",
+      ctaEmphasisMode: "first_primary",
       ctas: [
-        {
-          kind: "open_chat",
-          label: "Chat with AI Assistant",
-          url: "",
-        },
-        {
-          kind: "open_booking",
-          label: "Book a meeting",
-          url: "",
-        },
+        { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
+        { kind: "open_booking", label: "Book a meeting", url: "" },
       ],
     });
     setDialogOpen(true);
@@ -317,13 +321,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     const ctasForForm: PromoForm["ctas"] =
       derivedCtas.length > 0
         ? derivedCtas
-        : [
-            {
-              kind: "open_chat",
-              label: "Chat with AI Assistant",
-              url: "",
-            },
-          ];
+        : [{ kind: "open_chat", label: "Chat with AI Assistant", url: "" }];
 
     form.reset({
       id: p._id as string,
@@ -337,6 +335,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       utmSource: (p.rules?.utmSource ?? []).join(","),
       targetRole: (p.targetRole as "sales" | "support") ?? "sales",
       identityMode: (p.identityMode as "auto" | "logo" | "avatars") ?? "auto",
+      ctaEmphasisMode:
+        (p.ctaEmphasisMode as PromoForm["ctaEmphasisMode"]) ?? "first_primary",
       ctas: ctasForForm,
     });
 
@@ -345,12 +345,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   /* ----------------- Preview values ----------------- */
 
-  const previewTitle =
-    form.watch("title") || "Get help fast or schedule time";
+  const previewTitle = form.watch("title") || "Get help fast or schedule time";
   const previewBody =
-    form.watch("body") ||
-    "Talk to the assistant now or book a 15-min demo.";
-  const previewBadge = form.watch("badgeText") || "Limited time";
+    form.watch("body") || "Talk to the assistant now or book a 15-min demo.";
+  const previewBadge = form.watch("badgeText") || "Live";
 
   const rawPreviewCtas = form.watch("ctas") || [];
   const previewCtas = rawPreviewCtas.filter(
@@ -358,8 +356,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   );
 
   const identityMode = form.watch("identityMode") ?? "auto";
+  const emphasisMode = form.watch("ctaEmphasisMode") ?? "first_primary";
 
-  // theming venant du module Branding
   const primaryColor = theme?.primaryColor || "#0ea5e9";
   const primaryTextColor = theme?.primaryTextColor || "#ffffff";
   const secondaryColor = theme?.secondaryColor || "#ffffff";
@@ -370,10 +368,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     (identityMode === "logo" && !!brandLogoUrl) ||
     (identityMode === "auto" && !!brandLogoUrl);
   const showAvatars =
-    identityMode === "avatars" ||
-    (identityMode === "auto" && !brandLogoUrl);
+    identityMode === "avatars" || (identityMode === "auto" && !brandLogoUrl);
 
-  // Toujours afficher quelque chose dans le preview
   const effectivePreviewCtas =
     previewCtas.length > 0
       ? previewCtas
@@ -407,7 +403,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               p-0
             "
           >
-            <DialogHeader className="px-6 pt-4 pb-2">
+            <DialogHeader className="px-6 pb-2 pt-4">
               <DialogTitle className="text-base font-semibold">
                 {form.watch("id") ? "Edit promo" : "Create a promo"}
               </DialogTitle>
@@ -415,15 +411,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
             <div
               className="
-                h-[75vh]
                 grid
+                h-[75vh]
                 grid-cols-1
                 gap-6
-                md:grid-cols-[2fr_1fr]
+                overflow-hidden
                 px-6
                 pb-6
                 pt-0
-                overflow-hidden
+                md:grid-cols-[2fr_1fr]
               "
             >
               {/* Left column: form (scrollable) */}
@@ -603,50 +599,48 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         <Label>Badge (optional)</Label>
                         <Input
                           {...form.register("badgeText")}
-                          placeholder="Limited time"
+                          placeholder="Live"
                         />
                       </div>
                     </div>
 
-                    {/* CTA style toggle (preview only) */}
+                    {/* ✅ CTA emphasis (persisted) */}
                     <div className="rounded-lg bg-background px-3 py-2 text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <p className="font-medium text-slate-700">
-                            CTA style
+                            CTA emphasis
                           </p>
                           <p className="text-[11px] text-muted-foreground">
-                            Choose whether all buttons look primary, or only the
-                            first one is highlighted.
+                            Choose which button is highlighted (primary style).
                           </p>
                         </div>
-                        <div className="inline-flex rounded-full bg-muted p-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={
-                              ctaStyle === "all_primary" ? "default" : "ghost"
-                            }
-                            className="h-7 rounded-full px-3 text-xs"
-                            onClick={() => setCtaStyle("all_primary")}
-                          >
-                            All primary
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={
-                              ctaStyle === "primary_plus_secondary"
-                                ? "default"
-                                : "ghost"
-                            }
-                            className="h-7 rounded-full px-3 text-xs"
-                            onClick={() =>
-                              setCtaStyle("primary_plus_secondary")
-                            }
-                          >
-                            1 primary + secondary
-                          </Button>
+
+                        <div className="inline-flex flex-wrap gap-2">
+                          {[
+                            { k: "first_primary", label: "First primary" },
+                            { k: "last_primary", label: "Last primary" },
+                            { k: "all_primary", label: "All primary" },
+                            { k: "none_primary", label: "None primary" },
+                          ].map((opt) => (
+                            <Button
+                              key={opt.k}
+                              type="button"
+                              size="sm"
+                              variant={
+                                emphasisMode === opt.k ? "default" : "outline"
+                              }
+                              className="h-7 rounded-full px-3 text-[11px]"
+                              onClick={() =>
+                                form.setValue(
+                                  "ctaEmphasisMode",
+                                  opt.k as PromoForm["ctaEmphasisMode"],
+                                )
+                              }
+                            >
+                              {opt.label}
+                            </Button>
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -659,8 +653,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         <div>
                           <Label>Call-to-actions</Label>
                           <p className="text-xs text-muted-foreground">
-                            Buttons are shown vertically in the promo (top =
-                            primary style).
+                            Buttons are shown vertically in the promo.
                           </p>
                         </div>
                         <Button
@@ -696,12 +689,18 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                 <span className="text-xs font-medium uppercase tracking-wide text-slate-700">
                                   CTA #{index + 1}
                                 </span>
-                                {index === 0 && (
+
+                                {isPrimaryButton(
+                                  emphasisMode,
+                                  index,
+                                  fields.length,
+                                ) && (
                                   <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
                                     Primary
                                   </span>
                                 )}
                               </div>
+
                               {fields.length > 1 && (
                                 <Button
                                   type="button"
@@ -726,10 +725,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                   onValueChange={(v) =>
                                     form.setValue(
                                       `ctas.${index}.kind`,
-                                      v as
-                                        | "open_chat"
-                                        | "open_booking"
-                                        | "open_url",
+                                      v as "open_chat" | "open_booking" | "open_url",
                                     )
                                   }
                                 >
@@ -749,6 +745,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                   </SelectContent>
                                 </Select>
                               </div>
+
                               <div className="flex-1">
                                 <Label className="text-xs">Label</Label>
                                 <Input
@@ -761,8 +758,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                               </div>
                             </div>
 
-                            {form.watch(`ctas.${index}.kind`) ===
-                              "open_url" && (
+                            {form.watch(`ctas.${index}.kind`) === "open_url" && (
                               <div>
                                 <Label className="text-xs">URL</Label>
                                 <Input
@@ -788,7 +784,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                 </form>
               </div>
 
-              {/* Right column: live preview (branding + promo combiné) */}
+              {/* Right column: preview */}
               <div className="hidden min-w-[360px] pl-4 md:flex md:flex-col">
                 <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Promo preview
@@ -851,10 +847,13 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
                     <div className="space-y-2">
                       {effectivePreviewCtas.map((cta, index) => {
-                        const isPrimary =
-                          ctaStyle === "all_primary" || index === 0;
+                        const primary = isPrimaryButton(
+                          emphasisMode,
+                          index,
+                          effectivePreviewCtas.length,
+                        );
 
-                        const style = isPrimary
+                        const style = primary
                           ? {
                               backgroundColor: primaryColor,
                               color: primaryTextColor,
@@ -872,7 +871,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                             type="button"
                             size="sm"
                             className="h-8 w-full justify-center text-sm"
-                            variant={isPrimary ? "default" : "outline"}
+                            variant={primary ? "default" : "outline"}
                             style={style}
                           >
                             {cta.label}
@@ -882,8 +881,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     </div>
 
                     <p className="text-[10px] text-slate-400">
-                      This is how the promo nudge will appear on your site,
-                      with your current branding.
+                      Preview uses your branding colors.
                     </p>
                   </div>
                 </div>
@@ -895,6 +893,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
       <CardContent className="space-y-4">
         <Separator />
+
         {!list?.length && (
           <p className="text-sm text-muted-foreground">No promos yet.</p>
         )}
@@ -907,26 +906,42 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
             <div className="min-w-0 space-y-0.5">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="truncate font-medium">{p.name}</div>
+
                 {p.targetRole && (
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
                     {p.targetRole === "sales" ? "Sales" : "Support"}
                   </span>
                 )}
+
                 {p.identityMode && (
                   <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-500">
                     {p.identityMode === "logo"
                       ? "Logo"
                       : p.identityMode === "avatars"
-                      ? "Avatars"
-                      : "Auto"}
+                        ? "Avatars"
+                        : "Auto"}
                   </span>
                 )}
+
+                {p.ctaEmphasisMode && (
+                  <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                    {p.ctaEmphasisMode === "first_primary"
+                      ? "First primary"
+                      : p.ctaEmphasisMode === "last_primary"
+                        ? "Last primary"
+                        : p.ctaEmphasisMode === "all_primary"
+                          ? "All primary"
+                          : "None primary"}
+                  </span>
+                )}
+
                 {!p.active && (
                   <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                     Paused
                   </span>
                 )}
               </div>
+
               <div className="truncate text-xs text-muted-foreground">
                 {p.card?.title} — {p.card?.body}
               </div>
@@ -970,17 +985,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       targetRole: p.targetRole,
                       identityMode: p.identityMode ?? "auto",
                       ctaList: p.ctaList,
+                      ctaEmphasisMode: p.ctaEmphasisMode ?? "first_primary",
                     } as any);
-                  } catch {
+                  } catch (e) {
+                    console.error(e);
                     toast.error("Update failed");
                   }
                 }}
               />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openForEdit(p)}
-              >
+              <Button variant="outline" size="sm" onClick={() => openForEdit(p)}>
                 Edit
               </Button>
               <Button
@@ -990,7 +1003,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   if (!confirm("Delete promo?")) return;
                   try {
                     await remove({ _id: p._id as any });
-                  } catch {
+                  } catch (e) {
+                    console.error(e);
                     toast.error("Delete failed");
                   }
                 }}

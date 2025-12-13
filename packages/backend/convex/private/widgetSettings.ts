@@ -9,10 +9,6 @@ export const upsert = mutation({
       suggestion2: v.optional(v.string()),
       suggestion3: v.optional(v.string()),
     }),
-    vapiSettings: v.object({
-      assistantId: v.optional(v.string()),
-      phoneNumber: v.optional(v.string()),
-    }),
 
     // Optional marketing / branding
     teamAvatars: v.optional(v.array(v.string())),
@@ -24,7 +20,7 @@ export const upsert = mutation({
         secondaryColor: v.optional(v.string()),
         nudgeBackgroundColor: v.optional(v.string()),
         chatBubbleColor: v.optional(v.string()),
-      })
+      }),
     ),
 
     // Back-compat + full consent
@@ -41,7 +37,7 @@ export const upsert = mutation({
         linkMode: v.optional(v.union(v.literal("link"), v.literal("modal"))),
         privacyUrl: v.optional(v.string()),
         modalContent: v.optional(v.string()),
-      })
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -62,12 +58,13 @@ export const upsert = mutation({
     const patch = {
       greetMessage: args.greetMessage,
       defaultSuggestions: args.defaultSuggestions,
-      vapiSettings: args.vapiSettings,
       teamAvatars: args.teamAvatars,
       brandLogoUrl: args.brandLogoUrl,
       theme: args.theme,
       privacyUrl: args.privacyUrl,
       consent: args.consent,
+      // ⚠️ on NE touche PAS à vapiSettings ici : il peut être géré ailleurs
+      // ⚠️ on NE touche pas non plus à routingMode / knowledgeMode
     };
 
     if (existing) {
@@ -77,6 +74,7 @@ export const upsert = mutation({
       const id = await ctx.db.insert("widgetSettings", {
         organizationId: orgId,
         ...patch,
+        // vapiSettings laissé undefined (champ optionnel côté schema)
       });
       return id;
     }
@@ -97,7 +95,7 @@ export const getOne = query({
     const widgetSettings = await ctx.db
       .query("widgetSettings")
       .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", identity.orgId as string)
+        q.eq("organizationId", identity.orgId as string),
       )
       .unique();
 
@@ -109,7 +107,7 @@ export const setRoutingMode = mutation({
   args: {
     routingMode: v.union(
       v.literal("auto_assign"),
-      v.literal("visitor_choice")
+      v.literal("visitor_choice"),
     ),
   },
   handler: async (ctx, { routingMode }) => {
@@ -140,16 +138,63 @@ export const setRoutingMode = mutation({
         suggestion2: undefined,
         suggestion3: undefined,
       },
-      vapiSettings: {
-        assistantId: undefined,
-        phoneNumber: undefined,
-      },
       teamAvatars: undefined,
       brandLogoUrl: undefined,
       theme: undefined,
       privacyUrl: undefined,
       consent: undefined,
       routingMode,
+      // vapiSettings / knowledgeMode pas initialisés ici
+    });
+
+    return id;
+  },
+});
+
+export const setKnowledgeMode = mutation({
+  args: {
+    knowledgeMode: v.union(
+      v.literal("llm_only"),
+      v.literal("llm_plus_kb"),
+    ),
+  },
+  handler: async (ctx, { knowledgeMode }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.orgId) {
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Organization not found",
+      });
+    }
+    const orgId = identity.orgId as string;
+
+    const existing = await ctx.db
+      .query("widgetSettings")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { knowledgeMode });
+      return existing._id;
+    }
+
+    // Si aucune ligne encore, on crée un record minimal
+    const id = await ctx.db.insert("widgetSettings", {
+      organizationId: orgId,
+      greetMessage: "",
+      defaultSuggestions: {
+        suggestion1: undefined,
+        suggestion2: undefined,
+        suggestion3: undefined,
+      },
+      teamAvatars: undefined,
+      brandLogoUrl: undefined,
+      theme: undefined,
+      privacyUrl: undefined,
+      consent: undefined,
+      routingMode: undefined,
+      vapiSettings: undefined,
+      knowledgeMode,
     });
 
     return id;

@@ -32,6 +32,13 @@ const identityModeV = v.union(
   v.literal("avatars"),
 );
 
+const ctaEmphasisModeV = v.union(
+  v.literal("first_primary"),
+  v.literal("last_primary"),
+  v.literal("all_primary"),
+  v.literal("none_primary"),
+);
+
 function requireOrgId(identity: any) {
   const orgId = identity?.orgId as string | undefined;
   if (!orgId) {
@@ -70,6 +77,7 @@ export const upsert = mutation({
 
     // ⭐️ nouvelle liste multi-CTA
     ctaList: v.optional(v.array(ctaV)),
+    ctaEmphasisMode: v.optional(ctaEmphasisModeV),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();

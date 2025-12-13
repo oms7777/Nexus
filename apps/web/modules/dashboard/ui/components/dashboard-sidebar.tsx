@@ -17,7 +17,6 @@ import {
   PaletteIcon,
   UserIcon,
   Users,
-  SlidersHorizontal,
 } from "lucide-react";
 
 import { BarChart3, Filter, Activity } from "lucide-react";
@@ -57,18 +56,15 @@ export const DashboardSidebar = () => {
     { title: "Signals", url: "/analytics/signals", icon: Activity },
   ];
 
-  /* ------------------------------ REVENUE (all users) ------------------------------ */
-  const revenueItems = [{ title: "Live Map", url: "/live", icon: MapIcon }];
-
-  /* ------------------------------ SUPPORT (all users) ------------------------------ */
-  const supportItems = [
+  /* ------------------------------ PIPELINE / REVENUE (all users) ------------------------------ */
+  const pipelineItems = [
+    { title: "Live Map", url: "/live", icon: MapIcon },
     { title: "Conversations", url: "/conversations", icon: InboxIcon },
-    { title: "Knowledge Base", url: "/files", icon: LibraryBigIcon },
   ];
 
-  /* ------------------------------ ME (all users) ------------------------------ */
-  const meItems = [
-    { title: "My Profile", url: "/me/profile", icon: UserIcon },
+  /* ------------------------------ PROFILE (all users) ------------------------------ */
+  const profileItems = [
+    { title: "Account", url: "/me/profile", icon: UserIcon },
     { title: "Calendar", url: "/me/calendar", icon: CalendarIcon },
     { title: "Notifications", url: "/me/notifications", icon: BellIcon },
   ];
@@ -76,10 +72,10 @@ export const DashboardSidebar = () => {
   /* ------------------------------ ADMIN CONFIG ------------------------------ */
   const configurationItems = [
     { title: "Widget Customization", url: "/customization", icon: PaletteIcon },
+    { title: "Team & Territories", url: "/team", icon: Users },
+    { title: "Knowledge Base (AI)", url: "/files", icon: LibraryBigIcon },
     { title: "Integrations", url: "/integrations", icon: LayoutDashboardIcon },
     { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
-    { title: "Team & Territories", url: "/team", icon: Users },
-    // { title: "Routing Rules", url: "/routing", icon: SlidersHorizontal }, // futur
   ];
 
   return (
@@ -140,34 +136,12 @@ export const DashboardSidebar = () => {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* ---------------- REVENUE ---------------- */}
+        {/* ---------------- PIPELINE / REVENUE ---------------- */}
         <SidebarGroup>
-          <SidebarGroupLabel>Revenue</SidebarGroupLabel>
+          <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {revenueItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url)}
-                  >
-                    <Link href={item.url}>
-                      <item.icon className="size-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* ---------------- SUPPORT ---------------- */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Customer Support</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {supportItems.map((item) => (
+              {pipelineItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <Link href={item.url}>
@@ -181,12 +155,12 @@ export const DashboardSidebar = () => {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* ---------------- ME ---------------- */}
+        {/* ---------------- PROFILE ---------------- */}
         <SidebarGroup>
-          <SidebarGroupLabel>Me</SidebarGroupLabel>
+          <SidebarGroupLabel>Profile</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {meItems.map((item) => (
+              {profileItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <Link href={item.url}>

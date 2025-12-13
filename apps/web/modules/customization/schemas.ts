@@ -1,19 +1,33 @@
 import z from "zod";
 
+/**
+ * Widget Settings (Branding, Chat, Consent)
+ * ----------------------------------------
+ * - plus de vapiSettings ici → géré séparément dans Voice Assistant page
+ * - toutes les URLs acceptent "" pour simplifier le form
+ * - consent et theme sont totalement optionnels
+ */
 export const widgetSettingsSchema = z
   .object({
+    // -------------------------
+    // Chat Greeting
+    // -------------------------
     greetMessage: z.string().min(1, "Greeting message is required"),
+
+    // -------------------------
+    // Default suggestions
+    // -------------------------
     defaultSuggestions: z.object({
       suggestion1: z.string().optional(),
       suggestion2: z.string().optional(),
       suggestion3: z.string().optional(),
     }),
-    vapiSettings: z.object({
-      assistantId: z.string().optional(),
-      phoneNumber: z.string().optional(),
-    }),
 
-    // UI THEME
+    // -------------------------
+    // Branding
+    // -------------------------
+    brandLogoUrl: z.string().url().optional().or(z.literal("")),
+
     theme: z
       .object({
         primaryColor: z.string().optional(),
@@ -22,28 +36,40 @@ export const widgetSettingsSchema = z
         nudgeBackgroundColor: z.string().optional(),
         chatBubbleColor: z.string().optional(),
       })
+      .partial()
       .optional(),
 
-    // Logo
-    brandLogoUrl: z.string().url().optional().or(z.literal("")),
-
-    // kept for backward compat
+    // -------------------------
+    // Legacy privacy URL
+    // -------------------------
     privacyUrl: z.string().url().optional().or(z.literal("")),
 
+    // -------------------------
+    // Consent & Privacy block
+    // -------------------------
     consent: z
       .object({
         enabled: z.boolean().default(true),
+
         title: z.string().optional(),
         intro: z.string().optional(),
         body: z.string().optional(),
+
         acceptLabel: z.string().optional(),
+        declineLabel: z.string().optional(), // backend accepts it even if unused in UI
         version: z.string().optional(),
+
         linkMode: z.enum(["link", "modal"]).default("link"),
+
         privacyUrl: z.string().url().optional().or(z.literal("")),
         modalContent: z.string().optional(),
       })
       .optional(),
   })
+
+  // -------------------------
+  // Validation: External link requires a URL
+  // -------------------------
   .refine(
     (v) =>
       !v.consent ||
@@ -54,6 +80,10 @@ export const widgetSettingsSchema = z
       message: "Please provide a valid URL when 'External page' is selected.",
     }
   )
+
+  // -------------------------
+  // Validation: Modal mode requires modal text
+  // -------------------------
   .refine(
     (v) =>
       !v.consent ||
@@ -65,45 +95,4 @@ export const widgetSettingsSchema = z
     }
   );
 
-// ---- Promos ----
-export const promoSchema = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1),
-  active: z.boolean().default(true),
-  rules: z.object({
-    pathPrefix: z.string().optional(),
-    urlIncludes: z.array(z.string()).optional(),
-    utmSource: z.array(z.string()).optional(),
-  }),
-  card: z.object({
-    title: z.string().min(1),
-    body: z.string().min(1),
-    badgeText: z.string().optional(),
-  }),
-  primaryCta: z
-    .object({
-      kind: z.enum(["open_chat", "open_booking", "open_url"]),
-      label: z.string().min(1),
-      url: z.string().url().optional(),
-    })
-    .optional(),
-  secondaryCta: z
-    .object({
-      kind: z.enum(["open_chat", "open_booking", "open_url"]),
-      label: z.string().min(1),
-      url: z.string().url().optional(),
-    })
-    .optional(),
-  ctaList: z
-    .array(
-      z.object({
-        kind: z.enum(["open_chat", "open_booking", "open_url"]),
-        label: z.string().min(1),
-        url: z.string().url().optional(),
-      }),
-    )
-    .optional(),
-});
-
-export type PromoForm = z.infer<typeof promoSchema>;
-
+export type WidgetSettingsForm = z.infer<typeof widgetSettingsSchema>;

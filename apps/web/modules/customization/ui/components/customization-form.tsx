@@ -1,4 +1,3 @@
-// apps/web/modules/customization/ui/components/customization-form.tsx
 "use client";
 
 import { useRef, useState } from "react";
@@ -26,12 +25,19 @@ import { Input } from "@workspace/ui/components/input";
 import { Separator } from "@workspace/ui/components/separator";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { Switch } from "@workspace/ui/components/switch";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@workspace/ui/components/tabs";
 import { useMutation, useAction } from "convex/react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import z from "zod";
 import { widgetSettingsSchema } from "../../schemas";
 import { MessageCircle } from "lucide-react";
+import PromosPanel from "./promos-panel";
 
 type WidgetSettings = Doc<"widgetSettings">;
 
@@ -51,17 +57,14 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
   const form = useForm<FormSchema>({
     resolver: zodResolver(widgetSettingsSchema) as any,
     defaultValues: {
-      greetMessage:
-        initialData?.greetMessage || "Hi! How can I help you today?",
+      greetMessage: initialData?.greetMessage || "Hi! How can I help you today?",
       defaultSuggestions: {
         suggestion1: initialData?.defaultSuggestions.suggestion1 || "",
         suggestion2: initialData?.defaultSuggestions.suggestion2 || "",
         suggestion3: initialData?.defaultSuggestions.suggestion3 || "",
       },
-      // THEME defaults
       theme: {
-        primaryColor:
-          initialData?.theme?.primaryColor || "#0ea5e9" /* sky-500 */,
+        primaryColor: initialData?.theme?.primaryColor || "#0ea5e9",
         primaryTextColor: initialData?.theme?.primaryTextColor || "#ffffff",
         secondaryColor: initialData?.theme?.secondaryColor || "#ffffff",
         nudgeBackgroundColor:
@@ -72,7 +75,6 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
           "#3b82f6",
       },
       brandLogoUrl: initialData?.brandLogoUrl || "",
-      // compat (consent)
       privacyUrl: initialData?.privacyUrl ?? undefined,
       consent: {
         enabled: initialData?.consent?.enabled ?? true,
@@ -95,15 +97,15 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
   });
 
   const logoUrl = form.watch("brandLogoUrl");
+  const themeWatch = form.watch("theme");
 
-  // live theme values for preview
   const primaryColor = form.watch("theme.primaryColor") || "#0ea5e9";
   const primaryTextColor = form.watch("theme.primaryTextColor") || "#ffffff";
   const secondaryColor = form.watch("theme.secondaryColor") || "#ffffff";
   const nudgeBackgroundColor =
     form.watch("theme.nudgeBackgroundColor") || "#ffffff";
-  const chatBubbleColor =
-    form.watch("theme.chatBubbleColor") || primaryColor;
+  const chatBubbleColor = form.watch("theme.chatBubbleColor") || primaryColor;
+
   const greetMessage =
     form.watch("greetMessage") || "Hi! How can I help you today?";
 
@@ -152,7 +154,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
       await upsertWidgetSettings({
         greetMessage: values.greetMessage,
         defaultSuggestions: values.defaultSuggestions,
-        // ⚠️ plus de vapiSettings ici
+        teamAvatars: undefined,
         theme,
         brandLogoUrl: values.brandLogoUrl || undefined,
         privacyUrl: values.privacyUrl || undefined,
@@ -199,554 +201,690 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         className="space-y-6"
         onSubmit={form.handleSubmit(onSubmit, onError)}
       >
-        {/* Branding & colors */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Branding & Colors</CardTitle>
-            <CardDescription>
-              Control how the chat bubble and promo nudge look on your site.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)]">
-              {/* LEFT: form fields */}
-              <div className="space-y-6">
-                {/* Logo URL + upload */}
+        <Tabs defaultValue="branding" className="w-full">
+          <TabsList className="mb-2 w-full justify-start">
+            <TabsTrigger value="branding">Branding & Chat</TabsTrigger>
+            <TabsTrigger value="promos">Page-based Promos</TabsTrigger>
+            <TabsTrigger value="consent">Consent & Privacy</TabsTrigger>
+          </TabsList>
+
+          {/* 1️⃣ BRANDING & CHAT */}
+          <TabsContent value="branding" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Branding & Colors</CardTitle>
+                <CardDescription>
+                  Control how the chat bubble and promo nudge look on your site.
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent>
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)]">
+                  {/* LEFT */}
+                  <div className="space-y-6">
+                    <FormField
+                      control={form.control as any}
+                      name="brandLogoUrl"
+                      render={({ field }) => (
+                        <FormItem className="space-y-3">
+                          <FormLabel>Logo URL</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="https://yourdomain.com/logo.svg"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Used in the chat header and promo nudge. PNG/SVG
+                            recommended.
+                          </FormDescription>
+                          <FormMessage />
+
+                          <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div className="space-y-1 text-xs text-muted-foreground">
+                              <p>Or upload a logo from your computer.</p>
+                              <p>
+                                We’ll store it securely and reuse it across
+                                promos.
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              {logoUrl ? (
+                                <img
+                                  src={logoUrl}
+                                  alt="Logo preview"
+                                  className="h-10 w-10 rounded-full border bg-white object-contain"
+                                />
+                              ) : null}
+
+                              <input
+                                ref={logoFileInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) =>
+                                  handleLogoFile(
+                                    e.target.files?.[0] || undefined,
+                                  )
+                                }
+                              />
+
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={uploadingLogo}
+                                onClick={() =>
+                                  logoFileInputRef.current?.click()
+                                }
+                              >
+                                {uploadingLogo ? "Uploading…" : "Upload logo"}
+                              </Button>
+
+                              {logoUrl && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    form.setValue("brandLogoUrl", "", {
+                                      shouldDirty: true,
+                                      shouldValidate: true,
+                                    })
+                                  }
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+
+                    <Separator />
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <FormField
+                        control={form.control as any}
+                        name="theme.primaryColor"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Primary color</FormLabel>
+                            <div className="flex items-center gap-2">
+                              <FormControl>
+                                <Input {...field} placeholder="#0ea5e9" />
+                              </FormControl>
+                              <input
+                                type="color"
+                                value={field.value || "#0ea5e9"}
+                                onChange={(e) => field.onChange(e.target.value)}
+                                className="h-9 w-9 cursor-pointer rounded border"
+                              />
+                            </div>
+                            <FormDescription>
+                              Used for primary CTA buttons (promo + chat accents).
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control as any}
+                        name="theme.primaryTextColor"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Primary text color</FormLabel>
+                            <div className="flex items-center gap-2">
+                              <FormControl>
+                                <Input {...field} placeholder="#ffffff" />
+                              </FormControl>
+                              <input
+                                type="color"
+                                value={field.value || "#ffffff"}
+                                onChange={(e) => field.onChange(e.target.value)}
+                                className="h-9 w-9 cursor-pointer rounded border"
+                              />
+                            </div>
+                            <FormDescription>
+                              Text color for primary CTA buttons.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control as any}
+                        name="theme.secondaryColor"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Secondary button background</FormLabel>
+                            <div className="flex items-center gap-2">
+                              <FormControl>
+                                <Input {...field} placeholder="#ffffff" />
+                              </FormControl>
+                              <input
+                                type="color"
+                                value={field.value || "#ffffff"}
+                                onChange={(e) => field.onChange(e.target.value)}
+                                className="h-9 w-9 cursor-pointer rounded border"
+                              />
+                            </div>
+                            <FormDescription>
+                              Background color for secondary CTA buttons.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control as any}
+                        name="theme.nudgeBackgroundColor"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nudge background</FormLabel>
+                            <div className="flex items-center gap-2">
+                              <FormControl>
+                                <Input {...field} placeholder="#ffffff" />
+                              </FormControl>
+                              <input
+                                type="color"
+                                value={field.value || "#ffffff"}
+                                onChange={(e) => field.onChange(e.target.value)}
+                                className="h-9 w-9 cursor-pointer rounded border"
+                              />
+                            </div>
+                            <FormDescription>
+                              Background of the promo nudge card.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control as any}
+                        name="theme.chatBubbleColor"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Chat bubble color</FormLabel>
+                            <div className="flex items-center gap-2">
+                              <FormControl>
+                                <Input {...field} placeholder="#3b82f6" />
+                              </FormControl>
+                              <input
+                                type="color"
+                                value={field.value || "#3b82f6"}
+                                onChange={(e) => field.onChange(e.target.value)}
+                                className="h-9 w-9 cursor-pointer rounded border"
+                              />
+                            </div>
+                            <FormDescription>
+                              Color of the round chat button at the bottom of
+                              the page.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+
+                  {/* RIGHT: widget preview */}
+                  <div className="flex flex-col">
+                    <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Widget preview
+                    </div>
+
+                    <div className="flex h-full items-end justify-center rounded-xl border bg-slate-50 px-4 pb-6 pt-4">
+                      {/* ✅ Wider frame so promo never clips */}
+                      <div className="relative h-[420px] w-full max-w-[640px] overflow-hidden rounded-2xl border bg-white shadow-sm">
+                        {/* Anchor group (chat + promo) bottom-right */}
+                        <div className="absolute bottom-4 right-4">
+                          <div className="relative">
+                            {/* Promo nudge (left + above bubble) */}
+                            <div className="absolute bottom-[140px] right-[40px] z-20 w-[260px] translate-x-[-300px]">
+                              <div
+                                className="rounded-2xl border p-4 shadow-lg shadow-slate-200"
+                                style={{ backgroundColor: nudgeBackgroundColor }}
+                              >
+                                <div className="flex items-center gap-3">
+                                  {logoUrl ? (
+                                    <img
+                                      src={logoUrl}
+                                      alt="Logo"
+                                      className="h-9 w-9 rounded-full border bg-white object-contain"
+                                    />
+                                  ) : (
+                                    <div className="flex -space-x-1">
+                                      <div className="h-7 w-7 rounded-full border border-white bg-slate-200" />
+                                      <div className="h-7 w-7 rounded-full border border-white bg-slate-300" />
+                                      <div className="h-7 w-7 rounded-full border border-white bg-slate-400" />
+                                    </div>
+                                  )}
+
+                                  <div className="min-w-0 space-y-1">
+                                    <div
+                                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                                      style={{
+                                        backgroundColor: `${primaryColor}1A`,
+                                        color: primaryColor,
+                                      }}
+                                    >
+                                      LIVE
+                                    </div>
+                                    <div className="truncate text-sm font-semibold text-slate-900">
+                                      Get help fast or schedule time
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                                  Talk to the assistant now or book a 15-min demo.
+                                </p>
+
+                                <div className="mt-3 space-y-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="h-8 w-full justify-center text-sm"
+                                    style={{
+                                      backgroundColor: primaryColor,
+                                      color: primaryTextColor,
+                                      borderColor: primaryColor,
+                                    }}
+                                  >
+                                    Chat with AI Assistant
+                                  </Button>
+
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 w-full justify-center text-sm"
+                                    style={{
+                                      backgroundColor: secondaryColor,
+                                      color: primaryColor,
+                                      borderColor: primaryColor,
+                                    }}
+                                  >
+                                    Book a meeting
+                                  </Button>
+                                </div>
+
+                                <p className="mt-3 text-[10px] text-slate-400">
+                                  Preview uses a fixed sample promo (colors only).
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Chat window */}
+                            <div className="h-[320px] w-[340px] rounded-2xl border bg-white shadow-sm">
+                              <div className="flex items-center justify-between border-b px-4 py-2">
+                                <div className="flex items-center gap-2">
+                                  {logoUrl ? (
+                                    <img
+                                      src={logoUrl}
+                                      alt="Logo"
+                                      className="h-7 w-7 rounded-full border bg-white object-contain"
+                                    />
+                                  ) : (
+                                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100">
+                                      <MessageCircle className="h-4 w-4 text-slate-500" />
+                                    </div>
+                                  )}
+                                  <span className="text-xs font-medium text-slate-800">
+                                    Your assistant
+                                  </span>
+                                </div>
+                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+                                  Live
+                                </span>
+                              </div>
+
+                              <div className="space-y-2 px-4 py-3">
+                                <div className="inline-flex max-w-[80%] rounded-2xl bg-slate-100 px-3 py-2 text-[11px] text-slate-700">
+                                  {greetMessage}
+                                </div>
+                                <div className="flex justify-end">
+                                  <div
+                                    className="inline-flex max-w-[80%] rounded-2xl px-3 py-2 text-[11px]"
+                                    style={{
+                                      backgroundColor: primaryColor,
+                                      color: primaryTextColor,
+                                    }}
+                                  >
+                                    “Show me the pricing options”
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Bubble (bottom-right inside chat window) */}
+                              <div className="pointer-events-none absolute bottom-0 right-0">
+                                <div className="absolute bottom-4 right-4 flex items-center gap-2">
+                                  <div className="rounded-full bg-white/70 px-2 py-1 text-[10px] text-slate-600 shadow-sm">
+                                    Chat bubble on your page
+                                  </div>
+                                  <div
+                                    className="flex h-10 w-18 items-center justify-center rounded-full shadow-md"
+                                    style={{ backgroundColor: chatBubbleColor }}
+                                  >
+                                    <MessageCircle
+                                      className="h-5 w-5"
+                                      style={{ color: primaryTextColor }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            {/* /Chat window */}
+                          </div>
+                        </div>
+                        {/* /Anchor group */}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* General chat settings */}
+            <Card>
+              <CardHeader>
+                <CardTitle>General Chat Settings</CardTitle>
+                <CardDescription>
+                  Configure basic chat widget behaviour and messages.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
                 <FormField
                   control={form.control as any}
-                  name="brandLogoUrl"
+                  name="greetMessage"
                   render={({ field }) => (
-                    <FormItem className="space-y-3">
-                      <FormLabel>Logo URL</FormLabel>
+                    <FormItem>
+                      <FormLabel>Greeting Message</FormLabel>
                       <FormControl>
-                        <Input
+                        <Textarea
                           {...field}
-                          placeholder="https://yourdomain.com/logo.svg"
+                          placeholder="Welcome message shown when chat opens"
+                          rows={3}
                         />
                       </FormControl>
                       <FormDescription>
-                        Used in the chat header and promo nudge. PNG/SVG
-                        recommended.
+                        The first message customers see when they open the chat
+                        (hors flow booking).
                       </FormDescription>
                       <FormMessage />
-
-                      {/* Upload + preview */}
-                      <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="space-y-1 text-xs text-muted-foreground">
-                          <p>Or upload a logo from your computer.</p>
-                          <p>
-                            We’ll store it securely and reuse it across promos.
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          {logoUrl ? (
-                            <img
-                              src={logoUrl}
-                              alt="Logo preview"
-                              className="h-10 w-10 rounded-full border bg-white object-contain"
-                            />
-                          ) : null}
-
-                          <input
-                            ref={logoFileInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) =>
-                              handleLogoFile(e.target.files?.[0] || undefined)
-                            }
-                          />
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={uploadingLogo}
-                            onClick={() => logoFileInputRef.current?.click()}
-                          >
-                            {uploadingLogo ? "Uploading…" : "Upload logo"}
-                          </Button>
-
-                          {logoUrl && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                form.setValue("brandLogoUrl", "", {
-                                  shouldDirty: true,
-                                  shouldValidate: true,
-                                })
-                              }
-                            >
-                              Remove
-                            </Button>
-                          )}
-                        </div>
-                      </div>
                     </FormItem>
                   )}
                 />
 
                 <Separator />
 
-                {/* Colors */}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <FormField
-                    control={form.control as any}
-                    name="theme.primaryColor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Primary color</FormLabel>
-                        <div className="flex items-center gap-2">
-                          <FormControl>
-                            <Input {...field} placeholder="#0ea5e9" />
-                          </FormControl>
-                          <input
-                            type="color"
-                            value={field.value || "#0ea5e9"}
-                            onChange={(e) => field.onChange(e.target.value)}
-                            className="h-9 w-9 cursor-pointer rounded border"
-                          />
-                        </div>
-                        <FormDescription>
-                          Used for main CTA buttons in the nudge.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control as any}
-                    name="theme.primaryTextColor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Primary text color</FormLabel>
-                        <div className="flex items-center gap-2">
-                          <FormControl>
-                            <Input {...field} placeholder="#ffffff" />
-                          </FormControl>
-                          <input
-                            type="color"
-                            value={field.value || "#ffffff"}
-                            onChange={(e) => field.onChange(e.target.value)}
-                            className="h-9 w-9 cursor-pointer rounded border"
-                          />
-                        </div>
-                        <FormDescription>
-                          Text color for the main CTA button.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control as any}
-                    name="theme.secondaryColor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Secondary button background</FormLabel>
-                        <div className="flex items-center gap-2">
-                          <FormControl>
-                            <Input {...field} placeholder="#ffffff" />
-                          </FormControl>
-                          <input
-                            type="color"
-                            value={field.value || "#ffffff"}
-                            onChange={(e) => field.onChange(e.target.value)}
-                            className="h-9 w-9 cursor-pointer rounded border"
-                          />
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control as any}
-                    name="theme.nudgeBackgroundColor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nudge background</FormLabel>
-                        <div className="flex items-center gap-2">
-                          <FormControl>
-                            <Input {...field} placeholder="#ffffff" />
-                          </FormControl>
-                          <input
-                            type="color"
-                            value={field.value || "#ffffff"}
-                            onChange={(e) => field.onChange(e.target.value)}
-                            className="h-9 w-9 cursor-pointer rounded border"
-                          />
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control as any}
-                    name="theme.chatBubbleColor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Chat bubble color</FormLabel>
-                        <div className="flex items-center gap-2">
-                          <FormControl>
-                            <Input {...field} placeholder="#3b82f6" />
-                          </FormControl>
-                          <input
-                            type="color"
-                            value={field.value || "#3b82f6"}
-                            onChange={(e) => field.onChange(e.target.value)}
-                            className="h-9 w-9 cursor-pointer rounded border"
-                          />
-                        </div>
-                        <FormDescription>
-                          Color of the round chat button at the bottom of the
-                          page.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </div>
-
-              {/* RIGHT: global widget preview */}
-              <div className="flex flex-col">
-                <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Widget preview
-                </div>
-                <div className="flex h-full items-end justify-center rounded-xl border bg-slate-50 px-4 pb-6 pt-4">
-                  <div className="relative h-72 w-full max-w-sm rounded-2xl border bg-white shadow-sm">
-                    {/* Fake page header */}
-                    <div className="flex items-center justify-between border-b px-4 py-2">
-                      <div className="flex items-center gap-2">
-                        {logoUrl ? (
-                          <img
-                            src={logoUrl}
-                            alt="Logo"
-                            className="h-7 w-7 rounded-full border bg-white object-contain"
-                          />
-                        ) : (
-                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100">
-                            <MessageCircle className="h-4 w-4 text-slate-500" />
-                          </div>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="mb-4 text-sm">Default suggestions</h3>
+                    <p className="mb-4 text-sm text-muted-foreground">
+                      Quick reply suggestions shown to customers to help guide
+                      the conversation.
+                    </p>
+                    <div className="space-y-4">
+                      <FormField
+                        control={form.control as any}
+                        name="defaultSuggestions.suggestion1"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Suggestion 1</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="e.g., How do I get started"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
                         )}
-                        <span className="text-xs font-medium text-slate-800">
-                          Your assistant
-                        </span>
-                      </div>
-                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
-                        Live
-                      </span>
-                    </div>
-
-                    {/* Chat snippet */}
-                    <div className="space-y-2 px-4 py-3">
-                      <div className="inline-flex max-w-[80%] rounded-2xl bg-slate-100 px-3 py-2 text-[11px] text-slate-700">
-                        {greetMessage}
-                      </div>
-                      <div className="flex justify-end">
-                        <div
-                          className="inline-flex max-w-[80%] rounded-2xl px-3 py-2 text-[11px]"
-                          style={{
-                            backgroundColor: primaryColor,
-                            color: primaryTextColor,
-                          }}
-                        >
-                          “Show me the pricing options”
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Chat bubble */}
-                    <div className="pointer-events-none absolute bottom-4 right-4 flex items-center gap-2">
-                      <div className="rounded-full bg-white/70 px-2 py-1 text-[10px] text-slate-600 shadow-sm">
-                        Chat bubble on your page
-                      </div>
-                      <div
-                        className="flex h-10 w-10 items-center justify-center rounded-full shadow-md"
-                        style={{ backgroundColor: chatBubbleColor }}
-                      >
-                        <MessageCircle
-                          className="h-5 w-5"
-                          style={{ color: primaryTextColor }}
-                        />
-                      </div>
+                      />
+                      <FormField
+                        control={form.control as any}
+                        name="defaultSuggestions.suggestion2"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Suggestion 2</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="e.g., What are your pricing plans?"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control as any}
+                        name="defaultSuggestions.suggestion3"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Suggestion 3</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="e.g., I need help with my account"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        {/* General */}
-        <Card>
-          <CardHeader>
-            <CardTitle>General Chat Settings</CardTitle>
-            <CardDescription>
-              Configure basic chat widget behaviour and messages
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <FormField
-              control={form.control as any}
-              name="greetMessage"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Greeting Message</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      placeholder="Welcome message shown when chat opens"
-                      rows={3}
+          {/* 2️⃣ PAGE-BASED PROMOS */}
+          <TabsContent value="promos" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Page-based Promos</CardTitle>
+                <CardDescription>
+                  Configure smart nudges shown above the chat bubble based on
+                  page URL and UTM parameters.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <PromosPanel
+                  theme={themeWatch ?? undefined}
+                  brandLogoUrl={logoUrl || undefined}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 3️⃣ CONSENT & PRIVACY */}
+          <TabsContent value="consent" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Consent Block</CardTitle>
+                <CardDescription>
+                  Shown when user starts a booking flow.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FormField
+                  control={form.control as any}
+                  name="consent.enabled"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between">
+                      <FormLabel>Enable consent card</FormLabel>
+                      <FormControl>
+                        <Switch
+                          checked={!!field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <FormField
+                    control={form.control as any}
+                    name="consent.title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Title</FormLabel>
+                        <FormControl>
+                          <Input {...field} disabled={!consentEnabled} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control as any}
+                    name="consent.version"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Version</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="v1.0"
+                            disabled={!consentEnabled}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control as any}
+                    name="consent.intro"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Intro</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            rows={2}
+                            {...field}
+                            disabled={!consentEnabled}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control as any}
+                    name="consent.body"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Body (before the “here” link)</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            rows={2}
+                            {...field}
+                            disabled={!consentEnabled}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control as any}
+                    name="consent.linkMode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>“here” opens</FormLabel>
+                        <FormControl>
+                          <select
+                            {...field}
+                            className="h-9 w-full rounded-md border px-2"
+                            disabled={!consentEnabled}
+                          >
+                            <option value="link">External page</option>
+                            <option value="modal">Inline text modal</option>
+                          </select>
+                        </FormControl>
+                        <FormDescription>
+                          Choose what happens when clicking “here”.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {linkMode === "link" ? (
+                    <FormField
+                      control={form.control as any}
+                      name="consent.privacyUrl"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Privacy URL</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="https://yourdomain.com/privacy"
+                              disabled={!consentEnabled}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </FormControl>
-                  <FormDescription>
-                    The first message customers see when they open the chat
-                    (hors flow booking).
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <Separator />
-            <div className="space-y-4">
-              <div>
-                <h3 className="mb-4 text-sm">Default suggestions</h3>
-                <p className="mb-4 text-sm text-muted-foreground">
-                  Quick reply suggestions shown to customers to help guide the
-                  conversation
-                </p>
-                <div className="space-y-4">
+                  ) : (
+                    <FormField
+                      control={form.control as any}
+                      name="consent.modalContent"
+                      render={({ field }) => (
+                        <FormItem className="md:col-span-2">
+                          <FormLabel>
+                            Modal text (shown when clicking “here”)
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              rows={6}
+                              {...field}
+                              placeholder="Paste your GDPR/consent text..."
+                              disabled={!consentEnabled}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
                   <FormField
                     control={form.control as any}
-                    name="defaultSuggestions.suggestion1"
+                    name="consent.acceptLabel"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Suggestion 1</FormLabel>
+                        <FormLabel>Accept button</FormLabel>
                         <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="e.g., How do I get started"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control as any}
-                    name="defaultSuggestions.suggestion2"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Suggestion 2</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="e.g., What are your pricing plans?"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control as any}
-                    name="defaultSuggestions.suggestion3"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Suggestion 3</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="e.g., I need help with my account"
-                          />
+                          <Input {...field} disabled={!consentEnabled} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Consent block */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Consent Block</CardTitle>
-            <CardDescription>
-              Shown when user starts a booking flow.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <FormField
-              control={form.control as any}
-              name="consent.enabled"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between">
-                  <FormLabel>Enable consent card</FormLabel>
-                  <FormControl>
-                    <Switch
-                      checked={!!field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <FormField
-                control={form.control as any}
-                name="consent.title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title</FormLabel>
-                    <FormControl>
-                      <Input {...field} disabled={!consentEnabled} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control as any}
-                name="consent.version"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Version</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="v1.0"
-                        disabled={!consentEnabled}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control as any}
-                name="consent.intro"
-                render={({ field }) => (
-                  <FormItem className="md:col-span-2">
-                    <FormLabel>Intro</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        rows={2}
-                        {...field}
-                        disabled={!consentEnabled}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control as any}
-                name="consent.body"
-                render={({ field }) => (
-                  <FormItem className="md:col-span-2">
-                    <FormLabel>Body (before the “here” link)</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        rows={2}
-                        {...field}
-                        disabled={!consentEnabled}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control as any}
-                name="consent.linkMode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>“here” opens</FormLabel>
-                    <FormControl>
-                      <select
-                        {...field}
-                        className="h-9 w-full rounded-md border px-2"
-                        disabled={!consentEnabled}
-                      >
-                        <option value="link">External page</option>
-                        <option value="modal">Inline text modal</option>
-                      </select>
-                    </FormControl>
-                    <FormDescription>
-                      Choose what happens when clicking “here”.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {linkMode === "link" ? (
-                <FormField
-                  control={form.control as any}
-                  name="consent.privacyUrl"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Privacy URL</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="https://yourdomain.com/privacy"
-                          disabled={!consentEnabled}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              ) : (
-                <FormField
-                  control={form.control as any}
-                  name="consent.modalContent"
-                  render={({ field }) => (
-                    <FormItem className="md:col-span-2">
-                      <FormLabel>
-                        Modal text (shown when clicking “here”)
-                      </FormLabel>
-                      <FormControl>
-                        <Textarea
-                          rows={6}
-                          {...field}
-                          placeholder="Paste your GDPR/consent text..."
-                          disabled={!consentEnabled}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
-              <FormField
-                control={form.control as any}
-                name="consent.acceptLabel"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Accept button</FormLabel>
-                    <FormControl>
-                      <Input {...field} disabled={!consentEnabled} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         <div className="flex justify-end">
           <Button disabled={submitting} type="submit">

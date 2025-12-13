@@ -16,10 +16,12 @@ export default defineSchema({
       suggestion2: v.optional(v.string()),
       suggestion3: v.optional(v.string()),
     }),
-    vapiSettings: v.object({
-      assistantId: v.optional(v.string()),
-      phoneNumber: v.optional(v.string()),
-    }),
+    vapiSettings: v.optional(
+      v.object({
+        assistantId: v.optional(v.string()),
+        phoneNumber: v.optional(v.string()),
+      }),
+    ),
 
     // Optional marketing/branding
     teamAvatars: v.optional(v.array(v.string())), // up to 3 URLs typically
@@ -40,6 +42,16 @@ export default defineSchema({
     routingMode: v.optional(
       v.union(v.literal("auto_assign"), v.literal("visitor_choice")),
     ),
+
+    
+    // ⭐️ Nouveau : mode d'utilisation de la KB par l'IA
+    // "llm_only"      -> ChatGPT seul (pas de RAG)
+    // "llm_plus_kb"   -> ChatGPT + recherche dans la knowledge base
+    knowledgeMode: v.optional(
+      v.union(v.literal("llm_only"), v.literal("llm_plus_kb")),
+    ),
+
+
 
     // Back-compat root privacyUrl + full consent config
     privacyUrl: v.optional(v.string()),
@@ -376,6 +388,17 @@ export default defineSchema({
         }),
       ),
     ),
+
+    // ✅ NEW: CTA emphasis (persisted)
+    ctaEmphasisMode: v.optional(
+      v.union(
+        v.literal("first_primary"),
+        v.literal("last_primary"),
+        v.literal("all_primary"),
+        v.literal("none_primary"),
+      ),
+    ),
+
 
     // cible sales / support
     targetRole: v.optional(

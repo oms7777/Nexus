@@ -212,30 +212,6 @@ export const VapiConnectedView = ({ onDisconnect }: VapiConnectedViewProps) => {
         </CardContent>
       </Card>
 
-      {/* Link back to widget customization (branding / promos / consent) */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex size-12 items-center justify-center rounded-lg border bg-muted">
-                <SettingsIcon className="size-6 text-muted-foreground" />
-              </div>
-              <div>
-                <CardTitle>Widget Configuration</CardTitle>
-                <CardDescription>
-                  Customize branding, consent and promos for your chat widget
-                </CardDescription>
-              </div>
-            </div>
-            <Button asChild size="sm" variant="outline">
-              <Link href="/customization">
-                <SettingsIcon className="mr-1 h-4 w-4" />
-                Open customization
-              </Link>
-            </Button>
-          </div>
-        </CardHeader>
-      </Card>
 
       {/* Tabs: infra view (numbers + assistants lists) */}
       <div className="overflow-hidden rounded-lg border bg-background">
