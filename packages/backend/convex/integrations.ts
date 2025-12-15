@@ -1,11 +1,12 @@
-// packages/backend/convex/integrations.ts
 import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 
 /* ============================================================
-   QUERY: lire l'intégration Slack pour une organisation
+   SLACK INTEGRATION
    ============================================================ */
+
+/* -------- QUERY: lire l'intégration Slack -------- */
 export const getSlackIntegration = query({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
@@ -18,9 +19,7 @@ export const getSlackIntegration = query({
   },
 });
 
-/* ============================================================
-   MUTATION: save Slack integration (appelée depuis le callback OAuth)
-   ============================================================ */
+/* -------- MUTATION: save Slack integration -------- */
 export const saveSlackIntegration = mutation({
   args: {
     organizationId: v.string(),
@@ -55,16 +54,14 @@ export const saveSlackIntegration = mutation({
       accessToken: args.accessToken,
       teamId: args.teamId,
       teamName: args.teamName,
-      defaultChannel: args.defaultChannel ?? "#general", // 👈 default
+      defaultChannel: args.defaultChannel ?? "#general",
       createdAt: now,
       updatedAt: now,
     });
   },
 });
 
-/* ============================================================
-   ACTION: envoyer un message Slack
-   ============================================================ */
+/* -------- ACTION: envoyer un message Slack -------- */
 export const sendSlackMessage = action({
   args: {
     organizationId: v.string(),
@@ -78,11 +75,13 @@ export const sendSlackMessage = action({
     );
 
     if (!integration) {
-      console.log("sendSlackMessage: no Slack integration for org", organizationId);
+      console.log(
+        "sendSlackMessage: no Slack integration for org",
+        organizationId
+      );
       return;
     }
 
-    // Normalise le channel : "general" ou "#general" -> "general"
     const rawChannel =
       channelOverride ?? integration.defaultChannel ?? "general";
 
@@ -106,5 +105,63 @@ export const sendSlackMessage = action({
         organizationId,
       });
     }
+  },
+});
+
+/* ============================================================
+   SALESFORCE INTEGRATION
+   ============================================================ */
+
+/* -------- QUERY: lire l'intégration Salesforce -------- */
+export const getSalesforceIntegration = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    return await ctx.db
+      .query("salesforceIntegrations")
+      .withIndex("by_organization_id", (q) =>
+        q.eq("organizationId", organizationId)
+      )
+      .unique();
+  },
+});
+
+/* -------- MUTATION: save Salesforce integration -------- */
+export const saveSalesforceIntegration = mutation({
+  args: {
+    organizationId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    instanceUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query("salesforceIntegrations")
+      .withIndex("by_organization_id", (q) =>
+        q.eq("organizationId", args.organizationId)
+      )
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        accessToken: args.accessToken,
+        ...(args.refreshToken
+          ? { refreshToken: args.refreshToken }
+          : {}),
+        instanceUrl: args.instanceUrl,
+        updatedAt: now,
+      });
+      return;
+    }
+
+    await ctx.db.insert("salesforceIntegrations", {
+      organizationId: args.organizationId,
+      accessToken: args.accessToken,
+      refreshToken: args.refreshToken,
+      instanceUrl: args.instanceUrl,
+      connectedAt: now,
+      updatedAt: now,
+    });
   },
 });

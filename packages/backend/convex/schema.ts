@@ -430,4 +430,15 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organization_id", ["organizationId"]),
+
+  /* ---------- Salesforce Integrations ---------- */
+  salesforceIntegrations: defineTable({
+    organizationId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    instanceUrl: v.string(),
+    connectedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organization_id", ["organizationId"]),
 });
+

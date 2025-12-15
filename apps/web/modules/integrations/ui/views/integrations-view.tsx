@@ -34,10 +34,13 @@ export const IntegrationsView = () => {
   // 🔍 Slack integration status
   const slackIntegration = useQuery(
     api.integrations.getSlackIntegration,
-    organization
-      ? { organizationId: organization.id }
-      : // petit hack pour skipper la query tant que l’org n’est pas chargée
-        ("skip" as any)
+    organization ? { organizationId: organization.id } : ("skip" as any)
+  );
+
+  // 🔍 Salesforce integration status
+  const salesforceIntegration = useQuery(
+    api.integrations.getSalesforceIntegration,
+    organization ? { organizationId: organization.id } : ("skip" as any)
   );
 
   const { isSlackConnected, slackTeamLabel, slackChannelLabel } = useMemo(() => {
@@ -61,6 +64,26 @@ export const IntegrationsView = () => {
       slackChannelLabel: normalizedChannel,
     };
   }, [slackIntegration]);
+
+  const { isSalesforceConnected, salesforceInstanceLabel } = useMemo(() => {
+    if (!salesforceIntegration) {
+      return { isSalesforceConnected: false, salesforceInstanceLabel: "" };
+    }
+
+    // ex: https://orgfarm-xxx.my.salesforce.com -> orgfarm-xxx
+    const host = (() => {
+      try {
+        return new URL(salesforceIntegration.instanceUrl).host;
+      } catch {
+        return salesforceIntegration.instanceUrl;
+      }
+    })();
+
+    return {
+      isSalesforceConnected: true,
+      salesforceInstanceLabel: host,
+    };
+  }, [salesforceIntegration]);
 
   const handleIntegrationClick = (integrationId: IntegrationId) => {
     if (!organization) {
@@ -86,9 +109,23 @@ export const IntegrationsView = () => {
       toast.error("Organization ID not found");
       return;
     }
-    // Redirige vers le start endpoint qui lance le flow OAuth Slack
     window.location.href = "/api/integrations/slack/start";
   };
+
+  const handleSalesforceConnect = () => {
+    if (!organization) {
+      toast.error("Organization ID not found");
+      return;
+    }
+    window.location.href = "/api/integrations/salesforce/start";
+  };
+
+  const ConnectedBadge = ({ label = "Connected" }: { label?: string }) => (
+    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+      {label}
+    </span>
+  );
 
   return (
     <>
@@ -134,12 +171,7 @@ export const IntegrationsView = () => {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Label className="text-lg">Slack</Label>
-                  {isSlackConnected && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      Connected
-                    </span>
-                  )}
+                  {isSlackConnected && <ConnectedBadge />}
                 </div>
 
                 <p className="text-sm text-muted-foreground">
@@ -148,8 +180,9 @@ export const IntegrationsView = () => {
 
                 {isSlackConnected && (
                   <p className="text-xs text-muted-foreground">
-                    Connected to <span className="font-medium">{slackTeamLabel}</span>{" "}
-                    &middot; Notifications sent to{" "}
+                    Connected to{" "}
+                    <span className="font-medium">{slackTeamLabel}</span> &middot;{" "}
+                    Notifications sent to{" "}
                     <span className="font-mono">{slackChannelLabel}</span>.
                   </p>
                 )}
@@ -157,6 +190,37 @@ export const IntegrationsView = () => {
 
               <Button onClick={handleSlackConnect} size="sm" variant="default">
                 {isSlackConnected ? "Reconnect Slack" : "Connect Slack"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Salesforce integration (NEW) */}
+          <div className="mt-4 space-y-3 rounded-lg border bg-background p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Label className="text-lg">Salesforce</Label>
+                  {isSalesforceConnected && <ConnectedBadge />}
+                </div>
+
+                <p className="text-sm text-muted-foreground">
+                  Automatically create leads and meetings in Salesforce.
+                </p>
+
+                {isSalesforceConnected && (
+                  <p className="text-xs text-muted-foreground">
+                    Connected to{" "}
+                    <span className="font-mono">{salesforceInstanceLabel}</span>.
+                  </p>
+                )}
+              </div>
+
+              <Button
+                onClick={handleSalesforceConnect}
+                size="sm"
+                variant="default"
+              >
+                {isSalesforceConnected ? "Reconnect Salesforce" : "Connect Salesforce"}
               </Button>
             </div>
           </div>

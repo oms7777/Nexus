@@ -109,6 +109,27 @@ export const DashboardSidebar = () => {
       </SidebarHeader>
 
       <SidebarContent>
+
+
+        {/* ---------------- PIPELINE / REVENUE ---------------- */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {pipelineItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url}>
+                      <item.icon className="size-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         {/* ---------------- ANALYTICS ---------------- */}
         <SidebarGroup>
           <SidebarGroupLabel>Analytics</SidebarGroupLabel>
@@ -125,25 +146,6 @@ export const DashboardSidebar = () => {
                     )}
                     tooltip={item.title}
                   >
-                    <Link href={item.url}>
-                      <item.icon className="size-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* ---------------- PIPELINE / REVENUE ---------------- */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {pipelineItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <Link href={item.url}>
                       <item.icon className="size-4" />
                       <span>{item.title}</span>
