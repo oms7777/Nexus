@@ -1,4 +1,3 @@
-// apps/web/app/api/integrations/salesforce/callback/route.ts
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { fetchMutation } from "convex/nextjs";
@@ -8,26 +7,28 @@ export const runtime = "nodejs";
 
 const SF_CLIENT_ID = process.env.SALESFORCE_CLIENT_ID!;
 const SF_CLIENT_SECRET = process.env.SALESFORCE_CLIENT_SECRET!;
-const SF_LOGIN_URL = process.env.SALESFORCE_LOGIN_URL || "https://login.salesforce.com";
-// pour sandbox -> https://test.salesforce.com
+const SF_LOGIN_URL =
+  process.env.SALESFORCE_LOGIN_URL || "https://login.salesforce.com";
 
 export async function GET(req: Request) {
   const authCtx = await auth();
   const { userId, orgId } = authCtx;
 
   if (!userId || !orgId) {
-    return new NextResponse("Unauthorized (missing Clerk user/org)", {
-      status: 401,
-    });
+    return new NextResponse("Unauthorized", { status: 401 });
   }
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const stateParam = url.searchParams.get("state");
   const error = url.searchParams.get("error");
+  const errorDescription = url.searchParams.get("error_description");
 
   if (error) {
-    return new NextResponse(`Salesforce OAuth error: ${error}`, { status: 400 });
+    return new NextResponse(
+      `Salesforce OAuth error: ${error} ${errorDescription ?? ""}`,
+      { status: 400 }
+    );
   }
 
   if (!code || !stateParam) {
@@ -37,15 +38,30 @@ export async function GET(req: Request) {
   // decode state
   let parsedState: any = {};
   try {
-    const decoded = Buffer.from(stateParam, "base64url").toString("utf8");
-    parsedState = JSON.parse(decoded);
+    parsedState = JSON.parse(Buffer.from(stateParam, "base64url").toString("utf8"));
   } catch {
-    return new NextResponse("Invalid state encoding", { status: 400 });
+    return new NextResponse("Invalid state", { status: 400 });
   }
 
   const redirectPath = parsedState.redirect ?? "/integrations";
   const origin = url.origin;
   const redirectUri = `${origin}/api/integrations/salesforce/callback`;
+
+  // récupérer PKCE verifier depuis cookie
+    const cookieHeader = req.headers.get("cookie") ?? "";
+    const verifierMatch = cookieHeader.match(/(?:^|;\s*)sf_pkce_verifier=([^;]+)/);
+
+    const codeVerifierRaw = verifierMatch?.[1];
+    if (!codeVerifierRaw) {
+    return new NextResponse("Missing PKCE code_verifier cookie", { status: 400 });
+    }
+
+    const codeVerifier = decodeURIComponent(codeVerifierRaw);
+
+
+    if (!codeVerifier) {
+        return new NextResponse("Missing PKCE code_verifier cookie", { status: 400 });
+    }
 
   // échange code -> tokens
   const tokenRes = await fetch(`${SF_LOGIN_URL}/services/oauth2/token`, {
@@ -57,31 +73,26 @@ export async function GET(req: Request) {
       client_secret: SF_CLIENT_SECRET,
       redirect_uri: redirectUri,
       code,
+      code_verifier: codeVerifier,
     }),
   });
 
-  const data: any = await tokenRes.json();
+  const tokenData: any = await tokenRes.json();
 
-  if (!tokenRes.ok || data.error) {
+  if (!tokenRes.ok) {
     return new NextResponse(
-      `Salesforce token error: ${data.error ?? "unknown"} - ${data.error_description ?? ""}`,
+      `Token exchange failed: ${JSON.stringify(tokenData)}`,
       { status: 500 }
     );
   }
 
-  const accessToken = data.access_token as string;
-  const refreshToken = data.refresh_token as string | undefined;
-  const instanceUrl = data.instance_url as string;
+  const accessToken = tokenData.access_token as string;
+  const refreshToken = tokenData.refresh_token as string | undefined;
+  const instanceUrl = tokenData.instance_url as string;
 
-  if (!accessToken || !instanceUrl) {
-    return new NextResponse("Salesforce OAuth: missing access_token/instance_url", {
-      status: 500,
-    });
-  }
-
+  // save in Convex
   const convexToken = await authCtx.getToken({ template: "convex" });
 
-  // save en Convex
   await fetchMutation(
     api.integrations.saveSalesforceIntegration,
     {
@@ -93,5 +104,9 @@ export async function GET(req: Request) {
     { token: convexToken ?? undefined }
   );
 
-  return NextResponse.redirect(`${origin}${redirectPath}?salesforce_connected=1`);
+  const res = NextResponse.redirect(`${origin}${redirectPath}?salesforce_connected=1`);
+  // cleanup cookie
+  res.cookies.set("sf_pkce_verifier", "", { path: "/", maxAge: 0 });
+
+  return res;
 }

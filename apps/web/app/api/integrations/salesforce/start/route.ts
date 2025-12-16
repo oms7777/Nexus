@@ -1,12 +1,24 @@
-// apps/web/app/api/integrations/salesforce/start/route.ts
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 
 const SF_CLIENT_ID = process.env.SALESFORCE_CLIENT_ID!;
-const SF_LOGIN_URL = process.env.SALESFORCE_LOGIN_URL || "https://login.salesforce.com";
-// pour sandbox -> https://test.salesforce.com
+const SF_LOGIN_URL =
+  process.env.SALESFORCE_LOGIN_URL || "https://login.salesforce.com";
+
+function base64url(input: Buffer) {
+  return input
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function sha256(verifier: string) {
+  return crypto.createHash("sha256").update(verifier).digest();
+}
 
 export async function GET(req: Request) {
   const authCtx = await auth();
@@ -18,27 +30,17 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const origin = url.origin;
-
   const redirectUri = `${origin}/api/integrations/salesforce/callback`;
 
-  // state Base64URL (comme Slack)
-  const statePayload = {
-    orgId,
-    userId,
-    redirect: "/integrations",
-  };
+  // PKCE
+  const codeVerifier = base64url(crypto.randomBytes(32));
+  const codeChallenge = base64url(sha256(codeVerifier));
 
+  // state Base64URL
+  const statePayload = { orgId, userId, redirect: "/integrations" };
   const state = Buffer.from(JSON.stringify(statePayload)).toString("base64url");
 
-  // Scopes Salesforce (minimum viable pour créer Lead/Event + refresh)
-  const scope = [
-    "api",
-    "refresh_token",
-    "offline_access",
-    // optionnel :
-    // "openid",
-    // "id",
-  ].join(" ");
+  const scope = ["api"].join(" ");
 
   const params = new URLSearchParams({
     response_type: "code",
@@ -46,9 +48,22 @@ export async function GET(req: Request) {
     redirect_uri: redirectUri,
     scope,
     state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
   });
 
-  return NextResponse.redirect(
+  const res = NextResponse.redirect(
     `${SF_LOGIN_URL}/services/oauth2/authorize?${params.toString()}`
   );
+
+  // cookie httpOnly pour récupérer au callback
+  res.cookies.set("sf_pkce_verifier", codeVerifier, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 10, // 10 min
+  });
+
+  return res;
 }

@@ -1,3 +1,4 @@
+// packages/backend/convex/integrations.ts
 import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
@@ -6,20 +7,16 @@ import { api } from "./_generated/api";
    SLACK INTEGRATION
    ============================================================ */
 
-/* -------- QUERY: lire l'intégration Slack -------- */
 export const getSlackIntegration = query({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
     return await ctx.db
       .query("slackIntegrations")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", organizationId)
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
   },
 });
 
-/* -------- MUTATION: save Slack integration -------- */
 export const saveSlackIntegration = mutation({
   args: {
     organizationId: v.string(),
@@ -33,9 +30,7 @@ export const saveSlackIntegration = mutation({
 
     const existing = await ctx.db
       .query("slackIntegrations")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", args.organizationId)
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
       .unique();
 
     if (existing) {
@@ -61,7 +56,21 @@ export const saveSlackIntegration = mutation({
   },
 });
 
-/* -------- ACTION: envoyer un message Slack -------- */
+/** ✅ NEW: Disconnect Slack (delete row) */
+export const disconnectSlackIntegration = mutation({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    const existing = await ctx.db
+      .query("slackIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (!existing) return;
+
+    await ctx.db.delete(existing._id);
+  },
+});
+
 export const sendSlackMessage = action({
   args: {
     organizationId: v.string(),
@@ -69,25 +78,17 @@ export const sendSlackMessage = action({
     channelOverride: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId, text, channelOverride }) => {
-    const integration = await ctx.runQuery(
-      api.integrations.getSlackIntegration,
-      { organizationId }
-    );
+    const integration = await ctx.runQuery(api.integrations.getSlackIntegration, {
+      organizationId,
+    });
 
     if (!integration) {
-      console.log(
-        "sendSlackMessage: no Slack integration for org",
-        organizationId
-      );
+      console.log("sendSlackMessage: no Slack integration for org", organizationId);
       return;
     }
 
-    const rawChannel =
-      channelOverride ?? integration.defaultChannel ?? "general";
-
-    const channel = rawChannel.startsWith("#")
-      ? rawChannel.slice(1)
-      : rawChannel;
+    const rawChannel = channelOverride ?? integration.defaultChannel ?? "general";
+    const channel = rawChannel.startsWith("#") ? rawChannel.slice(1) : rawChannel;
 
     const res = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",
@@ -112,20 +113,16 @@ export const sendSlackMessage = action({
    SALESFORCE INTEGRATION
    ============================================================ */
 
-/* -------- QUERY: lire l'intégration Salesforce -------- */
 export const getSalesforceIntegration = query({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
     return await ctx.db
       .query("salesforceIntegrations")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", organizationId)
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
   },
 });
 
-/* -------- MUTATION: save Salesforce integration -------- */
 export const saveSalesforceIntegration = mutation({
   args: {
     organizationId: v.string(),
@@ -138,17 +135,13 @@ export const saveSalesforceIntegration = mutation({
 
     const existing = await ctx.db
       .query("salesforceIntegrations")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", args.organizationId)
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
       .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
         accessToken: args.accessToken,
-        ...(args.refreshToken
-          ? { refreshToken: args.refreshToken }
-          : {}),
+        ...(args.refreshToken ? { refreshToken: args.refreshToken } : {}),
         instanceUrl: args.instanceUrl,
         updatedAt: now,
       });
@@ -163,5 +156,20 @@ export const saveSalesforceIntegration = mutation({
       connectedAt: now,
       updatedAt: now,
     });
+  },
+});
+
+/** ✅ NEW: Disconnect Salesforce (delete row) */
+export const disconnectSalesforceIntegration = mutation({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    const existing = await ctx.db
+      .query("salesforceIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (!existing) return;
+
+    await ctx.db.delete(existing._id);
   },
 });

@@ -70,7 +70,6 @@ export const IntegrationsView = () => {
       return { isSalesforceConnected: false, salesforceInstanceLabel: "" };
     }
 
-    // ex: https://orgfarm-xxx.my.salesforce.com -> orgfarm-xxx
     const host = (() => {
       try {
         return new URL(salesforceIntegration.instanceUrl).host;
@@ -118,6 +117,32 @@ export const IntegrationsView = () => {
       return;
     }
     window.location.href = "/api/integrations/salesforce/start";
+  };
+
+  const handleSlackDisconnect = async () => {
+    try {
+      const res = await fetch("/api/integrations/slack/disconnect", {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast.success("Slack disconnected");
+      window.location.reload();
+    } catch {
+      toast.error("Failed to disconnect Slack");
+    }
+  };
+
+  const handleSalesforceDisconnect = async () => {
+    try {
+      const res = await fetch("/api/integrations/salesforce/disconnect", {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast.success("Salesforce disconnected");
+      window.location.reload();
+    } catch {
+      toast.error("Failed to disconnect Salesforce");
+    }
   };
 
   const ConnectedBadge = ({ label = "Connected" }: { label?: string }) => (
@@ -188,13 +213,25 @@ export const IntegrationsView = () => {
                 )}
               </div>
 
-              <Button onClick={handleSlackConnect} size="sm" variant="default">
-                {isSlackConnected ? "Reconnect Slack" : "Connect Slack"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleSlackConnect} size="sm" variant="default">
+                  {isSlackConnected ? "Reconnect Slack" : "Connect Slack"}
+                </Button>
+
+                {isSlackConnected && (
+                  <Button
+                    onClick={handleSlackDisconnect}
+                    size="sm"
+                    variant="destructive"
+                  >
+                    Disconnect
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Salesforce integration (NEW) */}
+          {/* Salesforce integration */}
           <div className="mt-4 space-y-3 rounded-lg border bg-background p-4">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
@@ -215,13 +252,27 @@ export const IntegrationsView = () => {
                 )}
               </div>
 
-              <Button
-                onClick={handleSalesforceConnect}
-                size="sm"
-                variant="default"
-              >
-                {isSalesforceConnected ? "Reconnect Salesforce" : "Connect Salesforce"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleSalesforceConnect}
+                  size="sm"
+                  variant="default"
+                >
+                  {isSalesforceConnected
+                    ? "Reconnect Salesforce"
+                    : "Connect Salesforce"}
+                </Button>
+
+                {isSalesforceConnected && (
+                  <Button
+                    onClick={handleSalesforceDisconnect}
+                    size="sm"
+                    variant="destructive"
+                  >
+                    Disconnect
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -315,8 +366,8 @@ export const IntegrationsDialog = ({
               2. Add the code in your page
             </div>
             <p>
-              Paste the chatbox code above in your page. You can add it in the HTML head
-              section.
+              Paste the chatbox code above in your page. You can add it in the HTML
+              head section.
             </p>
           </div>
         </div>

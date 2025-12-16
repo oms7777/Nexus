@@ -24,10 +24,9 @@ export default defineSchema({
     ),
 
     // Optional marketing/branding
-    teamAvatars: v.optional(v.array(v.string())), // up to 3 URLs typically
+    teamAvatars: v.optional(v.array(v.string())),
     brandLogoUrl: v.optional(v.string()),
 
-    // ⭐️ NOUVEAU : thème UI du widget / nudge / bubble
     theme: v.optional(
       v.object({
         primaryColor: v.optional(v.string()),
@@ -38,22 +37,28 @@ export default defineSchema({
       }),
     ),
 
-    // 🔁 mode de routing global du widget
     routingMode: v.optional(
       v.union(v.literal("auto_assign"), v.literal("visitor_choice")),
     ),
 
-    
-    // ⭐️ Nouveau : mode d'utilisation de la KB par l'IA
-    // "llm_only"      -> ChatGPT seul (pas de RAG)
-    // "llm_plus_kb"   -> ChatGPT + recherche dans la knowledge base
+    // ✅ UPDATED: 3 modes
+    // "llm_only"      -> LLM sans KB
+    // "llm_plus_kb"   -> LLM + KB (RAG)
+    // "kb_only"       -> KB uniquement, sinon escalation
     knowledgeMode: v.optional(
-      v.union(v.literal("llm_only"), v.literal("llm_plus_kb")),
+      v.union(
+        v.literal("llm_only"),
+        v.literal("llm_plus_kb"),
+        v.literal("kb_only"),
+      ),
     ),
 
+    // ✅ NEW: choix du LLM (pour chat + vapi si tu veux)
+    llmProvider: v.optional(
+      v.union(v.literal("openai"), v.literal("google")),
+    ),
+    llmModel: v.optional(v.string()),
 
-
-    // Back-compat root privacyUrl + full consent config
     privacyUrl: v.optional(v.string()),
     consent: v.optional(
       v.object({
@@ -69,6 +74,7 @@ export default defineSchema({
       }),
     ),
   }).index("by_organization_id", ["organizationId"]),
+
 
 
   plugins: defineTable({
