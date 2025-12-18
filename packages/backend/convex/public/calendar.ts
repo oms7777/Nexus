@@ -311,9 +311,9 @@ export const bookSlot = action({
       },
     });
 
-    // 3.5) Salesforce: create Lead + Event — non bloquant
+    // 3.5) Salesforce: create Lead + Event — non bloquant (MAJ DEBUG)
     try {
-      await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
+      const sfRes = await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
         organizationId,
         attendeeName,
         attendeeEmail,
@@ -324,9 +324,12 @@ export const bookSlot = action({
         meetingUrl,
         source: "Inboundless",
       });
+
+      console.log("Salesforce createSalesforceLeadAndEvent result:", sfRes);
     } catch (e) {
-      console.log("Salesforce create Lead/Event failed:", e);
+      console.log("Salesforce createSalesforceLeadAndEvent threw:", e);
     }
+
 
     // 4) Slack notification — non bloquant
     try {
