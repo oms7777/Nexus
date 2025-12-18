@@ -54,7 +54,6 @@ export const getAccount = query({
   },
 });
 
-
 /* -------------------------------------------------------------
  * Settings (B-version) pour un user (rep) dans une org
  * ----------------------------------------------------------- */
@@ -176,7 +175,6 @@ export const listSlots = action({
       return { startMs: mkTs(rec.start), endMs: mkTs(rec.end) };
     };
 
-
     for (let i = 0; i < days; i++) {
       const day = new Date(now + i * 24 * 60 * 60 * 1000);
       const win = getWindowForDate(day);
@@ -217,7 +215,7 @@ export const listSlots = action({
 
 /* -------------------------------------------------------------
  * Book: crée l’event Google + enregistre le booking + log analytics
- * + Slack notification + email au rep
+ * + Slack notification + email au rep + Salesforce lead/event
  * ----------------------------------------------------------- */
 export const bookSlot = action({
   args: {
@@ -312,6 +310,23 @@ export const bookSlot = action({
         role: attendeeRole,
       },
     });
+
+    // 3.5) Salesforce: create Lead + Event — non bloquant
+    try {
+      await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
+        organizationId,
+        attendeeName,
+        attendeeEmail,
+        attendeeCompany,
+        attendeeRole,
+        startIso: new Date(start).toISOString(),
+        endIso: new Date(end).toISOString(),
+        meetingUrl,
+        source: "Inboundless",
+      });
+    } catch (e) {
+      console.log("Salesforce create Lead/Event failed:", e);
+    }
 
     // 4) Slack notification — non bloquant
     try {

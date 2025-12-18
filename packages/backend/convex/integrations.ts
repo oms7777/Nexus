@@ -212,3 +212,127 @@ export const disconnectSalesforceIntegration = mutation({
     await ctx.db.delete(existing._id);
   },
 });
+
+/* ============================================================
+   SALESFORCE: CREATE LEAD + EVENT (when a meeting is booked)
+   ============================================================ */
+
+export const createSalesforceLeadAndEvent = action({
+  args: {
+    organizationId: v.string(),
+    attendeeName: v.string(),
+    attendeeEmail: v.string(),
+    attendeeCompany: v.optional(v.string()),
+    attendeeRole: v.optional(v.string()),
+    startIso: v.string(),
+    endIso: v.string(),
+    meetingUrl: v.optional(v.string()),
+    source: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // 1) Load Salesforce connection
+    const integration = await ctx.runQuery(api.integrations.getSalesforceIntegration, {
+      organizationId: args.organizationId,
+    });
+
+    if (!integration?.accessToken || !integration?.instanceUrl) {
+      return { ok: false as const, reason: "NO_SALESFORCE_CONNECTION" as const };
+    }
+
+    const accessToken = integration.accessToken;
+    const instanceUrl = integration.instanceUrl;
+
+    // Stable API version
+    const base = `${instanceUrl}/services/data/v59.0`;
+
+    // 2) Lead fields (Salesforce requires LastName + Company + Status)
+    const fullName = (args.attendeeName || "").trim();
+    const parts = fullName.split(/\s+/).filter(Boolean);
+
+    const firstName =
+      parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0] ?? "";
+
+    const lastName =
+      parts.length > 1 ? parts[parts.length - 1] : (parts[0] ? parts[0] : "Visitor");
+
+    const company = (args.attendeeCompany ?? "").trim() || "Inboundless";
+    const title = (args.attendeeRole ?? "").trim() || undefined;
+
+    // IMPORTANT: Must match your org picklist values (you have Open - Not Contacted)
+    const leadPayload: Record<string, any> = {
+      FirstName: firstName || undefined,
+      LastName: lastName,
+      Company: company,
+      Email: args.attendeeEmail,
+      Title: title,
+      LeadSource: args.source ?? "Inboundless",
+      Status: "Open - Not Contacted",
+    };
+
+    Object.keys(leadPayload).forEach((k) => leadPayload[k] === undefined && delete leadPayload[k]);
+
+    const leadRes = await fetch(`${base}/sobjects/Lead`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(leadPayload),
+    });
+
+    const leadJson: any = await leadRes.json().catch(() => ({}));
+
+    if (!leadRes.ok || !leadJson?.id) {
+      console.log("Salesforce Lead create failed:", leadJson);
+      return { ok: false as const, reason: "LEAD_CREATE_FAILED" as const, detail: leadJson };
+    }
+
+    const leadId = String(leadJson.id);
+
+    // 3) Event linked to Lead (WhoId = Lead Id)
+    const descriptionLines = [
+      "Booked via Inboundless",
+      `Name: ${args.attendeeName}`,
+      `Email: ${args.attendeeEmail}`,
+      args.attendeeCompany ? `Company: ${args.attendeeCompany}` : null,
+      args.attendeeRole ? `Role: ${args.attendeeRole}` : null,
+      args.meetingUrl ? `Meeting: ${args.meetingUrl}` : null,
+    ].filter(Boolean);
+
+    const eventPayload: Record<string, any> = {
+      Subject: `Demo booked - ${args.attendeeName}`,
+      WhoId: leadId,
+      StartDateTime: args.startIso,
+      EndDateTime: args.endIso,
+      Description: descriptionLines.join("\n"),
+    };
+
+    const eventRes = await fetch(`${base}/sobjects/Event`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(eventPayload),
+    });
+
+    const eventJson: any = await eventRes.json().catch(() => ({}));
+
+    if (!eventRes.ok || !eventJson?.id) {
+      console.log("Salesforce Event create failed:", eventJson);
+      return {
+        ok: true as const,
+        leadId,
+        eventOk: false as const,
+        eventDetail: eventJson,
+      };
+    }
+
+    return {
+      ok: true as const,
+      leadId,
+      eventOk: true as const,
+      eventId: String(eventJson.id),
+    };
+  },
+});
