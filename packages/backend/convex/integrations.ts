@@ -214,7 +214,7 @@ export const disconnectSalesforceIntegration = mutation({
 });
 
 /* ============================================================
-   SALESFORCE: CREATE LEAD + EVENT (when a meeting is booked)
+   SALESFORCE: CREATE/UPSERT LEAD + EVENT (when a meeting is booked)
    ============================================================ */
 
 export const createSalesforceLeadAndEvent = action({
@@ -230,22 +230,19 @@ export const createSalesforceLeadAndEvent = action({
     source: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // 1) Load Salesforce connection
     const integration = await ctx.runQuery(api.integrations.getSalesforceIntegration, {
       organizationId: args.organizationId,
     });
 
     if (!integration?.accessToken || !integration?.instanceUrl) {
-      return { ok: false as const, reason: "NO_SALESFORCE_CONNECTION" as const };
+      return { ok: false as const, step: "init" as const, reason: "NO_SALESFORCE_CONNECTION" as const };
     }
 
     const accessToken = integration.accessToken;
     const instanceUrl = integration.instanceUrl;
 
-    // Stable API version
     const base = `${instanceUrl}/services/data/v59.0`;
 
-    // 2) Lead fields (Salesforce requires LastName + Company + Status)
     const fullName = (args.attendeeName || "").trim();
     const parts = fullName.split(/\s+/).filter(Boolean);
 
@@ -258,38 +255,71 @@ export const createSalesforceLeadAndEvent = action({
     const company = (args.attendeeCompany ?? "").trim() || "Inboundless";
     const title = (args.attendeeRole ?? "").trim() || undefined;
 
-    // IMPORTANT: Must match your org picklist values (you have Open - Not Contacted)
-    const leadPayload: Record<string, any> = {
-      FirstName: firstName || undefined,
-      LastName: lastName,
-      Company: company,
-      Email: args.attendeeEmail,
-      Title: title,
-      LeadSource: args.source ?? "Inboundless",
-      Status: "Open - Not Contacted",
-    };
+    // NOTE: picklist API value (pas la traduction UI)
+    const leadStatus = "Open - Not Contacted";
 
-    Object.keys(leadPayload).forEach((k) => leadPayload[k] === undefined && delete leadPayload[k]);
+    // 1) Chercher un Lead existant par Email (évite Duplicate Rules)
+    let leadId: string | null = null;
+    try {
+      const safeEmail = (args.attendeeEmail || "").replace(/'/g, "\\'");
+      const soql = `SELECT Id FROM Lead WHERE Email = '${safeEmail}' ORDER BY CreatedDate DESC LIMIT 1`;
+      const qUrl = `${base}/query?q=${encodeURIComponent(soql)}`;
 
-    const leadRes = await fetch(`${base}/sobjects/Lead`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(leadPayload),
-    });
+      const qRes = await fetch(qUrl, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
 
-    const leadJson: any = await leadRes.json().catch(() => ({}));
-
-    if (!leadRes.ok || !leadJson?.id) {
-      console.log("Salesforce Lead create failed:", leadJson);
-      return { ok: false as const, reason: "LEAD_CREATE_FAILED" as const, detail: leadJson };
+      const qJson: any = await qRes.json().catch(() => ({}));
+      if (qRes.ok && Array.isArray(qJson?.records) && qJson.records.length > 0) {
+        leadId = String(qJson.records[0].Id);
+      } else if (!qRes.ok) {
+        // pas bloquant, mais utile pour debug
+        console.log("Salesforce Lead lookup failed:", qJson);
+      }
+    } catch (e) {
+      console.log("Salesforce Lead lookup exception:", e);
     }
 
-    const leadId = String(leadJson.id);
+    // 2) Créer le Lead si absent
+    if (!leadId) {
+      const leadPayload: Record<string, any> = {
+        FirstName: firstName || undefined,
+        LastName: lastName,
+        Company: company,
+        Email: args.attendeeEmail,
+        Title: title,
+        LeadSource: args.source ?? "Inboundless",
+        Status: leadStatus,
+      };
+      Object.keys(leadPayload).forEach((k) => leadPayload[k] === undefined && delete leadPayload[k]);
 
-    // 3) Event linked to Lead (WhoId = Lead Id)
+      const leadRes = await fetch(`${base}/sobjects/Lead`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(leadPayload),
+      });
+
+      const leadJson: any = await leadRes.json().catch(() => ({}));
+
+      if (!leadRes.ok || !leadJson?.id) {
+        console.log("Salesforce Lead create failed:", leadJson);
+        return {
+          ok: false as const,
+          step: "lead_create" as const,
+          reason: "LEAD_CREATE_FAILED" as const,
+          detail: leadJson,
+          payload: leadPayload,
+        };
+      }
+
+      leadId = String(leadJson.id);
+    }
+
+    // 3) Event lié au Lead (WhoId)
     const descriptionLines = [
       "Booked via Inboundless",
       `Name: ${args.attendeeName}`,
@@ -325,6 +355,7 @@ export const createSalesforceLeadAndEvent = action({
         leadId,
         eventOk: false as const,
         eventDetail: eventJson,
+        eventPayload,
       };
     }
 

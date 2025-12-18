@@ -1,4 +1,3 @@
-// packages/backend/convex/public/calendar.ts
 import { query, action } from "../_generated/server";
 import { v } from "convex/values";
 import { api } from "../_generated/api";
@@ -10,13 +9,12 @@ import type { Id } from "../_generated/dataModel";
 export const getAccount = query({
   args: {
     organizationId: v.string(),
-    userId: v.optional(v.string()), // <- rep précis (Clerk userId)
+    userId: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId, userId }) => {
     let acct: { userId: string; email?: string } | null = null;
 
     if (userId) {
-      // 1) On tente d'abord le compte du rep
       const byUser = await ctx.db
         .query("calendarAccounts")
         .withIndex("by_org_user", (q) =>
@@ -27,26 +25,20 @@ export const getAccount = query({
       if (byUser) {
         acct = byUser;
       } else {
-        // 2) Fallback back-compat : on prend "le" compte de l’org
         const byOrg = await ctx.db
           .query("calendarAccounts")
           .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
           .first();
 
-        if (byOrg) {
-          acct = byOrg;
-        }
+        if (byOrg) acct = byOrg;
       }
     } else {
-      // Cas ancien : on ne regarde que l’org
       const byOrg = await ctx.db
         .query("calendarAccounts")
         .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
         .first();
 
-      if (byOrg) {
-        acct = byOrg;
-      }
+      if (byOrg) acct = byOrg;
     }
 
     if (!acct) return null;
@@ -60,12 +52,11 @@ export const getAccount = query({
 export const getSettingsForOrg = query({
   args: {
     organizationId: v.string(),
-    userId: v.optional(v.string()), // <- permet de cibler le rep
+    userId: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId, userId }) => {
     let effectiveUserId = userId;
 
-    // Si userId non fourni, on se base sur le premier calendarAccount de l’org
     if (!effectiveUserId) {
       const acct = await ctx.db
         .query("calendarAccounts")
@@ -87,17 +78,16 @@ export const getSettingsForOrg = query({
 });
 
 /* -------------------------------------------------------------
- * Liste des créneaux (N jours) pour UN rep (userId)
+ * Liste des créneaux
  * ----------------------------------------------------------- */
 export const listSlots = action({
   args: {
     organizationId: v.string(),
-    userId: v.optional(v.string()), // <- rep choisi (obligatoire côté widget)
-    days: v.number(), // ex. 7
-    slotMinutes: v.optional(v.number()), // ex. 30
+    userId: v.optional(v.string()),
+    days: v.number(),
+    slotMinutes: v.optional(v.number()),
   },
   handler: async (ctx, { organizationId, userId, days, slotMinutes }) => {
-    // 1) account + settings via queries publiques
     const acct = await ctx.runQuery(api.public.calendar.getAccount, {
       organizationId,
       userId,
@@ -119,20 +109,13 @@ export const listSlots = action({
         { day: 5, start: "09:00", end: "17:00" },
       ];
 
-    // durée d’un meeting choisie par le rep dans /me/calendar
-    const durationMin =
-      settings?.durationMin       // 1) valeur définie dans la page Calendar
-      ?? slotMinutes              // 2) éventuel override passé par l'appelant
-      ?? 30;                      // 3) fallback
-
+    const durationMin = settings?.durationMin ?? slotMinutes ?? 30;
     const bufferMin = settings?.bufferMin ?? 0;
 
-    // On veut que chaque créneau = 1 meeting → step = duration
     const durationMs = durationMin * 60 * 1000;
     const stepMs = durationMs;
     const bufferMs = bufferMin * 60 * 1000;
 
-    // 2) périodes occupées Google (NO-AUTH variant)
     const now = Date.now();
     const rangeEnd = now + days * 24 * 60 * 60 * 1000;
 
@@ -143,16 +126,11 @@ export const listSlots = action({
       timeMaxIso: new Date(rangeEnd).toISOString(),
     });
 
-    const overlaps = (
-      aStart: number,
-      aEnd: number,
-      bStart: number,
-      bEnd: number
-    ) => aStart < bEnd && aEnd > bStart;
+    const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
+      aStart < bEnd && aEnd > bStart;
 
     const slots: Array<{ start: number; end: number }> = [];
 
-    // map JS dow (0..6) -> notre 1..7 (7 = dimanche)
     const jsToOurDow = (jsDay: number) => (jsDay === 0 ? 7 : jsDay);
 
     const getWindowForDate = (d: Date) => {
@@ -186,14 +164,11 @@ export const listSlots = action({
         const paddedStart = start - bufferMs;
         const paddedEnd = end + bufferMs;
 
-        const isBusy = busy.some((b) =>
-          overlaps(paddedStart, paddedEnd, b.start, b.end)
-        );
+        const isBusy = busy.some((b) => overlaps(paddedStart, paddedEnd, b.start, b.end));
         if (!isBusy) slots.push({ start, end });
       }
     }
 
-    // (facultatif) log non bloquant: slots chargés
     try {
       await ctx.runMutation(api.public.analytics.log, {
         organizationId,
@@ -214,13 +189,12 @@ export const listSlots = action({
 });
 
 /* -------------------------------------------------------------
- * Book: crée l’event Google + enregistre le booking + log analytics
- * + Slack notification + email au rep + Salesforce lead/event
+ * Book: Google event + booking + Slack + email + Salesforce
  * ----------------------------------------------------------- */
 export const bookSlot = action({
   args: {
     organizationId: v.string(),
-    userId: v.optional(v.string()), // <- rep choisi (facultatif côté widget)
+    userId: v.optional(v.string()),
     contactSessionId: v.id("contactSessions"),
     attendeeName: v.string(),
     attendeeEmail: v.string(),
@@ -243,7 +217,6 @@ export const bookSlot = action({
       attendeeRole,
     }
   ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
-    // 0) Choisir le rep (multi-reps routing)
     let effectiveUserId = userId;
 
     if (!effectiveUserId) {
@@ -252,22 +225,18 @@ export const bookSlot = action({
           organizationId,
           contactSessionId,
         });
-        if (routedUserId) {
-          effectiveUserId = routedUserId;
-        }
+        if (routedUserId) effectiveUserId = routedUserId;
       } catch (e) {
         console.log("pickRepForSession failed, fallback to org-level account:", e);
       }
     }
 
-    // 1) account (rep précis si trouvé / fourni)
     const acct = await ctx.runQuery(api.public.calendar.getAccount, {
       organizationId,
       userId: effectiveUserId,
     });
     if (!acct) throw new Error("No connected calendar for this organization / user");
 
-    // 2) créer l’event Google (NO-AUTH variant)
     const descriptionLines = [
       `Booked via widget (org: ${organizationId})`,
       `Rep: ${acct.userId}`,
@@ -286,14 +255,13 @@ export const bookSlot = action({
       endIso: new Date(end).toISOString(),
       attendees: [
         { email: attendeeEmail, displayName: attendeeName },
-        { email: acct.email || "", displayName: "Organizer" }, // le sales reçoit l’invite
+        { email: acct.email || "", displayName: "Organizer" },
       ],
     });
 
     const meetingUrl: string | undefined =
       event?.hangoutLink ?? event?.htmlLink ?? undefined;
 
-    // 3) enregistrer le booking
     const bookingId = await ctx.runMutation(api.public.booking.create, {
       organizationId,
       contactSessionId,
@@ -301,7 +269,7 @@ export const bookSlot = action({
       attendeeEmail,
       start,
       end,
-      createdByUserId: acct.userId, // ← rep choisi
+      createdByUserId: acct.userId,
       meetingUrl,
       externalEventId: event?.id as string | undefined,
       providerData: {
@@ -311,9 +279,10 @@ export const bookSlot = action({
       },
     });
 
-    // 3.5) Salesforce: create Lead + Event — non bloquant (MAJ DEBUG)
+    // ✅ Salesforce: on capture le résultat (au lieu de l’ignorer)
+    let sfResult: any = null;
     try {
-      const sfRes = await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
+      sfResult = await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
         organizationId,
         attendeeName,
         attendeeEmail,
@@ -325,16 +294,31 @@ export const bookSlot = action({
         source: "Inboundless",
       });
 
-      console.log("Salesforce createSalesforceLeadAndEvent result:", sfRes);
+      console.log("Salesforce create Lead/Event result:", sfResult);
     } catch (e) {
-      console.log("Salesforce createSalesforceLeadAndEvent threw:", e);
+      console.log("Salesforce create Lead/Event threw:", e);
+      sfResult = { ok: false, threw: true, error: String(e) };
     }
 
+    // (optionnel) tracer côté analytics pour voir dans Convex ce qui se passe
+    try {
+      await ctx.runMutation(api.public.analytics.log, {
+        organizationId,
+        type: "salesforce_sync_attempt",
+        sessionId: contactSessionId,
+        meta: {
+          bookingId,
+          attendeeEmail,
+          result: sfResult,
+        },
+      });
+    } catch (e) {
+      console.log("analytics.log(salesforce_sync_attempt) failed:", e);
+    }
 
-    // 4) Slack notification — non bloquant
+    // Slack (inchangé)
     try {
       const startDate = new Date(start);
-
       const dateLabel = startDate.toLocaleString("en-US", {
         weekday: "short",
         year: "numeric",
@@ -353,7 +337,6 @@ export const bookSlot = action({
         meetingUrl ? `• Link: ${meetingUrl}` : null,
       ].filter(Boolean);
 
-      // 🔍 on récupère le rep (acct.userId) dans repsPresence pour voir s'il a un DM Slack
       const rep = await ctx.runQuery(api.team.getRepForOrgUser, {
         organizationId,
         userId: acct.userId,
@@ -364,14 +347,13 @@ export const bookSlot = action({
       await ctx.runAction(api.integrations.sendSlackMessage, {
         organizationId,
         text: lines.join("\n"),
-        // si le rep a un DM, on envoie là ; sinon fallback sur le defaultChannel (#general)
         channelOverride: channelOverride ?? undefined,
       });
     } catch (e) {
       console.log("Slack sendSlackMessage failed:", e);
     }
 
-    // 5) notifier le sales (email interne) — non bloquant, envoyé au rep choisi
+    // email sales (inchangé)
     const salesEmail = acct.email;
     if (salesEmail) {
       try {
@@ -392,7 +374,7 @@ export const bookSlot = action({
       }
     }
 
-    // 6) analytics — non bloquant
+    // analytics meeting_booked (inchangé)
     try {
       await ctx.runMutation(api.public.analytics.log, {
         organizationId,
@@ -419,9 +401,6 @@ export const bookSlot = action({
   },
 });
 
-/* -------------------------------------------------------------
- * Helpers (facultatif)
- * ----------------------------------------------------------- */
 export const getAuthUrl = action({
   args: { redirectUrl: v.string() },
   handler: async (_ctx, { redirectUrl }) => `${redirectUrl}?connect=google`,
