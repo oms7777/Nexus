@@ -1,22 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { fetchMutation } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 
 export const runtime = "nodejs";
-
-const SF_CLIENT_ID = process.env.SALESFORCE_CLIENT_ID!;
-const SF_CLIENT_SECRET = process.env.SALESFORCE_CLIENT_SECRET!;
-const SF_LOGIN_URL =
-  process.env.SALESFORCE_LOGIN_URL || "https://login.salesforce.com";
 
 export async function GET(req: Request) {
   const authCtx = await auth();
   const { userId, orgId } = authCtx;
 
-  if (!userId || !orgId) {
-    return new NextResponse("Unauthorized", { status: 401 });
-  }
+  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -35,7 +28,6 @@ export async function GET(req: Request) {
     return new NextResponse("Missing code or state", { status: 400 });
   }
 
-  // decode state
   let parsedState: any = {};
   try {
     parsedState = JSON.parse(Buffer.from(stateParam, "base64url").toString("utf8"));
@@ -47,23 +39,37 @@ export async function GET(req: Request) {
   const origin = url.origin;
   const redirectUri = `${origin}/api/integrations/salesforce/callback`;
 
-  // récupérer PKCE verifier depuis cookie
-    const cookieHeader = req.headers.get("cookie") ?? "";
-    const verifierMatch = cookieHeader.match(/(?:^|;\s*)sf_pkce_verifier=([^;]+)/);
+  // cookie PKCE
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  const verifierMatch = cookieHeader.match(/(?:^|;\s*)sf_pkce_verifier=([^;]+)/);
+  const codeVerifierRaw = verifierMatch?.[1];
 
-    const codeVerifierRaw = verifierMatch?.[1];
-    if (!codeVerifierRaw) {
+  if (!codeVerifierRaw) {
     return new NextResponse("Missing PKCE code_verifier cookie", { status: 400 });
-    }
+  }
 
-    const codeVerifier = decodeURIComponent(codeVerifierRaw);
+  const codeVerifier = decodeURIComponent(codeVerifierRaw);
 
+  // load app config
+  const convexToken = await authCtx.getToken({ template: "convex" });
 
-    if (!codeVerifier) {
-        return new NextResponse("Missing PKCE code_verifier cookie", { status: 400 });
-    }
+  const appConfig = await fetchQuery(
+    api.integrations.getSalesforceAppConfig,
+    { organizationId: orgId },
+    { token: convexToken ?? undefined }
+  );
 
-  // échange code -> tokens
+  if (!appConfig) {
+    return new NextResponse("Missing Salesforce app config for this organization", {
+      status: 400,
+    });
+  }
+
+  const SF_CLIENT_ID = appConfig.clientId;
+  const SF_CLIENT_SECRET = appConfig.clientSecret;
+  const SF_LOGIN_URL = appConfig.loginUrl || "https://login.salesforce.com";
+
+  // token exchange
   const tokenRes = await fetch(`${SF_LOGIN_URL}/services/oauth2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -80,18 +86,14 @@ export async function GET(req: Request) {
   const tokenData: any = await tokenRes.json();
 
   if (!tokenRes.ok) {
-    return new NextResponse(
-      `Token exchange failed: ${JSON.stringify(tokenData)}`,
-      { status: 500 }
-    );
+    return new NextResponse(`Token exchange failed: ${JSON.stringify(tokenData)}`, {
+      status: 500,
+    });
   }
 
   const accessToken = tokenData.access_token as string;
   const refreshToken = tokenData.refresh_token as string | undefined;
   const instanceUrl = tokenData.instance_url as string;
-
-  // save in Convex
-  const convexToken = await authCtx.getToken({ template: "convex" });
 
   await fetchMutation(
     api.integrations.saveSalesforceIntegration,
@@ -104,8 +106,10 @@ export async function GET(req: Request) {
     { token: convexToken ?? undefined }
   );
 
-  const res = NextResponse.redirect(`${origin}${redirectPath}?salesforce_connected=1`);
-  // cleanup cookie
+  const res = NextResponse.redirect(
+    `${origin}${redirectPath}?salesforce_connected=1`
+  );
+
   res.cookies.set("sf_pkce_verifier", "", { path: "/", maxAge: 0 });
 
   return res;

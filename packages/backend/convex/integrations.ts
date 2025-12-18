@@ -1,4 +1,3 @@
-// packages/backend/convex/integrations.ts
 import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
@@ -56,7 +55,6 @@ export const saveSlackIntegration = mutation({
   },
 });
 
-/** ✅ NEW: Disconnect Slack (delete row) */
 export const disconnectSlackIntegration = mutation({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
@@ -66,7 +64,6 @@ export const disconnectSlackIntegration = mutation({
       .unique();
 
     if (!existing) return;
-
     await ctx.db.delete(existing._id);
   },
 });
@@ -82,10 +79,7 @@ export const sendSlackMessage = action({
       organizationId,
     });
 
-    if (!integration) {
-      console.log("sendSlackMessage: no Slack integration for org", organizationId);
-      return;
-    }
+    if (!integration) return;
 
     const rawChannel = channelOverride ?? integration.defaultChannel ?? "general";
     const channel = rawChannel.startsWith("#") ? rawChannel.slice(1) : rawChannel;
@@ -101,16 +95,63 @@ export const sendSlackMessage = action({
 
     const json: any = await res.json();
     if (!json.ok) {
-      console.log("Slack chat.postMessage error:", json.error, {
-        channel,
-        organizationId,
-      });
+      console.log("Slack chat.postMessage error:", json.error);
     }
   },
 });
 
 /* ============================================================
-   SALESFORCE INTEGRATION
+   SALESFORCE: APP CONFIG (per org)
+   ============================================================ */
+
+export const getSalesforceAppConfig = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    return await ctx.db
+      .query("salesforceAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
+export const upsertSalesforceAppConfig = mutation({
+  args: {
+    organizationId: v.string(),
+    clientId: v.string(),
+    clientSecret: v.string(),
+    loginUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query("salesforceAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        clientId: args.clientId,
+        clientSecret: args.clientSecret,
+        loginUrl: args.loginUrl,
+        updatedAt: now,
+      });
+      return;
+    }
+
+    await ctx.db.insert("salesforceAppConfigs", {
+      organizationId: args.organizationId,
+      clientId: args.clientId,
+      clientSecret: args.clientSecret,
+      loginUrl: args.loginUrl,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/* ============================================================
+   SALESFORCE: INTEGRATION TOKENS (per org)
    ============================================================ */
 
 export const getSalesforceIntegration = query({
@@ -159,7 +200,6 @@ export const saveSalesforceIntegration = mutation({
   },
 });
 
-/** ✅ NEW: Disconnect Salesforce (delete row) */
 export const disconnectSalesforceIntegration = mutation({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
@@ -169,7 +209,6 @@ export const disconnectSalesforceIntegration = mutation({
       .unique();
 
     if (!existing) return;
-
     await ctx.db.delete(existing._id);
   },
 });

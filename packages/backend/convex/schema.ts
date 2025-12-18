@@ -437,7 +437,17 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_organization_id", ["organizationId"]),
 
-  /* ---------- Salesforce Integrations ---------- */
+  /* ---------- Salesforce App Configs (per Inboundless org) ---------- */
+  salesforceAppConfigs: defineTable({
+    organizationId: v.string(),
+    clientId: v.string(),
+    clientSecret: v.string(),
+    loginUrl: v.string(), // https://login.salesforce.com | https://test.salesforce.com
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organization_id", ["organizationId"]),
+
+  /* ---------- Salesforce Integrations (tokens per Inboundless org) ---------- */
   salesforceIntegrations: defineTable({
     organizationId: v.string(),
     accessToken: v.string(),
@@ -446,5 +456,7 @@ export default defineSchema({
     connectedAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organization_id", ["organizationId"]),
+
 });
+
 

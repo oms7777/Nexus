@@ -1,12 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "@workspace/backend/_generated/api";
 
 export const runtime = "nodejs";
-
-const SF_CLIENT_ID = process.env.SALESFORCE_CLIENT_ID!;
-const SF_LOGIN_URL =
-  process.env.SALESFORCE_LOGIN_URL || "https://login.salesforce.com";
 
 function base64url(input: Buffer) {
   return input
@@ -24,9 +22,24 @@ export async function GET(req: Request) {
   const authCtx = await auth();
   const { userId, orgId } = authCtx;
 
-  if (!userId || !orgId) {
-    return new NextResponse("Unauthorized", { status: 401 });
+  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
+
+  const convexToken = await authCtx.getToken({ template: "convex" });
+
+  const appConfig = await fetchQuery(
+    api.integrations.getSalesforceAppConfig,
+    { organizationId: orgId },
+    { token: convexToken ?? undefined }
+  );
+
+  if (!appConfig) {
+    return new NextResponse("Missing Salesforce app config for this organization", {
+      status: 400,
+    });
   }
+
+  const SF_CLIENT_ID = appConfig.clientId;
+  const SF_LOGIN_URL = appConfig.loginUrl || "https://login.salesforce.com";
 
   const url = new URL(req.url);
   const origin = url.origin;
@@ -40,7 +53,7 @@ export async function GET(req: Request) {
   const statePayload = { orgId, userId, redirect: "/integrations" };
   const state = Buffer.from(JSON.stringify(statePayload)).toString("base64url");
 
-  const scope = ["api"].join(" ");
+  const scope = ["api", "refresh_token", "openid", "profile", "email"].join(" ");
 
   const params = new URLSearchParams({
     response_type: "code",
@@ -56,13 +69,12 @@ export async function GET(req: Request) {
     `${SF_LOGIN_URL}/services/oauth2/authorize?${params.toString()}`
   );
 
-  // cookie httpOnly pour récupérer au callback
   res.cookies.set("sf_pkce_verifier", codeVerifier, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 10, // 10 min
+    maxAge: 60 * 10,
   });
 
   return res;

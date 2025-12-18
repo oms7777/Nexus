@@ -1,9 +1,8 @@
-// apps/web/modules/integrations/ui/views/integrations-view.tsx
 "use client";
 
 import { useOrganization } from "@clerk/nextjs";
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@workspace/ui/components/button";
@@ -37,11 +36,33 @@ export const IntegrationsView = () => {
     organization ? { organizationId: organization.id } : ("skip" as any)
   );
 
-  // 🔍 Salesforce integration status
+  // 🔍 Salesforce integration tokens status
   const salesforceIntegration = useQuery(
     api.integrations.getSalesforceIntegration,
     organization ? { organizationId: organization.id } : ("skip" as any)
   );
+
+  // 🔍 Salesforce app config (clientId/secret/loginUrl) status
+  const salesforceAppConfig = useQuery(
+    api.integrations.getSalesforceAppConfig,
+    organization ? { organizationId: organization.id } : ("skip" as any)
+  );
+
+  // Local form state for Salesforce app config
+  const [sfClientId, setSfClientId] = useState("");
+  const [sfClientSecret, setSfClientSecret] = useState("");
+  const [sfLoginUrl, setSfLoginUrl] = useState("https://login.salesforce.com");
+  const [sfSaving, setSfSaving] = useState(false);
+
+  // Hydrate form when config is loaded
+  useEffect(() => {
+    if (!salesforceAppConfig) return;
+    setSfClientId(salesforceAppConfig.clientId ?? "");
+    setSfClientSecret(salesforceAppConfig.clientSecret ?? "");
+    setSfLoginUrl(
+      (salesforceAppConfig.loginUrl ?? "https://login.salesforce.com").trim()
+    );
+  }, [salesforceAppConfig]);
 
   const { isSlackConnected, slackTeamLabel, slackChannelLabel } = useMemo(() => {
     if (!slackIntegration) {
@@ -84,6 +105,18 @@ export const IntegrationsView = () => {
     };
   }, [salesforceIntegration]);
 
+  const isSalesforceConfigSaved = useMemo(() => {
+    return Boolean(
+      (salesforceAppConfig?.clientId ?? "").trim() &&
+        (salesforceAppConfig?.clientSecret ?? "").trim() &&
+        (salesforceAppConfig?.loginUrl ?? "").trim()
+    );
+  }, [salesforceAppConfig]);
+
+  const canSaveSfConfig = useMemo(() => {
+    return Boolean(sfClientId.trim() && sfClientSecret.trim() && sfLoginUrl.trim());
+  }, [sfClientId, sfClientSecret, sfLoginUrl]);
+
   const handleIntegrationClick = (integrationId: IntegrationId) => {
     if (!organization) {
       toast.error("Organization ID not found");
@@ -116,6 +149,10 @@ export const IntegrationsView = () => {
       toast.error("Organization ID not found");
       return;
     }
+    if (!isSalesforceConfigSaved) {
+      toast.error("Add & save your Salesforce Client ID/Secret first.");
+      return;
+    }
     window.location.href = "/api/integrations/salesforce/start";
   };
 
@@ -145,9 +182,52 @@ export const IntegrationsView = () => {
     }
   };
 
+  const handleSaveSalesforceConfig = async () => {
+    if (!organization) {
+      toast.error("Organization ID not found");
+      return;
+    }
+    if (!canSaveSfConfig) {
+      toast.error("Please fill Client ID, Client Secret and Login URL.");
+      return;
+    }
+
+    try {
+      setSfSaving(true);
+      const res = await fetch("/api/integrations/salesforce/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: sfClientId.trim(),
+          clientSecret: sfClientSecret.trim(),
+          loginUrl: sfLoginUrl.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(txt || "Failed");
+      }
+
+      toast.success("Salesforce config saved");
+      // Convex useQuery will refetch and update isSalesforceConfigSaved automatically
+    } catch (e: any) {
+      toast.error(`Failed to save Salesforce config${e?.message ? `: ${e.message}` : ""}`);
+    } finally {
+      setSfSaving(false);
+    }
+  };
+
   const ConnectedBadge = ({ label = "Connected" }: { label?: string }) => (
     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
       <span className="h-2 w-2 rounded-full bg-emerald-500" />
+      {label}
+    </span>
+  );
+
+  const SavedBadge = ({ label = "Saved" }: { label?: string }) => (
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+      <span className="h-2 w-2 rounded-full bg-slate-500" />
       {label}
     </span>
   );
@@ -232,7 +312,7 @@ export const IntegrationsView = () => {
           </div>
 
           {/* Salesforce integration */}
-          <div className="mt-4 space-y-3 rounded-lg border bg-background p-4">
+          <div className="mt-4 space-y-4 rounded-lg border bg-background p-4">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -257,6 +337,8 @@ export const IntegrationsView = () => {
                   onClick={handleSalesforceConnect}
                   size="sm"
                   variant="default"
+                  disabled={!isSalesforceConfigSaved}
+                  title={!isSalesforceConfigSaved ? "Save Salesforce credentials first" : undefined}
                 >
                   {isSalesforceConnected
                     ? "Reconnect Salesforce"
@@ -271,6 +353,68 @@ export const IntegrationsView = () => {
                   >
                     Disconnect
                   </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Salesforce OAuth Config */}
+            <div className="rounded-lg bg-muted/50 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">Salesforce OAuth App Configuration</Label>
+                  {isSalesforceConfigSaved && <SavedBadge />}
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleSaveSalesforceConfig}
+                  disabled={!canSaveSfConfig || sfSaving}
+                >
+                  {sfSaving ? "Saving..." : "Save"}
+                </Button>
+              </div>
+
+              <div className="grid gap-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="sf-client-id">Client ID (Consumer Key)</Label>
+                  <Input
+                    id="sf-client-id"
+                    placeholder="e.g. 3MVG9... (from Salesforce Connected App)"
+                    value={sfClientId}
+                    onChange={(e) => setSfClientId(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="sf-client-secret">Client Secret (Consumer Secret)</Label>
+                  <Input
+                    id="sf-client-secret"
+                    placeholder="Paste the Consumer Secret"
+                    value={sfClientSecret}
+                    onChange={(e) => setSfClientSecret(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="sf-login-url">Login URL</Label>
+                  <Input
+                    id="sf-login-url"
+                    placeholder="https://login.salesforce.com"
+                    value={sfLoginUrl}
+                    onChange={(e) => setSfLoginUrl(e.target.value)}
+                    className="bg-background"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Use <span className="font-mono">https://login.salesforce.com</span> (prod / dev orgs) or{" "}
+                    <span className="font-mono">https://test.salesforce.com</span> (sandboxes).
+                  </p>
+                </div>
+
+                {!isSalesforceConfigSaved && (
+                  <p className="text-xs text-amber-600">
+                    Save your Salesforce Client ID/Secret first to enable “Connect Salesforce”.
+                  </p>
                 )}
               </div>
             </div>

@@ -5,13 +5,11 @@ import { api } from "@workspace/backend/_generated/api";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
+export async function POST() {
   const authCtx = await auth();
   const { userId, orgId } = authCtx;
 
-  if (!userId || !orgId) {
-    return new NextResponse("Unauthorized", { status: 401 });
-  }
+  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
 
   const convexToken = await authCtx.getToken({ template: "convex" });
 
