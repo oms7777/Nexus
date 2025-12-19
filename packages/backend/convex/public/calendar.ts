@@ -198,6 +198,7 @@ export const bookSlot = action({
     contactSessionId: v.id("contactSessions"),
     attendeeName: v.string(),
     attendeeEmail: v.string(),
+    attendeePhone: v.optional(v.string()), // ✅ NEW
     start: v.number(),
     end: v.number(),
     attendeeCompany: v.optional(v.string()),
@@ -211,6 +212,7 @@ export const bookSlot = action({
       contactSessionId,
       attendeeName,
       attendeeEmail,
+      attendeePhone, // ✅ NEW
       start,
       end,
       attendeeCompany,
@@ -242,6 +244,7 @@ export const bookSlot = action({
       `Rep: ${acct.userId}`,
       `Name: ${attendeeName}`,
       `Email: ${attendeeEmail}`,
+      attendeePhone ? `Phone: ${attendeePhone}` : null, // ✅ NEW
       attendeeCompany ? `Company: ${attendeeCompany}` : null,
       attendeeRole ? `Role: ${attendeeRole}` : null,
     ].filter(Boolean);
@@ -276,16 +279,17 @@ export const bookSlot = action({
         calendarId: "primary",
         company: attendeeCompany,
         role: attendeeRole,
+        phone: attendeePhone, // ✅ NEW
       },
     });
 
-    // ✅ Salesforce: on capture le résultat (au lieu de l’ignorer)
-    let sfResult: any = null;
+    // Salesforce — non bloquant
     try {
-      sfResult = await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
+      await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
         organizationId,
         attendeeName,
         attendeeEmail,
+        attendeePhone, // ✅ NEW
         attendeeCompany,
         attendeeRole,
         startIso: new Date(start).toISOString(),
@@ -293,30 +297,11 @@ export const bookSlot = action({
         meetingUrl,
         source: "Inboundless",
       });
-
-      console.log("Salesforce create Lead/Event result:", sfResult);
     } catch (e) {
-      console.log("Salesforce create Lead/Event threw:", e);
-      sfResult = { ok: false, threw: true, error: String(e) };
+      console.log("Salesforce create Lead/Event failed:", e);
     }
 
-    // (optionnel) tracer côté analytics pour voir dans Convex ce qui se passe
-    try {
-      await ctx.runMutation(api.public.analytics.log, {
-        organizationId,
-        type: "salesforce_sync_attempt",
-        sessionId: contactSessionId,
-        meta: {
-          bookingId,
-          attendeeEmail,
-          result: sfResult,
-        },
-      });
-    } catch (e) {
-      console.log("analytics.log(salesforce_sync_attempt) failed:", e);
-    }
-
-    // Slack (inchangé)
+    // Slack notification — non bloquant (optionnel: tu peux aussi y ajouter le phone)
     try {
       const startDate = new Date(start);
       const dateLabel = startDate.toLocaleString("en-US", {
@@ -331,6 +316,7 @@ export const bookSlot = action({
       const lines = [
         "📅 *New meeting booked!*",
         `• Client: *${attendeeName}* (${attendeeEmail})`,
+        attendeePhone ? `• Phone: ${attendeePhone}` : null, // ✅ NEW
         attendeeCompany ? `• Company: ${attendeeCompany}` : null,
         attendeeRole ? `• Role: ${attendeeRole}` : null,
         `• When: *${dateLabel}*`,
@@ -353,7 +339,7 @@ export const bookSlot = action({
       console.log("Slack sendSlackMessage failed:", e);
     }
 
-    // email sales (inchangé)
+    // email sales — non bloquant (optionnel: ajoute phone dans le template si tu veux)
     const salesEmail = acct.email;
     if (salesEmail) {
       try {
@@ -374,7 +360,7 @@ export const bookSlot = action({
       }
     }
 
-    // analytics meeting_booked (inchangé)
+    // analytics — non bloquant
     try {
       await ctx.runMutation(api.public.analytics.log, {
         organizationId,
@@ -384,6 +370,7 @@ export const bookSlot = action({
           bookingId,
           attendeeName,
           attendeeEmail,
+          attendeePhone, // ✅ NEW
           attendeeCompany,
           attendeeRole,
           start,
@@ -400,6 +387,7 @@ export const bookSlot = action({
     return { bookingId, meetingUrl };
   },
 });
+
 
 export const getAuthUrl = action({
   args: { redirectUrl: v.string() },

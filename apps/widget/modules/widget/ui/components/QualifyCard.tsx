@@ -5,23 +5,20 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 
-/**
- * QualifyCard – petite fiche de qualification avant le booking
- * CRM-ready : name, email, company, role
- */
 export default function QualifyCard({
   initial,
   onCancel,
   onSubmit,
 }: {
-  initial?: { name?: string; email?: string; company?: string; role?: string };
+  initial?: { name?: string; email?: string; company?: string; role?: string; phone?: string };
   onCancel?: () => void;
-  onSubmit: (v: { name: string; email: string; company?: string; role?: string }) => void;
+  onSubmit: (v: { name: string; email: string; company?: string; role?: string; phone?: string }) => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [company, setCompany] = useState(initial?.company ?? "");
   const [role, setRole] = useState(initial?.role ?? "");
+  const [phone, setPhone] = useState(initial?.phone ?? ""); // ✅ NEW
 
   const canSubmit = name.trim() && /\S+@\S+\.\S+/.test(email);
 
@@ -47,6 +44,15 @@ export default function QualifyCard({
             />
           </div>
           <div>
+            <Label>Phone (optional)</Label>
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+33 6 12 34 56 78"
+              inputMode="tel"
+            />
+          </div>
+          <div>
             <Label>Company</Label>
             <Input value={company} onChange={(e) => setCompany(e.target.value)} />
           </div>
@@ -68,6 +74,7 @@ export default function QualifyCard({
               onSubmit({
                 name: name.trim(),
                 email: email.trim(),
+                phone: phone.trim() || undefined, // ✅ NEW
                 company: company.trim() || undefined,
                 role: role.trim() || undefined,
               })

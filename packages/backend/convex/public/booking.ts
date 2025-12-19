@@ -16,8 +16,9 @@ export const create = mutation({
     providerData: v.optional(
       v.object({
         calendarId: v.optional(v.string()),
-        company: v.optional(v.string()), // ✅ stocke l’entreprise
-        role: v.optional(v.string()),    // ✅ stocke le métier/role
+        company: v.optional(v.string()),
+        role: v.optional(v.string()),
+        phone: v.optional(v.string()), // ✅ NEW
       })
     ),
   },

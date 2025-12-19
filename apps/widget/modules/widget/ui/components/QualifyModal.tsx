@@ -10,6 +10,7 @@ export default function QualifyModal() {
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
+  const [phone, setPhone] = React.useState(""); // ✅ NEW
   const [company, setCompany] = React.useState("");
   const [useCase, setUseCase] = React.useState("");
 
@@ -18,6 +19,7 @@ export default function QualifyModal() {
       const d = e.detail || {};
       if (d.name) setName(d.name);
       if (d.email) setEmail(d.email);
+      if (d.phone) setPhone(d.phone); // ✅ NEW (si tu veux préfill un jour)
       setOpen(true);
     };
     window.addEventListener("nexus:open-qualify", onOpen);
@@ -25,7 +27,7 @@ export default function QualifyModal() {
   }, []);
 
   const submit = () => {
-    (window as any).__nexusContact = { name, email, company, useCase };
+    (window as any).__nexusContact = { name, email, phone, company, useCase }; // ✅ NEW
     window.dispatchEvent(
       new CustomEvent("nexus:open-inline-booker", { detail: { name, email } })
     );
@@ -47,6 +49,15 @@ export default function QualifyModal() {
           <div>
             <Label>Email</Label>
             <Input value={email} onChange={e => setEmail(e.target.value)} type="email" />
+          </div>
+          <div>
+            <Label>Phone (optional)</Label>
+            <Input
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="+33 6 12 34 56 78"
+              inputMode="tel"
+            />
           </div>
           <div>
             <Label>Company</Label>

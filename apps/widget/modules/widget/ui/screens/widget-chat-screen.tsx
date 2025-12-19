@@ -538,6 +538,7 @@ export const WidgetChatScreen = () => {
     email: string;
     company?: string;
     role?: string;
+    phone?: string;
   }) => {
     setQdata(lead);
 
@@ -977,6 +978,7 @@ export const WidgetChatScreen = () => {
               initial={{
                 name: qdata.name,
                 email: qdata.email,
+                phone: (qdata as any).phone,
                 company: qdata.company,
                 role: qdata.role,
               }}
@@ -1027,6 +1029,7 @@ export const WidgetChatScreen = () => {
                     contactSessionId,
                     attendeeName: qdata.name,
                     attendeeEmail: qdata.email,
+                    attendeePhone: (qdata as any).phone,
                     attendeeCompany: qdata.company,
                     attendeeRole: qdata.role,
                     start: s.start,

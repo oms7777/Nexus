@@ -8,13 +8,14 @@ export type QualifyStep =
   | "ask_email"
   | "ask_company"
   | "ask_role"
-  | "pick_rep" // 👈 choix du sales
+  | "pick_rep"
   | "picking"
   | "done";
 
 export type QualifyData = {
   name?: string;
   email?: string;
+  phone?: string; // ✅ NEW
   company?: string;
   role?: string;
   region?: "EMEA" | "NA" | "LATAM" | "APAC";
@@ -31,7 +32,6 @@ export const consentGivenAtom = atom<boolean>(false);
 
 /**
  * Représentant sélectionné (sales rep) – optionnel
- * Utile si tu veux afficher le rep choisi ailleurs dans le widget.
  */
 export type AssignedRep = {
   userId: string;

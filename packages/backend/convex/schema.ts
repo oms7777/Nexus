@@ -104,6 +104,7 @@ export default defineSchema({
   contactSessions: defineTable({
     name: v.optional(v.string()),
     email: v.optional(v.string()),
+    phone: v.optional(v.string()),
     organizationId: v.string(),
     expiresAt: v.number(),
     isAnonymous: v.optional(v.boolean()),
@@ -271,6 +272,7 @@ export default defineSchema({
         calendarId: v.optional(v.string()),
         company: v.optional(v.string()),
         role: v.optional(v.string()),
+        phone: v.optional(v.string()),
       }),
     ),
     createdAt: v.number(),
