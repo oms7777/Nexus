@@ -63,7 +63,7 @@ or you can use record.mirror to access the mirror instance during recording.`;le
           <img src="${U}" alt="Chat"
             style="width:100%;height:100%;object-fit:contain;" />
         </div>
-      `}else s.innerHTML=ut}function F(T){!f||!(t!=null&&t.contentWindow)||!p||t.contentWindow.postMessage(T,p)}function P(){F({type:"nexus:parent-location",href:location.href})}function j(){["pushState","replaceState"].forEach(T=>{const M=history[T];history[T]=function(...U){const $=M.apply(this,U);return f&&P(),$}})}function E(T){const M=T.theme||C||{},U=M.primaryColor||"#0ea5e9",$=M.primaryTextColor||"#ffffff",G=M.secondaryColor||"#ffffff",_=M.nudgeBackgroundColor||"#ffffff",ee=M.primaryTextColor||"#111827";o||(o=document.createElement("div"),o.id="nexus-nudge",o.style.cssText=`
+      `}else s.innerHTML=ut}function F(T){!f||!(t!=null&&t.contentWindow)||!p||t.contentWindow.postMessage(T,p)}function P(){F({type:"nexus:parent-location",href:location.href})}function j(){["pushState","replaceState"].forEach(T=>{const M=history[T];history[T]=function(...U){const $=M.apply(this,U);return f&&P(),$}})}function E(T){const M=T.theme||C||{},U=M.primaryColor||"#0ea5e9",$=M.primaryTextColor||"#ffffff",G=M.secondaryColor||"#ffffff",_=M.nudgeBackgroundColor||"#ffffff",ee=M.secondaryTextColor||"#111827";o||(o=document.createElement("div"),o.id="nexus-nudge",o.style.cssText=`
         all: unset;
         position: fixed;
         width: 340px; max-width: min(340px, calc(100vw - 96px));

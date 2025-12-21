@@ -19,6 +19,7 @@ type ThemePayload = {
   primaryColor?: string;
   primaryTextColor?: string;
   secondaryColor?: string;
+  secondaryTextColor?: string;
   nudgeBackgroundColor?: string;
   chatBubbleColor?: string;
 };

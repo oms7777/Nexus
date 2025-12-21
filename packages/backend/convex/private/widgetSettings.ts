@@ -16,6 +16,7 @@ const ThemeV = v.object({
   primaryColor: v.optional(v.string()),
   primaryTextColor: v.optional(v.string()),
   secondaryColor: v.optional(v.string()),
+  secondaryTextColor: v.optional(v.string()),
   nudgeBackgroundColor: v.optional(v.string()),
   chatBubbleColor: v.optional(v.string()),
 });

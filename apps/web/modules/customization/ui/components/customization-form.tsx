@@ -67,6 +67,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         primaryColor: initialData?.theme?.primaryColor || "#0ea5e9",
         primaryTextColor: initialData?.theme?.primaryTextColor || "#ffffff",
         secondaryColor: initialData?.theme?.secondaryColor || "#ffffff",
+        secondaryTextColor: initialData?.theme?.secondaryTextColor || "#0f172a",
         nudgeBackgroundColor:
           initialData?.theme?.nudgeBackgroundColor || "#ffffff",
         chatBubbleColor:
@@ -102,6 +103,8 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
   const primaryColor = form.watch("theme.primaryColor") || "#0ea5e9";
   const primaryTextColor = form.watch("theme.primaryTextColor") || "#ffffff";
   const secondaryColor = form.watch("theme.secondaryColor") || "#ffffff";
+  const secondaryTextColor =
+    form.watch("theme.secondaryTextColor") || "#0f172a";
   const nudgeBackgroundColor =
     form.watch("theme.nudgeBackgroundColor") || "#ffffff";
   const chatBubbleColor = form.watch("theme.chatBubbleColor") || primaryColor;
@@ -383,6 +386,31 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
 
                       <FormField
                         control={form.control as any}
+                        name="theme.secondaryTextColor"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Secondary CTA text color</FormLabel>
+                            <div className="flex items-center gap-2">
+                              <FormControl>
+                                <Input {...field} placeholder="#0f172a" />
+                              </FormControl>
+                              <input
+                                type="color"
+                                value={field.value || "#0f172a"}
+                                onChange={(e) => field.onChange(e.target.value)}
+                                className="h-9 w-9 cursor-pointer rounded border"
+                              />
+                            </div>
+                            <FormDescription>
+                              Text color for secondary CTA buttons.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control as any}
                         name="theme.nudgeBackgroundColor"
                         render={({ field }) => (
                           <FormItem>
@@ -508,7 +536,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                     className="h-8 w-full justify-center text-sm"
                                     style={{
                                       backgroundColor: secondaryColor,
-                                      color: primaryColor,
+                                      color: secondaryTextColor,
                                       borderColor: primaryColor,
                                     }}
                                   >

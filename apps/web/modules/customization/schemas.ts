@@ -33,6 +33,7 @@ export const widgetSettingsSchema = z
         primaryColor: z.string().optional(),
         primaryTextColor: z.string().optional(),
         secondaryColor: z.string().optional(),
+        secondaryTextColor: z.string().optional(),
         nudgeBackgroundColor: z.string().optional(),
         chatBubbleColor: z.string().optional(),
       })

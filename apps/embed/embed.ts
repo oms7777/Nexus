@@ -8,6 +8,7 @@ type ThemePayload = {
   primaryColor?: string;
   primaryTextColor?: string;
   secondaryColor?: string;
+  secondaryTextColor?: string; 
   nudgeBackgroundColor?: string;
   chatBubbleColor?: string;
 };
@@ -319,7 +320,7 @@ type PromoPayload = {
     const primaryTextColor = palette.primaryTextColor || "#ffffff";
     const secondaryColor = palette.secondaryColor || "#ffffff";
     const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
-    const secondaryTextColor = palette.primaryTextColor || "#111827";
+    const secondaryTextColor = palette.secondaryTextColor || "#111827";
 
     if (!nudge) {
       nudge = document.createElement("div");

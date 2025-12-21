@@ -70,6 +70,7 @@ type ThemePreview = {
   primaryColor?: string | null;
   primaryTextColor?: string | null;
   secondaryColor?: string | null;
+  secondaryTextColor?: string | null;
   nudgeBackgroundColor?: string | null;
   chatBubbleColor?: string | null;
 };
@@ -361,6 +362,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const primaryColor = theme?.primaryColor || "#0ea5e9";
   const primaryTextColor = theme?.primaryTextColor || "#ffffff";
   const secondaryColor = theme?.secondaryColor || "#ffffff";
+  const secondaryTextColor = theme?.secondaryTextColor || "#0f172a";
   const nudgeBackgroundColor = theme?.nudgeBackgroundColor || "#ffffff";
   const chatBubbleColor = theme?.chatBubbleColor || primaryColor;
 
@@ -861,7 +863,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                             }
                           : {
                               backgroundColor: secondaryColor,
-                              color: primaryColor,
+                              color: secondaryTextColor,
                               borderColor: primaryColor,
                             };
 
