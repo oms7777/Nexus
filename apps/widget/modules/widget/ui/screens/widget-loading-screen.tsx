@@ -213,12 +213,26 @@ export const WidgetLoadingScreen = ({
   );
 
   useEffect(() => {
-    if (step !== "settings") return;
-    setLoadingMessage("Loading widget settings...");
     if (widgetSettings !== undefined) {
       setWidgetSettings(widgetSettings);
+
+      // 🔥 envoyer le thème AU PARENT immédiatement
+      try {
+        const theme = (widgetSettings as any)?.theme;
+        const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
+
+        window.parent?.postMessage(
+          {
+            type: "nexus:theme",
+            payload: { theme, brandLogoUrl },
+          },
+          "*"
+        );
+      } catch {}
+
       setStep("vapi");
     }
+
   }, [step, widgetSettings, setWidgetSettings, setLoadingMessage]);
 
   /* 4) Charger les secrets Vapi (si présents) */

@@ -8,7 +8,7 @@ type ThemePayload = {
   primaryColor?: string;
   primaryTextColor?: string;
   secondaryColor?: string;
-  secondaryTextColor?: string; 
+  secondaryTextColor?: string;
   nudgeBackgroundColor?: string;
   chatBubbleColor?: string;
 };
@@ -29,12 +29,12 @@ type PromoPayload = {
   avatars?: string[];
   badgeText?: string;
   privacyUrl?: string;
+
   // Thème & branding envoyés par le widget
   theme?: ThemePayload;
   brandLogoUrl?: string;
-  // contrôle de l’identité visuelle
+
   identityMode?: "auto" | "logo" | "avatars";
-  // NEW: multi-CTAs
   ctaList?: SimpleCta[];
 };
 
@@ -59,8 +59,7 @@ type PromoPayload = {
 
   // Config from <script>
   let organizationId: string | null = null;
-  let position: "bottom-right" | "bottom-left" =
-    EMBED_CONFIG.DEFAULT_POSITION;
+  let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
 
   // THEME
   let theme: ThemePayload | null = null;
@@ -110,18 +109,24 @@ type PromoPayload = {
     button = document.createElement("button");
     button.id = "nexus-widget-button";
     button.innerHTML = chatBubbleIcon;
+
+    // ✅ IMPORTANT: pas de couleur figée “bleue”
+    // On met un fallback, puis on applique le thème dès qu'on le reçoit (nexus:theme / nexus:promo)
     button.style.cssText = `
       all: unset;
       position: fixed;
       ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
       bottom: 20px;
       width: 60px; height: 60px; border-radius: 9999px;
-      background: #3b82f6; color: #ffffff; cursor: pointer;
+      background: ${theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6"};
+      color: ${theme?.primaryTextColor || "#ffffff"};
+      cursor: pointer;
       z-index: 2147483000;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 4px 24px rgba(59,130,246,.35);
+      box-shadow: 0 4px 24px rgba(0,0,0,.20);
       transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
     `;
+
     button.addEventListener("click", () => {
       if (isOpen) {
         hide();
@@ -129,16 +134,19 @@ type PromoPayload = {
       }
       openChat();
     });
+
     button.addEventListener("mouseenter", () => {
       if (!button) return;
       button.style.transform = "scale(1.05)";
       button.style.boxShadow = "0 6px 28px rgba(15,23,42,.35)";
     });
+
     button.addEventListener("mouseleave", () => {
       if (!button) return;
       button.style.transform = "scale(1)";
       button.style.boxShadow = "0 4px 24px rgba(0,0,0,.25)";
     });
+
     document.body.appendChild(button);
 
     // ----- Container -----
@@ -163,11 +171,16 @@ type PromoPayload = {
     iframe.src = buildWidgetUrl();
     iframe.allow = "microphone; clipboard-read; clipboard-write";
     iframe.style.cssText = `width:100%;height:100%;border:none;`;
+
     iframe.onload = () => {
       iframeLoaded = true;
       TARGET_ORIGIN = new URL(iframe!.src).origin;
+
       postToWidget({ type: "nexus:embed-ready" });
       sendParentLocation();
+
+      // ✅ si theme déjà reçu (rare), l’appliquer maintenant
+      applyThemeToFab();
     };
 
     container.appendChild(iframe);
@@ -192,10 +205,12 @@ type PromoPayload = {
   /* ---------------- Messaging ---------------- */
 
   function handleMessage(event: MessageEvent) {
-    if (!iframeLoaded || !TARGET_ORIGIN || event.origin !== TARGET_ORIGIN)
-      return;
-
+    // IMPORTANT: on accepte nexus:theme même si TARGET_ORIGIN pas encore set (iframeLoaded false)
+    // mais on garde la sécurité origin dès que possible.
     const { type, payload } = event.data || {};
+
+    // Si iframe chargée, on sécurise l'origin
+    if (iframeLoaded && TARGET_ORIGIN && event.origin !== TARGET_ORIGIN) return;
 
     switch (type) {
       case "close":
@@ -203,9 +218,22 @@ type PromoPayload = {
         break;
 
       case "resize":
-        if (payload?.height && container)
+        if (payload?.height && container) {
           container.style.height = `${payload.height}px`;
+        }
         break;
+
+      /**
+       * ✅ NEW: thème envoyé dès le loading screen
+       * payload: { theme, brandLogoUrl }
+       */
+      case "nexus:theme": {
+        const p = payload as { theme?: ThemePayload; brandLogoUrl?: string };
+        theme = p?.theme || null;
+        brandLogoUrl = p?.brandLogoUrl || null;
+        applyThemeToFab();
+        break;
+      }
 
       case "nexus:promo": {
         const promoPayload = payload as PromoPayload;
@@ -213,11 +241,11 @@ type PromoPayload = {
         // Ack + hide internal promo
         iframe?.contentWindow?.postMessage(
           { type: "nexus:host-ack" },
-          TARGET_ORIGIN,
+          TARGET_ORIGIN || "*",
         );
         iframe?.contentWindow?.postMessage(
           { type: "nexus:hide-internal-promo" },
-          TARGET_ORIGIN,
+          TARGET_ORIGIN || "*",
         );
 
         if (!NUDGE_ENABLED) return;
@@ -225,10 +253,10 @@ type PromoPayload = {
         hasPromoPayload = true;
 
         // Thème + logo venant du widget
-        theme = promoPayload.theme || null;
-        brandLogoUrl = promoPayload.brandLogoUrl || null;
-        applyThemeToFab();
+        theme = promoPayload.theme || theme || null;
+        brandLogoUrl = promoPayload.brandLogoUrl || brandLogoUrl || null;
 
+        applyThemeToFab();
         renderNudge(promoPayload);
         break;
       }
@@ -264,7 +292,7 @@ type PromoPayload = {
     button.style.background = bubbleColor;
     button.style.color = textColor;
 
-    // Si le widget est ouvert, on garde le X
+    // Si le widget est ouvert, on garde le X (ne pas remplacer innerHTML)
     if (isOpen) return;
 
     // Si un logo est défini → on l'affiche dans la bulle
@@ -285,14 +313,14 @@ type PromoPayload = {
         </div>
       `;
     } else {
-      // Fallback : icône bulle par défaut
       button.innerHTML = chatBubbleIcon;
     }
   }
 
   function postToWidget(msg: any) {
-    if (!iframeLoaded || !iframe?.contentWindow || !TARGET_ORIGIN) return;
-    iframe.contentWindow.postMessage(msg, TARGET_ORIGIN);
+    if (!iframeLoaded || !iframe?.contentWindow) return;
+    const origin = TARGET_ORIGIN || "*";
+    iframe.contentWindow.postMessage(msg, origin);
   }
 
   function sendParentLocation() {
@@ -359,20 +387,15 @@ type PromoPayload = {
       document.body.appendChild(caret);
     }
 
-    const avatars = Array.isArray(payload.avatars)
-      ? payload.avatars.slice(0, 3)
-      : [];
+    const avatars = Array.isArray(payload.avatars) ? payload.avatars.slice(0, 3) : [];
 
     const ctaList: SimpleCta[] =
-      Array.isArray(payload.ctaList) && payload.ctaList.length
-        ? payload.ctaList
-        : [];
+      Array.isArray(payload.ctaList) && payload.ctaList.length ? payload.ctaList : [];
 
     const hasMulti = ctaList.length > 0;
 
     // --- identité visuelle ---
-    const identityMode: "auto" | "logo" | "avatars" =
-      payload.identityMode || "auto";
+    const identityMode: "auto" | "logo" | "avatars" = payload.identityMode || "auto";
 
     let identityHtml = "";
 
@@ -449,21 +472,13 @@ type PromoPayload = {
          </span>`
       : "";
 
-    const title =
-      payload.title ||
-      "Discover the right solution for your business project.";
-    const body =
-      payload.body || "Chat with our assistant or book a 15-min demo.";
+    const title = payload.title || "Discover the right solution for your business project.";
+    const body = payload.body || "Chat with our assistant or book a 15-min demo.";
 
     const buttonsHtml = hasMulti
       ? `
         <div id="nexus-cta-stack"
-          style="
-            display:flex;
-            flex-direction:column;
-            gap:8px;
-            margin-top:12px;
-          ">
+          style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
           ${ctaList
             .map((cta, index) => {
               const isPrimary = index === 0;
@@ -471,9 +486,8 @@ type PromoPayload = {
               const color = isPrimary ? primaryTextColor : secondaryTextColor;
               const border = isPrimary ? "" : "border:1px solid #e5e7eb;";
               const label =
-                cta.label && cta.label.trim().length
-                  ? cta.label
-                  : defaultLabelForKind(cta.kind);
+                cta.label && cta.label.trim().length ? cta.label : defaultLabelForKind(cta.kind);
+
               return `
                 <button data-cta-index="${index}"
                   style="
@@ -503,12 +517,7 @@ type PromoPayload = {
         </div>
       `
       : `
-        <div style="
-          display:flex;
-          flex-direction:column;
-          gap:8px;
-          margin-top:12px;
-        ">
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
           <button id="nexus-primary"
             style="
               all: unset;
@@ -577,9 +586,7 @@ type PromoPayload = {
             ${
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
-                    <a href="${escapeAttr(
-                      payload.privacyUrl,
-                    )}" target="_blank" rel="noopener noreferrer"
+                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
                       style="color:#6b7280;font-size:11px;text-decoration:underline">
                       This chat may be recorded. View our privacy policy.
                     </a>
@@ -602,17 +609,14 @@ type PromoPayload = {
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
 
     if (hasMulti) {
-      const btns =
-        nudge!.querySelectorAll<HTMLButtonElement>("button[data-cta-index]");
+      const btns = nudge!.querySelectorAll<HTMLButtonElement>("button[data-cta-index]");
       btns.forEach((btn) => {
         const idx = Number(btn.getAttribute("data-cta-index") || "0");
         btn.addEventListener("click", () => runNudgeCta(idx));
       });
     } else {
-      const primaryBtn =
-        nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
-      const secondaryBtn =
-        nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
+      const primaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
+      const secondaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
       primaryBtn?.addEventListener("click", () => openChat());
       secondaryBtn?.addEventListener("click", () => openBooking());
     }
@@ -637,10 +641,7 @@ type PromoPayload = {
   function runNudgeCta(index: number) {
     show();
     setTimeout(() => {
-      postToWidget({
-        type: "nexus:run-cta",
-        index,
-      });
+      postToWidget({ type: "nexus:run-cta", index });
     }, 50);
   }
 
@@ -669,9 +670,7 @@ type PromoPayload = {
 
     const centerX = rect.left + rect.width / 2;
     caret.style.left = `${centerX - caretSize / 2}px`;
-    caret.style.bottom = `${
-      fromBottomToButtonTop + (gap - caretSize / 2)
-    }px`;
+    caret.style.bottom = `${fromBottomToButtonTop + (gap - caretSize / 2)}px`;
     caret.style.transform = "rotate(45deg)";
 
     const r = nudge.getBoundingClientRect();
@@ -734,7 +733,7 @@ type PromoPayload = {
     }, 10);
 
     button.innerHTML = closeIcon;
-    applyThemeToFab();
+    applyThemeToFab(); // garde la couleur, ne remplace pas le X
 
     sendParentLocation();
   }
@@ -748,7 +747,7 @@ type PromoPayload = {
     setTimeout(() => container && (container.style.display = "none"), 300);
 
     button.innerHTML = chatBubbleIcon;
-    applyThemeToFab();
+    applyThemeToFab(); // réapplique couleur + logo
 
     if (!nudgeDismissed && hasPromoPayload && nudge && caret) {
       nudge.style.display = "block";
