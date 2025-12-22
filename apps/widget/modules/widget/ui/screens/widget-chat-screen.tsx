@@ -359,6 +359,15 @@ function BookingSplitLayout({
 
 export const WidgetChatScreen = () => {
   const widgetSettings = useAtomValue(widgetSettingsAtom);
+  const themePrimary =
+    (widgetSettings as any)?.theme?.primaryColor ??
+    (widgetSettings as any)?.branding?.primaryColor ??
+    "#111827";
+
+  const themePrimaryText =
+    (widgetSettings as any)?.theme?.primaryTextColor ??
+    (widgetSettings as any)?.branding?.primaryTextColor ??
+    "#ffffff";
   const consentCfg = widgetSettings?.consent;
   const organizationId = useAtomValue(organizationIdAtom);
   const contactSessionId = useAtomValue(
@@ -1219,6 +1228,11 @@ export const WidgetChatScreen = () => {
           <AIInputToolbar>
             <AIInputTools />
             <AIInputSubmit
+              className="hover:opacity-90"
+              style={{
+                backgroundColor: themePrimary,
+                color: themePrimaryText,
+              }}
               disabled={
                 conversation?.status === "resolved" ||
                 !form.formState.isValid ||
