@@ -20,24 +20,31 @@ export const AIMessage = ({ className, from, ...props }: AIMessageProps) => (
 
 export type AIMessageContentProps = HTMLAttributes<HTMLDivElement>;
 
-export const AIMessageContent = ({
-  children,
-  className,
-  ...props
-}: AIMessageContentProps) => (
+export const AIMessageContent = ({ children, className, ...props }: AIMessageContentProps) => (
   <div
     className={cn(
       "break-words",
       "flex flex-col gap-2 rounded-lg border border-border px-3 py-2 text-sm",
-      // assistant default
       "bg-background text-foreground",
-      // ✅ user bubble follows theme (no hardcoded blue)
-      "group-[.is-user]:border-transparent group-[.is-user]:bg-primary group-[.is-user]:text-primary-foreground",
+      "group-[.is-user]:border-transparent group-[.is-user]:text-primary-foreground",
       className
     )}
+    style={{
+      ...(props.style || {}),
+      // ✅ user bubble follows widget theme vars
+      ["--tw-bg-opacity" as any]: 1,
+      background: undefined,
+    }}
     {...props}
   >
-    {children}
+    <div
+      className={cn("group-[.is-user]:text-[color:var(--widget-primary-text)]")}
+      style={{
+        // ✅ only when user bubble
+      }}
+    >
+      {children}
+    </div>
   </div>
 );
 

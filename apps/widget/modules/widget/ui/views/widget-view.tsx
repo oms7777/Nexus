@@ -1,8 +1,12 @@
 // apps/widget/modules/widget/ui/views/widget-view.tsx
 "use client";
 
+import React, { type PropsWithChildren } from "react";
 import { useAtomValue } from "jotai";
+
 import { screenAtom } from "../../atoms/widget-atoms";
+import { usePresence } from "../../hooks/use-presence";
+
 import { WidgetAuthScreen } from "../screens/widget-auth-screen";
 import { WidgetErrorScreen } from "../screens/widget-error-screen";
 import { WidgetLoadingScreen } from "../screens/widget-loading-screen";
@@ -11,14 +15,12 @@ import { WidgetChatScreen } from "../screens/widget-chat-screen";
 import { WidgetInboxScreen } from "../screens/widget-inbox-screen";
 import { WidgetVoiceScreen } from "../screens/widget-voice-screen";
 import { WidgetContactScreen } from "../screens/widget-contact-screen";
-import { usePresence } from "../../hooks/use-presence";
 
 import QualifyModal from "../components/QualifyModal";
 import InlineBooker from "../components/InlineBooker";
 import SmartPromo from "../components/SmartPromo";
+import { WidgetThemeVars } from "../components/WidgetThemeVars";
 
-import React, { type PropsWithChildren } from "react";
-import { ApplyWidgetTheme } from "../components/ApplyWidgetTheme";
 
 function Boundary({ children }: PropsWithChildren) {
   return <ErrorBoundary fallback={null}>{children}</ErrorBoundary>;
@@ -50,7 +52,7 @@ export const WidgetView = ({ organizationId }: Props) => {
   const screen = useAtomValue(screenAtom);
   usePresence();
 
-  const screenComponents = {
+  const screens = {
     loading: <WidgetLoadingScreen organizationId={organizationId} />,
     error: <WidgetErrorScreen />,
     auth: <WidgetAuthScreen />,
@@ -66,10 +68,10 @@ export const WidgetView = ({ organizationId }: Props) => {
 
   return (
     <main className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-muted">
-      {/* ✅ Injecte le thème dynamique dès que widgetSettings est chargé */}
-      <ApplyWidgetTheme />
+      {/* ✅ Injecte les couleurs dès que widgetSettings est chargé */}
+      <WidgetThemeVars />
 
-      {screenComponents[screen]}
+      {screens[screen]}
 
       {showPromo && (
         <Boundary>
