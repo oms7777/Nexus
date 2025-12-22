@@ -29,13 +29,15 @@ export const AIMessageContent = ({
     className={cn(
       "break-words",
       "flex flex-col gap-2 rounded-lg border border-border px-3 py-2 text-sm",
+      // assistant default
       "bg-background text-foreground",
-      "group-[.is-user]:border-transparent group-[.is-user]:bg-gradient-to-b group-[.is-user]:from-primary group-[.is-user]:to-[#0b63f3] group-[.is-user]:text-primary-foreground",
+      // ✅ user bubble follows theme (no hardcoded blue)
+      "group-[.is-user]:border-transparent group-[.is-user]:bg-primary group-[.is-user]:text-primary-foreground",
       className
     )}
     {...props}
   >
-    <div className="is-user:dark">{children}</div>
+    {children}
   </div>
 );
 
