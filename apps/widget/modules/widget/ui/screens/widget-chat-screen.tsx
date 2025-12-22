@@ -368,6 +368,17 @@ export const WidgetChatScreen = () => {
     (widgetSettings as any)?.theme?.primaryTextColor ??
     (widgetSettings as any)?.branding?.primaryTextColor ??
     "#ffffff";
+
+  const chatBubbleColor =
+    (widgetSettings as any)?.theme?.chatBubbleColor ??
+    (widgetSettings as any)?.branding?.chatBubbleColor ??
+    "#a954ab";
+
+  const chatBubbleTextColor =
+    (widgetSettings as any)?.theme?.chatBubbleTextColor ??
+    (widgetSettings as any)?.branding?.chatBubbleTextColor ??
+    "#ffffff";
+    
   const consentCfg = widgetSettings?.consent;
   const organizationId = useAtomValue(organizationIdAtom);
   const contactSessionId = useAtomValue(
@@ -747,7 +758,17 @@ export const WidgetChatScreen = () => {
   }, [widgetSettings]);
 
   return (
-    <>
+    <div
+      style={
+        {
+          ["--nexus-user-bg" as any]: themePrimary,
+          ["--nexus-user-fg" as any]: themePrimaryText,
+          ["--nexus-send-bg" as any]: chatBubbleColor,
+          ["--nexus-send-fg" as any]: chatBubbleTextColor,
+        } as React.CSSProperties
+      }
+      className="h-full w-full"
+    >
       <WidgetHeader className="flex items-center justify-between">
         <p className="font-medium">Chat</p>
         <div className="flex items-center gap-1">
@@ -1230,8 +1251,8 @@ export const WidgetChatScreen = () => {
             <AIInputSubmit
               className="hover:opacity-90"
               style={{
-                backgroundColor: themePrimary,
-                color: themePrimaryText,
+                backgroundColor: "var(--nexus-send-bg)",
+                color: "var(--nexus-send-fg)",
               }}
               disabled={
                 conversation?.status === "resolved" ||
@@ -1243,6 +1264,7 @@ export const WidgetChatScreen = () => {
               status="ready"
               type="submit"
             />
+
           </AIInputToolbar>
         </AIInput>
       </Form>
