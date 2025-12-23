@@ -10,11 +10,7 @@ import {
   conversationIdAtom,
   contactSessionIdAtomFamily,
 } from "../../atoms/widget-atoms";
-import {
-  bookingIntentAtom,
-  qualifyStepAtom,
-  consentGivenAtom,
-} from "../../atoms/qualify-atoms";
+import { bookingIntentAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
 import type { Doc, Id } from "@workspace/backend/_generated/dataModel";
 
 type Cta = Doc<"promos">["primaryCta"];
@@ -36,7 +32,7 @@ export default function SmartPromo() {
   const setStep = useSetAtom(qualifyStepAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
 
-  const consentGiven = useAtomValue(consentGivenAtom);
+  const currentConvId = useAtomValue(conversationIdAtom);
 
   const contactSessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
   const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(orgId || ""));
@@ -50,17 +46,27 @@ export default function SmartPromo() {
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
+  // ----- Data (Convex)
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip",
+    orgId ? { organizationId: orgId } : "skip"
   );
 
   const memberAvatars =
     useQuery(
       api.public.users.listOrgAvatars,
-      orgId ? { organizationId: orgId, limit: 3 } : "skip",
+      orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
+  // 🔎 Optionnel mais utile : on vérifie si la conv courante existe et si elle est resolved
+  const existingConversation = useQuery(
+    api.public.conversations.getOne,
+    orgId && contactSessionId && currentConvId
+      ? { conversationId: currentConvId, contactSessionId }
+      : "skip"
+  );
+
+  // 🔑 IMPORTANT : utiliser parentHref OU document.referrer avant window.location
   const currentUrl =
     typeof window !== "undefined"
       ? parentHref || document.referrer || window.location.href
@@ -76,12 +82,12 @@ export default function SmartPromo() {
       api.public.promos.listForPage,
       orgId && currentUrl
         ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip",
+        : "skip"
     ) ?? [];
 
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos],
+    [promos]
   );
 
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
@@ -89,31 +95,38 @@ export default function SmartPromo() {
     promoRef.current = promo;
   }, [promo]);
 
-  const pushQualifyGate = (intent: "chat" | "book") => {
-    setBookingIntent(intent);
-
-    // ✅ si consent déjà accepté : ne pas repasser sur consent
-    if (consentGiven) {
-      // UX : si booking, on enchaîne sur la qualif directement
-      setStep(intent === "book" ? "ask_name" : "idle");
-    } else {
-      setStep("consent");
-    }
-  };
-
-  const ensureAndStart = async (intent: "chat" | "book") => {
+  /**
+   * ✅ IMPORTANT :
+   * - Si une conversationId existe déjà ET elle est pas resolved => on la réutilise.
+   * - Sinon => on en crée une nouvelle.
+   */
+  const ensureAndStartChat = async (intent: "chat" | "book") => {
     if (!orgId) {
       setScreen("error");
       return;
     }
 
-    pushQualifyGate(intent);
+    setBookingIntent(intent);
+    setStep("consent");
 
+    // 1) session
     const sessionId: Id<"contactSessions"> =
       contactSessionId || (await ensureContactSession({ organizationId: orgId }));
-
     if (!contactSessionId) setContactSessionId(sessionId);
 
+    // 2) si conv existante OK => reuse
+    const convIsReusable =
+      !!currentConvId &&
+      existingConversation !== undefined &&
+      !!existingConversation &&
+      existingConversation.status !== "resolved";
+
+    if (convIsReusable) {
+      setScreen("chat");
+      return;
+    }
+
+    // 3) sinon create new
     const convId = await createConversation({
       contactSessionId: sessionId,
       organizationId: orgId,
@@ -125,19 +138,14 @@ export default function SmartPromo() {
   };
 
   const runCta = async (cta: Cta) => {
-    if (cta.kind === "open_chat") {
-      await ensureAndStart("chat");
-      return;
-    }
-    if (cta.kind === "open_booking") {
-      await ensureAndStart("book");
-      return;
-    }
+    if (cta.kind === "open_chat") return ensureAndStartChat("chat");
+    if (cta.kind === "open_booking") return ensureAndStartChat("book");
     if (cta.kind === "open_url" && cta.url) {
       window.open(cta.url, "_blank", "noopener,noreferrer");
     }
   };
 
+  // Host → Widget bridge
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
@@ -148,21 +156,19 @@ export default function SmartPromo() {
       }
 
       if (t === "nexus:open-chat") {
-        void ensureAndStart("chat");
+        void ensureAndStartChat("chat");
         return;
       }
 
       if (t === "nexus:run-primary-cta") {
         const p = promoRef.current;
-        if (p?.primaryCta) void runCta(p.primaryCta);
-        else void ensureAndStart("chat");
+        void (p?.primaryCta ? runCta(p.primaryCta) : ensureAndStartChat("chat"));
         return;
       }
 
       if (t === "nexus:run-secondary-cta") {
         const p = promoRef.current;
-        if (p?.secondaryCta) void runCta(p.secondaryCta);
-        else void ensureAndStart("book");
+        void (p?.secondaryCta ? runCta(p.secondaryCta) : ensureAndStartChat("book"));
         return;
       }
 
@@ -171,45 +177,37 @@ export default function SmartPromo() {
         const p = promoRef.current;
 
         if (!p) {
-          void ensureAndStart("chat");
+          void ensureAndStartChat("chat");
           return;
         }
 
         const list = (p as any).ctaList as Cta[] | undefined;
         const fromList = list && list[idx];
-
         if (fromList) {
           void runCta(fromList);
           return;
         }
 
-        if (idx === 0 && p.primaryCta) {
-          void runCta(p.primaryCta);
-          return;
-        }
-        if (idx === 1 && p.secondaryCta) {
-          void runCta(p.secondaryCta);
-          return;
-        }
+        if (idx === 0 && p.primaryCta) return void runCta(p.primaryCta);
+        if (idx === 1 && p.secondaryCta) return void runCta(p.secondaryCta);
 
-        void ensureAndStart("chat");
-        return;
+        void ensureAndStartChat("chat");
       }
     };
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, contactSessionId, consentGiven]);
+  }, [orgId, contactSessionId, currentConvId, existingConversation]);
 
+  // ----- Payload for host (avec thème + logo + multi-CTA)
   const makePayload = () => {
     if (!promo) return null;
 
     const avatars: string[] =
       (Array.isArray(memberAvatars) && memberAvatars.length
         ? memberAvatars
-        : (ws as any)?.teamAvatars?.slice?.(0, 3)) ||
-      ((ws as any)?.brandLogoUrl ? [] : []);
+        : (ws as any)?.teamAvatars?.slice?.(0, 3)) || [];
 
     const privacyUrl =
       (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined;
@@ -240,6 +238,7 @@ export default function SmartPromo() {
     };
   };
 
+  // ---- Envoi fiable au host : uniquement si promo prête
   useEffect(() => {
     if (!isEmbedded) return;
 
@@ -279,7 +278,9 @@ export default function SmartPromo() {
             {promo.card.badgeText}
           </div>
         )}
-        <div className="font-semibold">{promo?.card?.title ?? "Need a hand?"}</div>
+        <div className="font-semibold">
+          {promo?.card?.title ?? "Need a hand?"}
+        </div>
         <div className="mt-1 text-sm text-muted-foreground">
           {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
         </div>
