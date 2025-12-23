@@ -1,5 +1,6 @@
 "use client";
 import { atom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 
 export type QualifyStep =
   | "idle"
@@ -15,24 +16,33 @@ export type QualifyStep =
 export type QualifyData = {
   name?: string;
   email?: string;
-  phone?: string; // ✅ NEW
+  phone?: string;
   company?: string;
   role?: string;
   region?: "EMEA" | "NA" | "LATAM" | "APAC";
 };
 
-export const qualifyStepAtom = atom<QualifyStep>("idle");
-export const qualifyDataAtom = atom<QualifyData>({});
+export const qualifyStepAtom = atomWithStorage<QualifyStep>(
+  "nexus:qualifyStep",
+  "idle"
+);
 
-// ✅ inclut "chat"
+export const qualifyDataAtom = atomWithStorage<QualifyData>(
+  "nexus:qualifyData",
+  {}
+);
+
 export type BookingIntent = "none" | "chat" | "book";
-export const bookingIntentAtom = atom<BookingIntent>("none");
+export const bookingIntentAtom = atomWithStorage<BookingIntent>(
+  "nexus:bookingIntent",
+  "none"
+);
 
-export const consentGivenAtom = atom<boolean>(false);
+export const consentGivenAtom = atomWithStorage<boolean>(
+  "nexus:consentGiven",
+  false
+);
 
-/**
- * Représentant sélectionné (sales rep) – optionnel
- */
 export type AssignedRep = {
   userId: string;
   name?: string;
@@ -40,4 +50,7 @@ export type AssignedRep = {
   regions: string[];
 };
 
-export const assignedRepAtom = atom<AssignedRep | null>(null);
+export const assignedRepAtom = atomWithStorage<AssignedRep | null>(
+  "nexus:assignedRep",
+  null
+);

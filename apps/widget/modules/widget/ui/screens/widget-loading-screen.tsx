@@ -8,7 +8,7 @@
  * - Garantit une contactSession (mais ne crée PAS de conversation)
  * - Charge widgetSettings + secrets Vapi
  * - Redirige :
- *    - par défaut => écran "chat", étape "consent"
+ *    - par défaut => écran "chat", étape "consent" (si pas encore consenti)
  *    - ?nochat=1 => écran "selection" (debug)
  *
  * Changement clé :
@@ -37,7 +37,7 @@ import {
   vapiSecretsAtom,
   widgetSettingsAtom,
 } from "../../atoms/widget-atoms";
-import { qualifyStepAtom } from "../../atoms/qualify-atoms";
+import { consentGivenAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
 import { WidgetHeader } from "../components/widget-header";
 import { useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -97,6 +97,9 @@ export const WidgetLoadingScreen = ({
   const setVapiSecrets = useSetAtom(vapiSecretsAtom);
   const setQualifyStep = useSetAtom(qualifyStepAtom);
 
+  // ✅ important : lire le consent (persistant côté jotai storage si tu l’as fait)
+  const consentGiven = useAtomValue(consentGivenAtom);
+
   const contactSessionId = useAtomValue(
     contactSessionIdAtomFamily(organizationId || "")
   );
@@ -143,9 +146,7 @@ export const WidgetLoadingScreen = ({
   ]);
 
   /* 2) S’assurer d’avoir une session (mais pas de conversation) */
-  const validateContactSession = useMutation(
-    api.public.contactSessions.validate
-  );
+  const validateContactSession = useMutation(api.public.contactSessions.validate);
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
 
   useEffect(() => {
@@ -160,11 +161,7 @@ export const WidgetLoadingScreen = ({
     }
 
     const notifyIfNeeded = (sessionId: string) => {
-      // informer l’embed côté parent que la session est prête
-      notifyParentSessionReady({
-        organizationId,
-        sessionId,
-      });
+      notifyParentSessionReady({ organizationId, sessionId });
     };
 
     const ensure = async () => {
@@ -222,18 +219,14 @@ export const WidgetLoadingScreen = ({
         const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
 
         window.parent?.postMessage(
-          {
-            type: "nexus:theme",
-            payload: { theme, brandLogoUrl },
-          },
+          { type: "nexus:theme", payload: { theme, brandLogoUrl } },
           "*"
         );
       } catch {}
 
       setStep("vapi");
     }
-
-  }, [step, widgetSettings, setWidgetSettings, setLoadingMessage]);
+  }, [widgetSettings, setWidgetSettings]);
 
   /* 4) Charger les secrets Vapi (si présents) */
   const getVapiSecrets = useAction(api.public.secrets.getVapiSecrets);
@@ -275,10 +268,10 @@ export const WidgetLoadingScreen = ({
       return;
     }
 
-    // On force l’étape consent par défaut ; la conversation sera créée ensuite si intent = chat.
-    setQualifyStep("consent");
+    // ✅ si déjà consenti → idle, sinon → consent
+    setQualifyStep(consentGiven ? "idle" : "consent");
     setScreen("chat");
-  }, [step, setQualifyStep, setScreen]);
+  }, [step, setQualifyStep, setScreen, consentGiven]);
 
   return (
     <>
