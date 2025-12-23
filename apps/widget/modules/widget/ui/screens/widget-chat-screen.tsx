@@ -904,9 +904,7 @@ export const WidgetChatScreen = () => {
             )}
 
             {/* consent card */}
-            {step === "consent" &&
-              consentCfg &&
-              consentCfg.enabled !== false && (
+            {step === "consent" && mustAcceptConsent && consentCfg && consentCfg.enabled !== false && (
                 <div className="p-3">
                   <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
                     {(consentCfg.title || consentCfg.intro) && (

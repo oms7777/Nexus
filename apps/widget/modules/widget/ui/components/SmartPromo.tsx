@@ -10,7 +10,11 @@ import {
   conversationIdAtom,
   contactSessionIdAtomFamily,
 } from "../../atoms/widget-atoms";
-import { bookingIntentAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
+import {
+  bookingIntentAtom,
+  qualifyStepAtom,
+  consentGivenAtom, // ✅ NEW
+} from "../../atoms/qualify-atoms";
 import type { Doc, Id } from "@workspace/backend/_generated/dataModel";
 
 type Cta = Doc<"promos">["primaryCta"];
@@ -33,6 +37,7 @@ export default function SmartPromo() {
   const setConversationId = useSetAtom(conversationIdAtom);
 
   const currentConvId = useAtomValue(conversationIdAtom);
+  const consentGiven = useAtomValue(consentGivenAtom); // ✅ NEW
 
   const contactSessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
   const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(orgId || ""));
@@ -58,7 +63,7 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
-  // 🔎 Optionnel mais utile : on vérifie si la conv courante existe et si elle est resolved
+  // 🔎 Vérifie la conv courante (pour reuse + éviter consent qui revient)
   const existingConversation = useQuery(
     api.public.conversations.getOne,
     orgId && contactSessionId && currentConvId
@@ -97,8 +102,9 @@ export default function SmartPromo() {
 
   /**
    * ✅ IMPORTANT :
-   * - Si une conversationId existe déjà ET elle est pas resolved => on la réutilise.
-   * - Sinon => on en crée une nouvelle.
+   * - Si conv existante et pas resolved => REUSE (et surtout: ne pas forcer consent/step)
+   * - Sinon => crée une nouvelle conv
+   * - Consent/step ne se déclenche que si nécessaire
    */
   const ensureAndStartChat = async (intent: "chat" | "book") => {
     if (!orgId) {
@@ -106,15 +112,12 @@ export default function SmartPromo() {
       return;
     }
 
-    setBookingIntent(intent);
-    setStep("consent");
-
     // 1) session
     const sessionId: Id<"contactSessions"> =
       contactSessionId || (await ensureContactSession({ organizationId: orgId }));
     if (!contactSessionId) setContactSessionId(sessionId);
 
-    // 2) si conv existante OK => reuse
+    // 2) si conv existante OK => reuse (NE PAS toucher bookingIntent/step)
     const convIsReusable =
       !!currentConvId &&
       existingConversation !== undefined &&
@@ -126,7 +129,16 @@ export default function SmartPromo() {
       return;
     }
 
-    // 3) sinon create new
+    // 3) nouvelle conv => on définit le flow
+    setBookingIntent(intent);
+
+    // ✅ ne force consent QUE si pas donné
+    if (!consentGiven) {
+      setStep("consent");
+    } else {
+      setStep(intent === "book" ? "ask_name" : "idle");
+    }
+
     const convId = await createConversation({
       contactSessionId: sessionId,
       organizationId: orgId,
@@ -168,7 +180,9 @@ export default function SmartPromo() {
 
       if (t === "nexus:run-secondary-cta") {
         const p = promoRef.current;
-        void (p?.secondaryCta ? runCta(p.secondaryCta) : ensureAndStartChat("book"));
+        void (p?.secondaryCta
+          ? runCta(p.secondaryCta)
+          : ensureAndStartChat("book"));
         return;
       }
 
@@ -198,7 +212,7 @@ export default function SmartPromo() {
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, contactSessionId, currentConvId, existingConversation]);
+  }, [orgId, contactSessionId, currentConvId, existingConversation, consentGiven]);
 
   // ----- Payload for host (avec thème + logo + multi-CTA)
   const makePayload = () => {
