@@ -1,7 +1,6 @@
 "use client";
-
 import { atom } from "jotai";
-import { atomFamily, atomWithStorage } from "jotai/utils";
+import { atomWithStorage } from "jotai/utils";
 
 export type QualifyStep =
   | "idle"
@@ -23,7 +22,26 @@ export type QualifyData = {
   region?: "EMEA" | "NA" | "LATAM" | "APAC";
 };
 
+export const qualifyStepAtom = atomWithStorage<QualifyStep>(
+  "nexus:qualifyStep",
+  "idle"
+);
+
+export const qualifyDataAtom = atomWithStorage<QualifyData>(
+  "nexus:qualifyData",
+  {}
+);
+
 export type BookingIntent = "none" | "chat" | "book";
+export const bookingIntentAtom = atomWithStorage<BookingIntent>(
+  "nexus:bookingIntent",
+  "none"
+);
+
+export const consentGivenAtom = atomWithStorage<boolean>(
+  "nexus:consentGiven",
+  false
+);
 
 export type AssignedRep = {
   userId: string;
@@ -32,28 +50,7 @@ export type AssignedRep = {
   regions: string[];
 };
 
-const key = (orgId: string, k: string) => `nexus:${orgId}:${k}`;
-
-// ⚠️ orgId = "" => fallback safe (évite crash), mais idéalement passe toujours orgId réel.
-export const qualifyStepAtomFamily = atomFamily((orgId: string) =>
-  atomWithStorage<QualifyStep>(key(orgId || "unknown", "qualifyStep"), "idle")
+export const assignedRepAtom = atomWithStorage<AssignedRep | null>(
+  "nexus:assignedRep",
+  null
 );
-
-export const qualifyDataAtomFamily = atomFamily((orgId: string) =>
-  atomWithStorage<QualifyData>(key(orgId || "unknown", "qualifyData"), {})
-);
-
-export const bookingIntentAtomFamily = atomFamily((orgId: string) =>
-  atomWithStorage<BookingIntent>(key(orgId || "unknown", "bookingIntent"), "none")
-);
-
-export const consentGivenAtomFamily = atomFamily((orgId: string) =>
-  atomWithStorage<boolean>(key(orgId || "unknown", "consentGiven"), false)
-);
-
-export const assignedRepAtomFamily = atomFamily((orgId: string) =>
-  atomWithStorage<AssignedRep | null>(key(orgId || "unknown", "assignedRep"), null)
-);
-
-// Optionnel : atoms "global" non persistés si tu en as besoin
-export const qualifyDebugAtom = atom(false);

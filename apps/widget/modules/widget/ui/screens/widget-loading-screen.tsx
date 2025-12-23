@@ -12,7 +12,7 @@
  *    - ?nochat=1 => écran "selection" (debug)
  *
  * Changement clé :
- * - On ne ré-impose PLUS "consent" si le consent a déjà été donné (persisté).
+ * - On ne ré-impose PLUS "consent" si le consent a déjà été donné.
  *
  * - NOUVEAU :
  *   Quand la contactSession est prête, on envoie un postMessage au parent
@@ -35,12 +35,9 @@ import {
   vapiSecretsAtom,
   widgetSettingsAtom,
 } from "../../atoms/widget-atoms";
-import {
-  consentGivenAtomFamily,
-  qualifyStepAtomFamily,
-} from "../../atoms/qualify-atoms";
+import { consentGivenAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
 import { WidgetHeader } from "../components/widget-header";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
@@ -87,10 +84,7 @@ export const WidgetLoadingScreen = ({
   const [step, setStep] = useState<InitStep>("org");
 
   const loadingMessage = useAtomValue(loadingMessageAtom);
-
-  // ✅ IMPORTANT : on scope les atoms persistés par org
-  const orgKey = useMemo(() => organizationId || "unknown", [organizationId]);
-  const consentGiven = useAtomValue(consentGivenAtomFamily(orgKey));
+  const consentGiven = useAtomValue(consentGivenAtom);
 
   const setWidgetSettings = useSetAtom(widgetSettingsAtom);
   const setOrganizationId = useSetAtom(organizationIdAtom);
@@ -98,7 +92,7 @@ export const WidgetLoadingScreen = ({
   const setLoadingMessage = useSetAtom(loadingMessageAtom);
   const setScreen = useSetAtom(screenAtom);
   const setVapiSecrets = useSetAtom(vapiSecretsAtom);
-  const setQualifyStep = useSetAtom(qualifyStepAtomFamily(orgKey));
+  const setQualifyStep = useSetAtom(qualifyStepAtom);
 
   const contactSessionId = useAtomValue(
     contactSessionIdAtomFamily(organizationId || "")
@@ -213,22 +207,22 @@ export const WidgetLoadingScreen = ({
   );
 
   useEffect(() => {
-    if (widgetSettings === undefined) return;
+    if (widgetSettings !== undefined) {
+      setWidgetSettings(widgetSettings);
 
-    setWidgetSettings(widgetSettings);
+      // 🔥 envoyer le thème AU PARENT immédiatement
+      try {
+        const theme = (widgetSettings as any)?.theme;
+        const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
 
-    // 🔥 envoyer le thème AU PARENT immédiatement
-    try {
-      const theme = (widgetSettings as any)?.theme;
-      const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
+        window.parent?.postMessage(
+          { type: "nexus:theme", payload: { theme, brandLogoUrl } },
+          "*"
+        );
+      } catch {}
 
-      window.parent?.postMessage(
-        { type: "nexus:theme", payload: { theme, brandLogoUrl } },
-        "*"
-      );
-    } catch {}
-
-    setStep("vapi");
+      setStep("vapi");
+    }
   }, [widgetSettings, setWidgetSettings]);
 
   /* 4) Charger les secrets Vapi (si présents) */
