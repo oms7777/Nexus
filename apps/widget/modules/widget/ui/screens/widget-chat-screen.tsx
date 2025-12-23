@@ -802,20 +802,27 @@ export const WidgetChatScreen = () => {
 
       <AIConversation>
         <AIConversationContent>
-          {uiMsgs.map((m, i) => (
-            <AIMessage key={i} from={m.role === "user" ? "user" : "assistant"}>
-              <AIMessageContent>
-                <AIResponse>{m.text}</AIResponse>
-              </AIMessageContent>
-              {m.role === "assistant" && (
-                <DicebearAvatar
-                  imageUrl={brandLogoUrl}
-                  seed="assistant"
-                  size={32}
-                />
-              )}
-            </AIMessage>
-          ))}
+          {uiMsgs.map((m, i) => {
+            const isUser = m.role === "user";
+
+            return (
+              <AIMessage key={i} from={isUser ? "user" : "assistant"}>
+                <AIMessageContent
+                  style={
+                    isUser
+                      ? { backgroundColor: themePrimary, color: themePrimaryText, borderColor: "transparent" }
+                      : undefined
+                  }
+                >
+                  <AIResponse>{m.text}</AIResponse>
+                </AIMessageContent>
+
+                {m.role === "assistant" && (
+                  <DicebearAvatar imageUrl={brandLogoUrl} seed="assistant" size={32} />
+                )}
+              </AIMessage>
+            );
+          })}
 
           {/* welcome card */}
           {!conversationId && step === "idle" && (
@@ -1249,7 +1256,7 @@ export const WidgetChatScreen = () => {
           <AIInputToolbar>
             <AIInputTools />
             <AIInputSubmit
-              className="hover:opacity-90"
+              className="hover:opacity-90 [&_svg]:text-[var(--nexus-send-fg)]"
               style={{
                 backgroundColor: "var(--nexus-send-bg)",
                 color: "var(--nexus-send-fg)",
@@ -1268,6 +1275,6 @@ export const WidgetChatScreen = () => {
           </AIInputToolbar>
         </AIInput>
       </Form>
-    </>
+    </div>
   );
 };
