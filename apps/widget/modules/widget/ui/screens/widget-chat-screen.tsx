@@ -392,8 +392,11 @@ export const WidgetChatScreen = () => {
   const [step, setStep] = useAtom(qualifyStepAtom);
   const [qdata, setQdata] = useAtom(qualifyDataAtom);
   const [bookingIntent, setBookingIntent] = useAtom(bookingIntentAtom);
-  const [, setConsentGiven] = useAtom(consentGivenAtom);
+  const [consentGiven, setConsentGiven] = useAtom(consentGivenAtom);
   const [, setAssignedRep] = useAtom(assignedRepAtom);
+
+  const consentRequired = consentCfg?.enabled !== false;
+  const mustAcceptConsent = consentRequired && !consentGiven;
 
   // Reps via routing
   const routingReps = useQuery(
@@ -487,6 +490,8 @@ export const WidgetChatScreen = () => {
   const createMessage = useAction(api.public.messages.create);
 
   /* -------- consent disabled => act immediately -------- */
+
+
   useEffect(() => {
     const consentEnabled = consentCfg?.enabled !== false;
     if (consentEnabled) return;
@@ -649,8 +654,16 @@ export const WidgetChatScreen = () => {
   /* -------- Send message (thread bootstrap + retry) -------- */
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     const text = values.message.trim();
-    form.reset();
+    
     if (!text) return;
+
+    if (mustAcceptConsent) {
+      setStep("consent");
+      setBookingIntent("chat");
+      return;
+    }
+
+    form.reset();
 
     if (!firstMessageSentRef.current && organizationId) {
       firstMessageSentRef.current = true;
@@ -767,7 +780,7 @@ export const WidgetChatScreen = () => {
           ["--nexus-send-fg" as any]: chatBubbleTextColor,
         } as React.CSSProperties
       }
-      className="h-full w-full"
+      className="h-full w-full flex flex-col bg-white"
     >
       <WidgetHeader className="flex items-center justify-between">
         <p className="font-medium">Chat</p>
@@ -799,379 +812,380 @@ export const WidgetChatScreen = () => {
           </Button>
         </div>
       </WidgetHeader>
+      <div className="flex-1 min-h-0"> 
+        <AIConversation className="h-full flex flex-col">
+          <AIConversationContent className="flex-1 min-h-0 overflow-y-auto">
+            {uiMsgs.map((m, i) => {
+              const isUser = m.role === "user";
 
-      <AIConversation>
-        <AIConversationContent>
-          {uiMsgs.map((m, i) => {
-            const isUser = m.role === "user";
-
-            return (
-              <AIMessage key={i} from={isUser ? "user" : "assistant"}>
-                <AIMessageContent
-                  style={
-                    isUser
-                      ? { backgroundColor: themePrimary, color: themePrimaryText, borderColor: "transparent" }
-                      : undefined
-                  }
-                >
-                  <AIResponse>{m.text}</AIResponse>
-                </AIMessageContent>
-
-                {m.role === "assistant" && (
-                  <DicebearAvatar imageUrl={brandLogoUrl} seed="assistant" size={32} />
-                )}
-              </AIMessage>
-            );
-          })}
-
-          {/* welcome card */}
-          {!conversationId && step === "idle" && (
-            <div className="p-3">
-              <div className="rounded-lg border bg-background p-3">
-                <div className="font-semibold text-lg mb-2">
-                  Discover the right solution for your business project.
-                </div>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Our team is available to chat or schedule a quick call to
-                  guide you through your needs.
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    className="flex-1"
-                    onClick={async () => {
-                      setBookingIntent("chat");
-                      if (consentCfg?.enabled === false) {
-                        try {
-                          if (
-                            !conversation &&
-                            organizationId &&
-                            contactSessionId
-                          ) {
-                            const cid2 = await createConversation({
-                              organizationId,
-                              contactSessionId,
-                            });
-                            setConversationId(cid2);
-                          }
-                        } catch {}
-                        setStep("idle");
-                        setBookingIntent("none");
-                      } else {
-                        setStep("consent");
-                      }
-                    }}
+              return (
+                <AIMessage key={i} from={isUser ? "user" : "assistant"}>
+                  <AIMessageContent
+                    style={
+                      isUser
+                        ? { backgroundColor: themePrimary, color: themePrimaryText, borderColor: "transparent" }
+                        : undefined
+                    }
                   >
-                    💬 Chat with AI Assistant
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => {
-                      setBookingIntent("book");
-                      if (consentCfg?.enabled === false) {
-                        setStep("ask_name");
-                        setLocalMsgs((m) => [
-                          ...m,
-                          {
-                            role: "assistant",
-                            text:
-                              "Great! To book a demo, fill in these quick details.",
-                          },
-                        ]);
-                      } else {
-                        setStep("consent");
-                      }
-                    }}
-                  >
-                    📅 Book a meeting
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
+                    <AIResponse>{m.text}</AIResponse>
+                  </AIMessageContent>
 
-          {/* consent card */}
-          {step === "consent" &&
-            consentCfg &&
-            consentCfg.enabled !== false && (
-              <div className="p-3">
-                <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
-                  {(consentCfg.title || consentCfg.intro) && (
-                    <div className="mb-2">
-                      {consentCfg.title && (
-                        <div className="font-medium">{consentCfg.title}</div>
-                      )}
-                      {consentCfg.intro && (
-                        <div className="text-muted-foreground">
-                          {consentCfg.intro}
-                        </div>
-                      )}
-                    </div>
+                  {m.role === "assistant" && (
+                    <DicebearAvatar imageUrl={brandLogoUrl} seed="assistant" size={32} />
                   )}
+                </AIMessage>
+              );
+            })}
 
-                  <p className="text-xs text-muted-foreground">
-                    {consentCfg.body ||
-                      "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
-                    {(() => {
-                      const linkMode = consentCfg.linkMode ?? "link";
-                      const consentUrl = consentCfg.privacyUrl;
-                      const consentModalText = consentCfg.modalContent;
-                      if (linkMode === "link" && consentUrl) {
-                        return (
-                          <>
-                            I hereby consent to processing of my personal data
-                            collected in the chat in accordance with the rules
-                            described{" "}
-                            <a
-                              href={consentUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="underline"
-                            >
-                              here
-                            </a>
-                            .
-                          </>
-                        );
-                      }
-                      return (
-                        <ConsentInlineModal
-                          triggerLabel="here"
-                          title={consentCfg.title ?? "Consent"}
-                          fullText={
-                            (consentModalText?.trim() ||
-                              consentCfg.body?.trim() ||
-                              "Details about how your data may be processed.") +
-                            "\n\nYou can withdraw your consent at any time."
-                          }
-                        />
-                      );
-                    })()}
+            {/* welcome card */}
+            {!conversationId && step === "idle" && (
+              <div className="p-3">
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="font-semibold text-lg mb-2">
+                    Discover the right solution for your business project.
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Our team is available to chat or schedule a quick call to
+                    guide you through your needs.
                   </p>
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={async () => {
-                      setConsentGiven(true);
-
-                      if (bookingIntent === "book") {
-                        setStep("ask_name");
-                        setLocalMsgs((m) => [
-                          ...m,
-                          {
-                            role: "assistant",
-                            text:
-                              "Great! To book a demo, fill in these quick details.",
-                          },
-                        ]);
-                      } else {
-                        try {
-                          if (
-                            !conversation &&
-                            organizationId &&
-                            contactSessionId
-                          ) {
-                            const cid2 = await createConversation({
-                              organizationId,
-                              contactSessionId,
-                            });
-                            setConversationId(cid2);
-                          }
-                        } catch {}
-                        setStep("idle");
-                      }
-
-                      const intent = bookingIntent;
-                      setBookingIntent("none");
-
-                      if (organizationId) {
-                        const linkMode = consentCfg.linkMode ?? "link";
-                        const consentUrl = consentCfg.privacyUrl;
-                        logEvent({
-                          organizationId,
-                          type: "consent_given",
-                          sessionId: contactSessionId || undefined,
-                          meta: {
-                            version: consentCfg.version,
-                            privacyUrl: consentUrl,
-                            linkMode,
-                            intent,
-                          },
-                        }).catch(() => {});
-                      }
-                    }}
-                  >
-                    {consentCfg.acceptLabel?.trim() || "✓ I consent"}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      className="flex-1"
+                      onClick={async () => {
+                        setBookingIntent("chat");
+                        if (consentCfg?.enabled === false) {
+                          try {
+                            if (
+                              !conversation &&
+                              organizationId &&
+                              contactSessionId
+                            ) {
+                              const cid2 = await createConversation({
+                                organizationId,
+                                contactSessionId,
+                              });
+                              setConversationId(cid2);
+                            }
+                          } catch {}
+                          setStep("idle");
+                          setBookingIntent("none");
+                        } else {
+                          setStep("consent");
+                        }
+                      }}
+                    >
+                      💬 Chat with AI Assistant
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        setBookingIntent("book");
+                        if (consentCfg?.enabled === false) {
+                          setStep("ask_name");
+                          setLocalMsgs((m) => [
+                            ...m,
+                            {
+                              role: "assistant",
+                              text:
+                                "Great! To book a demo, fill in these quick details.",
+                            },
+                          ]);
+                        } else {
+                          setStep("consent");
+                        }
+                      }}
+                    >
+                      📅 Book a meeting
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
 
-          {/* Qualif form */}
-          {step === "ask_name" && bookingIntent !== "chat" && (
-            <QualifyCard
-              initial={{
-                name: qdata.name,
-                email: qdata.email,
-                phone: (qdata as any).phone,
-                company: qdata.company,
-                role: qdata.role,
-              }}
-              onSubmit={(lead) => {
-                if (organizationId) {
-                  logEvent({
-                    organizationId,
-                    type: "lead_qualified",
-                    sessionId: contactSessionId || undefined,
-                    meta: lead,
-                  }).catch(() => {});
-                }
-                startPickingAfterQualify(lead);
-                setBookingIntent("none");
-              }}
-            />
-          )}
+            {/* consent card */}
+            {step === "consent" &&
+              consentCfg &&
+              consentCfg.enabled !== false && (
+                <div className="p-3">
+                  <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
+                    {(consentCfg.title || consentCfg.intro) && (
+                      <div className="mb-2">
+                        {consentCfg.title && (
+                          <div className="font-medium">{consentCfg.title}</div>
+                        )}
+                        {consentCfg.intro && (
+                          <div className="text-muted-foreground">
+                            {consentCfg.intro}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-          {/* Choix du rep (multi-sales) */}
-          {step === "pick_rep" && repChoices.length > 0 && (
-            <RepPicker
-              reps={repChoices}
-              onPick={async (rep) => {
-                await loadSlotsForRep(rep);
-              }}
-            />
-          )}
+                    <p className="text-xs text-muted-foreground">
+                      {consentCfg.body ||
+                        "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
+                      {(() => {
+                        const linkMode = consentCfg.linkMode ?? "link";
+                        const consentUrl = consentCfg.privacyUrl;
+                        const consentModalText = consentCfg.modalContent;
+                        if (linkMode === "link" && consentUrl) {
+                          return (
+                            <>
+                              I hereby consent to processing of my personal data
+                              collected in the chat in accordance with the rules
+                              described{" "}
+                              <a
+                                href={consentUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline"
+                              >
+                                here
+                              </a>
+                              .
+                            </>
+                          );
+                        }
+                        return (
+                          <ConsentInlineModal
+                            triggerLabel="here"
+                            title={consentCfg.title ?? "Consent"}
+                            fullText={
+                              (consentModalText?.trim() ||
+                                consentCfg.body?.trim() ||
+                                "Details about how your data may be processed.") +
+                              "\n\nYou can withdraw your consent at any time."
+                            }
+                          />
+                        );
+                      })()}
+                    </p>
+                  </div>
 
-          {/* NEW picking flow : Sidebar rep + Calendar à droite */}
-          {step === "picking" && (
-            <div className="p-0 m-0 w-full">
-              <BookingSplitLayout
-                rep={selectedRep}
-                slots={slots}
-                loading={loadingSlots}
-                onPick={async (s) => {
-                  if (
-                    !organizationId ||
-                    !contactSessionId ||
-                    !qdata.name ||
-                    !qdata.email
-                  )
-                    return;
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        setConsentGiven(true);
 
-                  const res = await bookSlot({
-                    organizationId,
-                    userId: selectedRep?.userId,
-                    contactSessionId,
-                    attendeeName: qdata.name,
-                    attendeeEmail: qdata.email,
-                    attendeePhone: (qdata as any).phone,
-                    attendeeCompany: qdata.company,
-                    attendeeRole: qdata.role,
-                    start: s.start,
-                    end: s.end,
-                  });
+                        if (bookingIntent === "book") {
+                          setStep("ask_name");
+                          setLocalMsgs((m) => [
+                            ...m,
+                            {
+                              role: "assistant",
+                              text:
+                                "Great! To book a demo, fill in these quick details.",
+                            },
+                          ]);
+                        } else {
+                          try {
+                            if (
+                              !conversation &&
+                              organizationId &&
+                              contactSessionId
+                            ) {
+                              const cid2 = await createConversation({
+                                organizationId,
+                                contactSessionId,
+                              });
+                              setConversationId(cid2);
+                            }
+                          } catch {}
+                          setStep("idle");
+                        }
 
-                  logEvent({
-                    organizationId,
-                    type: "meeting_booked",
-                    sessionId: contactSessionId,
-                    meta: {
-                      start: s.start,
-                      end: s.end,
-                      bookingId: res?.bookingId,
-                      meetingUrl: res?.meetingUrl,
-                      lead: qdata,
-                      repUserId: selectedRep?.userId,
-                      repName: selectedRep?.name,
-                    },
-                  }).catch(() => {});
+                        const intent = bookingIntent;
+                        setBookingIntent("none");
 
-                  const repDisplayName =
-                    selectedRep?.name || selectedRep?.title || "our team";
+                        if (organizationId) {
+                          const linkMode = consentCfg.linkMode ?? "link";
+                          const consentUrl = consentCfg.privacyUrl;
+                          logEvent({
+                            organizationId,
+                            type: "consent_given",
+                            sessionId: contactSessionId || undefined,
+                            meta: {
+                              version: consentCfg.version,
+                              privacyUrl: consentUrl,
+                              linkMode,
+                              intent,
+                            },
+                          }).catch(() => {});
+                        }
+                      }}
+                    >
+                      {consentCfg.acceptLabel?.trim() || "✓ I consent"}
+                    </Button>
+                  </div>
+                </div>
+              )}
 
-                  const subtitle = [
-                    selectedRep?.title,
-                    selectedRep?.regions?.join(", "),
-                  ]
-                    .filter(Boolean)
-                    .join(" • ");
-
-                  const msgLines: string[] = [
-                    `✅ You’re booked with ${repDisplayName}`,
-                  ];
-                  if (subtitle) msgLines.push(subtitle);
-                  msgLines.push("");
-                  if (res?.meetingUrl) {
-                    msgLines.push(`Join with this link: ${res.meetingUrl}`);
-                  } else {
-                    msgLines.push("Check your inbox for the invite.");
-                  }
-
-                  const msgText = msgLines.join("\n");
-
-                  setLocalMsgs((m) => [
-                    ...m,
-                    {
-                      role: "assistant",
-                      text: msgText,
-                    },
-                  ]);
-                  setSlots(null);
-                  setStep("done");
+            {/* Qualif form */}
+            {step === "ask_name" && bookingIntent !== "chat" && (
+              <QualifyCard
+                initial={{
+                  name: qdata.name,
+                  email: qdata.email,
+                  phone: (qdata as any).phone,
+                  company: qdata.company,
+                  role: qdata.role,
                 }}
-                onBack={() => {
-                  setStep("pick_rep");
+                onSubmit={(lead) => {
+                  if (organizationId) {
+                    logEvent({
+                      organizationId,
+                      type: "lead_qualified",
+                      sessionId: contactSessionId || undefined,
+                      meta: lead,
+                    }).catch(() => {});
+                  }
+                  startPickingAfterQualify(lead);
+                  setBookingIntent("none");
                 }}
               />
-            </div>
-          )}
+            )}
 
-          {/* Card de confirmation avec avatar du rep */}
-          {step === "done" && selectedRep && (
-            <div className="p-3">
-              <div className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2">
-                <div className="h-10 w-10 rounded-full overflow-hidden bg-muted flex items-center justify-center">
-                  {selectedRep.avatarUrl ? (
-                    <img
-                      src={selectedRep.avatarUrl}
-                      alt={selectedRep.name ?? selectedRep.userId}
-                      className="h-10 w-10 rounded-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-sm font-medium">
-                      {(
-                        selectedRep.name ||
-                        selectedRep.title ||
-                        "S"
-                      )[0]?.toUpperCase()}
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium">
-                    {selectedRep.name || "our team"}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {[
-                      selectedRep.title &&
-                      selectedRep.title !== (selectedRep.name || "our team")
-                        ? selectedRep.title
-                        : null,
-                      selectedRep.regions?.length
-                        ? selectedRep.regions.join(", ")
-                        : null,
+            {/* Choix du rep (multi-sales) */}
+            {step === "pick_rep" && repChoices.length > 0 && (
+              <RepPicker
+                reps={repChoices}
+                onPick={async (rep) => {
+                  await loadSlotsForRep(rep);
+                }}
+              />
+            )}
+
+            {/* NEW picking flow : Sidebar rep + Calendar à droite */}
+            {step === "picking" && (
+              <div className="p-0 m-0 w-full">
+                <BookingSplitLayout
+                  rep={selectedRep}
+                  slots={slots}
+                  loading={loadingSlots}
+                  onPick={async (s) => {
+                    if (
+                      !organizationId ||
+                      !contactSessionId ||
+                      !qdata.name ||
+                      !qdata.email
+                    )
+                      return;
+
+                    const res = await bookSlot({
+                      organizationId,
+                      userId: selectedRep?.userId,
+                      contactSessionId,
+                      attendeeName: qdata.name,
+                      attendeeEmail: qdata.email,
+                      attendeePhone: (qdata as any).phone,
+                      attendeeCompany: qdata.company,
+                      attendeeRole: qdata.role,
+                      start: s.start,
+                      end: s.end,
+                    });
+
+                    logEvent({
+                      organizationId,
+                      type: "meeting_booked",
+                      sessionId: contactSessionId,
+                      meta: {
+                        start: s.start,
+                        end: s.end,
+                        bookingId: res?.bookingId,
+                        meetingUrl: res?.meetingUrl,
+                        lead: qdata,
+                        repUserId: selectedRep?.userId,
+                        repName: selectedRep?.name,
+                      },
+                    }).catch(() => {});
+
+                    const repDisplayName =
+                      selectedRep?.name || selectedRep?.title || "our team";
+
+                    const subtitle = [
+                      selectedRep?.title,
+                      selectedRep?.regions?.join(", "),
                     ]
                       .filter(Boolean)
-                      .join(" • ") || "Sales team"}
-                  </span>
+                      .join(" • ");
+
+                    const msgLines: string[] = [
+                      `✅ You’re booked with ${repDisplayName}`,
+                    ];
+                    if (subtitle) msgLines.push(subtitle);
+                    msgLines.push("");
+                    if (res?.meetingUrl) {
+                      msgLines.push(`Join with this link: ${res.meetingUrl}`);
+                    } else {
+                      msgLines.push("Check your inbox for the invite.");
+                    }
+
+                    const msgText = msgLines.join("\n");
+
+                    setLocalMsgs((m) => [
+                      ...m,
+                      {
+                        role: "assistant",
+                        text: msgText,
+                      },
+                    ]);
+                    setSlots(null);
+                    setStep("done");
+                  }}
+                  onBack={() => {
+                    setStep("pick_rep");
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Card de confirmation avec avatar du rep */}
+            {step === "done" && selectedRep && (
+              <div className="p-3">
+                <div className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2">
+                  <div className="h-10 w-10 rounded-full overflow-hidden bg-muted flex items-center justify-center">
+                    {selectedRep.avatarUrl ? (
+                      <img
+                        src={selectedRep.avatarUrl}
+                        alt={selectedRep.name ?? selectedRep.userId}
+                        className="h-10 w-10 rounded-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-sm font-medium">
+                        {(
+                          selectedRep.name ||
+                          selectedRep.title ||
+                          "S"
+                        )[0]?.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">
+                      {selectedRep.name || "our team"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {[
+                        selectedRep.title &&
+                        selectedRep.title !== (selectedRep.name || "our team")
+                          ? selectedRep.title
+                          : null,
+                        selectedRep.regions?.length
+                          ? selectedRep.regions.join(", ")
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" • ") || "Sales team"}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </AIConversationContent>
-      </AIConversation>
+            )}
+          </AIConversationContent>
+        </AIConversation>
+      </div>
 
       {/* suggestions */}
       {uiMsgs.length <= 1 && step === "idle" && (
@@ -1226,6 +1240,7 @@ export const WidgetChatScreen = () => {
             render={({ field }) => (
               <AIInputTextarea
                 disabled={
+                  mustAcceptConsent ||
                   conversation?.status === "resolved" ||
                   step === "ask_name" ||
                   step === "pick_rep" ||
@@ -1247,6 +1262,8 @@ export const WidgetChatScreen = () => {
                     ? "Choose who you want to meet…"
                     : step === "picking"
                     ? "Pick a time above…"
+                    : mustAcceptConsent
+                    ? "Please accept consent to start the chat…"
                     : "Type your message..."
                 }
                 value={field.value}
@@ -1262,6 +1279,7 @@ export const WidgetChatScreen = () => {
                 color: "var(--nexus-send-fg)",
               }}
               disabled={
+                mustAcceptConsent ||
                 conversation?.status === "resolved" ||
                 !form.formState.isValid ||
                 step === "ask_name" ||
