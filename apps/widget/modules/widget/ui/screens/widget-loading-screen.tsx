@@ -11,8 +11,12 @@
  *    - par défaut => écran "chat"
  *    - ?nochat=1 => écran "selection" (debug)
  *
- * Changement clé :
+ * ✅ Changement clé :
  * - On ne ré-impose PLUS "consent" si le consent a déjà été donné.
+ *
+ * ✅ NEW (IMPORTANT) :
+ * - Si on (re)crée une nouvelle contactSession => on reset aussi conversationId
+ *   pour éviter les mismatches (conversation liée à une ancienne session)
  *
  * - NOUVEAU :
  *   Quand la contactSession est prête, on envoie un postMessage au parent
@@ -28,6 +32,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { LoaderIcon } from "lucide-react";
 import {
   contactSessionIdAtomFamily,
+  conversationIdAtom, // ✅ NEW
   errorMessageAtom,
   loadingMessageAtom,
   organizationIdAtom,
@@ -93,6 +98,9 @@ export const WidgetLoadingScreen = ({
   const setScreen = useSetAtom(screenAtom);
   const setVapiSecrets = useSetAtom(vapiSecretsAtom);
   const setQualifyStep = useSetAtom(qualifyStepAtom);
+
+  // ✅ NEW: reset conversation quand session regen
+  const setConversationId = useSetAtom(conversationIdAtom);
 
   const contactSessionId = useAtomValue(
     contactSessionIdAtomFamily(organizationId || "")
@@ -164,6 +172,10 @@ export const WidgetLoadingScreen = ({
     const ensure = async () => {
       try {
         const id = await ensureContactSession({ organizationId });
+
+        // ✅ IMPORTANT: si on regen une session, on drop la conversation persistée
+        setConversationId(null);
+
         setContactSessionId(id);
         notifyIfNeeded(id);
         setStep("settings");
@@ -184,6 +196,7 @@ export const WidgetLoadingScreen = ({
           notifyIfNeeded(contactSessionId);
           setStep("settings");
         } else {
+          // ✅ session invalide => on regen + reset conversation dans ensure()
           ensure();
         }
       })
@@ -198,6 +211,7 @@ export const WidgetLoadingScreen = ({
     setLoadingMessage,
     setErrorMessage,
     setScreen,
+    setConversationId,
   ]);
 
   /* 3) Charger les widgetSettings */

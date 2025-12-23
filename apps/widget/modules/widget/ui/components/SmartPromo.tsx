@@ -13,7 +13,7 @@ import {
 import {
   bookingIntentAtom,
   qualifyStepAtom,
-  consentGivenAtom, // ✅ NEW
+  consentGivenAtom,
 } from "../../atoms/qualify-atoms";
 import type { Doc, Id } from "@workspace/backend/_generated/dataModel";
 
@@ -36,8 +36,8 @@ export default function SmartPromo() {
   const setStep = useSetAtom(qualifyStepAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
 
+  const consentGiven = useAtomValue(consentGivenAtom);
   const currentConvId = useAtomValue(conversationIdAtom);
-  const consentGiven = useAtomValue(consentGivenAtom); // ✅ NEW
 
   const contactSessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
   const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(orgId || ""));
@@ -63,15 +63,7 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
-  // 🔎 Vérifie la conv courante (pour reuse + éviter consent qui revient)
-  const existingConversation = useQuery(
-    api.public.conversations.getOne,
-    orgId && contactSessionId && currentConvId
-      ? { conversationId: currentConvId, contactSessionId }
-      : "skip"
-  );
-
-  // 🔑 IMPORTANT : utiliser parentHref OU document.referrer avant window.location
+  // 🔑 currentUrl fiable (embed)
   const currentUrl =
     typeof window !== "undefined"
       ? parentHref || document.referrer || window.location.href
@@ -101,57 +93,65 @@ export default function SmartPromo() {
   }, [promo]);
 
   /**
-   * ✅ IMPORTANT :
-   * - Si conv existante et pas resolved => REUSE (et surtout: ne pas forcer consent/step)
-   * - Sinon => crée une nouvelle conv
-   * - Consent/step ne se déclenche que si nécessaire
+   * ✅ SAFE START
+   * - respecte consentGiven:
+   *   - intent "chat" => idle (si déjà consenti)
+   *   - intent "book" => ask_name (si déjà consenti)
+   *   - sinon => consent
+   * - réutilise conversationId si déjà présente
+   * - ne fait PAS de getOne (zéro crash)
    */
-  const ensureAndStartChat = async (intent: "chat" | "book") => {
+  const ensureAndStart = async (intent: "chat" | "book") => {
     if (!orgId) {
       setScreen("error");
       return;
     }
 
-    // 1) session
-    const sessionId: Id<"contactSessions"> =
-      contactSessionId || (await ensureContactSession({ organizationId: orgId }));
-    if (!contactSessionId) setContactSessionId(sessionId);
+    setBookingIntent(intent);
 
-    // 2) si conv existante OK => reuse (NE PAS toucher bookingIntent/step)
-    const convIsReusable =
-      !!currentConvId &&
-      existingConversation !== undefined &&
-      !!existingConversation &&
-      existingConversation.status !== "resolved";
+    const nextStep =
+      consentGiven
+        ? intent === "book"
+          ? "ask_name"
+          : "idle"
+        : "consent";
 
-    if (convIsReusable) {
-      setScreen("chat");
+    setStep(nextStep as any);
+
+    // Toujours aller au chat UI (le chat screen gère le reste)
+    setScreen("chat");
+
+    // Assurer la session (mais ne pas casser si ça rate)
+    let sessionId: Id<"contactSessions"> | null = null;
+    try {
+      sessionId =
+        (contactSessionId as any) ||
+        ((await ensureContactSession({ organizationId: orgId })) as any);
+      if (!contactSessionId && sessionId) setContactSessionId(sessionId as any);
+    } catch {
+      // même si session fail, on laisse le chat screen tenter / afficher une erreur propre
       return;
     }
 
-    // 3) nouvelle conv => on définit le flow
-    setBookingIntent(intent);
+    // Réutiliser la conversation si déjà là
+    if (currentConvId) return;
 
-    // ✅ ne force consent QUE si pas donné
-    if (!consentGiven) {
-      setStep("consent");
-    } else {
-      setStep(intent === "book" ? "ask_name" : "idle");
+    // Sinon créer une conversation (safe)
+    try {
+      const convId = await createConversation({
+        contactSessionId: sessionId!,
+        organizationId: orgId,
+        suppressGreet: intent === "book" ? true : undefined,
+      } as any);
+      setConversationId(convId);
+    } catch {
+      // Ne pas crash, le chat screen pourra en créer une si besoin
     }
-
-    const convId = await createConversation({
-      contactSessionId: sessionId,
-      organizationId: orgId,
-      suppressGreet: intent === "book" ? true : undefined,
-    } as any);
-
-    setConversationId(convId);
-    setScreen("chat");
   };
 
   const runCta = async (cta: Cta) => {
-    if (cta.kind === "open_chat") return ensureAndStartChat("chat");
-    if (cta.kind === "open_booking") return ensureAndStartChat("book");
+    if (cta.kind === "open_chat") return ensureAndStart("chat");
+    if (cta.kind === "open_booking") return ensureAndStart("book");
     if (cta.kind === "open_url" && cta.url) {
       window.open(cta.url, "_blank", "noopener,noreferrer");
     }
@@ -168,21 +168,19 @@ export default function SmartPromo() {
       }
 
       if (t === "nexus:open-chat") {
-        void ensureAndStartChat("chat");
+        void ensureAndStart("chat");
         return;
       }
 
       if (t === "nexus:run-primary-cta") {
         const p = promoRef.current;
-        void (p?.primaryCta ? runCta(p.primaryCta) : ensureAndStartChat("chat"));
+        void (p?.primaryCta ? runCta(p.primaryCta) : ensureAndStart("chat"));
         return;
       }
 
       if (t === "nexus:run-secondary-cta") {
         const p = promoRef.current;
-        void (p?.secondaryCta
-          ? runCta(p.secondaryCta)
-          : ensureAndStartChat("book"));
+        void (p?.secondaryCta ? runCta(p.secondaryCta) : ensureAndStart("book"));
         return;
       }
 
@@ -191,7 +189,7 @@ export default function SmartPromo() {
         const p = promoRef.current;
 
         if (!p) {
-          void ensureAndStartChat("chat");
+          void ensureAndStart("chat");
           return;
         }
 
@@ -205,16 +203,16 @@ export default function SmartPromo() {
         if (idx === 0 && p.primaryCta) return void runCta(p.primaryCta);
         if (idx === 1 && p.secondaryCta) return void runCta(p.secondaryCta);
 
-        void ensureAndStartChat("chat");
+        void ensureAndStart("chat");
       }
     };
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, contactSessionId, currentConvId, existingConversation, consentGiven]);
+  }, [orgId, consentGiven, contactSessionId, currentConvId]);
 
-  // ----- Payload for host (avec thème + logo + multi-CTA)
+  // ----- Payload for host (thème + logo + multi-CTA)
   const makePayload = () => {
     if (!promo) return null;
 
@@ -278,6 +276,7 @@ export default function SmartPromo() {
     };
   }, [isEmbedded, promo, memberAvatars, ws, parentHref]);
 
+  // Preview interne
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 
@@ -292,9 +291,7 @@ export default function SmartPromo() {
             {promo.card.badgeText}
           </div>
         )}
-        <div className="font-semibold">
-          {promo?.card?.title ?? "Need a hand?"}
-        </div>
+        <div className="font-semibold">{promo?.card?.title ?? "Need a hand?"}</div>
         <div className="mt-1 text-sm text-muted-foreground">
           {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
         </div>
