@@ -8,13 +8,11 @@
  * - Garantit une contactSession (mais ne crée PAS de conversation)
  * - Charge widgetSettings + secrets Vapi
  * - Redirige :
- *    - par défaut => écran "chat", étape "consent" (si pas encore consenti)
+ *    - par défaut => écran "chat"
  *    - ?nochat=1 => écran "selection" (debug)
  *
  * Changement clé :
- * - On ne crée plus la conversation automatiquement ici.
- *   => La création est déclenchée uniquement après consent si intent = "chat"
- *      (dans WidgetChatScreen).
+ * - On ne ré-impose PLUS "consent" si le consent a déjà été donné (persisté).
  *
  * - NOUVEAU :
  *   Quand la contactSession est prête, on envoie un postMessage au parent
@@ -37,9 +35,12 @@ import {
   vapiSecretsAtom,
   widgetSettingsAtom,
 } from "../../atoms/widget-atoms";
-import { consentGivenAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
+import {
+  consentGivenAtomFamily,
+  qualifyStepAtomFamily,
+} from "../../atoms/qualify-atoms";
 import { WidgetHeader } from "../components/widget-header";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
@@ -69,10 +70,7 @@ function notifyParentSessionReady(params: {
     window.parent.postMessage(
       {
         type: "nexus:session-ready",
-        payload: {
-          organizationId,
-          sessionId,
-        },
+        payload: { organizationId, sessionId },
       },
       "*"
     );
@@ -89,16 +87,18 @@ export const WidgetLoadingScreen = ({
   const [step, setStep] = useState<InitStep>("org");
 
   const loadingMessage = useAtomValue(loadingMessageAtom);
+
+  // ✅ IMPORTANT : on scope les atoms persistés par org
+  const orgKey = useMemo(() => organizationId || "unknown", [organizationId]);
+  const consentGiven = useAtomValue(consentGivenAtomFamily(orgKey));
+
   const setWidgetSettings = useSetAtom(widgetSettingsAtom);
   const setOrganizationId = useSetAtom(organizationIdAtom);
   const setErrorMessage = useSetAtom(errorMessageAtom);
   const setLoadingMessage = useSetAtom(loadingMessageAtom);
   const setScreen = useSetAtom(screenAtom);
   const setVapiSecrets = useSetAtom(vapiSecretsAtom);
-  const setQualifyStep = useSetAtom(qualifyStepAtom);
-
-  // ✅ important : lire le consent (persistant côté jotai storage si tu l’as fait)
-  const consentGiven = useAtomValue(consentGivenAtom);
+  const setQualifyStep = useSetAtom(qualifyStepAtomFamily(orgKey));
 
   const contactSessionId = useAtomValue(
     contactSessionIdAtomFamily(organizationId || "")
@@ -109,6 +109,7 @@ export const WidgetLoadingScreen = ({
 
   /* 1) Valider l’org */
   const validateOrganization = useAction(api.public.organizations.validate);
+
   useEffect(() => {
     if (step !== "org") return;
 
@@ -146,7 +147,9 @@ export const WidgetLoadingScreen = ({
   ]);
 
   /* 2) S’assurer d’avoir une session (mais pas de conversation) */
-  const validateContactSession = useMutation(api.public.contactSessions.validate);
+  const validateContactSession = useMutation(
+    api.public.contactSessions.validate
+  );
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
 
   useEffect(() => {
@@ -210,26 +213,27 @@ export const WidgetLoadingScreen = ({
   );
 
   useEffect(() => {
-    if (widgetSettings !== undefined) {
-      setWidgetSettings(widgetSettings);
+    if (widgetSettings === undefined) return;
 
-      // 🔥 envoyer le thème AU PARENT immédiatement
-      try {
-        const theme = (widgetSettings as any)?.theme;
-        const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
+    setWidgetSettings(widgetSettings);
 
-        window.parent?.postMessage(
-          { type: "nexus:theme", payload: { theme, brandLogoUrl } },
-          "*"
-        );
-      } catch {}
+    // 🔥 envoyer le thème AU PARENT immédiatement
+    try {
+      const theme = (widgetSettings as any)?.theme;
+      const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
 
-      setStep("vapi");
-    }
+      window.parent?.postMessage(
+        { type: "nexus:theme", payload: { theme, brandLogoUrl } },
+        "*"
+      );
+    } catch {}
+
+    setStep("vapi");
   }, [widgetSettings, setWidgetSettings]);
 
   /* 4) Charger les secrets Vapi (si présents) */
   const getVapiSecrets = useAction(api.public.secrets.getVapiSecrets);
+
   useEffect(() => {
     if (step !== "vapi") return;
 
@@ -259,7 +263,7 @@ export const WidgetLoadingScreen = ({
     setErrorMessage,
   ]);
 
-  /* 5) Aller à l’écran chat (ou selection), mais SANS créer de conversation */
+  /* 5) Aller à l’écran chat (ou selection), SANS ré-imposer le consent si déjà donné */
   useEffect(() => {
     if (step !== "done") return;
 
@@ -268,10 +272,11 @@ export const WidgetLoadingScreen = ({
       return;
     }
 
-    // ✅ si déjà consenti → idle, sinon → consent
+    // ✅ IMPORTANT : si consent déjà donné, on revient en idle (chat direct)
+    // sinon on force consent (comportement normal)
     setQualifyStep(consentGiven ? "idle" : "consent");
     setScreen("chat");
-  }, [step, setQualifyStep, setScreen, consentGiven]);
+  }, [step, consentGiven, setQualifyStep, setScreen]);
 
   return (
     <>
