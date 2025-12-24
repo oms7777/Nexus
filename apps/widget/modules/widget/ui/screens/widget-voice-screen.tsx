@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useCallback } from "react";
 import {
   AIConversation,
   AIConversationContent,
@@ -11,7 +14,6 @@ import { WidgetHeader } from "../components/widget-header";
 import { useSetAtom } from "jotai";
 import { screenAtom } from "../../atoms/widget-atoms";
 import { cn } from "@workspace/ui/lib/utils";
-import { useEffect } from "react";
 
 export const WidgetVoiceScreen = () => {
   const setScreen = useSetAtom(screenAtom);
@@ -32,13 +34,20 @@ export const WidgetVoiceScreen = () => {
     }
   }, [isConnected, isConnecting, startCall]);
 
+  // ✅ STOP ON UNMOUNT : si on quitte l'écran, on coupe toujours l'appel
+  useEffect(() => {
+    return () => {
+      void endCall();
+    };
+  }, [endCall]);
+
   // ✅ BACK : coupe l'appel proprement + retour au chat
-  const handleBack = () => {
+  const handleBack = useCallback(async () => {
     if (isConnected || isConnecting) {
-      endCall();
+      await endCall();
     }
     setScreen("chat");
-  };
+  }, [isConnected, isConnecting, endCall, setScreen]);
 
   return (
     <>

@@ -103,10 +103,10 @@ export const useVapi = () => {
     }
   }, [vapi, vapiSecrets, widgetSettings?.vapiSettings?.assistantId]);
 
-  const endCall = useCallback(() => {
-    if (vapi) {
-      vapi.stop();
-    }
+  const endCall = useCallback(async () => {
+    try {
+      vapi?.stop();
+    } catch {}
   }, [vapi]);
 
   return {

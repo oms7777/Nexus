@@ -784,14 +784,17 @@ export const WidgetChatScreen = () => {
     }
   };
 
-  /* -------- Messages + greet -------- */
+  /* -------- MESSAGES + GREET -------- */
   const backendMsgs = toUIMessages(messages.results ?? []).map((m) => ({
     role: m.role === "user" ? ("user" as const) : ("assistant" as const),
     text: m.content,
   }));
 
   const greet = widgetSettings?.greetMessage?.trim();
+
+  // ✅ On cache le greet backend pendant booking/flow (sinon doublons)
   const hideGreetNow = bookingIntent === "book" || step !== "idle";
+
   const filteredBackend = greet
     ? backendMsgs.filter((m) => {
         if (!hideGreetNow) return true;
@@ -799,7 +802,16 @@ export const WidgetChatScreen = () => {
       })
     : backendMsgs;
 
-  const uiMsgs = [...filteredBackend, ...localMsgs];
+  // ✅ Base = ce que tu avais déjà
+  const baseMsgs = [...filteredBackend, ...localMsgs];
+
+  // ✅ NEW: si pas de conversationId + idle => on injecte un greet local
+  // (comme ça, plus besoin de la welcome card)
+  const uiMsgs =
+    !conversationId && step === "idle" && greet
+      ? [{ role: "assistant" as const, text: greet }, ...baseMsgs]
+      : baseMsgs;
+
 
   const suggestions = useMemo(() => {
     const base = widgetSettings?.defaultSuggestions
@@ -865,71 +877,6 @@ export const WidgetChatScreen = () => {
               );
             })}
 
-            {/* welcome card */}
-            {!conversationId && step === "idle" && (
-              <div className="p-3">
-                <div className="rounded-lg border bg-background p-3">
-                  <div className="font-semibold text-lg mb-2">
-                    Discover the right solution for your business project.
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Our team is available to chat or schedule a quick call to
-                    guide you through your needs.
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1"
-                      onClick={async () => {
-                        setBookingIntent("chat");
-                        if (consentCfg?.enabled === false) {
-                          try {
-                            if (
-                              !conversation &&
-                              organizationId &&
-                              contactSessionId
-                            ) {
-                              const cid2 = await createConversation({
-                                organizationId,
-                                contactSessionId,
-                              });
-                              setConversationId(cid2);
-                            }
-                          } catch {}
-                          setStep("idle");
-                          setBookingIntent("none");
-                        } else {
-                          setStep("consent");
-                        }
-                      }}
-                    >
-                      💬 Ask anything
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        setBookingIntent("book");
-                        if (consentCfg?.enabled === false) {
-                          setStep("ask_name");
-                          setLocalMsgs((m) => [
-                            ...m,
-                            {
-                              role: "assistant",
-                              text:
-                                "Great! To book a demo, fill in these quick details.",
-                            },
-                          ]);
-                        } else {
-                          setStep("consent");
-                        }
-                      }}
-                    >
-                      📅 Book a meeting
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* consent card */}
             {step === "consent" && mustAcceptConsent && consentCfg && consentCfg.enabled !== false && (
