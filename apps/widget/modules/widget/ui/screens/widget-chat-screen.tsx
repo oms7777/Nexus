@@ -994,7 +994,20 @@ export const WidgetChatScreen = () => {
                       size="sm"
                       onClick={async () => {
                         setConsentGiven(true);
+                        try {
+                          const next = sessionStorage.getItem("nexus:after-consent");
+                          if (next === "voice") {
+                            sessionStorage.removeItem("nexus:after-consent");
 
+                            // reset flow
+                            setBookingIntent("none");
+                            setStep("idle" as any);
+
+                            // go voice
+                            setScreen("voice");
+                            return;
+                          }
+                        } catch {}
                         if (bookingIntent === "book") {
                           setStep("ask_name");
                           setLocalMsgs((m) => [
