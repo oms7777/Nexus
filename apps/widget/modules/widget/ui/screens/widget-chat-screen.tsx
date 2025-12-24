@@ -832,20 +832,7 @@ export const WidgetChatScreen = () => {
           <Button
             size="icon"
             variant="transparent"
-            onClick={async () => {
-              // 1) intent = book
-              setBookingIntent("book");
-
-              // 2) same step logic as SmartPromo
-              const nextStep = consentGiven ? "ask_name" : "consent";
-              setStep(nextStep as any);
-
-              // 3) always stay on chat UI
-              setScreen("chat");
-
-              // 4) IMPORTANT: do NOT add quick replies / welcome card here
-              // let the existing flow render QualifyCard / picking etc.
-            }}
+            onClick={startBookingLikePromo}
             title="Book a meeting"
           >
             <CalendarIcon />

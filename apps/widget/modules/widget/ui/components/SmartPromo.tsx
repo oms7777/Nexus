@@ -51,7 +51,7 @@ export default function SmartPromo() {
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
-  // ----- Data (Convex)
+  // ----- DATA (CONVEX)
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip"
@@ -63,7 +63,7 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
-  // 🔑 currentUrl fiable (embed)
+  // 🔑 CURRENTURL FIABLE (EMBED)
   const currentUrl =
     typeof window !== "undefined"
       ? parentHref || document.referrer || window.location.href
@@ -94,12 +94,12 @@ export default function SmartPromo() {
 
   /**
    * ✅ SAFE START
-   * - respecte consentGiven:
-   *   - intent "chat" => idle (si déjà consenti)
-   *   - intent "book" => ask_name (si déjà consenti)
-   *   - sinon => consent
-   * - réutilise conversationId si déjà présente
-   * - ne fait PAS de getOne (zéro crash)
+   * - RESPECTE CONSENTGIVEN:
+   *   - INTENT "CHAT" => IDLE (SI DÉJÀ CONSENTI)
+   *   - INTENT "BOOK" => ASK_NAME (SI DÉJÀ CONSENTI)
+   *   - SINON => CONSENT
+   * - RÉUTILISE CONVERSATIONID SI DÉJÀ PRÉSENTE
+   * - NE FAIT PAS DE GETONE (ZÉRO CRASH)
    */
   const ensureAndStart = async (intent: "chat" | "book") => {
     if (!orgId) {
@@ -118,10 +118,10 @@ export default function SmartPromo() {
 
     setStep(nextStep as any);
 
-    // Toujours aller au chat UI (le chat screen gère le reste)
+    // TOUJOURS ALLER AU CHAT UI (LE CHAT SCREEN GÈRE LE RESTE)
     setScreen("chat");
 
-    // Assurer la session (mais ne pas casser si ça rate)
+    // ASSURER LA SESSION (MAIS NE PAS CASSER SI ÇA RATE)
     let sessionId: Id<"contactSessions"> | null = null;
     try {
       sessionId =
@@ -129,14 +129,14 @@ export default function SmartPromo() {
         ((await ensureContactSession({ organizationId: orgId })) as any);
       if (!contactSessionId && sessionId) setContactSessionId(sessionId as any);
     } catch {
-      // même si session fail, on laisse le chat screen tenter / afficher une erreur propre
+      // MÊME SI SESSION FAIL, ON LAISSE LE CHAT SCREEN TENTER / AFFICHER UNE ERREUR PROPRE
       return;
     }
 
-    // Réutiliser la conversation si déjà là
+    // RÉUTILISER LA CONVERSATION SI DÉJÀ LÀ
     if (currentConvId) return;
 
-    // Sinon créer une conversation (safe)
+    // SINON CRÉER UNE CONVERSATION (SAFE)
     try {
       const convId = await createConversation({
         contactSessionId: sessionId!,
@@ -145,7 +145,7 @@ export default function SmartPromo() {
       } as any);
       setConversationId(convId);
     } catch {
-      // Ne pas crash, le chat screen pourra en créer une si besoin
+      // NE PAS CRASH, LE CHAT SCREEN POURRA EN CRÉER UNE SI BESOIN
     }
   };
 
@@ -157,7 +157,7 @@ export default function SmartPromo() {
     }
   };
 
-  // Host → Widget bridge
+  // HOST → WIDGET BRIDGE
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
@@ -212,7 +212,7 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, consentGiven, contactSessionId, currentConvId]);
 
-  // ----- Payload for host (thème + logo + multi-CTA)
+  // ----- PAYLOAD FOR HOST (THÈME + LOGO + MULTI-CTA)
   const makePayload = () => {
     if (!promo) return null;
 
@@ -250,7 +250,7 @@ export default function SmartPromo() {
     };
   };
 
-  // ---- Envoi fiable au host : uniquement si promo prête
+  // ---- ENVOI FIABLE AU HOST : UNIQUEMENT SI PROMO PRÊTE
   useEffect(() => {
     if (!isEmbedded) return;
 
@@ -276,7 +276,7 @@ export default function SmartPromo() {
     };
   }, [isEmbedded, promo, memberAvatars, ws, parentHref]);
 
-  // Preview interne
+  // PREVIEW INTERNE
   const showInternal = !!promo && !isEmbedded;
   if (!showInternal) return null;
 
@@ -291,7 +291,9 @@ export default function SmartPromo() {
             {promo.card.badgeText}
           </div>
         )}
-        <div className="font-semibold">{promo?.card?.title ?? "Need a hand?"}</div>
+        <div className="font-semibold">
+          {promo?.card?.title ?? "Need a hand?"}
+        </div>
         <div className="mt-1 text-sm text-muted-foreground">
           {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
         </div>
