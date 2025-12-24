@@ -6,7 +6,6 @@ import { useMutation } from "convex/react";
 import { ChevronRightIcon, MessageSquareTextIcon, MicIcon } from "lucide-react";
 
 import { api } from "@workspace/backend/_generated/api";
-
 import { Button } from "@workspace/ui/components/button";
 import { WidgetHeader } from "../components/widget-header";
 
@@ -20,14 +19,25 @@ import {
   widgetSettingsAtom,
 } from "../../atoms/widget-atoms";
 
+import {
+  bookingIntentAtom,
+  qualifyStepAtom,
+  consentGivenAtom,
+} from "../../atoms/qualify-atoms";
+
 export const WidgetSelectionScreen = () => {
   const setScreen = useSetAtom(screenAtom);
   const setErrorMessage = useSetAtom(errorMessageAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
 
+  const setBookingIntent = useSetAtom(bookingIntentAtom);
+  const setQualifyStep = useSetAtom(qualifyStepAtom);
+
   const widgetSettings = useAtomValue(widgetSettingsAtom);
   const hasVapiSecrets = useAtomValue(hasVapiSecretsAtom);
   const organizationId = useAtomValue(organizationIdAtom);
+
+  const consentGiven = useAtomValue(consentGivenAtom);
 
   const contactSessionId = useAtomValue(
     contactSessionIdAtomFamily(organizationId || "")
@@ -41,6 +51,11 @@ export const WidgetSelectionScreen = () => {
 
   const [isPending, setIsPending] = useState(false);
 
+  /**
+   * ✅ START CHAT (DEBUG SCREEN)
+   * - CRÉE SESSION + CONVERSATION
+   * - OUVRE CHAT
+   */
   const handleNewConversation = async () => {
     if (!organizationId) {
       setScreen("error");
@@ -51,17 +66,16 @@ export const WidgetSelectionScreen = () => {
     setIsPending(true);
     try {
       const sessionId =
-        contactSessionId ||
-        (await ensureContactSession({ organizationId }));
+        contactSessionId || (await ensureContactSession({ organizationId }));
 
       setContactSessionId(sessionId);
 
-      const conversationId = await createConversation({
+      const cid = await createConversation({
         contactSessionId: sessionId,
         organizationId,
       });
 
-      setConversationId(conversationId);
+      setConversationId(cid);
       setScreen("chat");
     } catch (err) {
       console.error(err);
@@ -70,6 +84,26 @@ export const WidgetSelectionScreen = () => {
     } finally {
       setIsPending(false);
     }
+  };
+
+  /**
+   * ✅ START VOICE (CONSENT-GATED)
+   * - SI CONSENT OK => SCREEN "VOICE"
+   * - SINON => SCREEN "CHAT" + STEP "CONSENT" + FLAG "AFTER CONSENT => VOICE"
+   */
+  const handleStartVoice = () => {
+    if (consentGiven) {
+      setScreen("voice");
+      return;
+    }
+
+    try {
+      sessionStorage.setItem("nexus:after-consent", "voice");
+    } catch {}
+
+    setBookingIntent("chat");
+    setQualifyStep("consent" as any);
+    setScreen("chat");
   };
 
   return (
@@ -82,7 +116,7 @@ export const WidgetSelectionScreen = () => {
       </WidgetHeader>
 
       <div className="flex flex-1 flex-col gap-y-4 p-4 overflow-y-auto">
-        {/* Écran de sélection manuel (debug / nochat=1) */}
+        {/* ÉCRAN DE SÉLECTION MANUEL (DEBUG / NOCHAT=1) */}
         <Button
           className="h-16 w-full justify-between"
           variant="outline"
@@ -100,7 +134,7 @@ export const WidgetSelectionScreen = () => {
           <Button
             className="h-16 w-full justify-between"
             variant="outline"
-            onClick={() => setScreen("voice")}
+            onClick={handleStartVoice}
             disabled={isPending}
           >
             <div className="flex items-center gap-x-2">
@@ -111,7 +145,6 @@ export const WidgetSelectionScreen = () => {
           </Button>
         )}
       </div>
-
     </>
   );
 };

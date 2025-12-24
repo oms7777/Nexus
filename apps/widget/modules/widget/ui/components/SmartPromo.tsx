@@ -127,9 +127,9 @@ export default function SmartPromo() {
       sessionId =
         (contactSessionId as any) ||
         ((await ensureContactSession({ organizationId: orgId })) as any);
+
       if (!contactSessionId && sessionId) setContactSessionId(sessionId as any);
     } catch {
-      // MÊME SI SESSION FAIL, ON LAISSE LE CHAT SCREEN TENTER / AFFICHER UNE ERREUR PROPRE
       return;
     }
 
@@ -144,9 +144,7 @@ export default function SmartPromo() {
         suppressGreet: intent === "book" ? true : undefined,
       } as any);
       setConversationId(convId);
-    } catch {
-      // NE PAS CRASH, LE CHAT SCREEN POURRA EN CRÉER UNE SI BESOIN
-    }
+    } catch {}
   };
 
   const runCta = async (cta: Cta) => {
@@ -155,6 +153,26 @@ export default function SmartPromo() {
     if (cta.kind === "open_url" && cta.url) {
       window.open(cta.url, "_blank", "noopener,noreferrer");
     }
+  };
+
+  /**
+   * ✅ VOICE START (CONSENT-GATED)
+   * - SI CONSENT OK => SCREEN "VOICE"
+   * - SINON => SCREEN "CHAT" + STEP "CONSENT" + FLAG POUR REDIRIGER VERS VOICE
+   */
+  const openVoice = () => {
+    if (consentGiven) {
+      setScreen("voice");
+      return;
+    }
+
+    try {
+      sessionStorage.setItem("nexus:after-consent", "voice");
+    } catch {}
+
+    setBookingIntent("chat");
+    setStep("consent" as any);
+    setScreen("chat");
   };
 
   // HOST → WIDGET BRIDGE
@@ -169,6 +187,12 @@ export default function SmartPromo() {
 
       if (t === "nexus:open-chat") {
         void ensureAndStart("chat");
+        return;
+      }
+
+      // ✅ NEW: OPEN VOICE FROM HOST (NUDGE MIC)
+      if (t === "nexus:open-voice") {
+        openVoice();
         return;
       }
 
