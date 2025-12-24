@@ -399,6 +399,8 @@ export const WidgetChatScreen = () => {
   const consentRequired = consentCfg?.enabled !== false;
   const mustAcceptConsent = consentRequired && !consentGiven;
 
+  const ensureContactSession = useMutation(api.public.contactSessions.ensure);
+
   // Reps via routing
   const routingReps = useQuery(
     api.public.routing.listRepsForVisitor,
@@ -474,6 +476,43 @@ export const WidgetChatScreen = () => {
   const createConversation = useMutation(api.public.conversations.create);
   const firstMessageSentRef = useRef(false);
 
+  // ✅ NEW: book handler identique à SmartPromo.ensureAndStart("book")
+  const startBookingLikePromo = async () => {
+    if (!organizationId) return;
+
+    setBookingIntent("book");
+
+    const nextStep = consentGiven ? "ask_name" : "consent";
+    setStep(nextStep as any);
+
+    // on reste sur chat UI
+    setScreen("chat");
+
+    // assurer la session si jamais elle manque (rare)
+    let sessionId = contactSessionId as any;
+    try {
+      if (!sessionId) {
+        sessionId = (await ensureContactSession({ organizationId })) as any;
+      }
+    } catch {
+      return;
+    }
+
+    // réutiliser la conversation si déjà là
+    if (conversationId) return;
+
+    // sinon créer une conversation (suppressGreet pour booking)
+    try {
+      const convId = await createConversation({
+        contactSessionId: sessionId,
+        organizationId,
+        suppressGreet: true,
+      } as any);
+      setConversationId(convId);
+    } catch {
+      // safe: le chat screen pourra en recréer plus tard si nécessaire
+    }
+  };
   // log widget load
   useEffect(() => {
     if (!organizationId) return;
@@ -789,30 +828,27 @@ export const WidgetChatScreen = () => {
           {/* 🎙️ Voice call */}
           <VoiceCallButton />
 
-          {/* 📅 Book a demo */}
+          {/* 📅 Book a meeting (same behavior as SmartPromo secondary CTA) */}
           <Button
             size="icon"
             variant="transparent"
-            onClick={() => {
+            onClick={async () => {
+              // 1) intent = book
               setBookingIntent("book");
-              if (consentCfg?.enabled === false) {
-                setStep("ask_name");
-                setLocalMsgs((m) => [
-                  ...m,
-                  { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
-                ]);
-              } else {
-                setStep("consent");
-              }
+
+              // 2) same step logic as SmartPromo
+              const nextStep = consentGiven ? "ask_name" : "consent";
+              setStep(nextStep as any);
+
+              // 3) always stay on chat UI
+              setScreen("chat");
+
+              // 4) IMPORTANT: do NOT add quick replies / welcome card here
+              // let the existing flow render QualifyCard / picking etc.
             }}
-            title="Book a demo"
+            title="Book a meeting"
           >
             <CalendarIcon />
-          </Button>
-
-          {/* ☰ Menu */}
-          <Button size="icon" variant="transparent" title="Menu">
-            <MenuIcon />
           </Button>
         </div>
       </WidgetHeader>
