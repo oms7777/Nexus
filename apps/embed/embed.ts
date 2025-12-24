@@ -65,6 +65,9 @@ type PromoPayload = {
   let theme: ThemePayload | null = null;
   let brandLogoUrl: string | null = null;
 
+  // ✅ NEW: éviter le flash bleu
+  let fabRevealed = false;
+
   // ----- Read attributes from <script> -----
   const currentScript = document.currentScript as HTMLScriptElement | null;
 
@@ -110,8 +113,9 @@ type PromoPayload = {
     button.id = "nexus-widget-button";
     button.innerHTML = chatBubbleIcon;
 
-    // ✅ IMPORTANT: pas de couleur figée “bleue”
-    // On met un fallback, puis on applique le thème dès qu'on le reçoit (nexus:theme / nexus:promo)
+    // ✅ IMPORTANT:
+    // - bouton invisible tant qu'on n'a pas reçu theme/promo
+    // - supprime le flash “bleu”
     button.style.cssText = `
       all: unset;
       position: fixed;
@@ -124,7 +128,9 @@ type PromoPayload = {
       z-index: 2147483000;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 24px rgba(0,0,0,.20);
-      transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
+      transition: transform .2s ease, box-shadow .2s ease, background .2s ease, opacity .15s ease;
+      opacity: 0;
+      pointer-events: none;
     `;
 
     button.addEventListener("click", () => {
@@ -205,8 +211,6 @@ type PromoPayload = {
   /* ---------------- Messaging ---------------- */
 
   function handleMessage(event: MessageEvent) {
-    // IMPORTANT: on accepte nexus:theme même si TARGET_ORIGIN pas encore set (iframeLoaded false)
-    // mais on garde la sécurité origin dès que possible.
     const { type, payload } = event.data || {};
 
     // Si iframe chargée, on sécurise l'origin
@@ -224,7 +228,7 @@ type PromoPayload = {
         break;
 
       /**
-       * ✅ NEW: thème envoyé dès le loading screen
+       * ✅ thème envoyé dès le loading screen
        * payload: { theme, brandLogoUrl }
        */
       case "nexus:theme": {
@@ -238,7 +242,6 @@ type PromoPayload = {
       case "nexus:promo": {
         const promoPayload = payload as PromoPayload;
 
-        // Ack + hide internal promo
         iframe?.contentWindow?.postMessage(
           { type: "nexus:host-ack" },
           TARGET_ORIGIN || "*",
@@ -282,6 +285,18 @@ type PromoPayload = {
     }
   }
 
+  function revealFabIfNeeded() {
+    if (!button) return;
+    if (fabRevealed) return;
+
+    // ✅ On rend visible dès qu'on a un theme OU un logo OU un promo payload
+    if (!theme && !brandLogoUrl && !hasPromoPayload) return;
+
+    fabRevealed = true;
+    button.style.opacity = "1";
+    button.style.pointerEvents = "auto";
+  }
+
   function applyThemeToFab() {
     if (!button) return;
 
@@ -291,6 +306,9 @@ type PromoPayload = {
 
     button.style.background = bubbleColor;
     button.style.color = textColor;
+
+    // ✅ NEW: plus de flash bleu
+    revealFabIfNeeded();
 
     // Si le widget est ouvert, on garde le X (ne pas remplacer innerHTML)
     if (isOpen) return;
@@ -394,7 +412,6 @@ type PromoPayload = {
 
     const hasMulti = ctaList.length > 0;
 
-    // --- identité visuelle ---
     const identityMode: "auto" | "logo" | "avatars" = payload.identityMode || "auto";
 
     let identityHtml = "";
@@ -733,7 +750,7 @@ type PromoPayload = {
     }, 10);
 
     button.innerHTML = closeIcon;
-    applyThemeToFab(); // garde la couleur, ne remplace pas le X
+    applyThemeToFab();
 
     sendParentLocation();
   }
@@ -747,7 +764,7 @@ type PromoPayload = {
     setTimeout(() => container && (container.style.display = "none"), 300);
 
     button.innerHTML = chatBubbleIcon;
-    applyThemeToFab(); // réapplique couleur + logo
+    applyThemeToFab();
 
     if (!nudgeDismissed && hasPromoPayload && nudge && caret) {
       nudge.style.display = "block";
@@ -796,6 +813,9 @@ type PromoPayload = {
     trackingSessionId = null;
     theme = null;
     brandLogoUrl = null;
+    fabRevealed = false;
+    hasPromoPayload = false;
+    nudgeDismissed = false;
   }
 
   function reinit(cfg: {
