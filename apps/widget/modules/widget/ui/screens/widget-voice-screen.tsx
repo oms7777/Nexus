@@ -1,4 +1,8 @@
-import { AIConversation, AIConversationContent, AIConversationScrollButton } from "@workspace/ui/components/ai/conversation";
+import {
+  AIConversation,
+  AIConversationContent,
+  AIConversationScrollButton,
+} from "@workspace/ui/components/ai/conversation";
 import { AIMessage, AIMessageContent } from "@workspace/ui/components/ai/message";
 import { Button } from "@workspace/ui/components/button";
 import { ArrowLeftIcon, MicIcon, MicOffIcon } from "lucide-react";
@@ -7,10 +11,11 @@ import { WidgetHeader } from "../components/widget-header";
 import { useSetAtom } from "jotai";
 import { screenAtom } from "../../atoms/widget-atoms";
 import { cn } from "@workspace/ui/lib/utils";
-import { useEffect } from "react"; // 👈 ajouté
+import { useEffect } from "react";
 
 export const WidgetVoiceScreen = () => {
   const setScreen = useSetAtom(screenAtom);
+
   const {
     isConnected,
     isSpeaking,
@@ -20,22 +25,26 @@ export const WidgetVoiceScreen = () => {
     isConnecting,
   } = useVapi();
 
-  // 👉 Auto-start de l'appel dès qu'on arrive sur l'écran Voice
+  // ✅ AUTO-START : démarre l'appel dès l'arrivée sur l'écran Voice
   useEffect(() => {
     if (!isConnected && !isConnecting) {
       startCall();
     }
   }, [isConnected, isConnecting, startCall]);
 
+  // ✅ BACK : coupe l'appel proprement + retour au chat
+  const handleBack = () => {
+    if (isConnected || isConnecting) {
+      endCall();
+    }
+    setScreen("chat");
+  };
+
   return (
     <>
       <WidgetHeader>
         <div className="flex items-center gap-x-2">
-          <Button
-            variant="transparent"
-            size="icon"
-            onClick={() => setScreen("selection")}
-          >
+          <Button variant="transparent" size="icon" onClick={handleBack}>
             <ArrowLeftIcon />
           </Button>
           <p>Voice Chat</p>
@@ -80,6 +89,7 @@ export const WidgetVoiceScreen = () => {
               </span>
             </div>
           )}
+
           <div className="flex w-full justify-center">
             {isConnected ? (
               <Button

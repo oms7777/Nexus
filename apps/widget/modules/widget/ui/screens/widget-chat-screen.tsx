@@ -879,7 +879,7 @@ export const WidgetChatScreen = () => {
                         }
                       }}
                     >
-                      💬 Chat with AI Assistant
+                      💬 Ask anything
                     </Button>
                     <Button
                       variant="outline"
