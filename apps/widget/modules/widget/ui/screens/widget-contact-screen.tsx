@@ -3,7 +3,6 @@ import { ArrowLeftIcon, CheckIcon, CopyIcon, MicIcon, MicOffIcon, PhoneIcon } fr
 import { WidgetHeader } from "../components/widget-header";
 import { useAtomValue, useSetAtom } from "jotai";
 import { screenAtom, widgetSettingsAtom } from "../../atoms/widget-atoms";
-import { WidgetFooter } from "../components/widget-footer";
 import { useState } from "react";
 import Link from "next/link";
 
