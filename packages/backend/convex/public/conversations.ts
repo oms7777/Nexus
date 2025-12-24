@@ -1,3 +1,4 @@
+// convex/public/conversations.ts
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { supportAgent } from "../system/ai/agents/supportAgent";
@@ -14,10 +15,7 @@ export const getMany = query({
   handler: async (ctx, args) => {
     const contactSession = await ctx.db.get(args.contactSessionId);
     if (!contactSession || contactSession.expiresAt < Date.now()) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Invalid Session",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
     }
 
     const conversations = await ctx.db
@@ -52,10 +50,7 @@ export const getMany = query({
       }),
     );
 
-    return {
-      ...conversations,
-      page: conversationsWithLastMessage,
-    };
+    return { ...conversations, page: conversationsWithLastMessage };
   },
 });
 
@@ -67,25 +62,16 @@ export const getOne = query({
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.contactSessionId);
     if (!session || session.expiresAt < Date.now()) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Invalid Session",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
     }
 
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) {
-      throw new ConvexError({
-        code: "NOT_FOUND",
-        message: "Conversation not found",
-      });
+      throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     if (conversation.contactSessionId !== session._id) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Incorrect session",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Incorrect session" });
     }
 
     return {
@@ -100,22 +86,44 @@ export const create = mutation({
   args: {
     organizationId: v.string(),
     contactSessionId: v.id("contactSessions"),
-    // ✅ nouveau paramètre optionnel : supprime le greet côté backend
     suppressGreet: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.contactSessionId);
     if (!session || session.expiresAt < Date.now()) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Invalid Session",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
     }
 
     // refresh TTL
     await ctx.runMutation(internal.system.contactSessions.refresh, {
       contactSessionId: args.contactSessionId,
     });
+
+    // ✅ Idempotent: reuse an existing active conversation
+    const existingActive = await ctx.db
+      .query("conversations")
+      .withIndex("by_contact_session_id", (q) =>
+        q.eq("contactSessionId", session._id),
+      )
+      .order("desc")
+      .first();
+
+    if (
+      existingActive &&
+      existingActive.organizationId === args.organizationId &&
+      existingActive.status !== "resolved"
+    ) {
+      // analytics (reused)
+      await ctx.runMutation(api.public.analytics.log, {
+        organizationId: args.organizationId,
+        type: "conversation_reused",
+        sessionId: args.contactSessionId,
+        conversationId: existingActive._id,
+        meta: { threadId: existingActive.threadId },
+      });
+
+      return { conversationId: existingActive._id, threadId: existingActive.threadId };
+    }
 
     const widgetSettings = await ctx.db
       .query("widgetSettings")
@@ -128,15 +136,13 @@ export const create = mutation({
       userId: args.organizationId,
     });
 
-    // ✅ Greet conditionnel : n'envoyer le message d'accueil que si non supprimé
+    // greet conditionnel
     if (!args.suppressGreet) {
       await saveMessage(ctx, components.agent, {
         threadId,
         message: {
           role: "assistant",
-          content:
-            widgetSettings?.greetMessage ||
-            "Hello, how can I help you today?",
+          content: widgetSettings?.greetMessage || "Hello, how can I help you today?",
         },
       });
     }
@@ -148,7 +154,7 @@ export const create = mutation({
       threadId,
     });
 
-    // 🔹 1) experience_shown
+    // analytics
     await ctx.runMutation(api.public.analytics.log, {
       organizationId: args.organizationId,
       type: "experience_shown",
@@ -157,7 +163,6 @@ export const create = mutation({
       meta: { threadId, suppressGreet: !!args.suppressGreet },
     });
 
-    // 🔹 2) conversation_created
     await ctx.runMutation(api.public.analytics.log, {
       organizationId: args.organizationId,
       type: "conversation_created",
@@ -166,6 +171,7 @@ export const create = mutation({
       meta: { threadId, suppressGreet: !!args.suppressGreet },
     });
 
-    return conversationId;
+    // ✅ NEW return
+    return { conversationId, threadId };
   },
 });

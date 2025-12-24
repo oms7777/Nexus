@@ -411,6 +411,7 @@ export const WidgetChatScreen = () => {
 
   const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
   const [selectedRep, setSelectedRep] = useState<PublicRep | null>(null);
+  const [localThreadId, setLocalThreadId] = useState<string | null>(null);
 
   // Conversation + messages
   const conversation = useQuery(
@@ -423,8 +424,8 @@ export const WidgetChatScreen = () => {
   // Track latest threadId (so polling reads fresh values)
   const threadIdRef = useRef<string | null>(null);
   useEffect(() => {
-    threadIdRef.current = conversation?.threadId ?? null;
-  }, [conversation?.threadId]);
+    threadIdRef.current = conversation?.threadId ?? localThreadId ?? null;
+  }, [conversation?.threadId, localThreadId]);
 
   const brandLogoUrl =
   (widgetSettings as any)?.brandLogoUrl ??
@@ -448,13 +449,16 @@ export const WidgetChatScreen = () => {
     return null;
   }
 
+  const effectiveThreadId = conversation?.threadId ?? localThreadId;
+
   const messages = useThreadMessages(
     api.public.messages.getMany,
-    conversation?.threadId && contactSessionId
-      ? { threadId: conversation.threadId, contactSessionId }
+    effectiveThreadId && contactSessionId
+      ? { threadId: effectiveThreadId, contactSessionId }
       : "skip",
     { initialNumItems: 10 }
   );
+
 
   // local messages + booking
   const [localMsgs, setLocalMsgs] = useState<
@@ -503,12 +507,15 @@ export const WidgetChatScreen = () => {
 
     // sinon créer une conversation (suppressGreet pour booking)
     try {
-      const convId = await createConversation({
+      const res = await createConversation({
         contactSessionId: sessionId,
         organizationId,
         suppressGreet: true,
       } as any);
-      setConversationId(convId);
+
+      setConversationId(res.conversationId);
+      setLocalThreadId(res.threadId);
+
     } catch {
       // safe: le chat screen pourra en recréer plus tard si nécessaire
     }
@@ -551,11 +558,16 @@ export const WidgetChatScreen = () => {
       (async () => {
         try {
           if (!conversation && organizationId && contactSessionId) {
-            const cid = await createConversation({
+            const res = await createConversation({
               organizationId,
               contactSessionId,
             });
-            setConversationId(cid);
+
+            // ✅ createConversation retourne { conversationId, threadId }
+            setConversationId(res.conversationId);
+
+            // (optionnel mais recommandé si tu utilises localThreadId)
+            setLocalThreadId(res.threadId);
           }
         } catch {}
         setStep("idle");
@@ -737,25 +749,33 @@ export const WidgetChatScreen = () => {
     if (!contactSessionId || !organizationId) return;
 
     // Ensure a conversation exists
+    // Ensure a conversation exists
     let cid = conversationId;
+    let createdThreadId: string | null = null;
+
     try {
       if (!cid || !conversation) {
-        cid = await createConversation({ organizationId, contactSessionId });
-        setConversationId(cid);
+        const res = await createConversation({ organizationId, contactSessionId } as any);
+        cid = res.conversationId;
+        createdThreadId = res.threadId;
+
+        setConversationId(res.conversationId);
+        setLocalThreadId(res.threadId);
       }
     } catch {
       setLocalMsgs((m) => [
         ...m,
-        {
-          role: "assistant",
-          text: "One sec… ready now. Please resend your message.",
-        },
+        { role: "assistant", text: "One sec… ready now. Please resend your message." },
       ]);
       return;
     }
 
     // Wait for threadId to be ready, then send
-    const thr = conversation?.threadId ?? (await waitForThreadId());
+    const thr =
+      conversation?.threadId ??
+      createdThreadId ??
+      localThreadId ??
+      (await waitForThreadId());
     if (!thr) {
       setLocalMsgs((m) => [
         ...m,
@@ -972,11 +992,13 @@ export const WidgetChatScreen = () => {
                               organizationId &&
                               contactSessionId
                             ) {
-                              const cid2 = await createConversation({
+                              const res = await createConversation({
                                 organizationId,
                                 contactSessionId,
-                              });
-                              setConversationId(cid2);
+                              } as any);
+
+                              setConversationId(res.conversationId);
+                              setLocalThreadId(res.threadId);
                             }
                           } catch {}
                           setStep("idle");

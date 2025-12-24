@@ -1,3 +1,4 @@
+// apps/widget/.../widget-selection-screen.tsx
 "use client";
 
 import { useState } from "react";
@@ -19,11 +20,7 @@ import {
   widgetSettingsAtom,
 } from "../../atoms/widget-atoms";
 
-import {
-  bookingIntentAtom,
-  qualifyStepAtom,
-  consentGivenAtom,
-} from "../../atoms/qualify-atoms";
+import { bookingIntentAtom, qualifyStepAtom, consentGivenAtom } from "../../atoms/qualify-atoms";
 
 export const WidgetSelectionScreen = () => {
   const setScreen = useSetAtom(screenAtom);
@@ -40,26 +37,29 @@ export const WidgetSelectionScreen = () => {
   const consentGiven = useAtomValue(consentGivenAtom);
 
   const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(organizationId || "")
+    organizationId ? contactSessionIdAtomFamily(organizationId) : (null as any),
   );
   const setContactSessionId = useSetAtom(
-    contactSessionIdAtomFamily(organizationId || "")
+    organizationId ? contactSessionIdAtomFamily(organizationId) : (null as any),
   );
+
+  const existingConversationId = useAtomValue(conversationIdAtom);
 
   const createConversation = useMutation(api.public.conversations.create);
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
 
   const [isPending, setIsPending] = useState(false);
 
-  /**
-   * ✅ START CHAT (DEBUG SCREEN)
-   * - CRÉE SESSION + CONVERSATION
-   * - OUVRE CHAT
-   */
   const handleNewConversation = async () => {
     if (!organizationId) {
       setScreen("error");
       setErrorMessage("Missing Organization ID");
+      return;
+    }
+
+    // ✅ if already have a conversation -> reuse
+    if (existingConversationId) {
+      setScreen("chat");
       return;
     }
 
@@ -70,12 +70,13 @@ export const WidgetSelectionScreen = () => {
 
       setContactSessionId(sessionId);
 
-      const cid = await createConversation({
+      const res = await createConversation({
         contactSessionId: sessionId,
         organizationId,
-      });
+      } as any);
 
-      setConversationId(cid);
+      // ✅ res is now { conversationId, threadId }
+      setConversationId(res.conversationId);
       setScreen("chat");
     } catch (err) {
       console.error(err);
@@ -86,11 +87,6 @@ export const WidgetSelectionScreen = () => {
     }
   };
 
-  /**
-   * ✅ START VOICE (CONSENT-GATED)
-   * - SI CONSENT OK => SCREEN "VOICE"
-   * - SINON => SCREEN "CHAT" + STEP "CONSENT" + FLAG "AFTER CONSENT => VOICE"
-   */
   const handleStartVoice = () => {
     if (consentGiven) {
       setScreen("voice");
@@ -116,7 +112,6 @@ export const WidgetSelectionScreen = () => {
       </WidgetHeader>
 
       <div className="flex flex-1 flex-col gap-y-4 p-4 overflow-y-auto">
-        {/* ÉCRAN DE SÉLECTION MANUEL (DEBUG / NOCHAT=1) */}
         <Button
           className="h-16 w-full justify-between"
           variant="outline"
