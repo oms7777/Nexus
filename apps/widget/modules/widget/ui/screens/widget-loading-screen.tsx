@@ -276,7 +276,7 @@ export const WidgetLoadingScreen = ({
     if (step !== "done") return;
 
     if (getNoChat()) {
-      setScreen("selection");
+      setScreen("chat");
       return;
     }
 
