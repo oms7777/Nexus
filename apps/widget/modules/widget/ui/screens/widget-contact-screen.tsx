@@ -37,7 +37,7 @@ export const WidgetContactScreen = () => {
                     <Button
                         variant="transparent"
                         size="icon"
-                        onClick={() => setScreen("selection")}
+                        onClick={() => setScreen("chat")}
                     >
                         <ArrowLeftIcon />
                     </Button>
