@@ -65,6 +65,7 @@ import {
 } from "@workspace/ui/components/dialog";
 import QualifyCard from "../components/QualifyCard";
 import CalendarContainerBeautified from "../components/CalendarContainerBeautified";
+import VoiceCallButton from "../components/VoiceCallButton";
 
 /* ---------------- helpers ---------------- */
 
@@ -763,11 +764,10 @@ export const WidgetChatScreen = () => {
 
   const suggestions = useMemo(() => {
     const base = widgetSettings?.defaultSuggestions
-      ? (Object.values(widgetSettings.defaultSuggestions).filter(
-          Boolean
-        ) as string[])
+      ? (Object.values(widgetSettings.defaultSuggestions).filter(Boolean) as string[])
       : [];
-    return ["Voice call with AI assistant", "Book a demo", ...base];
+
+    return base;
   }, [widgetSettings]);
 
   return (
@@ -784,7 +784,12 @@ export const WidgetChatScreen = () => {
     >
       <WidgetHeader className="flex items-center justify-between">
         <p className="font-medium">Chat</p>
+
         <div className="flex items-center gap-1">
+          {/* 🎙️ Voice call */}
+          <VoiceCallButton />
+
+          {/* 📅 Book a demo */}
           <Button
             size="icon"
             variant="transparent"
@@ -794,10 +799,7 @@ export const WidgetChatScreen = () => {
                 setStep("ask_name");
                 setLocalMsgs((m) => [
                   ...m,
-                  {
-                    role: "assistant",
-                    text: "Great! To book a demo, fill in these quick details.",
-                  },
+                  { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
                 ]);
               } else {
                 setStep("consent");
@@ -807,11 +809,14 @@ export const WidgetChatScreen = () => {
           >
             <CalendarIcon />
           </Button>
-          <Button size="icon" variant="transparent">
+
+          {/* ☰ Menu */}
+          <Button size="icon" variant="transparent" title="Menu">
             <MenuIcon />
           </Button>
         </div>
       </WidgetHeader>
+
       <div className="flex-1 min-h-0"> 
         <AIConversation className="h-full flex flex-col">
           <AIConversationContent className="flex-1 min-h-0 overflow-y-auto">
@@ -1186,45 +1191,21 @@ export const WidgetChatScreen = () => {
       </div>
 
       {/* suggestions */}
-      {uiMsgs.length <= 1 && step === "idle" && (
+      {step === "idle" && suggestions.length > 0 && uiMsgs.length <= 1 && (
         <AISuggestions className="flex w-full flex-col items-end p-2">
           {suggestions.map((s) => (
             <AISuggestion
               key={s}
               suggestion={s}
               onClick={async () => {
-                if (/Voice call with AI assistant/i.test(s)) {
-                  setScreen("voice");
-                  return;
-                }
-                if (/book/i.test(s)) {
-                  setBookingIntent("book");
-                  if (consentCfg?.enabled === false) {
-                    setStep("ask_name");
-                    setLocalMsgs((m) => [
-                      ...m,
-                      {
-                        role: "assistant",
-                        text:
-                          "Great! To book a demo, fill in these quick details.",
-                      },
-                    ]);
-                  } else {
-                    setStep("consent");
-                  }
-                  return;
-                }
-                form.setValue("message", s, {
-                  shouldValidate: true,
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
+                form.setValue("message", s, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
                 await form.handleSubmit(onSubmit)();
               }}
             />
           ))}
         </AISuggestions>
       )}
+
 
       {/* composer */}
       <Form {...(form as any)}>

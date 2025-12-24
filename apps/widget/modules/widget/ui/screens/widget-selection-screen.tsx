@@ -9,7 +9,6 @@ import { api } from "@workspace/backend/_generated/api";
 
 import { Button } from "@workspace/ui/components/button";
 import { WidgetHeader } from "../components/widget-header";
-import { WidgetFooter } from "../components/widget-footer";
 
 import {
   contactSessionIdAtomFamily,
@@ -113,7 +112,6 @@ export const WidgetSelectionScreen = () => {
         )}
       </div>
 
-      <WidgetFooter />
     </>
   );
 };

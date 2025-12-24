@@ -6,7 +6,6 @@ import { useVapi } from "../../hooks/use-vapi";
 import { WidgetHeader } from "../components/widget-header";
 import { useSetAtom } from "jotai";
 import { screenAtom } from "../../atoms/widget-atoms";
-import { WidgetFooter } from "../components/widget-footer";
 import { cn } from "@workspace/ui/lib/utils";
 import { useEffect } from "react"; // 👈 ajouté
 
