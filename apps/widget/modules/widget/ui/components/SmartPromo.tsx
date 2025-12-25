@@ -138,12 +138,17 @@ export default function SmartPromo() {
 
     // SINON CRÉER UNE CONVERSATION (SAFE)
     try {
-      const convId = await createConversation({
+      const created = await createConversation({
         contactSessionId: sessionId!,
         organizationId: orgId,
         suppressGreet: intent === "book" ? true : undefined,
       } as any);
-      setConversationId(convId);
+
+      // ✅ supporte les 2 signatures (ancienne: Id, nouvelle: {conversationId, threadId})
+      const newConversationId =
+        typeof created === "string" ? (created as Id<"conversations">) : created.conversationId;
+
+      setConversationId(newConversationId);
     } catch {}
   };
 
