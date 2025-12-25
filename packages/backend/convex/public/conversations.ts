@@ -1,10 +1,10 @@
 // convex/public/conversations.ts
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { supportAgent } from "../system/ai/agents/supportAgent";
-import { MessageDoc, saveMessage } from "@convex-dev/agent";
-import { components, internal, api } from "../_generated/api";
 import { paginationOptsValidator } from "convex/server";
+import { api, components, internal } from "../_generated/api";
+import { supportAgent } from "../system/ai/agents/supportAgent";
+import { saveMessage, type MessageDoc } from "@convex-dev/agent";
 
 export const getMany = query({
   args: {
@@ -14,13 +14,8 @@ export const getMany = query({
   handler: async (ctx, args) => {
     const contactSession = await ctx.db.get(args.contactSessionId);
 
-    // ✅ PROD-SAFE: ne throw pas (sinon crash côté client si useQuery)
     if (!contactSession || contactSession.expiresAt < Date.now()) {
-      return {
-        page: [],
-        isDone: true,
-        continueCursor: "",
-      };
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
     }
 
     const conversations = await ctx.db
@@ -31,7 +26,7 @@ export const getMany = query({
       .order("desc")
       .paginate(args.paginationOpts);
 
-    const conversationsWithLastMessage = await Promise.all(
+    const page = await Promise.all(
       conversations.page.map(async (conversation) => {
         let lastMessage: MessageDoc | null = null;
 
@@ -55,7 +50,7 @@ export const getMany = query({
       }),
     );
 
-    return { ...conversations, page: conversationsWithLastMessage };
+    return { ...conversations, page };
   },
 });
 
@@ -67,18 +62,18 @@ export const getOne = query({
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.contactSessionId);
 
-    // ✅ PROD-SAFE: ne throw pas (sinon crash côté client si useQuery)
     if (!session || session.expiresAt < Date.now()) {
-      return null;
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
     }
 
     const conversation = await ctx.db.get(args.conversationId);
+
     if (!conversation) {
-      return null;
+      throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     if (conversation.contactSessionId !== session._id) {
-      return null;
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Incorrect session" });
     }
 
     return {
@@ -97,16 +92,17 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.contactSessionId);
+
     if (!session || session.expiresAt < Date.now()) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
     }
 
-    // refresh TTL
+    // Refresh TTL
     await ctx.runMutation(internal.system.contactSessions.refresh, {
       contactSessionId: args.contactSessionId,
     });
 
-    // ✅ Idempotent: reuse an existing active conversation
+    // Reuse existing active (idempotent)
     const existingActive = await ctx.db
       .query("conversations")
       .withIndex("by_contact_session_id", (q) =>
@@ -120,7 +116,6 @@ export const create = mutation({
       existingActive.organizationId === args.organizationId &&
       existingActive.status !== "resolved"
     ) {
-      // analytics (reused)
       await ctx.runMutation(api.public.analytics.log, {
         organizationId: args.organizationId,
         type: "conversation_reused",
@@ -143,7 +138,6 @@ export const create = mutation({
       userId: args.organizationId,
     });
 
-    // greet conditionnel
     if (!args.suppressGreet) {
       await saveMessage(ctx, components.agent, {
         threadId,
@@ -161,7 +155,6 @@ export const create = mutation({
       threadId,
     });
 
-    // analytics
     await ctx.runMutation(api.public.analytics.log, {
       organizationId: args.organizationId,
       type: "experience_shown",
