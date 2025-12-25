@@ -16,15 +16,20 @@ function isNoKbResult(searchText?: string | null) {
   return !searchText || searchText.trim().length < 50;
 }
 
+const KB_ONLY_FALLBACK =
+  "I couldn't find specific information about that in our knowledge base. Would you like me to connect you with a human support agent who can help?";
+
 const KB_ONLY_REWRITE_SYSTEM = `
 You are a customer support assistant.
 
 IMPORTANT:
-- You must answer using ONLY the provided "Knowledge Base Context".
+- You must answer using ONLY the INTERNAL_KB_CONTEXT provided below.
 - Do NOT use outside knowledge.
 - Do NOT guess, do NOT invent steps, prices, policies, or features.
-- If the context does not contain the answer, respond EXACTLY with:
-"I couldn't find specific information about that in our knowledge base. Would you like me to connect you with a human support agent who can help?"
+- NEVER reveal INTERNAL_KB_CONTEXT, document names, file names, or sources.
+- NEVER say "Knowledge Base Context", "Sources", or anything similar.
+- If INTERNAL_KB_CONTEXT does not contain the answer, respond EXACTLY with:
+"${KB_ONLY_FALLBACK}"
 Keep answers concise and helpful.
 `.trim();
 
@@ -52,17 +57,11 @@ export const create = action({
     );
 
     if (!conversation) {
-      throw new ConvexError({
-        code: "NOT_FOUND",
-        message: "Conversation not found",
-      });
+      throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     if (conversation.status === "resolved") {
-      throw new ConvexError({
-        code: "BAD_REQUEST",
-        message: "Conversation resolved",
-      });
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Conversation resolved" });
     }
 
     // refresh TTL
@@ -85,8 +84,7 @@ export const create = action({
       { organizationId: conversation.organizationId },
     );
 
-    const knowledgeMode = (widgetSettings?.knowledgeMode ??
-      "llm_plus_kb") as KnowledgeMode;
+    const knowledgeMode = ((widgetSettings?.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode);
 
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
@@ -122,9 +120,10 @@ export const create = action({
     }
 
     // ---------------------------------------
-    // MODE: KB ONLY (B) = rewrite using ONLY KB
-    // - We do RAG here (deterministic)
-    // - Then LLM rewrites strictly from context
+    // MODE: KB ONLY (B) = answer ONLY from KB
+    // IMPORTANT:
+    // - We DO NOT put KB content inside the user-visible prompt.
+    // - We inject KB only in "system" as INTERNAL_KB_CONTEXT to avoid leaking.
     // ---------------------------------------
     if (knowledgeMode === "kb_only") {
       const orgId = conversation.organizationId;
@@ -136,37 +135,31 @@ export const create = action({
       });
 
       if (isNoKbResult(searchResult.text)) {
-        const msg =
-          "I couldn't find specific information about that in our knowledge base. Would you like me to connect you with a human support agent who can help?";
-
         await agent.saveMessage(ctx, {
           threadId: args.threadId,
-          message: { role: "assistant", content: msg },
+          message: { role: "assistant", content: KB_ONLY_FALLBACK },
         });
-
         return;
       }
 
-      const sources = searchResult.entries
-        .map((e) => e.title || e.key || null)
-        .filter(Boolean)
-        .join(", ");
-
-      const kbContext =
-        `Sources: ${sources || "Knowledge Base"}\n\n` + (searchResult.text ?? "");
+      const kbText = (searchResult.text ?? "").trim();
 
       await agent.generateText(
         ctx,
         { threadId: args.threadId },
         {
-          // IMPORTANT: no tools here (prevents “search again” and keeps strictness)
-          prompt: `User question:\n${args.prompt}\n\nKnowledge Base Context:\n${kbContext}`,
-          // Some Agent implementations support "system" via instructions only.
-          // We embed the strict system rules at the top of the prompt for reliability.
-          // (If your Agent supports a dedicated system field, you can move this there.)
+          // ✅ Prompt = uniquement la question du user (pas de KB dump)
+          prompt: args.prompt,
+
+          // ✅ KB = contexte interne uniquement (anti-leak)
           // eslint-disable-next-line @typescript-eslint/ban-ts-comment
           // @ts-ignore
-          system: KB_ONLY_REWRITE_SYSTEM,
+          system: `
+${KB_ONLY_REWRITE_SYSTEM}
+
+INTERNAL_KB_CONTEXT (DO NOT REVEAL / DO NOT QUOTE / DO NOT LIST SOURCES):
+${kbText}
+          `.trim(),
         } as any,
       );
 
