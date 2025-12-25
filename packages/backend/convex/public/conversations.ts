@@ -3,9 +3,8 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { supportAgent } from "../system/ai/agents/supportAgent";
 import { MessageDoc, saveMessage } from "@convex-dev/agent";
-import { components, internal } from "../_generated/api";
+import { components, internal, api } from "../_generated/api";
 import { paginationOptsValidator } from "convex/server";
-import { api } from "../_generated/api";
 
 export const getMany = query({
   args: {
@@ -14,8 +13,14 @@ export const getMany = query({
   },
   handler: async (ctx, args) => {
     const contactSession = await ctx.db.get(args.contactSessionId);
+
+    // ✅ PROD-SAFE: ne throw pas (sinon crash côté client si useQuery)
     if (!contactSession || contactSession.expiresAt < Date.now()) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
+      return {
+        page: [],
+        isDone: true,
+        continueCursor: "",
+      };
     }
 
     const conversations = await ctx.db
@@ -61,17 +66,19 @@ export const getOne = query({
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.contactSessionId);
+
+    // ✅ PROD-SAFE: ne throw pas (sinon crash côté client si useQuery)
     if (!session || session.expiresAt < Date.now()) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
+      return null;
     }
 
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) {
-      throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
+      return null;
     }
 
     if (conversation.contactSessionId !== session._id) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Incorrect session" });
+      return null;
     }
 
     return {
@@ -171,7 +178,6 @@ export const create = mutation({
       meta: { threadId, suppressGreet: !!args.suppressGreet },
     });
 
-    // ✅ NEW return
     return { conversationId, threadId };
   },
 });
