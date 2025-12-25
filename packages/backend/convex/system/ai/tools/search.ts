@@ -21,32 +21,69 @@ The company has chosen to disable its internal knowledge base for now.
 - Keep answers concise and helpful.
 `;
 
+// ---------- model routing ----------
 function getChatModel(provider?: string | null, model?: string | null) {
   const p = provider ?? "openai";
-  const m = model ?? "gpt-4o-mini";
+  const m = (model ?? "").trim() || (p === "google" ? "gemini-1.5-pro" : "gpt-4o-mini");
   return p === "google" ? google.chat(m) : openai.chat(m);
 }
 
-function isNoKbResult(searchText?: string | null) {
-  return !searchText || searchText.trim().length < 50;
+// ---------- relevance guard (simple but effective) ----------
+function tokenize(s: string) {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
 }
 
-type KnowledgeMode = "llm_only" | "llm_plus_kb" | "kb_only";
+// petit filtre stopwords pour éviter les faux positifs
+const STOP = new Set([
+  "the","a","an","and","or","to","of","in","on","for","with","is","are","was","were",
+  "i","you","he","she","it","we","they","my","your","our","their",
+  "can","could","should","would","how","what","when","where","why"
+]);
 
+function isRelevant(query: string, text: string) {
+  const q = tokenize(query).filter(t => !STOP.has(t));
+  if (q.length === 0) return false;
+
+  const hay = (text || "").toLowerCase();
+
+  // au moins 1 mot “fort” du query doit exister dans le contexte
+  const hits = q.filter(t => hay.includes(t));
+  if (hits.length === 0) return false;
+
+  // ratio minimal pour éviter “un mot random match”
+  const ratio = hits.length / q.length;
+  return ratio >= 0.25; // tu peux ajuster (0.2–0.35)
+}
+
+function clip(text: string, max = 1600) {
+  const t = (text || "").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max).trim() + "…";
+}
+
+/**
+ * IMPORTANT:
+ * - This tool must NOT save messages to the thread.
+ * - It only returns data to the agent.
+ */
 export const search = createTool({
   description: "Search the knowledge base for relevant information to help answer user questions",
   args: z.object({
     query: z.string().describe("The search query to find relevant information"),
   }),
   handler: async (ctx, args) => {
-    if (!ctx.threadId) return "Missing thread ID";
+    if (!ctx.threadId) return "NO_RESULT";
 
     // 1) conversation => orgId
     const conversation = await ctx.runQuery(
       internal.system.conversations.getByThreadId,
       { threadId: ctx.threadId },
     );
-    if (!conversation) return "Conversation not found";
+    if (!conversation) return "NO_RESULT";
 
     const orgId = conversation.organizationId;
 
@@ -57,14 +94,15 @@ export const search = createTool({
     );
 
     const knowledgeMode =
-      ((widgetSettings?.knowledgeMode as KnowledgeMode | undefined) ?? "llm_plus_kb");
+      (widgetSettings?.knowledgeMode as "llm_only" | "llm_plus_kb" | "kb_only" | undefined) ??
+      "llm_plus_kb";
 
     const model = getChatModel(
       (widgetSettings as any)?.llmProvider ?? "openai",
       (widgetSettings as any)?.llmModel ?? "gpt-4o-mini",
     );
 
-    // 3) llm_only => LLM sans KB
+    // 3) llm_only => answer without KB (still: tool returns answer, agent can reuse)
     if (knowledgeMode === "llm_only") {
       const response = await generateText({
         model,
@@ -73,60 +111,38 @@ export const search = createTool({
           { role: "user", content: args.query },
         ],
       });
-
+      // IMPORTANT: no saveMessage here
       return response.text;
     }
 
-    // 4) KB modes => RAG search
+    // 4) KB search
     const searchResult = await rag.search(ctx, {
       namespace: orgId,
       query: args.query,
       limit: 5,
     });
 
-    // 5) Nothing found => standard message (NO DUMP)
-    if (isNoKbResult(searchResult.text)) {
-      return (
-        `I couldn't find specific information about that in our knowledge base. ` +
-        `Would you like me to connect you with a human support agent who can help?`
-      );
+    const raw = (searchResult?.text ?? "").trim();
+    if (!raw) return "NO_RESULT";
+
+    // ✅ relevance guard (prevents “get married” matching inboundless docs)
+    if (!isRelevant(args.query, raw)) {
+      return "NO_RESULT";
     }
 
-    // Build a context (INTERNAL) for the interpreter, but NEVER return it directly
-    const sources = searchResult.entries
-      .map((e) => e.title || null)
-      .filter(Boolean)
-      .join(", ");
-
-    const contextText =
-      `Sources: ${sources || "documents"}\n\n` +
-      `${searchResult.text}`;
-
-    // 6) kb_only => STILL return a clean answer (no context shown)
-    // We use the interpreter prompt to force: only what is in KB, otherwise escalate.
+    // 5) kb_only => return ONLY a clipped KB excerpt (NO filenames, NO sources)
     if (knowledgeMode === "kb_only") {
-      const response = await generateText({
-        model,
-        messages: [
-          { role: "system", content: SEARCH_INTERPRETER_PROMPT },
-          {
-            role: "user",
-            content: `User asked: "${args.query}"\n\nSearch results:\n${contextText}`,
-          },
-        ],
-      });
-
-      return response.text;
+      return clip(raw, 1400);
     }
 
-    // 7) llm_plus_kb => same as above (interpreted answer)
+    // 6) llm_plus_kb => let LLM interpret results (still do NOT leak sources)
     const response = await generateText({
       model,
       messages: [
         { role: "system", content: SEARCH_INTERPRETER_PROMPT },
         {
           role: "user",
-          content: `User asked: "${args.query}"\n\nSearch results:\n${contextText}`,
+          content: `User asked: "${args.query}"\n\nSearch results:\n\n${raw}`,
         },
       ],
     });
