@@ -1,3 +1,4 @@
+// packages/backend/convex/routing.ts
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
@@ -31,7 +32,6 @@ function ruleMatches(
   return true;
 }
 
-/** Helper safe pour éviter le "possibly undefined" TypeScript */
 function pickRandom<T>(arr: T[]): T | null {
   if (arr.length === 0) return null;
   const idx = Math.floor(Math.random() * arr.length);
@@ -62,6 +62,10 @@ async function resolveTerritoryKeysForCountry(
 /**
  * Choisit UN rep pour une session donnée.
  * Retourne son userId (Clerk) ou null.
+ *
+ * ✅ IMPORTANT:
+ * - rep = document repsPresence
+ * - users = profil (avatar/title) -> ne doit PAS impacter le routing
  */
 export const pickRepForSession = query({
   args: {
@@ -79,23 +83,12 @@ export const pickRepForSession = query({
       currentUrl: session.metadata?.currentUrl as string | undefined,
     };
 
-    // 2) récupérer tous les reps de l’org
-    const rawReps = (await ctx.db
+    // 2) récupérer tous les reps de l’org (source of truth)
+    const reps = (await ctx.db
       .query("repsPresence")
       .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
       .collect()) as Doc<"repsPresence">[];
 
-    if (!rawReps.length) return null;
-
-    // 2bis) charger les users de l’org et filtrer les reps qui n'ont plus de user
-    const users = await ctx.db
-      .query("users")
-      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-      .collect();
-
-    const byExternalId = new Map(users.map((u) => [u.externalId, u]));
-
-    const reps = rawReps.filter((r) => byExternalId.has(r.userId));
     if (!reps.length) return null;
 
     // 3) Si le visiteur a explicitement choisi un rep côté widget
@@ -129,9 +122,7 @@ export const pickRepForSession = query({
 
       // filtre repIds si défini
       if (target.repIds && target.repIds.length > 0) {
-        candidates = candidates.filter((r) =>
-          target.repIds!.includes(r.userId),
-        );
+        candidates = candidates.filter((r) => target.repIds!.includes(r.userId));
       }
 
       // filtre regions si défini (ici ce sont des territory.key)
@@ -143,9 +134,7 @@ export const pickRepForSession = query({
       }
 
       const chosen = pickRandom(candidates);
-      if (chosen) {
-        return chosen.userId;
-      }
+      if (chosen) return chosen.userId;
     }
 
     // 5) Fallback intelligent territories: countryCode → territories → reps
@@ -170,17 +159,11 @@ export const pickRepForSession = query({
 
     // 6) fallback : n'importe quel sales dispo
     const sales = reps.filter((r) => r.available && r.role === "sales");
-    if (sales.length) {
-      const chosen = pickRandom(sales);
-      if (chosen) return chosen.userId;
-    }
+    if (sales.length) return pickRandom(sales)!.userId;
 
     // 7) dernier fallback : n'importe quel rep dispo
     const available = reps.filter((r) => r.available);
-    if (available.length) {
-      const chosen = pickRandom(available);
-      if (chosen) return chosen.userId;
-    }
+    if (available.length) return pickRandom(available)!.userId;
 
     return null;
   },

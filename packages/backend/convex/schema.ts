@@ -5,9 +5,101 @@ export default defineSchema({
   /* ---------- Billing / Settings ---------- */
   subscriptions: defineTable({
     organizationId: v.string(),
-    status: v.string(),
-  }).index("by_organization_id", ["organizationId"]),
 
+    plan: v.union(
+      v.literal("starter"),
+      v.literal("growth"),
+      v.literal("enterprise"),
+    ),
+
+    enterpriseTier: v.optional(
+      v.union(
+        v.literal("light"),
+        v.literal("core"),
+        v.literal("heavy"),
+      ),
+    ),
+
+    status: v.union(
+      v.literal("active"),
+      v.literal("paused"),
+      v.literal("trial"),
+    ),
+
+    // ✅ NON-OPTIONAL, champs NON-OPTIONAL
+    addons: v.object({
+      extraWebsites: v.number(),       // +150€ / site / mois (quantité)
+      extraReps: v.number(),           // +100€ / rep / mois (quantité)
+      highVolumeTraffic: v.boolean(),  // +500€ / mois
+
+      salesforce: v.boolean(),         // +300€ / mois
+
+      voiceAi: v.boolean(),            // +1 000€ / mois
+      voiceAiHighVolume: v.boolean(),  // +500€ / mois
+
+      sso: v.boolean(),                // +500€ / mois
+      securityPackPlus: v.boolean(),   // +1 000€ / mois
+      compliancePack: v.boolean(),     // +500€ / mois
+
+      advancedAnalytics: v.boolean(),  // +500–1 000€ / mois
+    }),
+
+    limits: v.object({
+      websites: v.number(),
+      reps: v.number(),
+
+      monthlyEvents: v.number(),
+      aiTokens: v.number(),
+
+      // ✅ je te conseille de les rendre NON-OPTIONAL aussi
+      // (mets 0 si non inclus)
+      voiceMinutes: v.number(),
+      snapshotsGb: v.number(),
+    }),
+
+    startedAt: v.number(),
+    trialEndsAt: v.optional(v.number()),
+    endsAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_organization_id", ["organizationId"])
+    .index("by_status", ["status"]),
+
+
+  websites: defineTable({
+    organizationId: v.string(),
+
+    // ex: "acme.com" / "app.acme.com"
+    domain: v.string(),
+
+    // label interne
+    name: v.optional(v.string()),
+
+    // actif ou non (si client arrête un site)
+    active: v.boolean(),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_domain", ["organizationId", "domain"]),
+
+  usageMonthly: defineTable({
+    organizationId: v.string(),
+    month: v.string(), // "YYYY-MM"
+
+    // Compteurs
+    events: v.number(),
+    aiTokens: v.number(),
+    voiceMinutes: v.number(),
+
+    updatedAt: v.number(),
+  })
+    .index("by_org_month", ["organizationId", "month"]),
+
+
+
+    
   widgetSettings: defineTable({
     organizationId: v.string(),
     greetMessage: v.string(),

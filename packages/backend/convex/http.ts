@@ -1,3 +1,4 @@
+// packages/backend/convex/http.ts
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { Webhook } from "svix";
@@ -18,7 +19,7 @@ http.route({
   handler: httpAction(async () => new Response("pong", { status: 200 })),
 });
 
-/** Clerk webhook (existant) */
+/** Clerk webhook */
 http.route({
   path: "/clerk-webhook",
   method: "POST",
@@ -29,8 +30,8 @@ http.route({
     switch (event.type) {
       case "subscription.updated": {
         const subscription = event.data as {
-          status: string;
-          payer?: { organization_id: string };
+          status?: string;
+          payer?: { organization_id?: string };
         };
 
         const organizationId = subscription.payer?.organization_id;
@@ -38,16 +39,19 @@ http.route({
           return new Response("Missing Organization ID", { status: 400 });
         }
 
-        const newMaxAllowedMemberships =
-          subscription.status === "active" ? 5 : 1;
+        // ✅ membership limit (simple)
+        const rawStatus = (subscription.status ?? "").toLowerCase();
+        const isActive = rawStatus === "active";
+        const newMaxAllowedMemberships = isActive ? 5 : 1;
 
         await clerkClient.organizations.updateOrganization(organizationId, {
           maxAllowedMemberships: newMaxAllowedMemberships,
         });
 
-        await ctx.runMutation(internal.system.subscriptions.upsert, {
+        // ✅ IMPORTANT: pass the raw clerk status (string)
+        await ctx.runMutation(internal.system.subscriptions.setStatusFromClerk, {
           organizationId,
-          status: subscription.status,
+          clerkStatus: subscription.status ?? "paused",
         });
 
         break;
@@ -90,7 +94,6 @@ http.route({
       timezone?: string;
       viewportSize?: string;
       screenResolution?: string;
-      /** NEW: public IP provided by the widget (api.ipify.org) */
       clientIp?: string;
     };
 
@@ -111,10 +114,8 @@ http.route({
       viewportSize: body.viewportSize,
       screenResolution: body.screenResolution,
 
-      // NEW: pass through the client-supplied public IP
       client_ip: body.clientIp,
 
-      // headers fallback (flattened names)
       x_forwarded_for: req.headers.get("x-forwarded-for") ?? undefined,
       x_real_ip: req.headers.get("x-real-ip") ?? undefined,
       cf_connecting_ip: req.headers.get("cf-connecting-ip") ?? undefined,

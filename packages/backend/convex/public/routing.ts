@@ -3,10 +3,6 @@ import { query } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 
-/**
- * Type retourné côté widget pour afficher la liste des reps sélectionnables.
- * 🔹 avatarUrl + title viennent du profil user (My Profile)
- */
 export type PublicRep = {
   userId: string;
   name?: string;
@@ -14,27 +10,15 @@ export type PublicRep = {
   role: "sales" | "support";
   regions: string[];
   available: boolean;
-  title?: string; // <- job title du profil
+  title?: string;
 };
 
-/**
- * Liste les reps "éligibles" pour un visiteur en appliquant:
- * - les routingRules (priorité)
- * - la présence (only available)
- * - la géo et l'URL de la session (contactSessions.metadata)
- *
- * Le widget pourra ensuite afficher:
- *  - la photo / nom / job title du rep
- *  - et appeler listSlots/bookSlot avec userId de ce rep
- */
 export const listRepsForVisitor = query({
   args: {
     organizationId: v.string(),
     contactSessionId: v.optional(v.id("contactSessions")),
-    // Permet d'override (ex: si on a déjà la country côté widget)
     countryCode: v.optional(v.string()),
     currentUrl: v.optional(v.string()),
-    // au cas où le widget l’envoie directement
     utmSource: v.optional(v.string()),
   },
   handler: async (
@@ -44,7 +28,7 @@ export const listRepsForVisitor = query({
     try {
       if (!organizationId) return [] as PublicRep[];
 
-      // 1) Récupérer metadata visiteur (GEO + URL) si session fournie
+      // 1) Metadata visiteur
       let visitorCountry: string | undefined = countryCode;
       let visitorUrl: string | undefined = currentUrl;
       let visitorUtmSource: string | undefined = utmSource;
@@ -62,17 +46,17 @@ export const listRepsForVisitor = query({
         }
       }
 
-      // 2) Extraire utm_source depuis l'URL (si présente et pas déjà fournie)
+      // 2) Extraire utm_source depuis l'URL
       if (visitorUrl && !visitorUtmSource) {
         try {
           const u = new URL(visitorUrl);
           visitorUtmSource = u.searchParams.get("utm_source") ?? undefined;
         } catch {
-          // URL mal formée → on ignore
+          // ignore
         }
       }
 
-      // 3) Tous les reps "sales" de cette org
+      // 3) Tous les reps sales de l'org (source of truth)
       const rawReps = await ctx.db
         .query("repsPresence")
         .withIndex("by_org_role", (q) =>
@@ -80,24 +64,12 @@ export const listRepsForVisitor = query({
         )
         .collect();
 
-      // 3bis) Charger les users de l'org et filtrer les reps qui n'ont plus de user
-      const users = await ctx.db
-        .query("users")
-        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-        .collect();
+      // ✅ on filtre uniquement sur "available" (pas sur users table)
+      const availableReps = rawReps.filter((r) => r.available);
 
-      const byExternalId = new Map(users.map((u) => [u.externalId, u]));
+      if (!availableReps.length) return [] as PublicRep[];
 
-      const availableReps = rawReps.filter(
-        (r) => r.available && byExternalId.has(r.userId),
-      );
-
-      if (!availableReps.length) {
-        // Aucun rep dispo -> le widget gère le fallback
-        return [] as PublicRep[];
-      }
-
-      // 3ter) Résoudre les territoires pour le pays du visiteur (FR -> ["france", "europe", ...])
+      // 4) Territories pour countryCode
       let visitorTerritoryKeys: string[] = [];
       if (visitorCountry) {
         const cc = visitorCountry.toUpperCase();
@@ -111,41 +83,30 @@ export const listRepsForVisitor = query({
           .map((t) => t.key);
       }
 
-      // 4) Charger les routingRules par org + priorité
+      // 5) Routing rules
       const rules = await ctx.db
         .query("routingRules")
         .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
         .collect();
 
-      // 5) Helper pour savoir si une rule matche ce visiteur
       const ruleMatchesVisitor = (rule: Doc<"routingRules">): boolean => {
         const match = rule.match ?? {};
         const matchCountries: string[] | undefined = match.countries;
         const matchUrlIncludes: string[] | undefined = match.urlIncludes;
         const matchUtmSourceArr: string[] | undefined = match.utmSource;
 
-        // pays
         if (matchCountries && matchCountries.length) {
-          if (!visitorCountry || !matchCountries.includes(visitorCountry)) {
-            return false;
-          }
+          if (!visitorCountry || !matchCountries.includes(visitorCountry)) return false;
         }
 
-        // URL substring
         if (matchUrlIncludes && matchUrlIncludes.length) {
           if (!visitorUrl) return false;
-          const ok = matchUrlIncludes.some((sub: string) =>
-            visitorUrl.includes(sub),
-          );
+          const ok = matchUrlIncludes.some((sub: string) => visitorUrl.includes(sub));
           if (!ok) return false;
         }
 
-        // utm_source
         if (matchUtmSourceArr && matchUtmSourceArr.length) {
-          if (
-            !visitorUtmSource ||
-            !matchUtmSourceArr.includes(visitorUtmSource)
-          ) {
+          if (!visitorUtmSource || !matchUtmSourceArr.includes(visitorUtmSource)) {
             return false;
           }
         }
@@ -153,7 +114,6 @@ export const listRepsForVisitor = query({
         return true;
       };
 
-      // 6) Appliquer les règles dans l'ordre de priorité (index by_org_prio)
       let matchedReps = availableReps;
       let ruleApplied = false;
 
@@ -164,12 +124,10 @@ export const listRepsForVisitor = query({
         const rt = rule.routeTo;
         let subset = availableReps.filter((r) => r.role === rt.role);
 
-        // Filtre par repIds explicites
         if (rt.repIds && rt.repIds.length) {
           subset = subset.filter((r) => rt.repIds!.includes(r.userId));
         }
 
-        // Filtre par régions si défini
         if (rt.regions && rt.regions.length) {
           subset = subset.filter((r) => {
             const repsRegions: string[] = r.regions ?? [];
@@ -180,34 +138,36 @@ export const listRepsForVisitor = query({
         if (subset.length) {
           matchedReps = subset;
           ruleApplied = true;
-          break; // première règle qui matche -> on s'arrête
+          break;
         }
       }
 
-      // 6bis) Si AUCUNE règle n'a matché, appliquer un fallback géographique
+      // fallback geo
       if (!ruleApplied && visitorTerritoryKeys.length > 0) {
         const geoFiltered = availableReps.filter((r) => {
           const repsRegions: string[] = r.regions ?? [];
           return repsRegions.some((reg) => visitorTerritoryKeys.includes(reg));
         });
 
-        if (geoFiltered.length > 0) {
-          matchedReps = geoFiltered;
-        }
+        if (geoFiltered.length > 0) matchedReps = geoFiltered;
       }
 
-      // 7) Construire la réponse publique à partir des users (profil)
+      // 6) Enrichissement profil (best effort)
+      const users = await ctx.db
+        .query("users")
+        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+        .collect();
+
+      const byExternalId = new Map(users.map((u) => [u.externalId, u]));
+
       const result: PublicRep[] = matchedReps.map((rep) => {
         const u = byExternalId.get(rep.userId);
 
-        const title = (u?.title as string | undefined) || undefined;
-        const displayName = (u?.name as string | undefined) || undefined;
-
         return {
           userId: rep.userId,
-          name: displayName,
+          name: (u?.name as string | undefined) ?? undefined,
           avatarUrl: (u?.avatarUrl as string | undefined) ?? undefined,
-          title,
+          title: (u?.title as string | undefined) ?? undefined,
           role: rep.role,
           regions: rep.regions ?? [],
           available: rep.available,
@@ -216,7 +176,6 @@ export const listRepsForVisitor = query({
 
       return result;
     } catch (e) {
-      // On ne casse jamais le widget : en cas de bug, on renvoie juste []
       console.log("routing.listRepsForVisitor error:", e);
       return [] as PublicRep[];
     }
