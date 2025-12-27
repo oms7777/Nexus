@@ -2,7 +2,11 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 
-const Plan = v.union(v.literal("starter"), v.literal("growth"), v.literal("enterprise"));
+const Plan = v.union(
+  v.literal("starter"),
+  v.literal("growth"),
+  v.literal("enterprise"),
+);
 const Status = v.union(v.literal("active"), v.literal("paused"), v.literal("trial"));
 const EnterpriseTier = v.union(v.literal("light"), v.literal("core"), v.literal("heavy"));
 
@@ -59,11 +63,10 @@ function defaultLimits() {
  * On mappe proprement.
  */
 function mapClerkStatusToLocal(s: string): "active" | "paused" | "trial" {
-  const v = (s || "").toLowerCase();
+  const val = (s || "").toLowerCase();
 
-  // adapte ici selon ce que Clerk t'envoie réellement
-  if (v === "active") return "active";
-  if (v === "trial" || v === "trialing") return "trial";
+  if (val === "active") return "active";
+  if (val === "trial" || val === "trialing") return "trial";
 
   // tout le reste => paused (graceful)
   return "paused";
@@ -76,6 +79,34 @@ export const getByOrganizationId = internalQuery({
       .query("subscriptions")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
+  },
+});
+
+/**
+ * ✅ NEW: créé le doc subscription à la création de l’org (idempotent)
+ * Par défaut: status = paused (donc produit "locked" tant que toi tu n'actives pas)
+ */
+export const ensureForOrg = internalMutation({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    const existing = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (existing) return existing._id;
+
+    const now = Date.now();
+
+    return await ctx.db.insert("subscriptions", {
+      organizationId,
+      plan: "starter",
+      status: "paused",
+      addons: defaultAddons(),
+      limits: defaultLimits(),
+      startedAt: now,
+      updatedAt: now,
+    });
   },
 });
 

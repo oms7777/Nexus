@@ -1,10 +1,10 @@
+// middleware.ts
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
-  // 👇 ENDPOINTS PUBLICS POUR LE WIDGET / PUSHER / SNAPSHOT
   "/api/realtime/pusher-auth(.*)",
   "/api/tracker/snapshot(.*)",
 ]);
@@ -15,35 +15,56 @@ const isOrgFreeRoute = createRouteMatcher([
   "/org-selection(.*)",
 ]);
 
+function isInviteSignUp(req: Request) {
+  const url = new URL(req.url);
+
+  // Tokens possibles selon Clerk (invitation / ticket)
+  const keys = [
+    "__clerk_invitation",
+    "__clerk_ticket",
+    "invitation",
+    "invitation_token",
+    "invite",
+    "invite_token",
+    "ticket",
+    "token",
+  ];
+
+  return keys.some((k) => url.searchParams.has(k));
+}
+
 export default clerkMiddleware(async (auth, req) => {
+  const url = new URL(req.url);
   const { userId, orgId } = await auth();
 
-  // 🔓 1) Ne PAS protéger les routes publiques (sign-in/up + pusher + snapshot)
+  // ✅ Bloque le sign-up direct (mais autorise via lien d'invite)
+  if (url.pathname.startsWith("/sign-up") && !isInviteSignUp(req)) {
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("redirect_url", "/");
+    return NextResponse.redirect(signInUrl);
+  }
+
+  // 🔓 Public routes stay public
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
 
-  // 🔐 2) Redirection org-selection seulement pour les routes non "org free"
+  // 🔐 Force org selection when user is logged but no org chosen
   if (userId && !orgId && !isOrgFreeRoute(req)) {
     const searchParams = new URLSearchParams({ redirectURL: req.url });
-
     const orgSelection = new URL(
       `/org-selection?${searchParams.toString()}`,
       req.url,
     );
-
     return NextResponse.redirect(orgSelection);
   }
 
-  // Sinon, on laisse passer
   return NextResponse.next();
 });
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    // Always run for API routes
     "/(api|trpc)(.*)",
   ],
 };

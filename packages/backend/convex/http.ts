@@ -1,14 +1,8 @@
 // packages/backend/convex/http.ts
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { Webhook } from "svix";
-import { createClerkClient } from "@clerk/backend";
-import type { WebhookEvent } from "@clerk/backend";
 import { internal } from "./_generated/api";
-
-const clerkClient = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY || "",
-});
+import { handleClerkWebhook } from "./webhooks/clerk";
 
 const http = httpRouter();
 
@@ -19,48 +13,12 @@ http.route({
   handler: httpAction(async () => new Response("pong", { status: 200 })),
 });
 
-/** Clerk webhook */
+/** Clerk webhook (Production + Dev selon env vars du deployment Convex) */
 http.route({
   path: "/clerk-webhook",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const event = await validateRequest(request);
-    if (!event) return new Response("Error occured", { status: 400 });
-
-    switch (event.type) {
-      case "subscription.updated": {
-        const subscription = event.data as {
-          status?: string;
-          payer?: { organization_id?: string };
-        };
-
-        const organizationId = subscription.payer?.organization_id;
-        if (!organizationId) {
-          return new Response("Missing Organization ID", { status: 400 });
-        }
-
-        // ✅ membership limit (simple)
-        const rawStatus = (subscription.status ?? "").toLowerCase();
-        const isActive = rawStatus === "active";
-        const newMaxAllowedMemberships = isActive ? 5 : 1;
-
-        await clerkClient.organizations.updateOrganization(organizationId, {
-          maxAllowedMemberships: newMaxAllowedMemberships,
-        });
-
-        // ✅ IMPORTANT: pass the raw clerk status (string)
-        await ctx.runMutation(internal.system.subscriptions.setStatusFromClerk, {
-          organizationId,
-          clerkStatus: subscription.status ?? "paused",
-        });
-
-        break;
-      }
-      default:
-        console.log("Ignored Clerk webhook event", event.type);
-    }
-
-    return new Response(null, { status: 200 });
+  handler: httpAction(async (ctx, req) => {
+    return await handleClerkWebhook(ctx, req);
   }),
 });
 
@@ -130,23 +88,5 @@ http.route({
     });
   }),
 });
-
-async function validateRequest(req: Request): Promise<WebhookEvent | null> {
-  const payloadString = await req.text();
-  const svixHeaders = {
-    "svix-id": req.headers.get("svix-id") || "",
-    "svix-timestamp": req.headers.get("svix-timestamp") || "",
-    "svix-signature": req.headers.get("svix-signature") || "",
-  };
-
-  const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET || "");
-
-  try {
-    return wh.verify(payloadString, svixHeaders) as unknown as WebhookEvent;
-  } catch (error) {
-    console.error(`Error verifying webhook event`, error);
-    return null;
-  }
-}
 
 export default http;
