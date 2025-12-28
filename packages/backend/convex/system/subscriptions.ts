@@ -2,13 +2,25 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 
+/* ----------------------------- Validators ----------------------------- */
+
 const Plan = v.union(
   v.literal("starter"),
   v.literal("growth"),
   v.literal("enterprise"),
 );
-const Status = v.union(v.literal("active"), v.literal("paused"), v.literal("trial"));
-const EnterpriseTier = v.union(v.literal("light"), v.literal("core"), v.literal("heavy"));
+
+const Status = v.union(
+  v.literal("active"),
+  v.literal("paused"),
+  v.literal("trial"),
+);
+
+const EnterpriseTier = v.union(
+  v.literal("light"),
+  v.literal("core"),
+  v.literal("heavy"),
+);
 
 const Addons = v.object({
   extraWebsites: v.number(),
@@ -31,6 +43,8 @@ const Limits = v.object({
   voiceMinutes: v.number(),
   snapshotsGb: v.number(),
 });
+
+/* ----------------------------- Defaults ------------------------------ */
 
 function defaultAddons() {
   return {
@@ -59,46 +73,54 @@ function defaultLimits() {
 }
 
 /**
- * Clerk renvoie des statuts "string" (et pas forcément ton union).
- * On mappe proprement.
+ * Clerk renvoie des statuts "string". On mappe vers ton union local.
+ * Ajuste ici si Clerk te renvoie d'autres statuts.
  */
 function mapClerkStatusToLocal(s: string): "active" | "paused" | "trial" {
   const val = (s || "").toLowerCase();
-
   if (val === "active") return "active";
   if (val === "trial" || val === "trialing") return "trial";
-
-  // tout le reste => paused (graceful)
   return "paused";
 }
+
+/* ------------------------------ Queries ------------------------------ */
 
 export const getByOrganizationId = internalQuery({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
     return await ctx.db
       .query("subscriptions")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_organization_id", (q) =>
+        q.eq("organizationId", organizationId),
+      )
       .unique();
   },
 });
 
+/* ----------------------------- Mutations ----------------------------- */
+
 /**
- * ✅ NEW: créé le doc subscription à la création de l’org (idempotent)
- * Par défaut: status = paused (donc produit "locked" tant que toi tu n'actives pas)
+ * ✅ ensureForOrg
+ * Créé un doc subscription par défaut dès qu'une org est créée (idempotent).
+ * Par défaut on met status="paused" => produit "locked" jusqu'à activation/paiement.
  */
 export const ensureForOrg = internalMutation({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
     const existing = await ctx.db
       .query("subscriptions")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_organization_id", (q) =>
+        q.eq("organizationId", organizationId),
+      )
       .unique();
 
-    if (existing) return existing._id;
+    if (existing) {
+      return { ok: true, created: false, id: existing._id };
+    }
 
     const now = Date.now();
 
-    return await ctx.db.insert("subscriptions", {
+    const id = await ctx.db.insert("subscriptions", {
       organizationId,
       plan: "starter",
       status: "paused",
@@ -106,12 +128,16 @@ export const ensureForOrg = internalMutation({
       limits: defaultLimits(),
       startedAt: now,
       updatedAt: now,
+      // trialEndsAt / endsAt / enterpriseTier => optionnels, pas obligatoires ici
     });
+
+    return { ok: true, created: true, id };
   },
 });
 
 /**
  * Upsert complet (admin/settings)
+ * Utilisé si tu veux un panneau interne pour modifier plan/addons/limits/status.
  */
 export const upsertFull = internalMutation({
   args: {
@@ -128,7 +154,9 @@ export const upsertFull = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("subscriptions")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
+      .withIndex("by_organization_id", (q) =>
+        q.eq("organizationId", args.organizationId),
+      )
       .unique();
 
     const now = Date.now();
@@ -148,14 +176,18 @@ export const upsertFull = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, payload);
-      return existing._id;
+      return { ok: true, id: existing._id, created: false };
     }
-    return await ctx.db.insert("subscriptions", payload);
+
+    const id = await ctx.db.insert("subscriptions", payload);
+    return { ok: true, id, created: true };
   },
 });
 
 /**
- * Webhook Clerk: update status only (mais garde schema OK via defaults)
+ * Webhook Clerk: update status only
+ * + backfill safe si le doc existe mais ancien/incomplet
+ * + si doc absent => on le crée.
  */
 export const setStatusFromClerk = internalMutation({
   args: {
@@ -167,13 +199,14 @@ export const setStatusFromClerk = internalMutation({
 
     const existing = await ctx.db
       .query("subscriptions")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_organization_id", (q) =>
+        q.eq("organizationId", organizationId),
+      )
       .unique();
 
     const now = Date.now();
 
     if (existing) {
-      // si ancien doc incomplet: on backfill en même temps
       await ctx.db.patch(existing._id, {
         status,
         plan: (existing as any).plan ?? "starter",
@@ -182,10 +215,11 @@ export const setStatusFromClerk = internalMutation({
         startedAt: (existing as any).startedAt ?? now,
         updatedAt: now,
       });
-      return existing._id;
+
+      return { ok: true, id: existing._id, created: false };
     }
 
-    return await ctx.db.insert("subscriptions", {
+    const id = await ctx.db.insert("subscriptions", {
       organizationId,
       plan: "starter",
       status,
@@ -194,12 +228,13 @@ export const setStatusFromClerk = internalMutation({
       startedAt: now,
       updatedAt: now,
     });
+
+    return { ok: true, id, created: true };
   },
 });
 
 /**
- * ✅ Migration: patch tous les anciens docs "legacy"
- * (à lancer une seule fois)
+ * ✅ Migration legacy: backfill tous les docs existants (one-shot)
  */
 export const backfillAll = internalMutation({
   args: {},
