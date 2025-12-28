@@ -58,6 +58,7 @@ import type * as system_secrets from "../system/secrets.js";
 import type * as system_subscriptions from "../system/subscriptions.js";
 import type * as system_usage from "../system/usage.js";
 import type * as team from "../team.js";
+import type * as webhooks_clerk from "../webhooks/clerk.js";
 
 import type {
   ApiFromModules,
@@ -124,6 +125,7 @@ declare const fullApi: ApiFromModules<{
   "system/subscriptions": typeof system_subscriptions;
   "system/usage": typeof system_usage;
   team: typeof team;
+  "webhooks/clerk": typeof webhooks_clerk;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

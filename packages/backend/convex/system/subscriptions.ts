@@ -4,25 +4,25 @@ import { internalMutation, internalQuery } from "../_generated/server";
 
 /* ----------------------------- Validators ----------------------------- */
 
-const Plan = v.union(
+export const Plan = v.union(
   v.literal("starter"),
   v.literal("growth"),
   v.literal("enterprise"),
 );
 
-const Status = v.union(
+export const Status = v.union(
   v.literal("active"),
   v.literal("paused"),
   v.literal("trial"),
 );
 
-const EnterpriseTier = v.union(
+export const EnterpriseTier = v.union(
   v.literal("light"),
   v.literal("core"),
   v.literal("heavy"),
 );
 
-const Addons = v.object({
+export const Addons = v.object({
   extraWebsites: v.number(),
   extraReps: v.number(),
   highVolumeTraffic: v.boolean(),
@@ -35,7 +35,7 @@ const Addons = v.object({
   advancedAnalytics: v.boolean(),
 });
 
-const Limits = v.object({
+export const Limits = v.object({
   websites: v.number(),
   reps: v.number(),
   monthlyEvents: v.number(),
@@ -72,10 +72,6 @@ function defaultLimits() {
   };
 }
 
-/**
- * Clerk renvoie des statuts "string". On mappe vers ton union local.
- * Ajuste ici si Clerk te renvoie d'autres statuts.
- */
 function mapClerkStatusToLocal(s: string): "active" | "paused" | "trial" {
   const val = (s || "").toLowerCase();
   if (val === "active") return "active";
@@ -90,28 +86,19 @@ export const getByOrganizationId = internalQuery({
   handler: async (ctx, { organizationId }) => {
     return await ctx.db
       .query("subscriptions")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", organizationId),
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
   },
 });
 
 /* ----------------------------- Mutations ----------------------------- */
 
-/**
- * ✅ ensureForOrg
- * Créé un doc subscription par défaut dès qu'une org est créée (idempotent).
- * Par défaut on met status="paused" => produit "locked" jusqu'à activation/paiement.
- */
 export const ensureForOrg = internalMutation({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
     const existing = await ctx.db
       .query("subscriptions")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", organizationId),
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
 
     if (existing) {
@@ -128,7 +115,6 @@ export const ensureForOrg = internalMutation({
       limits: defaultLimits(),
       startedAt: now,
       updatedAt: now,
-      // trialEndsAt / endsAt / enterpriseTier => optionnels, pas obligatoires ici
     });
 
     return { ok: true, created: true, id };
@@ -136,9 +122,28 @@ export const ensureForOrg = internalMutation({
 });
 
 /**
- * Upsert complet (admin/settings)
- * Utilisé si tu veux un panneau interne pour modifier plan/addons/limits/status.
+ * ✅ NEW: Ensure pour plusieurs orgs (one-shot migration)
  */
+export const ensureForOrgs = internalMutation({
+  args: { organizationIds: v.array(v.string()) },
+  handler: async (ctx, { organizationIds }) => {
+    const results: Array<{ organizationId: string; created: boolean }> = [];
+
+    for (const organizationId of organizationIds) {
+      const res = await ctx.runMutation(
+        // important: appeler la mutation interne existante
+        // via ctx.runMutation
+        // @ts-ignore (convex internal typing)
+        (ctx as any).internal.system.subscriptions.ensureForOrg,
+        { organizationId }
+      );
+      results.push({ organizationId, created: !!res?.created });
+    }
+
+    return { ok: true, results };
+  },
+});
+
 export const upsertFull = internalMutation({
   args: {
     organizationId: v.string(),
@@ -154,9 +159,7 @@ export const upsertFull = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("subscriptions")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", args.organizationId),
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
       .unique();
 
     const now = Date.now();
@@ -185,10 +188,46 @@ export const upsertFull = internalMutation({
 });
 
 /**
- * Webhook Clerk: update status only
- * + backfill safe si le doc existe mais ancien/incomplet
- * + si doc absent => on le crée.
+ * ✅ NEW: setPlanForOrg (pratique pour tes orgs demo / toi)
  */
+export const setPlanForOrg = internalMutation({
+  args: {
+    organizationId: v.string(),
+    plan: Plan,
+    status: v.optional(Status),
+  },
+  handler: async (ctx, { organizationId, plan, status }) => {
+    const existing = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    const now = Date.now();
+
+    if (!existing) {
+      // si pas de doc, on le crée
+      const created = await ctx.db.insert("subscriptions", {
+        organizationId,
+        plan,
+        status: status ?? "active",
+        addons: defaultAddons(),
+        limits: defaultLimits(),
+        startedAt: now,
+        updatedAt: now,
+      });
+      return { ok: true, id: created, created: true };
+    }
+
+    await ctx.db.patch(existing._id, {
+      plan,
+      status: status ?? existing.status,
+      updatedAt: now,
+    });
+
+    return { ok: true, id: existing._id, created: false };
+  },
+});
+
 export const setStatusFromClerk = internalMutation({
   args: {
     organizationId: v.string(),
@@ -199,9 +238,7 @@ export const setStatusFromClerk = internalMutation({
 
     const existing = await ctx.db
       .query("subscriptions")
-      .withIndex("by_organization_id", (q) =>
-        q.eq("organizationId", organizationId),
-      )
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
 
     const now = Date.now();
@@ -233,9 +270,6 @@ export const setStatusFromClerk = internalMutation({
   },
 });
 
-/**
- * ✅ Migration legacy: backfill tous les docs existants (one-shot)
- */
 export const backfillAll = internalMutation({
   args: {},
   handler: async (ctx) => {
