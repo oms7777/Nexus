@@ -5,37 +5,24 @@ import type { WebhookEvent } from "@clerk/backend";
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 
-/**
- * Clerk → Convex webhook handler
- * - Verifies Svix signature
- * - Handles:
- *    1) organization.created  → ensure subscription doc exists
- *    2) subscription.updated  → keep your current logic (status + membership limit)
- *
- * Env required:
- * - CLERK_WEBHOOK_SECRET
- * - CLERK_SECRET_KEY
- */
 const clerkClient = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY || "",
 });
 
-function verifyClerkWebhook(req: Request): Promise<WebhookEvent> {
+async function verifyClerkWebhook(req: Request): Promise<WebhookEvent> {
   const secret = process.env.CLERK_WEBHOOK_SECRET || "";
   if (!secret) throw new Error("Missing CLERK_WEBHOOK_SECRET");
 
+  const payloadString = await req.text();
+
+  const svixHeaders = {
+    "svix-id": req.headers.get("svix-id") || "",
+    "svix-timestamp": req.headers.get("svix-timestamp") || "",
+    "svix-signature": req.headers.get("svix-signature") || "",
+  };
+
   const wh = new Webhook(secret);
-
-  return (async () => {
-    const payloadString = await req.text();
-    const svixHeaders = {
-      "svix-id": req.headers.get("svix-id") || "",
-      "svix-timestamp": req.headers.get("svix-timestamp") || "",
-      "svix-signature": req.headers.get("svix-signature") || "",
-    };
-
-    return wh.verify(payloadString, svixHeaders) as unknown as WebhookEvent;
-  })();
+  return wh.verify(payloadString, svixHeaders) as unknown as WebhookEvent;
 }
 
 export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
@@ -44,36 +31,40 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
   try {
     event = await verifyClerkWebhook(req);
   } catch (err) {
-    console.error("Clerk webhook verification failed:", err);
+    console.error("[clerk-webhook] signature verification failed:", err);
     return new Response("Invalid webhook signature", { status: 400 });
   }
 
+  // ✅ DEBUG safe logs
+  console.log("[clerk-webhook] received event:", event.type);
+
   try {
     switch (event.type) {
-      /**
-       * ✅ NEW: when an org is created in Clerk (now user-created orgs OFF, so this is YOUR flow),
-       * we auto-create a subscriptions doc in Convex.
-       */
       case "organization.created": {
-        const org = event.data as { id?: string };
-        const organizationId = org?.id;
+        // Clerk payload (example): event.data.id = "org_..."
+        const data = event.data as any;
+        const organizationId: string | undefined = data?.id;
+
+        console.log("[clerk-webhook] organization.created orgId:", organizationId);
 
         if (!organizationId) {
+          console.error("[clerk-webhook] Missing organization id in event.data");
           return new Response("Missing organization id", { status: 400 });
         }
 
-        // Ensure subscription exists (idempotent)
-        await ctx.runMutation(internal.system.subscriptions.ensureForOrg, {
-          organizationId,
-        });
+        const subId = await ctx.runMutation(
+          internal.system.subscriptions.ensureForOrg,
+          { organizationId },
+        );
 
-        break;
+        console.log("[clerk-webhook] ensureForOrg done. subscription _id:", subId);
+
+        return new Response(
+          JSON.stringify({ ok: true, handled: "organization.created", organizationId, subId }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }
 
-      /**
-       * ✅ Your existing webhook behavior (keep as-is)
-       * This event name depends on how you're sending "subscription.updated" from Clerk Billing (Beta) / your setup.
-       */
       case "subscription.updated": {
         const subscription = event.data as {
           status?: string;
@@ -81,6 +72,8 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         };
 
         const organizationId = subscription?.payer?.organization_id;
+        console.log("[clerk-webhook] subscription.updated orgId:", organizationId);
+
         if (!organizationId) {
           return new Response("Missing Organization ID", { status: 400 });
         }
@@ -89,28 +82,36 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         const isActive = rawStatus === "active";
         const newMaxAllowedMemberships = isActive ? 5 : 1;
 
-        // Optional: reflect billing status in Clerk org membership limit
         await clerkClient.organizations.updateOrganization(organizationId, {
           maxAllowedMemberships: newMaxAllowedMemberships,
         });
 
-        // Persist status in Convex subscription doc (and backfill defaults if missing)
-        await ctx.runMutation(internal.system.subscriptions.setStatusFromClerk, {
-          organizationId,
-          clerkStatus: subscription.status ?? "paused",
-        });
+        const subId = await ctx.runMutation(
+          internal.system.subscriptions.setStatusFromClerk,
+          {
+            organizationId,
+            clerkStatus: subscription.status ?? "paused",
+          },
+        );
 
-        break;
+        console.log("[clerk-webhook] setStatusFromClerk done. subscription _id:", subId);
+
+        return new Response(
+          JSON.stringify({ ok: true, handled: "subscription.updated", organizationId, subId }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }
 
-      default:
-        // Ignore other events
-        console.log("Ignored Clerk webhook event:", event.type);
+      default: {
+        console.log("[clerk-webhook] ignored event:", event.type);
+        return new Response(
+          JSON.stringify({ ok: true, ignored: true, type: event.type }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
     }
   } catch (err) {
-    console.error("Clerk webhook handler error:", err);
+    console.error("[clerk-webhook] handler error:", err);
     return new Response("Webhook handler error", { status: 500 });
   }
-
-  return new Response("ok", { status: 200 });
 }

@@ -10,19 +10,25 @@ const http = httpRouter();
 http.route({
   path: "/ping",
   method: "GET",
-  handler: httpAction(async () => new Response("pong", { status: 200 })),
+  handler: httpAction(async () => {
+    return new Response("pong", { status: 200 });
+  }),
 });
 
-/** Clerk webhook (Production + Dev selon env vars du deployment Convex) */
+/**
+ * Clerk webhook
+ * - Reçoit les events Clerk (Dev/Prod selon les env vars du deployment Convex)
+ * - Vérifie la signature Svix dans handleClerkWebhook
+ */
 http.route({
   path: "/clerk-webhook",
   method: "POST",
   handler: httpAction(async (ctx, req) => {
-    return await handleClerkWebhook(ctx, req);
+    return handleClerkWebhook(ctx, req);
   }),
 });
 
-/** Live heartbeat (CORS + POST) */
+/** Live heartbeat (CORS preflight) */
 http.route({
   path: "/live/heartbeat",
   method: "OPTIONS",
@@ -39,6 +45,7 @@ http.route({
   }),
 });
 
+/** Live heartbeat */
 http.route({
   path: "/live/heartbeat",
   method: "POST",
@@ -55,7 +62,7 @@ http.route({
       clientIp?: string;
     };
 
-    if (!body?.organizationId || !body?.contactSessionId) {
+    if (!body.organizationId || !body.contactSessionId) {
       return new Response(JSON.stringify({ ok: false, error: "Missing ids" }), {
         status: 400,
         headers: { "Access-Control-Allow-Origin": "*" },
@@ -65,6 +72,7 @@ http.route({
     await ctx.runAction(internal.live.heartbeatHttp, {
       organizationId: body.organizationId,
       contactSessionId: body.contactSessionId as any,
+
       currentUrl: body.currentUrl,
       referrer: body.referrer,
       language: body.language,
@@ -77,8 +85,7 @@ http.route({
       x_forwarded_for: req.headers.get("x-forwarded-for") ?? undefined,
       x_real_ip: req.headers.get("x-real-ip") ?? undefined,
       cf_connecting_ip: req.headers.get("cf-connecting-ip") ?? undefined,
-      x_vercel_forwarded_for:
-        req.headers.get("x-vercel-forwarded-for") ?? undefined,
+      x_vercel_forwarded_for: req.headers.get("x-vercel-forwarded-for") ?? undefined,
       remote_addr: req.headers.get("remote-addr") ?? undefined,
     });
 
