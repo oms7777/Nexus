@@ -28,6 +28,32 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/admin/bootstrap-subscriptions",
+  method: "POST",
+  handler: httpAction(async (ctx) => {
+    const organizationIds = [
+      "org_37QTAJtBMvnHKgsoJraEzh7aGy2", // test
+      "org_343p5MsU52y2zpcbQojwCLwHtT0", // Red Hat
+      "org_33tK7Hsws65yMqMiJE8nmvnSV71", // Inboundless
+    ];
+
+    const results = [];
+    for (const organizationId of organizationIds) {
+      const res = await ctx.runMutation(
+        internal.system.subscriptions.ensureForOrg,
+        { organizationId },
+      );
+      results.push({ organizationId, ...res });
+    }
+
+    return new Response(JSON.stringify({ ok: true, results }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
 /** Live heartbeat (CORS preflight) */
 http.route({
   path: "/live/heartbeat",
