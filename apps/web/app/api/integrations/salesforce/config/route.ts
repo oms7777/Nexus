@@ -27,7 +27,6 @@ export async function POST(req: Request) {
   await fetchMutation(
     api.integrations.upsertSalesforceAppConfig,
     {
-      organizationId: orgId,
       clientId,
       clientSecret,
       loginUrl,

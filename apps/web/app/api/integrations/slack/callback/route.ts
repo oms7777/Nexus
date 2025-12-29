@@ -77,7 +77,6 @@ export async function GET(req: Request) {
   await fetchMutation(
     api.integrations.saveSlackIntegration,
     {
-      organizationId: orgId,
       accessToken,
       teamId,
       teamName,

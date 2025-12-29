@@ -17,7 +17,7 @@ export async function POST(req: Request) {
 
   await fetchMutation(
     api.integrations.disconnectSlackIntegration,
-    { organizationId: orgId },
+    {},
     { token: convexToken ?? undefined }
   );
 

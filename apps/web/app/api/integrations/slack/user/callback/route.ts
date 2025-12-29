@@ -85,7 +85,6 @@ export async function GET(req: Request) {
   await fetchMutation(
     api.team.connectRepSlack,
     {
-      organizationId: orgId,
       userId,
       slackUserId,
       slackDmChannel,

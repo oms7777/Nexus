@@ -55,7 +55,7 @@ export async function GET(req: Request) {
 
   const appConfig = await fetchQuery(
     api.integrations.getSalesforceAppConfig,
-    { organizationId: orgId },
+    {},
     { token: convexToken ?? undefined }
   );
 
@@ -98,7 +98,6 @@ export async function GET(req: Request) {
   await fetchMutation(
     api.integrations.saveSalesforceIntegration,
     {
-      organizationId: orgId,
       accessToken,
       refreshToken,
       instanceUrl,

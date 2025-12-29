@@ -1,13 +1,16 @@
 "use client";
 
-import { useRef } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
+import { RangePills } from "@/modules/analytics/signals/components/RangePills";
+import { LockedSignalsAdvancedCard } from "@/modules/analytics/signals/components/LockedSignalsAdvancedCard";
+import { SignalsTable } from "@/modules/analytics/signals/components/SignalsTable";
 
-function useStableRange(days = 30) {
-  const toRef = useRef<number>(Date.now());
-  const toTs = toRef.current;
+
+function makeRange(days: number) {
+  const toTs = Date.now();
   const fromTs = toTs - days * 24 * 60 * 60 * 1000;
   return { fromTs, toTs };
 }
@@ -15,37 +18,46 @@ function useStableRange(days = 30) {
 export default function AnalyticsSignalsPage() {
   const { organization } = useOrganization();
   const orgId = organization?.id;
-  const { fromTs, toTs } = useStableRange(30);
 
-  const list = useQuery(
+  const [days, setDays] = useState(30);
+  const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
+
+  const entitlements = useQuery(
+    api.public.entitlements.getEntitlements,
+    orgId ? {} : "skip"
+  );
+
+  const advancedEnabled = !!entitlements?.features?.canUseAdvancedAnalytics;
+
+  const rows = useQuery(
     api.public.analytics.signals,
     orgId ? { organizationId: orgId, fromTs, toTs } : "skip"
   );
 
   if (!orgId) return <div className="p-6">No organization</div>;
-  if (list === undefined) return <div className="p-6">Loading…</div>;
+  if (rows === undefined) return <div className="p-6">Loading…</div>;
 
   return (
-    <div className="p-6">
-      <div className="rounded-2xl border bg-white shadow-sm">
-        <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-3 border-b px-4 py-2 text-xs text-muted-foreground uppercase">
-          <div>Account</div>
-          <div>Engagement</div>
-          <div>Time on site</div>
-          <div>Sessions</div>
-        </div>
-        {list.map((row) => (
-          <div
-            key={row.account}
-            className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-3 px-4 py-3 border-b last:border-0"
-          >
-            <div className="font-medium">{row.account}</div>
-            <div>{row.engagement}</div>
-            <div>{row.timeOnSite}</div>
-            <div className="tabular-nums">{row.sessions.toLocaleString()}</div>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-2xl font-semibold">Signals</div>
+          <div className="text-sm text-muted-foreground">
+            Which accounts are “hot” based on sessions, time on site, and engagement.
           </div>
-        ))}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <RangePills value={days} onChange={setDays} />
+        </div>
       </div>
+
+      {/* Advanced note */}
+      {!advancedEnabled ? <LockedSignalsAdvancedCard /> : null}
+
+      {/* Table */}
+      <SignalsTable rows={rows} advanced={advancedEnabled} />
     </div>
   );
 }

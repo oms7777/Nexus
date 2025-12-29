@@ -15,7 +15,7 @@ export async function POST() {
 
   await fetchMutation(
     api.integrations.disconnectSalesforceIntegration,
-    { organizationId: orgId },
+    {},
     { token: convexToken ?? undefined }
   );
 
