@@ -1,28 +1,20 @@
+// dashboardsidebar.tsx
 "use client";
 
-import {
-  OrganizationSwitcher,
-  UserButton,
-  useOrganization,
-} from "@clerk/nextjs";
-
+import { OrganizationSwitcher, UserButton, useOrganization } from "@clerk/nextjs";
 import {
   BellIcon,
   CalendarIcon,
   InboxIcon,
-  LayoutDashboardIcon,
-  LibraryBigIcon,
   MapIcon,
   Mic,
-  PaletteIcon,
   UserIcon,
   Users,
 } from "lucide-react";
-
 import { BarChart3, Filter, Activity } from "lucide-react";
-
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 
 import {
   Sidebar,
@@ -39,48 +31,90 @@ import {
 } from "@workspace/ui/components/sidebar";
 
 import { cn } from "@workspace/ui/lib/utils";
+import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
 
 export const DashboardSidebar = () => {
   const pathname = usePathname();
   const { membership } = useOrganization();
-
   const isAdmin = membership?.role === "org:admin";
 
-  const isActive = (url: string) =>
-    pathname === url || pathname.startsWith(`${url}/`);
+  const ent = useEntitlements();
 
-  /* ------------------------------ ANALYTICS (all users) ------------------------------ */
-  const analyticsItems = [
-    { title: "Overview", url: "/analytics/overview", icon: BarChart3 },
-    { title: "Funnel", url: "/analytics/funnel", icon: Filter },
-    { title: "Signals", url: "/analytics/signals", icon: Activity },
-  ];
+  const isActive = (url: string) => pathname === url || pathname.startsWith(`${url}/`);
 
-  /* ------------------------------ PIPELINE / REVENUE (all users) ------------------------------ */
+  // ✅ feature flags (exactement ceux qui existent)
+  const f = ent.features;
+
+  const canSeeIntegrations = !!(f.canUseSlack || f.canUseSalesforce);
+  const canUseVoice = !!f.canUseVoice;
+  const canUseBooking = !!f.canUseBooking;
+  const canUseAdvancedAnalytics = !!f.canUseAdvancedAnalytics;
+
+  /* ------------------------------ PIPELINE (all users) ------------------------------ */
   const pipelineItems = [
     { title: "Live Map", url: "/live", icon: MapIcon },
     { title: "Conversations", url: "/conversations", icon: InboxIcon },
   ];
 
-  /* ------------------------------ PROFILE (all users) ------------------------------ */
-  const profileItems = [
-    { title: "Account", url: "/me/profile", icon: UserIcon },
-    { title: "Calendar", url: "/me/calendar", icon: CalendarIcon },
-    { title: "Notifications", url: "/me/notifications", icon: BellIcon },
-  ];
+  /* ------------------------------ ANALYTICS ------------------------------ */
+  const analyticsItems = useMemo(() => {
+    // tu peux décider de toujours montrer Analytics,
+    // ou de le limiter si pas Advanced Analytics.
+    // Ici: Analytics toujours visible, mais tu peux plus tard
+    // griser/locker les pages avancées.
+    return [
+      { title: "Overview", url: "/analytics/overview", icon: BarChart3 },
+      { title: "Funnel", url: "/analytics/funnel", icon: Filter },
+      { title: "Signals", url: "/analytics/signals", icon: Activity },
+    ];
+  }, []);
 
-  /* ------------------------------ ADMIN CONFIG ------------------------------ */
-  const configurationItems = [
-    { title: "Widget Customization", url: "/customization", icon: PaletteIcon },
-    { title: "Team & Territories", url: "/team", icon: Users },
-    { title: "Knowledge Base (AI)", url: "/files", icon: LibraryBigIcon },
-    { title: "Integrations", url: "/integrations", icon: LayoutDashboardIcon },
-    { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
-  ];
+  /* ------------------------------ PROFILE ------------------------------ */
+  const profileItems = useMemo(() => {
+    const base = [
+      { title: "Account", url: "/me/profile", icon: UserIcon },
+      { title: "Notifications", url: "/me/notifications", icon: BellIcon },
+    ];
+
+    // ✅ Booking/calendar only if allowed
+    if (canUseBooking) {
+      base.splice(1, 0, { title: "Calendar", url: "/me/calendar", icon: CalendarIcon });
+    }
+
+    return base;
+  }, [canUseBooking]);
+
+  /* ------------------------------ ADMIN CONFIG (gated) ------------------------------ */
+  const configurationItems = useMemo(() => {
+    if (ent.isLoading) return [];
+
+    return [
+      // Team & Territories (existe côté produit) :
+      // si tu veux le caper plus tard, ajoute un flag (ex: canUseAdvancedRouting)
+      {
+        title: "Team & Territories",
+        url: "/team",
+        icon: Users,
+      },
+
+      // Integrations (Slack/SF)
+      canSeeIntegrations && {
+        title: "Integrations",
+        url: "/integrations",
+        icon: InboxIcon,
+      },
+
+      // Voice
+      canUseVoice && {
+        title: "Voice Assistant",
+        url: "/plugins/vapi",
+        icon: Mic,
+      },
+    ].filter(Boolean) as { title: string; url: string; icon: any }[];
+  }, [ent.isLoading, canSeeIntegrations, canUseVoice]);
 
   return (
     <Sidebar className="group" collapsible="icon">
-      {/* HEADER (ORG SWITCHER) */}
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -94,12 +128,10 @@ export const DashboardSidebar = () => {
                     avatarBox: "size-4! rounded-sm!",
                     organizationSwitcherTrigger:
                       "w-full! justify-start! group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2!",
-                    organizationPreview:
-                      "group-data-[collapsible=icon]:justify-center! gap-2",
+                    organizationPreview: "group-data-[collapsible=icon]:justify-center! gap-2",
                     organizationPreviewTextContainer:
                       "group-data-[collapsible=icon]:hidden! text-xs! font-medium!",
-                    organizationSwitcherTriggerIcon:
-                      "group-data-[collapsible=icon]:hidden! ml-auto!",
+                    organizationSwitcherTriggerIcon: "group-data-[collapsible=icon]:hidden! ml-auto!",
                   },
                 }}
               />
@@ -109,9 +141,7 @@ export const DashboardSidebar = () => {
       </SidebarHeader>
 
       <SidebarContent>
-
-
-        {/* ---------------- PIPELINE / REVENUE ---------------- */}
+        {/* PIPELINE */}
         <SidebarGroup>
           <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -130,7 +160,7 @@ export const DashboardSidebar = () => {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* ---------------- ANALYTICS ---------------- */}
+        {/* ANALYTICS */}
         <SidebarGroup>
           <SidebarGroupLabel>Analytics</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -154,10 +184,16 @@ export const DashboardSidebar = () => {
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
+            {/* Optionnel: badge/lock pour advanced analytics */}
+            {!canUseAdvancedAnalytics && (
+              <p className="px-3 pt-2 text-xs text-muted-foreground">
+                Some analytics are limited on your plan.
+              </p>
+            )}
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* ---------------- PROFILE ---------------- */}
+        {/* PROFILE */}
         <SidebarGroup>
           <SidebarGroupLabel>Profile</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -176,8 +212,8 @@ export const DashboardSidebar = () => {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* ---------------- ADMIN CONFIG ---------------- */}
-        {isAdmin && (
+        {/* ADMIN CONFIG */}
+        {isAdmin && configurationItems.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Configuration</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -198,7 +234,6 @@ export const DashboardSidebar = () => {
         )}
       </SidebarContent>
 
-      {/* FOOTER */}
       <SidebarFooter>
         <SidebarMenu>
           <UserButton showName />

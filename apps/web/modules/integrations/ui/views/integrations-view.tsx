@@ -1,3 +1,4 @@
+// IntegrationsView.tsx (rewrite with entitlements v2)
 "use client";
 
 import { useOrganization } from "@clerk/nextjs";
@@ -21,31 +22,35 @@ import { CopyIcon } from "lucide-react";
 import { IntegrationId, INTEGRATIONS } from "../../constants";
 import { createScript } from "../../utils";
 
-// 👇 Convex
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
+import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+
 export const IntegrationsView = () => {
+  const { organization } = useOrganization();
+  const ent = useEntitlements();
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSnippet, setSelectedSnippet] = useState("");
-  const { organization } = useOrganization();
 
-  // 🔍 Slack integration status
+  // ✅ new entitlements shape
+  const showSlack = !!ent.isActive && !!ent.canUseSlack;
+  const showSalesforce = !!ent.isActive && !!ent.canUseSalesforce;
+
   const slackIntegration = useQuery(
     api.integrations.getSlackIntegration,
-    organization ? { organizationId: organization.id } : ("skip" as any)
+    showSlack ? {} : ("skip" as any)
   );
 
-  // 🔍 Salesforce integration tokens status
   const salesforceIntegration = useQuery(
     api.integrations.getSalesforceIntegration,
-    organization ? { organizationId: organization.id } : ("skip" as any)
+    showSalesforce ? {} : ("skip" as any)
   );
 
-  // 🔍 Salesforce app config (clientId/secret/loginUrl) status
   const salesforceAppConfig = useQuery(
     api.integrations.getSalesforceAppConfig,
-    organization ? { organizationId: organization.id } : ("skip" as any)
+    showSalesforce ? {} : ("skip" as any)
   );
 
   // Local form state for Salesforce app config
@@ -54,36 +59,23 @@ export const IntegrationsView = () => {
   const [sfLoginUrl, setSfLoginUrl] = useState("https://login.salesforce.com");
   const [sfSaving, setSfSaving] = useState(false);
 
-  // Hydrate form when config is loaded
   useEffect(() => {
     if (!salesforceAppConfig) return;
     setSfClientId(salesforceAppConfig.clientId ?? "");
     setSfClientSecret(salesforceAppConfig.clientSecret ?? "");
-    setSfLoginUrl(
-      (salesforceAppConfig.loginUrl ?? "https://login.salesforce.com").trim()
-    );
+    setSfLoginUrl((salesforceAppConfig.loginUrl ?? "https://login.salesforce.com").trim());
   }, [salesforceAppConfig]);
 
   const { isSlackConnected, slackTeamLabel, slackChannelLabel } = useMemo(() => {
     if (!slackIntegration) {
-      return {
-        isSlackConnected: false,
-        slackTeamLabel: "",
-        slackChannelLabel: "",
-      };
+      return { isSlackConnected: false, slackTeamLabel: "", slackChannelLabel: "" };
     }
 
     const team = slackIntegration.teamName || "Slack workspace";
     const rawChannel = slackIntegration.defaultChannel || "#general";
-    const normalizedChannel = rawChannel.startsWith("#")
-      ? rawChannel
-      : `#${rawChannel}`;
+    const normalizedChannel = rawChannel.startsWith("#") ? rawChannel : `#${rawChannel}`;
 
-    return {
-      isSlackConnected: true,
-      slackTeamLabel: team,
-      slackChannelLabel: normalizedChannel,
-    };
+    return { isSlackConnected: true, slackTeamLabel: team, slackChannelLabel: normalizedChannel };
   }, [slackIntegration]);
 
   const { isSalesforceConnected, salesforceInstanceLabel } = useMemo(() => {
@@ -99,10 +91,7 @@ export const IntegrationsView = () => {
       }
     })();
 
-    return {
-      isSalesforceConnected: true,
-      salesforceInstanceLabel: host,
-    };
+    return { isSalesforceConnected: true, salesforceInstanceLabel: host };
   }, [salesforceIntegration]);
 
   const isSalesforceConfigSaved = useMemo(() => {
@@ -137,30 +126,19 @@ export const IntegrationsView = () => {
   };
 
   const handleSlackConnect = () => {
-    if (!organization) {
-      toast.error("Organization ID not found");
-      return;
-    }
+    if (!organization) return toast.error("Organization ID not found");
     window.location.href = "/api/integrations/slack/start";
   };
 
   const handleSalesforceConnect = () => {
-    if (!organization) {
-      toast.error("Organization ID not found");
-      return;
-    }
-    if (!isSalesforceConfigSaved) {
-      toast.error("Add & save your Salesforce Client ID/Secret first.");
-      return;
-    }
+    if (!organization) return toast.error("Organization ID not found");
+    if (!isSalesforceConfigSaved) return toast.error("Save Salesforce credentials first.");
     window.location.href = "/api/integrations/salesforce/start";
   };
 
   const handleSlackDisconnect = async () => {
     try {
-      const res = await fetch("/api/integrations/slack/disconnect", {
-        method: "POST",
-      });
+      const res = await fetch("/api/integrations/slack/disconnect", { method: "POST" });
       if (!res.ok) throw new Error("Failed");
       toast.success("Slack disconnected");
       window.location.reload();
@@ -171,9 +149,7 @@ export const IntegrationsView = () => {
 
   const handleSalesforceDisconnect = async () => {
     try {
-      const res = await fetch("/api/integrations/salesforce/disconnect", {
-        method: "POST",
-      });
+      const res = await fetch("/api/integrations/salesforce/disconnect", { method: "POST" });
       if (!res.ok) throw new Error("Failed");
       toast.success("Salesforce disconnected");
       window.location.reload();
@@ -183,14 +159,8 @@ export const IntegrationsView = () => {
   };
 
   const handleSaveSalesforceConfig = async () => {
-    if (!organization) {
-      toast.error("Organization ID not found");
-      return;
-    }
-    if (!canSaveSfConfig) {
-      toast.error("Please fill Client ID, Client Secret and Login URL.");
-      return;
-    }
+    if (!organization) return toast.error("Organization ID not found");
+    if (!canSaveSfConfig) return toast.error("Fill Client ID, Client Secret and Login URL.");
 
     try {
       setSfSaving(true);
@@ -210,7 +180,6 @@ export const IntegrationsView = () => {
       }
 
       toast.success("Salesforce config saved");
-      // Convex useQuery will refetch and update isSalesforceConfigSaved automatically
     } catch (e: any) {
       toast.error(`Failed to save Salesforce config${e?.message ? `: ${e.message}` : ""}`);
     } finally {
@@ -232,25 +201,20 @@ export const IntegrationsView = () => {
     </span>
   );
 
+  if (ent.isLoading) return null;
+
   return (
     <>
-      <IntegrationsDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        snippet={selectedSnippet}
-      />
+      <IntegrationsDialog open={dialogOpen} onOpenChange={setDialogOpen} snippet={selectedSnippet} />
 
       <div className="flex min-h-screen flex-col bg-muted p-8">
         <div className="mx-auto w-full max-w-screen-md">
-          {/* Header */}
           <div className="space-y-2">
             <h1 className="text-2xl md:text-4xl">Setup & Integrations</h1>
-            <p className="text-muted-foreground">
-              Connect your tools and add the widget to your website.
-            </p>
+            <p className="text-muted-foreground">Connect your tools and add the widget to your website.</p>
           </div>
 
-          {/* Organization ID */}
+          {/* Org ID */}
           <div className="mt-8 space-y-6">
             <div className="flex items-center gap-4">
               <Label className="w-34" htmlFor="organization-id">
@@ -270,165 +234,148 @@ export const IntegrationsView = () => {
             </div>
           </div>
 
-          {/* Slack integration */}
-          <div className="mt-8 space-y-3 rounded-lg border bg-background p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Label className="text-lg">Slack</Label>
-                  {isSlackConnected && <ConnectedBadge />}
+          {/* Slack (only if allowed) */}
+          {showSlack && (
+            <div className="mt-8 space-y-3 rounded-lg border bg-background p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-lg">Slack</Label>
+                    {isSlackConnected && <ConnectedBadge />}
+                  </div>
+
+                  <p className="text-sm text-muted-foreground">
+                    Connect Slack to receive new meeting notifications in your workspace.
+                  </p>
+
+                  {isSlackConnected && (
+                    <p className="text-xs text-muted-foreground">
+                      Connected to <span className="font-medium">{slackTeamLabel}</span> &middot; Notifications sent
+                      to <span className="font-mono">{slackChannelLabel}</span>.
+                    </p>
+                  )}
                 </div>
 
-                <p className="text-sm text-muted-foreground">
-                  Connect Slack to receive new meeting notifications in your workspace.
-                </p>
-
-                {isSlackConnected && (
-                  <p className="text-xs text-muted-foreground">
-                    Connected to{" "}
-                    <span className="font-medium">{slackTeamLabel}</span> &middot;{" "}
-                    Notifications sent to{" "}
-                    <span className="font-mono">{slackChannelLabel}</span>.
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button onClick={handleSlackConnect} size="sm" variant="default">
-                  {isSlackConnected ? "Reconnect Slack" : "Connect Slack"}
-                </Button>
-
-                {isSlackConnected && (
-                  <Button
-                    onClick={handleSlackDisconnect}
-                    size="sm"
-                    variant="destructive"
-                  >
-                    Disconnect
+                <div className="flex items-center gap-2">
+                  <Button onClick={handleSlackConnect} size="sm" variant="default">
+                    {isSlackConnected ? "Reconnect Slack" : "Connect Slack"}
                   </Button>
-                )}
+
+                  {isSlackConnected && (
+                    <Button onClick={handleSlackDisconnect} size="sm" variant="destructive">
+                      Disconnect
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Salesforce integration */}
-          <div className="mt-4 space-y-4 rounded-lg border bg-background p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Label className="text-lg">Salesforce</Label>
-                  {isSalesforceConnected && <ConnectedBadge />}
+          {/* Salesforce (only if allowed) */}
+          {showSalesforce && (
+            <div className="mt-4 space-y-4 rounded-lg border bg-background p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-lg">Salesforce</Label>
+                    {isSalesforceConnected && <ConnectedBadge />}
+                  </div>
+
+                  <p className="text-sm text-muted-foreground">Automatically create leads and meetings in Salesforce.</p>
+
+                  {isSalesforceConnected && (
+                    <p className="text-xs text-muted-foreground">
+                      Connected to <span className="font-mono">{salesforceInstanceLabel}</span>.
+                    </p>
+                  )}
                 </div>
 
-                <p className="text-sm text-muted-foreground">
-                  Automatically create leads and meetings in Salesforce.
-                </p>
-
-                {isSalesforceConnected && (
-                  <p className="text-xs text-muted-foreground">
-                    Connected to{" "}
-                    <span className="font-mono">{salesforceInstanceLabel}</span>.
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={handleSalesforceConnect}
-                  size="sm"
-                  variant="default"
-                  disabled={!isSalesforceConfigSaved}
-                  title={!isSalesforceConfigSaved ? "Save Salesforce credentials first" : undefined}
-                >
-                  {isSalesforceConnected
-                    ? "Reconnect Salesforce"
-                    : "Connect Salesforce"}
-                </Button>
-
-                {isSalesforceConnected && (
+                <div className="flex items-center gap-2">
                   <Button
-                    onClick={handleSalesforceDisconnect}
+                    onClick={handleSalesforceConnect}
                     size="sm"
-                    variant="destructive"
+                    variant="default"
+                    disabled={!isSalesforceConfigSaved}
+                    title={!isSalesforceConfigSaved ? "Save Salesforce credentials first" : undefined}
                   >
-                    Disconnect
+                    {isSalesforceConnected ? "Reconnect Salesforce" : "Connect Salesforce"}
                   </Button>
-                )}
+
+                  {isSalesforceConnected && (
+                    <Button onClick={handleSalesforceDisconnect} size="sm" variant="destructive">
+                      Disconnect
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* OAuth Config */}
+              <div className="space-y-3 rounded-lg bg-muted/50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Salesforce OAuth App Configuration</Label>
+                    {isSalesforceConfigSaved && <SavedBadge />}
+                  </div>
+                  <Button size="sm" onClick={handleSaveSalesforceConfig} disabled={!canSaveSfConfig || sfSaving}>
+                    {sfSaving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+
+                <div className="grid gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="sf-client-id">Client ID (Consumer Key)</Label>
+                    <Input
+                      id="sf-client-id"
+                      placeholder="e.g. 3MVG9..."
+                      value={sfClientId}
+                      onChange={(e) => setSfClientId(e.target.value)}
+                      className="bg-background"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="sf-client-secret">Client Secret (Consumer Secret)</Label>
+                    <Input
+                      id="sf-client-secret"
+                      placeholder="Paste the Consumer Secret"
+                      value={sfClientSecret}
+                      onChange={(e) => setSfClientSecret(e.target.value)}
+                      className="bg-background"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="sf-login-url">Login URL</Label>
+                    <Input
+                      id="sf-login-url"
+                      placeholder="https://login.salesforce.com"
+                      value={sfLoginUrl}
+                      onChange={(e) => setSfLoginUrl(e.target.value)}
+                      className="bg-background"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Use <span className="font-mono">https://login.salesforce.com</span> (prod/dev) or{" "}
+                      <span className="font-mono">https://test.salesforce.com</span> (sandbox).
+                    </p>
+                  </div>
+
+                  {!isSalesforceConfigSaved && (
+                    <p className="text-xs text-amber-600">
+                      Save your Salesforce Client ID/Secret first to enable “Connect Salesforce”.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
-
-            {/* Salesforce OAuth Config */}
-            <div className="rounded-lg bg-muted/50 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">Salesforce OAuth App Configuration</Label>
-                  {isSalesforceConfigSaved && <SavedBadge />}
-                </div>
-                <Button
-                  size="sm"
-                  onClick={handleSaveSalesforceConfig}
-                  disabled={!canSaveSfConfig || sfSaving}
-                >
-                  {sfSaving ? "Saving..." : "Save"}
-                </Button>
-              </div>
-
-              <div className="grid gap-3">
-                <div className="grid gap-2">
-                  <Label htmlFor="sf-client-id">Client ID (Consumer Key)</Label>
-                  <Input
-                    id="sf-client-id"
-                    placeholder="e.g. 3MVG9... (from Salesforce Connected App)"
-                    value={sfClientId}
-                    onChange={(e) => setSfClientId(e.target.value)}
-                    className="bg-background"
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="sf-client-secret">Client Secret (Consumer Secret)</Label>
-                  <Input
-                    id="sf-client-secret"
-                    placeholder="Paste the Consumer Secret"
-                    value={sfClientSecret}
-                    onChange={(e) => setSfClientSecret(e.target.value)}
-                    className="bg-background"
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="sf-login-url">Login URL</Label>
-                  <Input
-                    id="sf-login-url"
-                    placeholder="https://login.salesforce.com"
-                    value={sfLoginUrl}
-                    onChange={(e) => setSfLoginUrl(e.target.value)}
-                    className="bg-background"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Use <span className="font-mono">https://login.salesforce.com</span> (prod / dev orgs) or{" "}
-                    <span className="font-mono">https://test.salesforce.com</span> (sandboxes).
-                  </p>
-                </div>
-
-                {!isSalesforceConfigSaved && (
-                  <p className="text-xs text-amber-600">
-                    Save your Salesforce Client ID/Secret first to enable “Connect Salesforce”.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
+          )}
 
           <Separator className="my-8" />
 
-          {/* Widget embed snippets */}
+          {/* Widget embed snippets (toujours ok) */}
           <div className="space-y-6">
             <div className="space-y-1">
               <Label className="text-lg">Website widget</Label>
-              <p className="text-sm text-muted-foreground">
-                Add the following code to your website to enable the chatbox.
-              </p>
+              <p className="text-sm text-muted-foreground">Add the following code to your website to enable the chatbox.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -439,12 +386,7 @@ export const IntegrationsView = () => {
                   type="button"
                   className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-accent"
                 >
-                  <Image
-                    alt={integration.title}
-                    height={32}
-                    src={integration.icon}
-                    width={32}
-                  />
+                  <Image alt={integration.title} height={32} src={integration.icon} width={32} />
                   <p>{integration.title}</p>
                 </button>
               ))}
@@ -480,16 +422,12 @@ export const IntegrationsDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Integrate with your website</DialogTitle>
-          <DialogDescription>
-            Follow these steps to add the chatbox to your website.
-          </DialogDescription>
+          <DialogDescription>Follow these steps to add the chatbox to your website.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
           <div className="space-y-2">
-            <div className="rounded-md bg-accent p-2 text-sm">
-              1. Copy the following code
-            </div>
+            <div className="rounded-md bg-accent p-2 text-sm">1. Copy the following code</div>
             <div className="group relative">
               <pre className="max-h-[300px] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-foreground p-2 font-mono text-secondary text-sm">
                 {snippet}
@@ -506,13 +444,8 @@ export const IntegrationsDialog = ({
           </div>
 
           <div className="space-y-2">
-            <div className="rounded-md bg-accent p-2 text-sm">
-              2. Add the code in your page
-            </div>
-            <p>
-              Paste the chatbox code above in your page. You can add it in the HTML
-              head section.
-            </p>
+            <div className="rounded-md bg-accent p-2 text-sm">2. Add the code in your page</div>
+            <p>Paste the chatbox code above in your page. You can add it in the HTML head section.</p>
           </div>
         </div>
       </DialogContent>

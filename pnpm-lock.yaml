@@ -139,6 +139,9 @@ importers:
       react-hook-form:
         specifier: ^7.62.0
         version: 7.62.0(react@19.1.2)
+      recharts:
+        specifier: 2.15.4
+        version: 2.15.4(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
       rrweb:
         specifier: 2.0.0-alpha.4
         version: 2.0.0-alpha.4

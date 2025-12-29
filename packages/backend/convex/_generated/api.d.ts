@@ -35,6 +35,7 @@ import type * as public_booking from "../public/booking.js";
 import type * as public_calendar from "../public/calendar.js";
 import type * as public_contactSessions from "../public/contactSessions.js";
 import type * as public_conversations from "../public/conversations.js";
+import type * as public_entitlements from "../public/entitlements.js";
 import type * as public_messages from "../public/messages.js";
 import type * as public_organizations from "../public/organizations.js";
 import type * as public_promos from "../public/promos.js";
@@ -102,6 +103,7 @@ declare const fullApi: ApiFromModules<{
   "public/calendar": typeof public_calendar;
   "public/contactSessions": typeof public_contactSessions;
   "public/conversations": typeof public_conversations;
+  "public/entitlements": typeof public_entitlements;
   "public/messages": typeof public_messages;
   "public/organizations": typeof public_organizations;
   "public/promos": typeof public_promos;

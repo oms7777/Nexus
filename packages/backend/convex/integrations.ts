@@ -1,36 +1,116 @@
+// packages/backend/convex/integrations.ts
 import { query, mutation, action } from "./_generated/server";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { api } from "./_generated/api";
 
 /* ============================================================
-   SLACK INTEGRATION
+   Types / Helpers
+   ============================================================ */
+
+type Plan = "starter" | "growth" | "enterprise";
+
+function isActiveStatus(status: any) {
+  return status === "active" || status === "trial";
+}
+
+async function requireOrgId(ctx: any): Promise<string> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+  }
+  const orgId = identity.orgId as string | undefined;
+  if (!orgId) {
+    throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+  }
+  return orgId;
+}
+
+async function getSubscriptionByOrg(ctx: any, organizationId: string) {
+  return await ctx.db
+    .query("subscriptions")
+    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
+    .unique();
+}
+
+async function requireSlackEntitled(ctx: any, organizationId: string) {
+  const sub = await getSubscriptionByOrg(ctx, organizationId);
+  const plan: Plan = (sub?.plan ?? "starter") as Plan;
+  const status = sub?.status ?? "paused";
+
+  // Slack = inclus Growth+ uniquement, et seulement si actif/trial
+  if (!isActiveStatus(status) || !(plan === "growth" || plan === "enterprise")) {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "Slack is available on Growth and Enterprise plans only.",
+    });
+  }
+  return sub;
+}
+
+async function requireSalesforceEntitled(ctx: any, organizationId: string) {
+  const sub = await getSubscriptionByOrg(ctx, organizationId);
+  const plan: Plan = (sub?.plan ?? "starter") as Plan;
+  const status = sub?.status ?? "paused";
+  const addons = sub?.addons ?? {};
+
+  // Salesforce = add-on uniquement, et JAMAIS en starter, et seulement si actif/trial
+  if (!isActiveStatus(status) || plan === "starter" || addons.salesforce !== true) {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "Salesforce requires the Salesforce add-on (Growth/Enterprise only).",
+    });
+  }
+  return sub;
+}
+
+/** DB getters by orgId (used by worker actions that receive orgId) */
+async function getSlackIntegrationByOrg(ctx: any, organizationId: string) {
+  return await ctx.db
+    .query("slackIntegrations")
+    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
+    .unique();
+}
+
+async function getSalesforceIntegrationByOrg(ctx: any, organizationId: string) {
+  return await ctx.db
+    .query("salesforceIntegrations")
+    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
+    .unique();
+}
+
+async function getSalesforceAppConfigByOrg(ctx: any, organizationId: string) {
+  return await ctx.db
+    .query("salesforceAppConfigs")
+    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
+    .unique();
+}
+
+/* ============================================================
+   SLACK INTEGRATION (dashboard/private)
    ============================================================ */
 
 export const getSlackIntegration = query({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
-    return await ctx.db
-      .query("slackIntegrations")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
-      .unique();
+  args: {},
+  handler: async (ctx) => {
+    const organizationId = await requireOrgId(ctx);
+    await requireSlackEntitled(ctx, organizationId);
+    return await getSlackIntegrationByOrg(ctx, organizationId);
   },
 });
 
 export const saveSlackIntegration = mutation({
   args: {
-    organizationId: v.string(),
     accessToken: v.string(),
     teamId: v.optional(v.string()),
     teamName: v.optional(v.string()),
     defaultChannel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
+    const organizationId = await requireOrgId(ctx);
+    await requireSlackEntitled(ctx, organizationId);
 
-    const existing = await ctx.db
-      .query("slackIntegrations")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
-      .unique();
+    const now = Date.now();
+    const existing = await getSlackIntegrationByOrg(ctx, organizationId);
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -44,7 +124,7 @@ export const saveSlackIntegration = mutation({
     }
 
     await ctx.db.insert("slackIntegrations", {
-      organizationId: args.organizationId,
+      organizationId,
       accessToken: args.accessToken,
       teamId: args.teamId,
       teamName: args.teamName,
@@ -56,17 +136,20 @@ export const saveSlackIntegration = mutation({
 });
 
 export const disconnectSlackIntegration = mutation({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
-    const existing = await ctx.db
-      .query("slackIntegrations")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
-      .unique();
+  args: {},
+  handler: async (ctx) => {
+    const organizationId = await requireOrgId(ctx);
+    await requireSlackEntitled(ctx, organizationId);
 
+    const existing = await getSlackIntegrationByOrg(ctx, organizationId);
     if (!existing) return;
     await ctx.db.delete(existing._id);
   },
 });
+
+/* ============================================================
+   SLACK WORKER (called from booking/calendar; keeps orgId)
+   ============================================================ */
 
 export const sendSlackMessage = action({
   args: {
@@ -75,10 +158,10 @@ export const sendSlackMessage = action({
     channelOverride: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId, text, channelOverride }) => {
-    const integration = await ctx.runQuery(api.integrations.getSlackIntegration, {
-      organizationId,
-    });
+    // hard-gate worker side too
+    await requireSlackEntitled(ctx, organizationId);
 
+    const integration = await getSlackIntegrationByOrg(ctx, organizationId);
     if (!integration) return;
 
     const rawChannel = channelOverride ?? integration.defaultChannel ?? "general";
@@ -93,7 +176,7 @@ export const sendSlackMessage = action({
       body: JSON.stringify({ channel, text }),
     });
 
-    const json: any = await res.json();
+    const json: any = await res.json().catch(() => ({}));
     if (!json.ok) {
       console.log("Slack chat.postMessage error:", json.error);
     }
@@ -101,33 +184,30 @@ export const sendSlackMessage = action({
 });
 
 /* ============================================================
-   SALESFORCE: APP CONFIG (per org)
+   SALESFORCE: APP CONFIG (dashboard/private)
    ============================================================ */
 
 export const getSalesforceAppConfig = query({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
-    return await ctx.db
-      .query("salesforceAppConfigs")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
-      .unique();
+  args: {},
+  handler: async (ctx) => {
+    const organizationId = await requireOrgId(ctx);
+    await requireSalesforceEntitled(ctx, organizationId);
+    return await getSalesforceAppConfigByOrg(ctx, organizationId);
   },
 });
 
 export const upsertSalesforceAppConfig = mutation({
   args: {
-    organizationId: v.string(),
     clientId: v.string(),
     clientSecret: v.string(),
     loginUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
+    const organizationId = await requireOrgId(ctx);
+    await requireSalesforceEntitled(ctx, organizationId);
 
-    const existing = await ctx.db
-      .query("salesforceAppConfigs")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
-      .unique();
+    const now = Date.now();
+    const existing = await getSalesforceAppConfigByOrg(ctx, organizationId);
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -140,7 +220,7 @@ export const upsertSalesforceAppConfig = mutation({
     }
 
     await ctx.db.insert("salesforceAppConfigs", {
-      organizationId: args.organizationId,
+      organizationId,
       clientId: args.clientId,
       clientSecret: args.clientSecret,
       loginUrl: args.loginUrl,
@@ -151,33 +231,30 @@ export const upsertSalesforceAppConfig = mutation({
 });
 
 /* ============================================================
-   SALESFORCE: INTEGRATION TOKENS (per org)
+   SALESFORCE: INTEGRATION TOKENS (dashboard/private)
    ============================================================ */
 
 export const getSalesforceIntegration = query({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
-    return await ctx.db
-      .query("salesforceIntegrations")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
-      .unique();
+  args: {},
+  handler: async (ctx) => {
+    const organizationId = await requireOrgId(ctx);
+    await requireSalesforceEntitled(ctx, organizationId);
+    return await getSalesforceIntegrationByOrg(ctx, organizationId);
   },
 });
 
 export const saveSalesforceIntegration = mutation({
   args: {
-    organizationId: v.string(),
     accessToken: v.string(),
     refreshToken: v.optional(v.string()),
     instanceUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
+    const organizationId = await requireOrgId(ctx);
+    await requireSalesforceEntitled(ctx, organizationId);
 
-    const existing = await ctx.db
-      .query("salesforceIntegrations")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
-      .unique();
+    const now = Date.now();
+    const existing = await getSalesforceIntegrationByOrg(ctx, organizationId);
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -190,7 +267,7 @@ export const saveSalesforceIntegration = mutation({
     }
 
     await ctx.db.insert("salesforceIntegrations", {
-      organizationId: args.organizationId,
+      organizationId,
       accessToken: args.accessToken,
       refreshToken: args.refreshToken,
       instanceUrl: args.instanceUrl,
@@ -201,20 +278,19 @@ export const saveSalesforceIntegration = mutation({
 });
 
 export const disconnectSalesforceIntegration = mutation({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
-    const existing = await ctx.db
-      .query("salesforceIntegrations")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
-      .unique();
+  args: {},
+  handler: async (ctx) => {
+    const organizationId = await requireOrgId(ctx);
+    await requireSalesforceEntitled(ctx, organizationId);
 
+    const existing = await getSalesforceIntegrationByOrg(ctx, organizationId);
     if (!existing) return;
     await ctx.db.delete(existing._id);
   },
 });
 
 /* ============================================================
-   SALESFORCE: AUTO REFRESH (access token)
+   SALESFORCE: AUTO REFRESH (worker; keeps orgId)
    ============================================================ */
 
 async function parseSfError(res: Response): Promise<any> {
@@ -230,24 +306,46 @@ function isInvalidSession(payload: any): boolean {
   if (Array.isArray(payload)) {
     return payload.some((e) => e?.errorCode === "INVALID_SESSION_ID");
   }
-  if (payload?.errorCode === "INVALID_SESSION_ID") return true;
-  return false;
+  return payload?.errorCode === "INVALID_SESSION_ID";
 }
+
+// internal-ish mutation (called from action) — keep it gated
+export const _updateSalesforceAccessToken = mutation({
+  args: {
+    organizationId: v.string(),
+    accessToken: v.string(),
+  },
+  handler: async (ctx, { organizationId, accessToken }) => {
+    await requireSalesforceEntitled(ctx, organizationId);
+
+    const existing = await ctx.db
+      .query("salesforceIntegrations")
+      .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (!existing) return { ok: false as const, reason: "NOT_CONNECTED" as const };
+
+    await ctx.db.patch(existing._id, {
+      accessToken,
+      updatedAt: Date.now(),
+    });
+
+    return { ok: true as const };
+  },
+});
 
 export const refreshSalesforceAccessToken = action({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
-    const integration = await ctx.runQuery(api.integrations.getSalesforceIntegration, {
-      organizationId,
-    });
+    await requireSalesforceEntitled(ctx, organizationId);
+
+    const integration = await getSalesforceIntegrationByOrg(ctx, organizationId);
 
     if (!integration?.refreshToken || !integration?.instanceUrl) {
       return { ok: false as const, reason: "NO_REFRESH_TOKEN" as const };
     }
 
-    const appConfig = await ctx.runQuery(api.integrations.getSalesforceAppConfig, {
-      organizationId,
-    });
+    const appConfig = await getSalesforceAppConfigByOrg(ctx, organizationId);
 
     const loginUrl = appConfig?.loginUrl?.trim() || "https://login.salesforce.com";
     const clientId = appConfig?.clientId || "";
@@ -277,11 +375,9 @@ export const refreshSalesforceAccessToken = action({
 
     const newAccessToken = String(tokenJson.access_token);
 
-    await ctx.runMutation(api.integrations.saveSalesforceIntegration, {
+    await ctx.runMutation(api.integrations._updateSalesforceAccessToken, {
       organizationId,
       accessToken: newAccessToken,
-      refreshToken: integration.refreshToken,
-      instanceUrl: integration.instanceUrl,
     });
 
     return { ok: true as const };
@@ -327,12 +423,10 @@ async function sfFetch(
     throw err;
   }
 
-  // 4) Reload token
-  const updated = await ctx.runQuery(api.integrations.getSalesforceIntegration, {
-    organizationId,
-  });
-
+  // 4) Reload token from DB
+  const updated = await getSalesforceIntegrationByOrg(ctx, organizationId);
   const newToken = updated?.accessToken;
+
   if (!newToken) {
     throw new Error("SALESFORCE_MISSING_TOKEN_AFTER_REFRESH");
   }
@@ -348,7 +442,7 @@ async function sfFetch(
 }
 
 /* ============================================================
-   SALESFORCE: CREATE/UPSERT LEAD + EVENT (when a meeting is booked)
+   SALESFORCE: CREATE/UPSERT LEAD + EVENT (worker; keeps orgId)
    ============================================================ */
 
 export const createSalesforceLeadAndEvent = action({
@@ -365,9 +459,10 @@ export const createSalesforceLeadAndEvent = action({
     source: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const integration = await ctx.runQuery(api.integrations.getSalesforceIntegration, {
-      organizationId: args.organizationId,
-    });
+    // hard-gate here too
+    await requireSalesforceEntitled(ctx, args.organizationId);
+
+    const integration = await getSalesforceIntegrationByOrg(ctx, args.organizationId);
 
     if (!integration?.accessToken || !integration?.instanceUrl) {
       return {
@@ -400,14 +495,7 @@ export const createSalesforceLeadAndEvent = action({
       const soql = `SELECT Id FROM Lead WHERE Email = '${safeEmail}' ORDER BY CreatedDate DESC LIMIT 1`;
       const qUrl = `${base}/query?q=${encodeURIComponent(soql)}`;
 
-      const qRes = await sfFetch(
-        ctx,
-        args.organizationId,
-        qUrl,
-        { method: "GET" },
-        accessToken
-      );
-
+      const qRes = await sfFetch(ctx, args.organizationId, qUrl, { method: "GET" }, accessToken);
       const qJson: any = await qRes.json().catch(() => ({}));
 
       if (qRes.ok && Array.isArray(qJson?.records) && qJson.records.length > 0) {
@@ -430,9 +518,7 @@ export const createSalesforceLeadAndEvent = action({
         Status: leadStatus,
       };
 
-      Object.keys(leadPayload).forEach(
-        (k) => leadPayload[k] === undefined && delete leadPayload[k]
-      );
+      Object.keys(leadPayload).forEach((k) => leadPayload[k] === undefined && delete leadPayload[k]);
 
       try {
         const leadRes = await sfFetch(

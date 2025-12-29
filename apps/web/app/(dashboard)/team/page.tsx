@@ -223,7 +223,7 @@ export default function TeamPage() {
   // 🔹 Load repsPresence
   const reps = useQuery(
     api.team.listRepsForOrg,
-    organization ? { organizationId: organization.id } : ("skip" as any),
+    organization ? ({} as any) : ("skip" as any),
   ) as
     | {
         _id: string;
@@ -274,7 +274,6 @@ export default function TeamPage() {
 
     try {
       await upsertRep({
-        organizationId: organization.id,
         userId: row.member.userId,
         role: row.role,
         regions: row.regions,
@@ -412,7 +411,7 @@ export default function TeamPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-muted p-8">
-      <div className="mx-auto w০০full max-w-5xl space-y-8">
+      <div className="mx-auto w-full max-w-5xl space-y-8">
         {/* HEADER */}
         <div className="space-y-2">
           <h1 className="text-2xl md:text-4xl">Team & Territories</h1>

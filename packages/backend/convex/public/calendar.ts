@@ -324,7 +324,6 @@ export const bookSlot = action({
       ].filter(Boolean);
 
       const rep = await ctx.runQuery(api.team.getRepForOrgUser, {
-        organizationId,
         userId: acct.userId,
       });
 

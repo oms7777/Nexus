@@ -2,9 +2,24 @@
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 
+/** Centralize auth/org resolution */
+async function requireOrgId(ctx: any): Promise<string> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+  }
+  const orgId = identity.orgId as string | undefined;
+  if (!orgId) {
+    throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+  }
+  return orgId;
+}
+
 export const listRepsForOrg = query({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
+  args: {},
+  handler: async (ctx) => {
+    const organizationId = await requireOrgId(ctx);
+
     return await ctx.db
       .query("repsPresence")
       .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
@@ -13,12 +28,14 @@ export const listRepsForOrg = query({
 });
 
 export const getRepForOrgUser = query({
-  args: { organizationId: v.string(), userId: v.string() },
-  handler: async (ctx, { organizationId, userId }) => {
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    const organizationId = await requireOrgId(ctx);
+
     return await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId),
+        q.eq("organizationId", organizationId).eq("userId", userId)
       )
       .unique();
   },
@@ -26,7 +43,6 @@ export const getRepForOrgUser = query({
 
 export const upsertRepPresence = mutation({
   args: {
-    organizationId: v.string(),
     userId: v.string(),
 
     role: v.union(v.literal("sales"), v.literal("support")),
@@ -38,19 +54,21 @@ export const upsertRepPresence = mutation({
   },
   handler: async (
     ctx,
-    { organizationId, userId, role, regions, available, slackUserId, slackDmChannel },
+    { userId, role, regions, available, slackUserId, slackDmChannel }
   ) => {
-    if (!organizationId || !userId) {
+    const organizationId = await requireOrgId(ctx);
+
+    if (!userId) {
       throw new ConvexError({
         code: "BAD_REQUEST",
-        message: "organizationId and userId are required",
+        message: "userId is required",
       });
     }
 
     const existing = await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId),
+        q.eq("organizationId", organizationId).eq("userId", userId)
       )
       .unique();
 
@@ -58,7 +76,9 @@ export const upsertRepPresence = mutation({
     if (!existing) {
       const sub = await ctx.db
         .query("subscriptions")
-        .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+        .withIndex("by_organization_id", (q) =>
+          q.eq("organizationId", organizationId)
+        )
         .unique();
 
       if (!sub || sub.status !== "active") {
@@ -72,7 +92,6 @@ export const upsertRepPresence = mutation({
       const addonExtra = sub.addons?.extraReps ?? 0;
       const maxReps = baseLimit + addonExtra;
 
-      // count current reps
       const reps = await ctx.db
         .query("repsPresence")
         .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
@@ -109,20 +128,26 @@ export const upsertRepPresence = mutation({
   },
 });
 
+/**
+ * connectRepSlack
+ * ✅ IMPORTANT:
+ * Slack callback should NOT be able to attach Slack to another org via a client-provided orgId.
+ * We scope by identity.orgId, and we also protect that the user exists in this org's repsPresence.
+ */
 export const connectRepSlack = mutation({
   args: {
-    organizationId: v.string(),
     userId: v.string(),
     slackUserId: v.string(),
     slackDmChannel: v.string(),
   },
-  handler: async (ctx, { organizationId, userId, slackUserId, slackDmChannel }) => {
+  handler: async (ctx, { userId, slackUserId, slackDmChannel }) => {
+    const organizationId = await requireOrgId(ctx);
     const now = Date.now();
 
     const existing = await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId),
+        q.eq("organizationId", organizationId).eq("userId", userId)
       )
       .unique();
 
@@ -135,9 +160,8 @@ export const connectRepSlack = mutation({
       return existing._id;
     }
 
-    // ✅ Optional: respect rep limit here too (if you ever call connectRepSlack without prior upsert)
-    // For now we keep behavior consistent with your existing code.
-
+    // If you want STRICT mode: forbid creating a rep here.
+    // But keeping your previous behavior for compatibility:
     const id = await ctx.db.insert("repsPresence", {
       organizationId,
       userId,
