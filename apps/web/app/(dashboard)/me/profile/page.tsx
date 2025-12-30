@@ -1,7 +1,7 @@
 // apps/web/app/(dashboard)/me/profile/page.tsx
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
@@ -27,7 +27,7 @@ export default function ProfilePage() {
   const { user } = useUser();
   const searchParams = useSearchParams();
 
-  // Gmail connection
+  // Gmail connection (Convex)
   const account = useQuery(api.private.calendar.meConnection, {});
 
   // User profile (Convex)
@@ -35,15 +35,26 @@ export default function ProfilePage() {
   const setAvatar = useMutation(api.private.users.meSetAvatar);
   const addFile = useAction(api.private.files.addFile);
 
-  // Slack user-level integration (repsPresence)
+  // ✅ FIX: listRepsForOrg has args: {}
   const reps = useQuery(
     api.team.listRepsForOrg,
-    organization ? { organizationId: organization.id } : ("skip" as any),
-  );
+    organization ? {} : ("skip" as any),
+  ) as
+    | {
+        _id: string;
+        organizationId: string;
+        userId: string;
+        role: "sales" | "support";
+        regions?: string[];
+        available: boolean;
+        slackUserId?: string;
+        slackDmChannel?: string;
+        updatedAt: number;
+      }[]
+    | undefined;
 
   const slackInfo = useMemo(() => {
     if (!user || !reps) return null;
-    // repsPresence.userId === Clerk userId
     return reps.find((r) => r.userId === user.id) ?? null;
   }, [reps, user]);
 
@@ -53,12 +64,9 @@ export default function ProfilePage() {
     window.location.href = "/api/integrations/slack/user/start";
   };
 
-  // Show toast once when coming back from Slack OAuth
   useEffect(() => {
     const flag = searchParams.get("slack_user_connected");
-    if (flag === "1") {
-      toast.success("Slack connected successfully");
-    }
+    if (flag === "1") toast.success("Slack connected successfully");
   }, [searchParams]);
 
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -66,10 +74,8 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const m = me as any;
-    const url = m?.avatarUrl;
-    const title = m?.title;
-    setAvatarUrl(url ?? "");
-    setJobTitle(title ?? "");
+    setAvatarUrl(m?.avatarUrl ?? "");
+    setJobTitle(m?.title ?? "");
   }, [me]);
 
   const connectGmail = () => {
@@ -83,7 +89,8 @@ export default function ProfilePage() {
         title: jobTitle.trim() || undefined,
       });
       toast.success("Profile saved");
-    } catch {
+    } catch (e) {
+      console.error(e);
       toast.error("Failed to save");
     }
   };
@@ -107,7 +114,8 @@ export default function ProfilePage() {
       });
 
       toast.success("Avatar uploaded");
-    } catch {
+    } catch (e) {
+      console.error(e);
       toast.error("Upload failed");
     }
   };
@@ -125,11 +133,10 @@ export default function ProfilePage() {
         <CardContent className="space-y-5">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <UserRoundIcon className="h-4 w-4" />
-            Your profile image and job title may be shown in on-site nudges
-            and booking confirmations.
+            Your profile image and job title may be shown in on-site nudges and
+            booking confirmations.
           </div>
 
-          {/* Avatar URL + title */}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-end">
             <div className="space-y-3">
               <div>
@@ -163,7 +170,6 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Upload */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
             <div>
               <Label htmlFor="avatar-file">Or upload a photo</Label>
@@ -181,9 +187,7 @@ export default function ProfilePage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() =>
-                document.getElementById("avatar-file")?.click()
-              }
+              onClick={() => document.getElementById("avatar-file")?.click()}
             >
               <Upload className="mr-2 h-4 w-4" />
               Choose file
@@ -210,12 +214,14 @@ export default function ProfilePage() {
                 <Badge variant="outline">Not Connected</Badge>
               )}
             </div>
+
             {slackConnected && slackInfo?.slackDmChannel && (
               <p className="text-xs text-muted-foreground">
                 DMs will be sent to your Slack account (channel{" "}
                 <span className="font-mono">{slackInfo.slackDmChannel}</span>).
               </p>
             )}
+
             {!slackConnected && (
               <p className="text-xs text-muted-foreground">
                 Connect Slack to receive DM notifications when a new meeting is
@@ -243,8 +249,7 @@ export default function ProfilePage() {
           <div className="text-sm text-muted-foreground">
             {account ? (
               <>
-                Connected as{" "}
-                <span className="font-medium">{account.email}</span>
+                Connected as <span className="font-medium">{account.email}</span>
               </>
             ) : (
               <>Connect Gmail to send confirmations.</>
