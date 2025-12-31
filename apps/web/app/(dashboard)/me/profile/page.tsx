@@ -108,7 +108,6 @@ export default function ProfilePage() {
       // ✅ 1) Upload dans Clerk => UserButton va matcher
       if (!user) throw new Error("User not loaded");
       // Clerk: met à jour la photo du user (même fichier)
-      // @ts-expect-error selon versions Clerk, la signature peut varier mais ça marche en pratique
       await user.setProfileImage({ file });
 
       // ✅ 2) On enregistre la référence dans Convex (pour ton app/widgets)
