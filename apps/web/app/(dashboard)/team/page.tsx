@@ -425,18 +425,22 @@ export default function TeamPage() {
               Invite member
             </Button>
           </div>
-
           <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-            {/* ✅ Le modal devient grand (desktop) et prend presque tout l’écran */}
-            <DialogContent className="p-0 overflow-hidden w-[min(1100px,95vw)] h-[min(760px,90vh)] max-w-none">
+            <DialogContent
+              className="
+                !p-0 !overflow-hidden
+                !max-w-none
+                !w-[95vw] !h-[90vh]
+                sm:!w-[min(1100px,95vw)] sm:!h-[min(760px,90vh)]
+              "
+            >
               <DialogHeader className="px-6 pt-6">
                 <DialogTitle>Members</DialogTitle>
               </DialogHeader>
 
-              {/* ✅ Le “cadre Members” devient le container principal, et il est grand */}
-              <div className="px-6 pb-6 h-[calc(100%-72px)]">
+              {/* le contenu prend toute la hauteur restante */}
+              <div className="h-[calc(100%-72px)] px-6 pb-6">
                 <div className="h-full w-full rounded-xl border bg-background overflow-hidden">
-                  {/* ✅ On laisse Clerk remplir tout le cadre */}
                   <OrganizationProfile
                     routing="hash"
                     appearance={{
@@ -447,9 +451,9 @@ export default function TeamPage() {
                         organizationProfileLeaveOrganizationAction: "hidden",
                         organizationProfileDeleteOrganizationAction: "hidden",
 
-                        // ✅ important: Clerk ne doit pas se limiter en largeur
+                        // force Clerk à remplir
                         rootBox: "w-full h-full max-w-none",
-                        card: "w-full h-full max-w-none shadow-none border-0 rounded-none",
+                        card: "w-full h-full max-w-none border-0 shadow-none rounded-none",
                         pageScrollBox: "w-full h-full max-w-none",
                       },
                     }}
@@ -458,6 +462,7 @@ export default function TeamPage() {
               </div>
             </DialogContent>
           </Dialog>
+
 
 
           {/* ROUTING MODE */}
