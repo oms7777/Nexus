@@ -1,6 +1,6 @@
 "use client";
 
-import { UserButton, useOrganization } from "@clerk/nextjs";
+import { UserButton, useOrganization, useOrganizationList } from "@clerk/nextjs";
 import {
   BellIcon,
   CalendarIcon,
@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useMemo } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   Sidebar,
@@ -32,19 +32,103 @@ import {
 
 import { cn } from "@workspace/ui/lib/utils";
 import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { Button } from "@workspace/ui/components/button";
 
-function InboundlessLogo() {
+function OrgSwitcherNoCreate() {
+  const router = useRouter();
+  const { organization } = useOrganization();
+  const { isLoaded, userMemberships } = useOrganizationList({
+    userMemberships: { infinite: true },
+  });
+
+  const [open, setOpen] = useState(false);
+  const memberships = userMemberships?.data ?? [];
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-org-switcher-root='true']")) {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open]);
+
+  if (!isLoaded) {
+    return <div className="w-full h-9 rounded-md bg-muted animate-pulse" />;
+  }
+
   return (
-    <div className="flex items-center gap-2 px-2 pt-2">
-      {/* Remplace par ton vrai logo (img / svg) */}
-      <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center font-bold">
-        I
-      </div>
-      {/* ✅ caché quand sidebar collapsed */}
-      <div className="leading-tight group-data-[collapsible=icon]:hidden">
-        <div className="text-sm font-semibold">Inboundless</div>
-        <div className="text-xs text-muted-foreground">Dashboard</div>
-      </div>
+    <div className="relative w-full" data-org-switcher-root="true">
+      <button
+        type="button"
+        className="w-full h-9 px-3 rounded-md border bg-background text-left flex items-center gap-2 hover:bg-muted"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="truncate text-sm font-medium">
+          {organization?.name ?? "Select organization"}
+        </span>
+        <span className="ml-auto text-xs opacity-60">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-2 w-full rounded-xl border bg-background shadow-lg p-2 space-y-2">
+          <div className="space-y-1">
+            {memberships.map((m) => {
+              const org = m.organization;
+              const active = org.id === organization?.id;
+
+              return (
+                <button
+                  key={org.id}
+                  className={cn(
+                    "w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-muted",
+                    active && "bg-muted",
+                  )}
+                  onClick={() => {
+                    window.location.href = `/org-selection?redirectURL=${encodeURIComponent(
+                      window.location.href,
+                    )}`;
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="truncate">{org.name}</span>
+                    {active ? <span className="ml-auto opacity-60">✓</span> : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="h-px bg-border" />
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-9 text-sm"
+            onClick={() => {
+              setOpen(false);
+              router.push("/org");
+            }}
+            disabled={!organization}
+          >
+            Manage organization
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -100,65 +184,40 @@ export const DashboardSidebar = () => {
     return [
       { title: "Team & Territories", url: "/team", icon: Users },
       { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen },
-      {
-        title: "Widget Customization",
-        url: "/customization",
-        icon: SlidersHorizontal,
-      },
-      canSeeIntegrations && {
-        title: "Integrations",
-        url: "/integrations",
-        icon: InboxIcon,
-      },
-      canUseVoice && {
-        title: "Voice Assistant",
-        url: "/plugins/vapi",
-        icon: Mic,
-      },
+      { title: "Widget Customization", url: "/customization", icon: SlidersHorizontal },
+      canSeeIntegrations && { title: "Integrations", url: "/integrations", icon: InboxIcon },
+      canUseVoice && { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
     ].filter(Boolean) as { title: string; url: string; icon: any }[];
   }, [ent.isLoading, canSeeIntegrations, canUseVoice]);
 
-  const NavLink = ({
-    item,
-    activeClassName,
-  }: {
-    item: { title: string; url: string; icon: any };
-    activeClassName?: string;
-  }) => {
-    return (
-      <Link
-        href={item.url}
-        className={cn(
-          "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
-          // ✅ quand sidebar collapsed : center l’icône et cache le label
-          "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2",
-          isActive(item.url) && (activeClassName ?? "bg-muted"),
-        )}
-      >
-        <item.icon className="size-4 shrink-0" />
-        <span className="truncate group-data-[collapsible=icon]:hidden">
-          {item.title}
-        </span>
-      </Link>
-    );
-  };
+  // ✅ texte caché quand le sidebar est en mode icon
+  const labelClass = "group-data-[collapsible=icon]:hidden";
 
   return (
     <Sidebar className="group" collapsible="icon">
       <SidebarHeader>
-        <InboundlessLogo />
+        <div className="px-2 pt-2">
+          <OrgSwitcherNoCreate />
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
-            Pipeline
-          </SidebarGroupLabel>
+          <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {pipelineItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <NavLink item={item} />
+                  <Link
+                    href={item.url}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
+                      isActive(item.url) && "bg-muted",
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                    <span className={labelClass}>{item.title}</span>
+                  </Link>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
@@ -166,23 +225,28 @@ export const DashboardSidebar = () => {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
-            Analytics
-          </SidebarGroupLabel>
+          <SidebarGroupLabel>Analytics</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {analyticsItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <NavLink
-                    item={item}
-                    activeClassName="bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground!"
-                  />
+                  <Link
+                    href={item.url}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
+                      isActive(item.url) &&
+                        "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground!",
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                    <span className={labelClass}>{item.title}</span>
+                  </Link>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
 
             {!canUseAdvancedAnalytics && (
-              <p className="px-3 pt-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+              <p className={cn("px-3 pt-2 text-xs text-muted-foreground", labelClass)}>
                 Some analytics are limited on your plan.
               </p>
             )}
@@ -190,14 +254,21 @@ export const DashboardSidebar = () => {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
-            Profile
-          </SidebarGroupLabel>
+          <SidebarGroupLabel>Profile</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {profileItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <NavLink item={item} />
+                  <Link
+                    href={item.url}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
+                      isActive(item.url) && "bg-muted",
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                    <span className={labelClass}>{item.title}</span>
+                  </Link>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
@@ -206,14 +277,21 @@ export const DashboardSidebar = () => {
 
         {isAdmin && configurationItems.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
-              Configuration
-            </SidebarGroupLabel>
+            <SidebarGroupLabel>Configuration</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {configurationItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <NavLink item={item} />
+                    <Link
+                      href={item.url}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
+                        isActive(item.url) && "bg-muted",
+                      )}
+                    >
+                      <item.icon className="size-4" />
+                      <span className={labelClass}>{item.title}</span>
+                    </Link>
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
@@ -224,8 +302,8 @@ export const DashboardSidebar = () => {
 
       <SidebarFooter>
         <SidebarMenu>
-          {/* si tu veux aussi cacher le nom en collapsed : showName={false} + custom */}
-          <UserButton showName />
+          {/* ✅ enlève le prénom/nom */}
+          <UserButton showName={false} />
         </SidebarMenu>
       </SidebarFooter>
 

@@ -1,8 +1,7 @@
-// apps/web/app/(dashboard)/me/profile/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
 import { useOrganization, useUser } from "@clerk/nextjs";
@@ -24,7 +23,7 @@ import { toast } from "sonner";
 
 export default function ProfilePage() {
   const { organization } = useOrganization();
-  const { user } = useUser();
+  const { user, isLoaded: userLoaded } = useUser();
   const searchParams = useSearchParams();
 
   // Gmail connection (Convex)
@@ -33,9 +32,8 @@ export default function ProfilePage() {
   // User profile (Convex)
   const me = useQuery(api.private.users.meGet, {});
   const setAvatar = useMutation(api.private.users.meSetAvatar);
-  const addFile = useAction(api.private.files.addFile);
 
-  // ✅ FIX: listRepsForOrg has args: {}
+  // Reps / Slack
   const reps = useQuery(
     api.team.listRepsForOrg,
     organization ? {} : ("skip" as any),
@@ -69,12 +67,15 @@ export default function ProfilePage() {
     if (flag === "1") toast.success("Slack connected successfully");
   }, [searchParams]);
 
-  const [avatarUrl, setAvatarUrl] = useState("");
   const [jobTitle, setJobTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // ✅ Source unique d’affichage : Clerk d’abord, sinon Convex
+  const displayAvatar =
+    (userLoaded ? user?.imageUrl : undefined) || (me as any)?.avatarUrl || "";
 
   useEffect(() => {
     const m = me as any;
-    setAvatarUrl(m?.avatarUrl ?? "");
     setJobTitle(m?.title ?? "");
   }, [me]);
 
@@ -84,39 +85,47 @@ export default function ProfilePage() {
 
   const saveProfile = async () => {
     try {
+      setSaving(true);
       await setAvatar({
-        avatarUrl: avatarUrl.trim() || undefined,
         title: jobTitle.trim() || undefined,
+        // avatarUrl: on ne force pas ici, c’est géré par upload
       });
       toast.success("Profile saved");
     } catch (e) {
       console.error(e);
       toast.error("Failed to save");
+    } finally {
+      setSaving(false);
     }
   };
 
   const onSelectFile = async (file?: File) => {
     if (!file) return;
+
     try {
-      const bytes = await file.arrayBuffer();
+      setSaving(true);
 
-      const { url } = await addFile({
-        filename: file.name,
-        mimeType: file.type || "application/octet-stream",
-        bytes,
-        category: "avatar",
-      });
+      // ✅ 1) Upload dans Clerk => UserButton va matcher
+      if (!user) throw new Error("User not loaded");
+      // Clerk: met à jour la photo du user (même fichier)
+      // @ts-expect-error selon versions Clerk, la signature peut varier mais ça marche en pratique
+      await user.setProfileImage({ file });
 
-      setAvatarUrl(url ?? "");
+      // ✅ 2) On enregistre la référence dans Convex (pour ton app/widgets)
+      // On prend l’URL Clerk (source de vérité)
+      const clerkUrl = user.imageUrl;
+
       await setAvatar({
-        avatarUrl: url ?? undefined,
+        avatarUrl: clerkUrl || undefined,
         title: jobTitle.trim() || undefined,
       });
 
-      toast.success("Avatar uploaded");
+      toast.success("Avatar updated");
     } catch (e) {
       console.error(e);
       toast.error("Upload failed");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -140,39 +149,32 @@ export default function ProfilePage() {
           <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-end">
             <div className="space-y-3">
               <div>
-                <Label>My avatar (image URL)</Label>
-                <Input
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
-                  placeholder="https://…/me.jpg"
-                />
-              </div>
-
-              <div>
                 <Label>Job title</Label>
                 <Input
                   value={jobTitle}
                   onChange={(e) => setJobTitle(e.target.value)}
-                  placeholder="Solutions Engineer EMEA"
+                  placeholder="Sales"
                 />
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-3">
-              {avatarUrl ? (
+              {displayAvatar ? (
                 <img
-                  src={avatarUrl}
+                  src={displayAvatar}
                   alt="Avatar preview"
                   className="h-14 w-14 rounded-full border object-cover"
                 />
               ) : null}
-              <Button onClick={saveProfile}>Save</Button>
+              <Button onClick={saveProfile} disabled={saving}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
             <div>
-              <Label htmlFor="avatar-file">Or upload a photo</Label>
+              <Label htmlFor="avatar-file">Upload a photo</Label>
               <Input
                 id="avatar-file"
                 type="file"
@@ -188,6 +190,7 @@ export default function ProfilePage() {
               type="button"
               variant="outline"
               onClick={() => document.getElementById("avatar-file")?.click()}
+              disabled={saving}
             >
               <Upload className="mr-2 h-4 w-4" />
               Choose file
