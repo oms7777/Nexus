@@ -1,6 +1,6 @@
 "use client";
 
-import { OrganizationSwitcher, UserButton, useOrganization } from "@clerk/nextjs";
+import { UserButton, useClerk, useOrganization, useOrganizationList } from "@clerk/nextjs";
 import {
   BellIcon,
   CalendarIcon,
@@ -13,7 +13,7 @@ import {
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import {
   Sidebar,
@@ -31,6 +31,69 @@ import {
 
 import { cn } from "@workspace/ui/lib/utils";
 import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { Button } from "@workspace/ui/components/button";
+
+function OrgSwitcherNoCreate() {
+  const { organization } = useOrganization();
+  const { setActive } = useClerk();
+  const { isLoaded, userMemberships } = useOrganizationList({
+    userMemberships: { infinite: true },
+  });
+
+  const [open, setOpen] = useState(false);
+
+  const memberships = userMemberships?.data ?? [];
+
+  if (!isLoaded) {
+    return (
+      <div className="w-full h-8 rounded-md bg-muted animate-pulse" />
+    );
+  }
+
+  return (
+    <div className="relative w-full">
+      <Button
+        type="button"
+        variant="ghost"
+        className="w-full justify-start h-8 px-2"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="truncate text-xs font-medium">
+          {organization?.name ?? "Select organization"}
+        </span>
+        <span className="ml-auto text-xs opacity-60">▾</span>
+      </Button>
+
+      {open && (
+        <div className="absolute z-50 mt-2 w-full rounded-xl border bg-background shadow-lg p-1">
+          {memberships.map((m) => {
+            const org = m.organization;
+            const active = org.id === organization?.id;
+
+            return (
+              <button
+                key={org.id}
+                className={cn(
+                  "w-full text-left rounded-lg px-3 py-2 text-xs hover:bg-muted",
+                  active && "bg-muted"
+                )}
+                onClick={async () => {
+                  await setActive({ organization: org.id });
+                  setOpen(false);
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="truncate">{org.name}</span>
+                  {active ? <span className="ml-auto opacity-60">✓</span> : null}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export const DashboardSidebar = () => {
   const pathname = usePathname();
@@ -38,10 +101,10 @@ export const DashboardSidebar = () => {
   const isAdmin = membership?.role === "org:admin";
 
   const ent = useEntitlements();
-  const f = ent.features;
 
-  const isActive = (url: string) =>
-    pathname === url || pathname.startsWith(`${url}/`);
+  const isActive = (url: string) => pathname === url || pathname.startsWith(`${url}/`);
+
+  const f = ent.features;
 
   const canSeeIntegrations = !!(f.canUseSlack || f.canUseSalesforce);
   const canUseVoice = !!f.canUseVoice;
@@ -53,14 +116,13 @@ export const DashboardSidebar = () => {
     { title: "Conversations", url: "/conversations", icon: InboxIcon },
   ];
 
-  const analyticsItems = useMemo(
-    () => [
+  const analyticsItems = useMemo(() => {
+    return [
       { title: "Overview", url: "/analytics/overview", icon: BarChart3 },
       { title: "Funnel", url: "/analytics/funnel", icon: Filter },
       { title: "Signals", url: "/analytics/signals", icon: Activity },
-    ],
-    []
-  );
+    ];
+  }, []);
 
   const profileItems = useMemo(() => {
     const base = [
@@ -91,33 +153,9 @@ export const DashboardSidebar = () => {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild size="lg">
-              <OrganizationSwitcher
-                hidePersonal
-                skipInvitationScreen
-                afterSelectOrganizationUrl="/"
-                appearance={{
-                  elements: {
-                    rootBox: "w-full! h-8!",
-                    avatarBox: "size-4! rounded-sm!",
-                    organizationSwitcherTrigger:
-                      "w-full! justify-start! group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2!",
-                    organizationPreview: "group-data-[collapsible=icon]:justify-center! gap-2",
-                    organizationPreviewTextContainer:
-                      "group-data-[collapsible=icon]:hidden! text-xs! font-medium!",
-                    organizationSwitcherTriggerIcon: "group-data-[collapsible=icon]:hidden! ml-auto!",
-
-                    // ✅ Hide create organization entry (Clerk versions differ, so we include multiple keys; unknown keys are ignored)
-                    organizationSwitcherPopoverActionButton: "hidden",
-                    organizationSwitcherPopoverActions: "hidden",
-                    organizationSwitcherPopoverFooter: "hidden",
-                    organizationSwitcherPopoverCreateOrganization: "hidden",
-                    organizationSwitcherPopoverCreateOrganizationButton: "hidden",
-                    organizationSwitcherPopoverCreateOrganizationLink: "hidden",
-                  },
-                }}
-              />
-
-
+              <div className="w-full">
+                <OrgSwitcherNoCreate />
+              </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -165,7 +203,6 @@ export const DashboardSidebar = () => {
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
-
             {!canUseAdvancedAnalytics && (
               <p className="px-3 pt-2 text-xs text-muted-foreground">
                 Some analytics are limited on your plan.

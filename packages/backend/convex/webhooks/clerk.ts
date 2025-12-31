@@ -9,6 +9,11 @@ const clerkClient = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY || "",
 });
 
+const INTERNAL_ADMIN_USER_IDS = (process.env.INTERNAL_ADMIN_USER_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 async function verifyClerkWebhook(req: Request): Promise<WebhookEvent> {
   const secret = process.env.CLERK_WEBHOOK_SECRET || "";
   if (!secret) throw new Error("Missing CLERK_WEBHOOK_SECRET");
@@ -35,33 +40,39 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
     return new Response("Invalid webhook signature", { status: 400 });
   }
 
-  // ✅ DEBUG safe logs
   console.log("[clerk-webhook] received event:", event.type);
 
   try {
     switch (event.type) {
       case "organization.created": {
-        // Clerk payload (example): event.data.id = "org_..."
         const data = event.data as any;
         const organizationId: string | undefined = data?.id;
 
-        console.log("[clerk-webhook] organization.created orgId:", organizationId);
+        // Selon payload Clerk, souvent présent :
+        const createdBy: string | undefined = data?.created_by || data?.createdBy;
+
+        console.log("[clerk-webhook] organization.created orgId:", organizationId, "createdBy:", createdBy);
 
         if (!organizationId) {
-          console.error("[clerk-webhook] Missing organization id in event.data");
           return new Response("Missing organization id", { status: 400 });
         }
 
-        const subId = await ctx.runMutation(
-          internal.system.subscriptions.ensureForOrg,
-          { organizationId },
-        );
+        // ✅ Invite-only: si ce n'est pas un admin interne, on supprime l'org
+        if (createdBy && INTERNAL_ADMIN_USER_IDS.length > 0 && !INTERNAL_ADMIN_USER_IDS.includes(createdBy)) {
+          console.warn("[clerk-webhook] blocking org creation (invite-only). Deleting org:", organizationId);
+          await clerkClient.organizations.deleteOrganization(organizationId);
+          return new Response(
+            JSON.stringify({ ok: true, blocked: true, deleted: true, organizationId }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
 
-        console.log("[clerk-webhook] ensureForOrg done. subscription _id:", subId);
+        // ✅ sinon, flow normal (subscription)
+        const subId = await ctx.runMutation(internal.system.subscriptions.ensureForOrg, { organizationId });
 
         return new Response(
           JSON.stringify({ ok: true, handled: "organization.created", organizationId, subId }),
-          { status: 200, headers: { "content-type": "application/json" } },
+          { status: 200, headers: { "content-type": "application/json" } }
         );
       }
 
@@ -72,11 +83,7 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         };
 
         const organizationId = subscription?.payer?.organization_id;
-        console.log("[clerk-webhook] subscription.updated orgId:", organizationId);
-
-        if (!organizationId) {
-          return new Response("Missing Organization ID", { status: 400 });
-        }
+        if (!organizationId) return new Response("Missing Organization ID", { status: 400 });
 
         const rawStatus = (subscription.status ?? "").toLowerCase();
         const isActive = rawStatus === "active";
@@ -86,29 +93,22 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
           maxAllowedMemberships: newMaxAllowedMemberships,
         });
 
-        const subId = await ctx.runMutation(
-          internal.system.subscriptions.setStatusFromClerk,
-          {
-            organizationId,
-            clerkStatus: subscription.status ?? "paused",
-          },
-        );
+        await ctx.runMutation(internal.system.subscriptions.setStatusFromClerk, {
+          organizationId,
+          clerkStatus: subscription.status ?? "paused",
+        });
 
-        console.log("[clerk-webhook] setStatusFromClerk done. subscription _id:", subId);
-
-        return new Response(
-          JSON.stringify({ ok: true, handled: "subscription.updated", organizationId, subId }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ ok: true, handled: "subscription.updated", organizationId }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
-      default: {
-        console.log("[clerk-webhook] ignored event:", event.type);
-        return new Response(
-          JSON.stringify({ ok: true, ignored: true, type: event.type }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
+      default:
+        return new Response(JSON.stringify({ ok: true, ignored: true, type: event.type }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
     }
   } catch (err) {
     console.error("[clerk-webhook] handler error:", err);

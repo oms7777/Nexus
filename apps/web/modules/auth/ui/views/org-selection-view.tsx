@@ -12,7 +12,6 @@ export const OrgSelectionView = () => {
   const memberships = userMemberships?.data ?? [];
   const hasOrg = memberships.length > 0;
 
-  // Tant que Clerk charge
   if (!isLoaded) {
     return (
       <div className="p-8">
@@ -21,9 +20,7 @@ export const OrgSelectionView = () => {
     );
   }
 
-  // ✅ Cas important : user connecté, mais AUCUNE org
-  // => on ne lui propose PAS de créer une org.
-  // => on lui dit d’attendre l’invite (ton modèle commercial).
+  // Aucun droit de créer une org → on force "invite-only"
   if (!hasOrg) {
     return (
       <div className="max-w-xl p-8">
@@ -32,18 +29,11 @@ export const OrgSelectionView = () => {
             <CardTitle>Waiting for an invite</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>
-              Your account is ready, but you don&apos;t belong to any organization yet.
-            </p>
-            <p>
-              Please ask your admin to invite you, or check your inbox for the invitation email.
-            </p>
+            <p>Your account is ready, but you don&apos;t belong to any organization yet.</p>
+            <p>Please ask your admin to invite you, or check your inbox for the invitation email.</p>
 
             <div className="pt-2">
-              <Button
-                variant="outline"
-                onClick={() => window.location.reload()}
-              >
+              <Button variant="outline" onClick={() => window.location.reload()}>
                 I already have an invite
               </Button>
             </div>
@@ -53,7 +43,6 @@ export const OrgSelectionView = () => {
     );
   }
 
-  // ✅ Cas normal : user a ≥1 org → on affiche la liste (sans create)
   return (
     <OrganizationList
       hidePersonal
@@ -61,6 +50,7 @@ export const OrgSelectionView = () => {
       afterSelectOrganizationUrl="/"
       appearance={{
         elements: {
+          // ces clés varient selon versions, celles inconnues sont ignorées
           organizationListCreateOrganizationAction: "hidden",
           organizationListCreateOrganization: "hidden",
           organizationListCreateOrganizationButton: "hidden",
