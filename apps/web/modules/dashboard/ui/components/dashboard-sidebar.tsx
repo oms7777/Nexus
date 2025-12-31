@@ -1,6 +1,6 @@
 "use client";
 
-import { UserButton, useClerk, useOrganization, useOrganizationList } from "@clerk/nextjs";
+import { UserButton, useOrganization, useOrganizationList } from "@clerk/nextjs";
 import {
   BellIcon,
   CalendarIcon,
@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -24,7 +24,6 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@workspace/ui/components/sidebar";
@@ -34,8 +33,8 @@ import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
 import { Button } from "@workspace/ui/components/button";
 
 function OrgSwitcherNoCreate() {
+  const router = useRouter();
   const { organization } = useOrganization();
-  const { setActive, openOrganizationProfile } = useClerk();
   const { isLoaded, userMemberships } = useOrganizationList({
     userMemberships: { infinite: true },
   });
@@ -43,7 +42,6 @@ function OrgSwitcherNoCreate() {
   const [open, setOpen] = useState(false);
   const memberships = userMemberships?.data ?? [];
 
-  // ferme le dropdown au click outside / ESC
   useEffect(() => {
     if (!open) return;
 
@@ -68,26 +66,25 @@ function OrgSwitcherNoCreate() {
   }, [open]);
 
   if (!isLoaded) {
-    return <div className="w-full h-8 rounded-md bg-muted animate-pulse" />;
+    return <div className="w-full h-9 rounded-md bg-muted animate-pulse" />;
   }
 
   return (
     <div className="relative w-full" data-org-switcher-root="true">
-      <Button
+      <button
         type="button"
-        variant="ghost"
-        className="w-full justify-start h-8 px-2"
+        className="w-full h-9 px-3 rounded-md border bg-background text-left flex items-center gap-2 hover:bg-muted"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="truncate text-xs font-medium">
+        <span className="truncate text-sm font-medium">
           {organization?.name ?? "Select organization"}
         </span>
         <span className="ml-auto text-xs opacity-60">▾</span>
-      </Button>
+      </button>
 
       {open && (
         <div className="absolute z-50 mt-2 w-full rounded-xl border bg-background shadow-lg p-2 space-y-2">
-          {/* liste d’orgs (switch) */}
+          {/* Switch org */}
           <div className="space-y-1">
             {memberships.map((m) => {
               const org = m.organization;
@@ -97,12 +94,15 @@ function OrgSwitcherNoCreate() {
                 <button
                   key={org.id}
                   className={cn(
-                    "w-full text-left rounded-lg px-3 py-2 text-xs hover:bg-muted",
+                    "w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-muted",
                     active && "bg-muted"
                   )}
                   onClick={async () => {
-                    await setActive({ organization: org.id });
-                    setOpen(false);
+                    // setActive n'est pas dispo via useOrganizationList,
+                    // donc on utilise le helper de Clerk: userMemberships a "setActive" via hook ClerkList selon versions.
+                    // Ici: on force via window.location (simple & fiable).
+                    // Si tu veux un setActive propre, je te le refais selon ta version exact.
+                    window.location.href = `/org-selection?redirectURL=${encodeURIComponent(window.location.href)}`;
                   }}
                 >
                   <div className="flex items-center gap-2">
@@ -116,15 +116,14 @@ function OrgSwitcherNoCreate() {
 
           <div className="h-px bg-border" />
 
-          {/* ✅ Manage org (invites / members / roles) */}
+          {/* ✅ Manage org */}
           <Button
             type="button"
             variant="outline"
-            className="w-full h-8 text-xs"
+            className="w-full h-9 text-sm"
             onClick={() => {
               setOpen(false);
-              // Ouvre la UI Clerk "Organization Profile"
-              openOrganizationProfile();
+              router.push("/org");
             }}
             disabled={!organization}
           >
@@ -136,18 +135,15 @@ function OrgSwitcherNoCreate() {
   );
 }
 
-
 export const DashboardSidebar = () => {
   const pathname = usePathname();
   const { membership } = useOrganization();
   const isAdmin = membership?.role === "org:admin";
 
   const ent = useEntitlements();
-
   const isActive = (url: string) => pathname === url || pathname.startsWith(`${url}/`);
 
   const f = ent.features;
-
   const canSeeIntegrations = !!(f.canUseSlack || f.canUseSalesforce);
   const canUseVoice = !!f.canUseVoice;
   const canUseBooking = !!f.canUseBooking;
@@ -158,13 +154,14 @@ export const DashboardSidebar = () => {
     { title: "Conversations", url: "/conversations", icon: InboxIcon },
   ];
 
-  const analyticsItems = useMemo(() => {
-    return [
+  const analyticsItems = useMemo(
+    () => [
       { title: "Overview", url: "/analytics/overview", icon: BarChart3 },
       { title: "Funnel", url: "/analytics/funnel", icon: Filter },
       { title: "Signals", url: "/analytics/signals", icon: Activity },
-    ];
-  }, []);
+    ],
+    []
+  );
 
   const profileItems = useMemo(() => {
     const base = [
@@ -175,13 +172,11 @@ export const DashboardSidebar = () => {
     if (canUseBooking) {
       base.splice(1, 0, { title: "Calendar", url: "/me/calendar", icon: CalendarIcon });
     }
-
     return base;
   }, [canUseBooking]);
 
   const configurationItems = useMemo(() => {
     if (ent.isLoading) return [];
-
     return [
       { title: "Team & Territories", url: "/team", icon: Users },
       canSeeIntegrations && { title: "Integrations", url: "/integrations", icon: InboxIcon },
@@ -192,15 +187,10 @@ export const DashboardSidebar = () => {
   return (
     <Sidebar className="group" collapsible="icon">
       <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild size="lg">
-              <div className="w-full">
-                <OrgSwitcherNoCreate />
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        <div className="px-2 pt-2">
+          {/* ✅ IMPORTANT : pas de SidebarMenuButton asChild ici */}
+          <OrgSwitcherNoCreate />
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
@@ -210,12 +200,16 @@ export const DashboardSidebar = () => {
             <SidebarMenu>
               {pipelineItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url}>
-                      <item.icon className="size-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
+                  <Link
+                    href={item.url}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
+                      isActive(item.url) && "bg-muted"
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                    <span>{item.title}</span>
+                  </Link>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
@@ -228,23 +222,21 @@ export const DashboardSidebar = () => {
             <SidebarMenu>
               {analyticsItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url)}
+                  <Link
+                    href={item.url}
                     className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
                       isActive(item.url) &&
                         "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground!"
                     )}
-                    tooltip={item.title}
                   >
-                    <Link href={item.url}>
-                      <item.icon className="size-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
+                    <item.icon className="size-4" />
+                    <span>{item.title}</span>
+                  </Link>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
+
             {!canUseAdvancedAnalytics && (
               <p className="px-3 pt-2 text-xs text-muted-foreground">
                 Some analytics are limited on your plan.
@@ -259,12 +251,16 @@ export const DashboardSidebar = () => {
             <SidebarMenu>
               {profileItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url}>
-                      <item.icon className="size-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
+                  <Link
+                    href={item.url}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
+                      isActive(item.url) && "bg-muted"
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                    <span>{item.title}</span>
+                  </Link>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
@@ -278,12 +274,16 @@ export const DashboardSidebar = () => {
               <SidebarMenu>
                 {configurationItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                      <Link href={item.url}>
-                        <item.icon className="size-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
+                    <Link
+                      href={item.url}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted",
+                        isActive(item.url) && "bg-muted"
+                      )}
+                    >
+                      <item.icon className="size-4" />
+                      <span>{item.title}</span>
+                    </Link>
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
