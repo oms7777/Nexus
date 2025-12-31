@@ -427,40 +427,38 @@ export default function TeamPage() {
           </div>
 
           <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-            {/* ✅ overflow-hidden + hauteur fixe => Clerk ne dépasse plus */}
-            <DialogContent className="max-w-5xl overflow-hidden p-0">
+            {/* ✅ Le modal devient grand (desktop) et prend presque tout l’écran */}
+            <DialogContent className="p-0 overflow-hidden w-[min(1100px,95vw)] h-[min(760px,90vh)] max-w-none">
               <DialogHeader className="px-6 pt-6">
                 <DialogTitle>Members</DialogTitle>
               </DialogHeader>
 
-              <div className="px-6 pb-6">
-                {/* ✅ Le “carré Members” */}
-                <div className="rounded-xl border bg-background overflow-hidden">
-                  {/* ✅ zone scroll interne (sinon Clerk essaie de prendre + large/haut) */}
-                  <div className="h-[70vh] w-full overflow-auto">
-                    <OrganizationProfile
-                      routing="hash"
-                      appearance={{
-                        elements: {
-                          // on garde ta suppression des sections dangereuses
-                          organizationProfileDangerSection: "hidden",
-                          organizationProfileLeaveOrganization: "hidden",
-                          organizationProfileDeleteOrganization: "hidden",
-                          organizationProfileLeaveOrganizationAction: "hidden",
-                          organizationProfileDeleteOrganizationAction: "hidden",
+              {/* ✅ Le “cadre Members” devient le container principal, et il est grand */}
+              <div className="px-6 pb-6 h-[calc(100%-72px)]">
+                <div className="h-full w-full rounded-xl border bg-background overflow-hidden">
+                  {/* ✅ On laisse Clerk remplir tout le cadre */}
+                  <OrganizationProfile
+                    routing="hash"
+                    appearance={{
+                      elements: {
+                        organizationProfileDangerSection: "hidden",
+                        organizationProfileLeaveOrganization: "hidden",
+                        organizationProfileDeleteOrganization: "hidden",
+                        organizationProfileLeaveOrganizationAction: "hidden",
+                        organizationProfileDeleteOrganizationAction: "hidden",
 
-                          // ✅ force largeur interne
-                          rootBox: "w-full max-w-none",
-                          card: "w-full max-w-none shadow-none border-0 rounded-none",
-                          pageScrollBox: "w-full max-w-none",
-                        },
-                      }}
-                    />
-                  </div>
+                        // ✅ important: Clerk ne doit pas se limiter en largeur
+                        rootBox: "w-full h-full max-w-none",
+                        card: "w-full h-full max-w-none shadow-none border-0 rounded-none",
+                        pageScrollBox: "w-full h-full max-w-none",
+                      },
+                    }}
+                  />
                 </div>
               </div>
             </DialogContent>
           </Dialog>
+
 
           {/* ROUTING MODE */}
           <div className="rounded-lg border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
