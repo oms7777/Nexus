@@ -13,7 +13,7 @@ import {
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   Sidebar,
@@ -35,23 +35,44 @@ import { Button } from "@workspace/ui/components/button";
 
 function OrgSwitcherNoCreate() {
   const { organization } = useOrganization();
-  const { setActive } = useClerk();
+  const { setActive, openOrganizationProfile } = useClerk();
   const { isLoaded, userMemberships } = useOrganizationList({
     userMemberships: { infinite: true },
   });
 
   const [open, setOpen] = useState(false);
-
   const memberships = userMemberships?.data ?? [];
 
+  // ferme le dropdown au click outside / ESC
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-org-switcher-root='true']")) {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open]);
+
   if (!isLoaded) {
-    return (
-      <div className="w-full h-8 rounded-md bg-muted animate-pulse" />
-    );
+    return <div className="w-full h-8 rounded-md bg-muted animate-pulse" />;
   }
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full" data-org-switcher-root="true">
       <Button
         type="button"
         variant="ghost"
@@ -65,35 +86,56 @@ function OrgSwitcherNoCreate() {
       </Button>
 
       {open && (
-        <div className="absolute z-50 mt-2 w-full rounded-xl border bg-background shadow-lg p-1">
-          {memberships.map((m) => {
-            const org = m.organization;
-            const active = org.id === organization?.id;
+        <div className="absolute z-50 mt-2 w-full rounded-xl border bg-background shadow-lg p-2 space-y-2">
+          {/* liste d’orgs (switch) */}
+          <div className="space-y-1">
+            {memberships.map((m) => {
+              const org = m.organization;
+              const active = org.id === organization?.id;
 
-            return (
-              <button
-                key={org.id}
-                className={cn(
-                  "w-full text-left rounded-lg px-3 py-2 text-xs hover:bg-muted",
-                  active && "bg-muted"
-                )}
-                onClick={async () => {
-                  await setActive({ organization: org.id });
-                  setOpen(false);
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="truncate">{org.name}</span>
-                  {active ? <span className="ml-auto opacity-60">✓</span> : null}
-                </div>
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={org.id}
+                  className={cn(
+                    "w-full text-left rounded-lg px-3 py-2 text-xs hover:bg-muted",
+                    active && "bg-muted"
+                  )}
+                  onClick={async () => {
+                    await setActive({ organization: org.id });
+                    setOpen(false);
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="truncate">{org.name}</span>
+                    {active ? <span className="ml-auto opacity-60">✓</span> : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="h-px bg-border" />
+
+          {/* ✅ Manage org (invites / members / roles) */}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-8 text-xs"
+            onClick={() => {
+              setOpen(false);
+              // Ouvre la UI Clerk "Organization Profile"
+              openOrganizationProfile();
+            }}
+            disabled={!organization}
+          >
+            Manage organization
+          </Button>
         </div>
       )}
     </div>
   );
 }
+
 
 export const DashboardSidebar = () => {
   const pathname = usePathname();
