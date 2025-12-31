@@ -27,7 +27,6 @@ import {
 import { toast } from "sonner";
 import { MultiSelect } from "@/modules/team/ui/multi-select";
 
-// ✅ shadcn dialog
 import {
   Dialog,
   DialogContent,
@@ -73,7 +72,12 @@ const PRESET_TERRITORIES: {
     key: "mena",
     hint: "DZ, BH, EG, JO, KW, LB, MA, OM, QA, SA, AE, TN…",
   },
-  { id: "europe", label: "Europe", key: "europe", hint: "Most EU / EEA countries" },
+  {
+    id: "europe",
+    label: "Europe",
+    key: "europe",
+    hint: "Most EU / EEA countries",
+  },
   {
     id: "north_america",
     label: "North America",
@@ -111,7 +115,6 @@ export default function TeamPage() {
   const { organization, membership, isLoaded } = useOrganization();
   const isAdmin = membership?.role === "org:admin";
 
-  // ✅ modal invite
   const [inviteOpen, setInviteOpen] = useState(false);
 
   // ✅ Admin-only: redirect silencieux
@@ -120,6 +123,15 @@ export default function TeamPage() {
     if (!organization) return;
     if (!isAdmin) router.replace("/");
   }, [isLoaded, organization, isAdmin, router]);
+
+  // ✅ force l'onglet Members quand on ouvre
+  useEffect(() => {
+    if (!inviteOpen) return;
+    // Clerk routing="hash" => #members
+    if (typeof window !== "undefined") {
+      window.location.hash = "members";
+    }
+  }, [inviteOpen]);
 
   const canQuery = Boolean(organization && isAdmin);
 
@@ -136,7 +148,13 @@ export default function TeamPage() {
     api.private.territories.listForOrg,
     canQuery ? ({ organizationId: organization!.id } as any) : ("skip" as any),
   ) as
-    | { _id: string; key: string; label: string; countryCodes?: string[]; sortOrder?: number }[]
+    | {
+        _id: string;
+        key: string;
+        label: string;
+        countryCodes?: string[];
+        sortOrder?: number;
+      }[]
     | undefined;
 
   const upsertTerritory = useMutation(api.private.territories.upsert);
@@ -372,7 +390,6 @@ export default function TeamPage() {
     }
   };
 
-  // ✅ pas d’org
   if (!organization) {
     return (
       <Protect>
@@ -386,7 +403,6 @@ export default function TeamPage() {
     );
   }
 
-  // ✅ pas admin: on rend rien (redirect déjà fait)
   if (isLoaded && !isAdmin) {
     return <Protect>{null}</Protect>;
   }
@@ -400,7 +416,8 @@ export default function TeamPage() {
             <div className="space-y-2">
               <h1 className="text-2xl md:text-4xl">Team & Territories</h1>
               <p className="text-sm text-muted-foreground">
-                Choose which teammates receive inbound leads, which territories they cover, and how routing behaves.
+                Choose which teammates receive inbound leads, which territories
+                they cover, and how routing behaves.
               </p>
             </div>
 
@@ -410,28 +427,36 @@ export default function TeamPage() {
           </div>
 
           <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-            <DialogContent className="max-w-4xl p-0">
+            {/* ✅ overflow-hidden + hauteur fixe => Clerk ne dépasse plus */}
+            <DialogContent className="max-w-5xl overflow-hidden p-0">
               <DialogHeader className="px-6 pt-6">
                 <DialogTitle>Members</DialogTitle>
               </DialogHeader>
 
               <div className="px-6 pb-6">
-                {/* ✅ On force l’onglet members via hash */}
-                <div className="rounded-xl border bg-background">
-                  <OrganizationProfile
-                    routing="hash"
-                    /* l’ouverture sur Members = juste aller sur #members.
-                       Ici on n’a pas besoin de router.push, le component gère le hash. */
-                    appearance={{
-                      elements: {
-                        organizationProfileDangerSection: "hidden",
-                        organizationProfileLeaveOrganization: "hidden",
-                        organizationProfileDeleteOrganization: "hidden",
-                        organizationProfileLeaveOrganizationAction: "hidden",
-                        organizationProfileDeleteOrganizationAction: "hidden",
-                      },
-                    }}
-                  />
+                {/* ✅ Le “carré Members” */}
+                <div className="rounded-xl border bg-background overflow-hidden">
+                  {/* ✅ zone scroll interne (sinon Clerk essaie de prendre + large/haut) */}
+                  <div className="h-[70vh] w-full overflow-auto">
+                    <OrganizationProfile
+                      routing="hash"
+                      appearance={{
+                        elements: {
+                          // on garde ta suppression des sections dangereuses
+                          organizationProfileDangerSection: "hidden",
+                          organizationProfileLeaveOrganization: "hidden",
+                          organizationProfileDeleteOrganization: "hidden",
+                          organizationProfileLeaveOrganizationAction: "hidden",
+                          organizationProfileDeleteOrganizationAction: "hidden",
+
+                          // ✅ force largeur interne
+                          rootBox: "w-full max-w-none",
+                          card: "w-full max-w-none shadow-none border-0 rounded-none",
+                          pageScrollBox: "w-full max-w-none",
+                        },
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             </DialogContent>
@@ -442,17 +467,26 @@ export default function TeamPage() {
             <div className="space-y-1">
               <p className="text-sm font-medium">Routing mode</p>
               <p className="text-xs text-muted-foreground">
-                Switch between <span className="font-medium">auto-assign</span> (rules + presence + territories)
-                or letting visitors <span className="font-medium">choose a rep</span>.
+                Switch between{" "}
+                <span className="font-medium">auto-assign</span> (rules +
+                presence + territories) or letting visitors{" "}
+                <span className="font-medium">choose a rep</span>.
               </p>
             </div>
 
             <div className="flex items-center gap-2 text-xs md:text-sm">
-              <span className={!autoRouting ? "font-medium" : "text-muted-foreground"}>
+              <span
+                className={!autoRouting ? "font-medium" : "text-muted-foreground"}
+              >
                 Visitor chooses rep
               </span>
-              <Switch checked={autoRouting} onCheckedChange={handleToggleRouting} />
-              <span className={autoRouting ? "font-medium" : "text-muted-foreground"}>
+              <Switch
+                checked={autoRouting}
+                onCheckedChange={handleToggleRouting}
+              />
+              <span
+                className={autoRouting ? "font-medium" : "text-muted-foreground"}
+              >
                 Auto-assign best rep
               </span>
             </div>
@@ -463,7 +497,9 @@ export default function TeamPage() {
           {/* TEAM TABLE */}
           <div className="space-y-3">
             <h2 className="text-lg font-semibold">Team</h2>
-            {loadingMembers && <p className="text-sm text-muted-foreground">Loading team…</p>}
+            {loadingMembers && (
+              <p className="text-sm text-muted-foreground">Loading team…</p>
+            )}
 
             <div className="overflow-x-auto rounded-lg border bg-background">
               <table className="min-w-full text-sm">
@@ -471,8 +507,12 @@ export default function TeamPage() {
                   <tr>
                     <th className="px-4 py-3 text-left font-medium">User</th>
                     <th className="px-4 py-3 text-left font-medium">Role</th>
-                    <th className="px-4 py-3 text-left font-medium">Territories</th>
-                    <th className="px-4 py-3 text-left font-medium">Receives leads</th>
+                    <th className="px-4 py-3 text-left font-medium">
+                      Territories
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium">
+                      Receives leads
+                    </th>
                     <th className="px-4 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -495,7 +535,10 @@ export default function TeamPage() {
 
                   {rows.length === 0 && !loadingMembers && (
                     <tr>
-                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={5}>
+                      <td
+                        className="px-4 py-6 text-center text-muted-foreground"
+                        colSpan={5}
+                      >
                         No members found in this organization.
                       </td>
                     </tr>
@@ -505,7 +548,8 @@ export default function TeamPage() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Routing uses these settings together with your rules (geo, URL, UTM…) and territories to pick the right rep.
+              Routing uses these settings together with your rules (geo, URL,
+              UTM…) and territories to pick the right rep.
             </p>
           </div>
 
@@ -524,7 +568,10 @@ export default function TeamPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-1">
                     <Label>Region preset (optional)</Label>
-                    <Select value={selectedPreset} onValueChange={(v) => handlePresetChange(v as PresetId)}>
+                    <Select
+                      value={selectedPreset}
+                      onValueChange={(v) => handlePresetChange(v as PresetId)}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Choose a preset…" />
                       </SelectTrigger>
@@ -538,13 +585,17 @@ export default function TeamPage() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Pick a region (MENA, Europe…) to auto-configure label & key. Leave country codes empty to use the built-in mapping.
+                      Pick a region (MENA, Europe…) to auto-configure label &
+                      key. Leave country codes empty to use the built-in mapping.
                     </p>
                   </div>
 
                   <div className="space-y-1">
                     <Label>Country preset (optional)</Label>
-                    <Select value={selectedCountry} onValueChange={handleCountryChange}>
+                    <Select
+                      value={selectedCountry}
+                      onValueChange={handleCountryChange}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Choose a country…" />
                       </SelectTrigger>
@@ -557,7 +608,8 @@ export default function TeamPage() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      This fills the country codes field with one ISO code (FR, DE, …). You can still edit it.
+                      This fills the country codes field with one ISO code (FR,
+                      DE, …). You can still edit it.
                     </p>
                   </div>
                 </div>
@@ -584,7 +636,8 @@ export default function TeamPage() {
                       onChange={(e) => setTerritoryKey(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Used internally to link reps & routing rules (ex: <code className="font-mono">mena</code>).
+                      Used internally to link reps & routing rules (ex:{" "}
+                      <code className="font-mono">mena</code>).
                     </p>
                   </div>
 
@@ -596,7 +649,8 @@ export default function TeamPage() {
                       onChange={(e) => setCountryCodesRaw(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Comma-separated ISO codes. Leave empty to use the preset mapping.
+                      Comma-separated ISO codes. Leave empty to use the preset
+                      mapping.
                     </p>
                   </div>
                 </div>
@@ -614,7 +668,8 @@ export default function TeamPage() {
               <CardContent>
                 {territories && territories.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    No territories yet. Create at least one (France, MENA, North America…) then map reps to them.
+                    No territories yet. Create at least one (France, MENA, North
+                    America…) then map reps to them.
                   </p>
                 )}
 
@@ -623,22 +678,34 @@ export default function TeamPage() {
                     <table className="min-w-full text-sm">
                       <thead className="bg-muted/60">
                         <tr>
-                          <th className="px-4 py-3 text-left font-medium">Label</th>
+                          <th className="px-4 py-3 text-left font-medium">
+                            Label
+                          </th>
                           <th className="px-4 py-3 text-left font-medium">Key</th>
-                          <th className="px-4 py-3 text-left font-medium">Country codes</th>
-                          <th className="px-4 py-3 text-right font-medium">Actions</th>
+                          <th className="px-4 py-3 text-left font-medium">
+                            Country codes
+                          </th>
+                          <th className="px-4 py-3 text-right font-medium">
+                            Actions
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {territories.map((t) => (
                           <tr key={t._id}>
                             <td className="px-4 py-3 align-middle">{t.label}</td>
-                            <td className="px-4 py-3 align-middle font-mono text-xs">{t.key}</td>
+                            <td className="px-4 py-3 align-middle font-mono text-xs">
+                              {t.key}
+                            </td>
                             <td className="px-4 py-3 align-middle text-xs text-muted-foreground">
                               {(t.countryCodes ?? []).join(", ") || "—"}
                             </td>
                             <td className="px-4 py-3 align-middle text-right">
-                              <Button size="sm" variant="outline" onClick={() => handleDeleteTerritory(t._id)}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteTerritory(t._id)}
+                              >
                                 Delete
                               </Button>
                             </td>
@@ -693,13 +760,18 @@ function TeamRow({
     <tr>
       <td className="px-4 py-3 align-middle">
         <div className="flex flex-col">
-          <span className="font-medium">{row.member.name || row.member.email}</span>
+          <span className="font-medium">
+            {row.member.name || row.member.email}
+          </span>
           <span className="text-xs text-muted-foreground">{row.member.email}</span>
         </div>
       </td>
 
       <td className="px-4 py-3 align-middle">
-        <Select value={role} onValueChange={(v) => setRole(v as "sales" | "support")}>
+        <Select
+          value={role}
+          onValueChange={(v) => setRole(v as "sales" | "support")}
+        >
           <SelectTrigger className="w-[120px]">
             <SelectValue />
           </SelectTrigger>
@@ -716,15 +788,22 @@ function TeamRow({
           options={territoryOptions}
           value={regions}
           onValueChange={setRegions}
-          placeholder={territoryOptions.length ? "Select territories" : "No territories yet"}
+          placeholder={
+            territoryOptions.length ? "Select territories" : "No territories yet"
+          }
           className="max-w-xs"
         />
       </td>
 
       <td className="px-4 py-3 align-middle">
         <div className="flex items-center gap-2">
-          <Switch checked={available} onCheckedChange={(v) => setAvailable(Boolean(v))} />
-          <span className="text-xs text-muted-foreground">{available ? "Online" : "Offline"}</span>
+          <Switch
+            checked={available}
+            onCheckedChange={(v) => setAvailable(Boolean(v))}
+          />
+          <span className="text-xs text-muted-foreground">
+            {available ? "Online" : "Offline"}
+          </span>
         </div>
       </td>
 
