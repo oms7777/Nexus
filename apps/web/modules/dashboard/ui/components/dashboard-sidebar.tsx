@@ -9,6 +9,8 @@ import {
   Mic,
   UserIcon,
   Users,
+  BookOpen,
+  SlidersHorizontal,
 } from "lucide-react";
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
@@ -84,7 +86,6 @@ function OrgSwitcherNoCreate() {
 
       {open && (
         <div className="absolute z-50 mt-2 w-full rounded-xl border bg-background shadow-lg p-2 space-y-2">
-          {/* Switch org */}
           <div className="space-y-1">
             {memberships.map((m) => {
               const org = m.organization;
@@ -97,12 +98,10 @@ function OrgSwitcherNoCreate() {
                     "w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-muted",
                     active && "bg-muted"
                   )}
-                  onClick={async () => {
-                    // setActive n'est pas dispo via useOrganizationList,
-                    // donc on utilise le helper de Clerk: userMemberships a "setActive" via hook ClerkList selon versions.
-                    // Ici: on force via window.location (simple & fiable).
-                    // Si tu veux un setActive propre, je te le refais selon ta version exact.
-                    window.location.href = `/org-selection?redirectURL=${encodeURIComponent(window.location.href)}`;
+                  onClick={() => {
+                    window.location.href = `/org-selection?redirectURL=${encodeURIComponent(
+                      window.location.href
+                    )}`;
                   }}
                 >
                   <div className="flex items-center gap-2">
@@ -116,7 +115,6 @@ function OrgSwitcherNoCreate() {
 
           <div className="h-px bg-border" />
 
-          {/* ✅ Manage org */}
           <Button
             type="button"
             variant="outline"
@@ -177,8 +175,14 @@ export const DashboardSidebar = () => {
 
   const configurationItems = useMemo(() => {
     if (ent.isLoading) return [];
+
     return [
       { title: "Team & Territories", url: "/team", icon: Users },
+
+      // ✅ on remet tes 2 pages
+      { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen },
+      { title: "Widget Customization", url: "/customization", icon: SlidersHorizontal },
+
       canSeeIntegrations && { title: "Integrations", url: "/integrations", icon: InboxIcon },
       canUseVoice && { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
     ].filter(Boolean) as { title: string; url: string; icon: any }[];
@@ -188,7 +192,6 @@ export const DashboardSidebar = () => {
     <Sidebar className="group" collapsible="icon">
       <SidebarHeader>
         <div className="px-2 pt-2">
-          {/* ✅ IMPORTANT : pas de SidebarMenuButton asChild ici */}
           <OrgSwitcherNoCreate />
         </div>
       </SidebarHeader>
