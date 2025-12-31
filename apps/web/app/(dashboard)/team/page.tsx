@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useOrganization } from "@clerk/nextjs";
+import { Protect, OrganizationProfile, useOrganization } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
@@ -25,6 +26,14 @@ import {
 } from "@workspace/ui/components/card";
 import { toast } from "sonner";
 import { MultiSelect } from "@/modules/team/ui/multi-select";
+
+// ✅ shadcn dialog
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@workspace/ui/components/dialog";
 
 type Membership = {
   id: string;
@@ -52,57 +61,29 @@ type PresetId =
 const PRESET_TERRITORIES: {
   id: PresetId;
   label: string;
-  key: string; // territory.key utilisé côté backend
-  hint?: string; // juste pour l’UX, pas utilisé en DB
+  key: string;
+  hint?: string;
 }[] = [
-  {
-    id: "custom",
-    label: "Custom territory",
-    key: "",
-  },
-  {
-    id: "france",
-    label: "France",
-    key: "france",
-    hint: "FR",
-  },
-  {
-    id: "morocco",
-    label: "Morocco",
-    key: "morocco",
-    hint: "MA",
-  },
+  { id: "custom", label: "Custom territory", key: "" },
+  { id: "france", label: "France", key: "france", hint: "FR" },
+  { id: "morocco", label: "Morocco", key: "morocco", hint: "MA" },
   {
     id: "mena",
     label: "MENA",
     key: "mena",
     hint: "DZ, BH, EG, JO, KW, LB, MA, OM, QA, SA, AE, TN…",
   },
-  {
-    id: "europe",
-    label: "Europe",
-    key: "europe",
-    hint: "Most EU / EEA countries",
-  },
+  { id: "europe", label: "Europe", key: "europe", hint: "Most EU / EEA countries" },
   {
     id: "north_america",
     label: "North America",
     key: "north_america",
     hint: "US, CA, MX…",
   },
-  {
-    id: "apac",
-    label: "APAC",
-    key: "apac",
-    hint: "Asia-Pacific countries",
-  },
+  { id: "apac", label: "APAC", key: "apac", hint: "Asia-Pacific countries" },
 ];
 
-// 🔹 Presets de pays (tu peux compléter la liste au besoin)
-type CountryPreset = {
-  code: string; // ISO (FR, DE, ES…)
-  label: string;
-};
+type CountryPreset = { code: string; label: string };
 
 const COUNTRY_PRESETS: CountryPreset[] = [
   { code: "FR", label: "France" },
@@ -123,46 +104,50 @@ const COUNTRY_PRESETS: CountryPreset[] = [
   { code: "SG", label: "Singapore" },
   { code: "JP", label: "Japan" },
   { code: "CN", label: "China" },
-  // TODO: compléter avec tous les pays si tu veux full coverage
 ];
 
 export default function TeamPage() {
-  const { organization } = useOrganization();
+  const router = useRouter();
+  const { organization, membership, isLoaded } = useOrganization();
+  const isAdmin = membership?.role === "org:admin";
 
-  // 🔹 Widget settings (routingMode)
-  const widgetSettings = useQuery(api.private.widgetSettings.getOne, {}) as
-    | { routingMode?: RoutingMode }
-    | undefined;
+  // ✅ modal invite
+  const [inviteOpen, setInviteOpen] = useState(false);
+
+  // ✅ Admin-only: redirect silencieux
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!organization) return;
+    if (!isAdmin) router.replace("/");
+  }, [isLoaded, organization, isAdmin, router]);
+
+  const canQuery = Boolean(organization && isAdmin);
+
+  // 🔹 Widget settings
+  const widgetSettings = useQuery(
+    api.private.widgetSettings.getOne,
+    canQuery ? ({} as any) : ("skip" as any),
+  ) as { routingMode?: RoutingMode } | undefined;
 
   const setRoutingMode = useMutation(api.private.widgetSettings.setRoutingMode);
 
-  // 🔹 Territories dynamiques (par org)
+  // 🔹 Territories
   const territories = useQuery(
     api.private.territories.listForOrg,
-    organization ? ({ organizationId: organization.id } as any) : ("skip" as any),
+    canQuery ? ({ organizationId: organization!.id } as any) : ("skip" as any),
   ) as
-    | {
-        _id: string;
-        key: string;
-        label: string;
-        countryCodes?: string[];
-        sortOrder?: number;
-      }[]
+    | { _id: string; key: string; label: string; countryCodes?: string[]; sortOrder?: number }[]
     | undefined;
 
   const upsertTerritory = useMutation(api.private.territories.upsert);
   const removeTerritory = useMutation(api.private.territories.remove);
 
   const territoryOptions: TerritoryOption[] = useMemo(
-    () =>
-      (territories ?? []).map((t) => ({
-        label: t.label,
-        value: t.key, // on stocke la key dans repsPresence.regions
-      })),
+    () => (territories ?? []).map((t) => ({ label: t.label, value: t.key })),
     [territories],
   );
 
-  // 🔁 State local du toggle, initialisé depuis widgetSettings
+  // 🔁 Routing mode toggle
   const [autoRouting, setAutoRouting] = useState(true);
 
   useEffect(() => {
@@ -171,27 +156,24 @@ export default function TeamPage() {
     setAutoRouting(mode === "auto_assign");
   }, [widgetSettings]);
 
-  // 🔹 Load Clerk Members
+  // 🔹 Load Clerk Members (admin only)
   const [members, setMembers] = useState<Membership[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
   useEffect(() => {
-    if (!organization) return;
+    if (!organization || !isAdmin) return;
 
     let cancelled = false;
 
     const load = async () => {
       try {
         setLoadingMembers(true);
-
         const res = await organization.getMemberships();
         const memberships = res.data ?? [];
-
         if (cancelled) return;
 
         const mapped: Membership[] = memberships.map((m: any) => {
           const userData = m.publicUserData ?? {};
-
           const name =
             (userData.firstName || "") +
             (userData.lastName ? ` ${userData.lastName}` : "");
@@ -214,16 +196,15 @@ export default function TeamPage() {
     };
 
     load();
-
     return () => {
       cancelled = true;
     };
-  }, [organization]);
+  }, [organization, isAdmin]);
 
-  // 🔹 Load repsPresence
+  // 🔹 repsPresence
   const reps = useQuery(
     api.team.listRepsForOrg,
-    organization ? ({} as any) : ("skip" as any),
+    canQuery ? ({} as any) : ("skip" as any),
   ) as
     | {
         _id: string;
@@ -252,7 +233,6 @@ export default function TeamPage() {
       const rep = byUserId[m.userId];
       return {
         member: m,
-        rep,
         role: (rep?.role as "sales" | "support" | undefined) ?? "sales",
         regions: (rep?.regions as string[] | undefined) ?? [],
         available: rep?.available ?? false,
@@ -270,7 +250,7 @@ export default function TeamPage() {
     slackUserId?: string;
     slackDmChannel?: string;
   }) => {
-    if (!organization) return;
+    if (!organization || !isAdmin) return;
 
     try {
       await upsertRep({
@@ -300,11 +280,11 @@ export default function TeamPage() {
     } catch (e) {
       console.error(e);
       toast.error("Failed to update routing mode");
-      setAutoRouting(!nextAuto); // rollback si erreur
+      setAutoRouting(!nextAuto);
     }
   };
 
-  // 🔹 Form state pour la création de territories (dans la même page)
+  // 🔹 Territories form state
   const [territoryLabel, setTerritoryLabel] = useState("");
   const [territoryKey, setTerritoryKey] = useState("");
   const [countryCodesRaw, setCountryCodesRaw] = useState("");
@@ -320,16 +300,11 @@ export default function TeamPage() {
 
   const handlePresetChange = (val: PresetId) => {
     setSelectedPreset(val);
-
-    if (val === "custom") {
-      // Ne force rien, l’admin garde la main
-      return;
-    }
+    if (val === "custom") return;
 
     const preset = PRESET_TERRITORIES.find((p) => p.id === val);
     if (!preset) return;
 
-    // On force label + key depuis le preset, et on laisse les countryCodes vides
     setTerritoryLabel(preset.label);
     setTerritoryKey(preset.key);
     setCountryCodesRaw("");
@@ -337,18 +312,17 @@ export default function TeamPage() {
 
   const handleCountryChange = (code: string) => {
     setSelectedCountry(code);
-    setCountryCodesRaw(code); // remplis l’input "FR, ..." avec 1 code
+    setCountryCodesRaw(code);
 
     const country = COUNTRY_PRESETS.find((c) => c.code === code);
     if (country) {
-      // Si rien n’a été mis à la main, on préremplit label + key
       if (!territoryLabel) setTerritoryLabel(country.label);
       if (!territoryKey) setTerritoryKey(slugify(country.label));
     }
   };
 
   const handleCreateTerritory = async () => {
-    if (!organization) return;
+    if (!organization || !isAdmin) return;
 
     const trimmedLabel = territoryLabel.trim();
     const trimmedKey = (territoryKey || slugify(territoryLabel)).trim();
@@ -359,8 +333,6 @@ export default function TeamPage() {
     }
 
     const raw = countryCodesRaw.trim();
-
-    // ⬇️ IMPORTANT : undefined si vide → laisse le backend appliquer le preset
     const codes =
       raw.length === 0
         ? undefined
@@ -376,6 +348,7 @@ export default function TeamPage() {
         label: trimmedLabel,
         countryCodes: codes,
       } as any);
+
       toast.success("Territory saved");
       setTerritoryLabel("");
       setTerritoryKey("");
@@ -389,6 +362,7 @@ export default function TeamPage() {
   };
 
   const handleDeleteTerritory = async (id: string) => {
+    if (!isAdmin) return;
     try {
       await removeTerritory({ territoryId: id as any });
       toast.success("Territory removed");
@@ -398,292 +372,288 @@ export default function TeamPage() {
     }
   };
 
+  // ✅ pas d’org
   if (!organization) {
     return (
-      <div className="p-8">
-        <h1 className="text-2xl font-semibold">Team & Routing</h1>
-        <p className="mt-4 text-muted-foreground">
-          You must be in an organization to manage your team.
-        </p>
-      </div>
+      <Protect>
+        <div className="p-8">
+          <h1 className="text-2xl font-semibold">Team & Territories</h1>
+          <p className="mt-4 text-muted-foreground">
+            You must be in an organization to manage your team.
+          </p>
+        </div>
+      </Protect>
     );
   }
 
+  // ✅ pas admin: on rend rien (redirect déjà fait)
+  if (isLoaded && !isAdmin) {
+    return <Protect>{null}</Protect>;
+  }
+
   return (
-    <div className="flex min-h-screen flex-col bg-muted p-8">
-      <div className="mx-auto w-full max-w-5xl space-y-8">
-        {/* HEADER */}
-        <div className="space-y-2">
-          <h1 className="text-2xl md:text-4xl">Team & Territories</h1>
-          <p className="text-sm text-muted-foreground">
-            Choose which teammates receive inbound leads, which territories they
-            cover, and how routing behaves.
-          </p>
-        </div>
+    <Protect>
+      <div className="flex min-h-screen flex-col bg-muted p-8">
+        <div className="mx-auto w-full max-w-5xl space-y-8">
+          {/* HEADER + INVITE MODAL */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <h1 className="text-2xl md:text-4xl">Team & Territories</h1>
+              <p className="text-sm text-muted-foreground">
+                Choose which teammates receive inbound leads, which territories they cover, and how routing behaves.
+              </p>
+            </div>
 
-        {/* ROUTING MODE TOGGLE */}
-        <div className="rounded-lg border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Routing mode</p>
-            <p className="text-xs text-muted-foreground">
-              Switch between{" "}
-              <span className="font-medium">auto-assign</span> (using rules +
-              presence + territories) or letting visitors{" "}
-              <span className="font-medium">choose a rep</span> in the widget.
-            </p>
+            <Button onClick={() => setInviteOpen(true)} className="shrink-0">
+              Invite member
+            </Button>
           </div>
 
-          <div className="flex items-center gap-2 text-xs md:text-sm">
-            <span
-              className={
-                !autoRouting ? "font-medium" : "text-muted-foreground"
-              }
-            >
-              Visitor chooses rep
-            </span>
-            <Switch checked={autoRouting} onCheckedChange={handleToggleRouting} />
-            <span
-              className={
-                autoRouting ? "font-medium" : "text-muted-foreground"
-              }
-            >
-              Auto-assign best rep
-            </span>
-          </div>
-        </div>
+          <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+            <DialogContent className="max-w-4xl p-0">
+              <DialogHeader className="px-6 pt-6">
+                <DialogTitle>Members</DialogTitle>
+              </DialogHeader>
 
-        <Separator />
-
-        {/* TEAM TABLE */}
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold">Team</h2>
-          {loadingMembers && (
-            <p className="text-sm text-muted-foreground">Loading team…</p>
-          )}
-
-          <div className="overflow-x-auto rounded-lg border bg-background">
-            <table className="min-w-full text-sm">
-              <thead className="bg-muted/60">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium">User</th>
-                  <th className="px-4 py-3 text-left font-medium">Role</th>
-                  <th className="px-4 py-3 text-left font-medium">
-                    Territories
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium">
-                    Receives leads
-                  </th>
-                  <th className="px-4 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {rows.map((row) => (
-                  <TeamRow
-                    key={row.member.userId}
-                    row={row}
-                    territoryOptions={territoryOptions}
-                    onSave={async (payload) =>
-                      handleSaveRep({
-                        ...payload,
-                        slackUserId: row.slackUserId,
-                        slackDmChannel: row.slackDmChannel,
-                      })
-                    }
-                  />
-                ))}
-
-                {rows.length === 0 && !loadingMembers && (
-                  <tr>
-                    <td
-                      className="px-4 py-6 text-center text-muted-foreground"
-                      colSpan={5}
-                    >
-                      No members found in this organization.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Routing uses these settings together with your rules (geo, URL,
-            UTM…) and territories to pick the right rep for each visitor.
-          </p>
-        </div>
-
-        <Separator />
-
-        {/* TERRITORIES SECTION (même module) */}
-        {/* La section Territories reste identique à ta version originale */}
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold">Territories</h2>
-          <Card>
-            <CardHeader>
-              <CardTitle>Create a territory</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Presets row */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>Region preset (optional)</Label>
-                  <Select
-                    value={selectedPreset}
-                    onValueChange={(v) => handlePresetChange(v as PresetId)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Choose a preset…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PRESET_TERRITORIES.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.label}
-                          {p.hint ? ` – ${p.hint}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Pick a region (MENA, Europe…) to auto-configure label & key.
-                    Leave country codes empty to use the built-in mapping.
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <Label>Country preset (optional)</Label>
-                  <Select
-                    value={selectedCountry}
-                    onValueChange={handleCountryChange}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Choose a country…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {COUNTRY_PRESETS.map((c) => (
-                        <SelectItem key={c.code} value={c.code}>
-                          {c.label} ({c.code})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    This will fill the country codes field with one ISO code
-                    (FR, DE, …). You can still edit or add more codes manually.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-1">
-                  <Label>Label</Label>
-                  <Input
-                    placeholder="France, DACH, North America…"
-                    value={territoryLabel}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setTerritoryLabel(v);
-                      if (!territoryKey) {
-                        setTerritoryKey(slugify(v));
-                      }
+              <div className="px-6 pb-6">
+                {/* ✅ On force l’onglet members via hash */}
+                <div className="rounded-xl border bg-background">
+                  <OrganizationProfile
+                    routing="hash"
+                    /* l’ouverture sur Members = juste aller sur #members.
+                       Ici on n’a pas besoin de router.push, le component gère le hash. */
+                    appearance={{
+                      elements: {
+                        organizationProfileDangerSection: "hidden",
+                        organizationProfileLeaveOrganization: "hidden",
+                        organizationProfileDeleteOrganization: "hidden",
+                        organizationProfileLeaveOrganizationAction: "hidden",
+                        organizationProfileDeleteOrganizationAction: "hidden",
+                      },
                     }}
                   />
                 </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
-                <div className="space-y-1">
-                  <Label>Key (slug)</Label>
-                  <Input
-                    placeholder="france, dach, north_america…"
-                    value={territoryKey}
-                    onChange={(e) => setTerritoryKey(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Used internally to link reps & routing rules (ex:{" "}
-                    <code className="font-mono">mena</code>,{" "}
-                    <code className="font-mono">europe</code>,{" "}
-                    <code className="font-mono">north_america</code>).
-                  </p>
+          {/* ROUTING MODE */}
+          <div className="rounded-lg border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Routing mode</p>
+              <p className="text-xs text-muted-foreground">
+                Switch between <span className="font-medium">auto-assign</span> (rules + presence + territories)
+                or letting visitors <span className="font-medium">choose a rep</span>.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs md:text-sm">
+              <span className={!autoRouting ? "font-medium" : "text-muted-foreground"}>
+                Visitor chooses rep
+              </span>
+              <Switch checked={autoRouting} onCheckedChange={handleToggleRouting} />
+              <span className={autoRouting ? "font-medium" : "text-muted-foreground"}>
+                Auto-assign best rep
+              </span>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* TEAM TABLE */}
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold">Team</h2>
+            {loadingMembers && <p className="text-sm text-muted-foreground">Loading team…</p>}
+
+            <div className="overflow-x-auto rounded-lg border bg-background">
+              <table className="min-w-full text-sm">
+                <thead className="bg-muted/60">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">User</th>
+                    <th className="px-4 py-3 text-left font-medium">Role</th>
+                    <th className="px-4 py-3 text-left font-medium">Territories</th>
+                    <th className="px-4 py-3 text-left font-medium">Receives leads</th>
+                    <th className="px-4 py-3 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {rows.map((row) => (
+                    <TeamRow
+                      key={row.member.userId}
+                      row={row}
+                      territoryOptions={territoryOptions}
+                      onSave={async (payload) =>
+                        handleSaveRep({
+                          ...payload,
+                          slackUserId: row.slackUserId,
+                          slackDmChannel: row.slackDmChannel,
+                        })
+                      }
+                    />
+                  ))}
+
+                  {rows.length === 0 && !loadingMembers && (
+                    <tr>
+                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={5}>
+                        No members found in this organization.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Routing uses these settings together with your rules (geo, URL, UTM…) and territories to pick the right rep.
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* TERRITORIES */}
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold">Territories</h2>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Create a territory</CardTitle>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label>Region preset (optional)</Label>
+                    <Select value={selectedPreset} onValueChange={(v) => handlePresetChange(v as PresetId)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose a preset…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRESET_TERRITORIES.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.label}
+                            {p.hint ? ` – ${p.hint}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Pick a region (MENA, Europe…) to auto-configure label & key. Leave country codes empty to use the built-in mapping.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label>Country preset (optional)</Label>
+                    <Select value={selectedCountry} onValueChange={handleCountryChange}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose a country…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COUNTRY_PRESETS.map((c) => (
+                          <SelectItem key={c.code} value={c.code}>
+                            {c.label} ({c.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      This fills the country codes field with one ISO code (FR, DE, …). You can still edit it.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <Label>Country codes (optional)</Label>
-                  <Input
-                    placeholder="FR, BE, LU"
-                    value={countryCodesRaw}
-                    onChange={(e) => setCountryCodesRaw(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Comma-separated ISO codes (ex: FR, DE, ES). Leave empty to
-                    use the built-in preset mapping.
-                  </p>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label>Label</Label>
+                    <Input
+                      placeholder="France, DACH, North America…"
+                      value={territoryLabel}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setTerritoryLabel(v);
+                        if (!territoryKey) setTerritoryKey(slugify(v));
+                      }}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label>Key (slug)</Label>
+                    <Input
+                      placeholder="france, dach, north_america…"
+                      value={territoryKey}
+                      onChange={(e) => setTerritoryKey(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Used internally to link reps & routing rules (ex: <code className="font-mono">mena</code>).
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label>Country codes (optional)</Label>
+                    <Input
+                      placeholder="FR, BE, LU"
+                      value={countryCodesRaw}
+                      onChange={(e) => setCountryCodesRaw(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Comma-separated ISO codes. Leave empty to use the preset mapping.
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex justify-end">
-                <Button onClick={handleCreateTerritory}>Save territory</Button>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="flex justify-end">
+                  <Button onClick={handleCreateTerritory}>Save territory</Button>
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Existing territories</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {territories && territories.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No territories yet. Create at least one (e.g. France, MENA,
-                  North America…) and map reps to them above.
-                </p>
-              )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Existing territories</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {territories && territories.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No territories yet. Create at least one (France, MENA, North America…) then map reps to them.
+                  </p>
+                )}
 
-              {territories && territories.length > 0 && (
-                <div className="overflow-x-auto rounded-lg border bg-background">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-muted/60">
-                      <tr>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Label
-                        </th>
-                        <th className="px-4 py-3 text-left font-medium">Key</th>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Country codes
-                        </th>
-                        <th className="px-4 py-3 text-right font-medium">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {territories.map((t) => (
-                        <tr key={t._id}>
-                          <td className="px-4 py-3 align-middle">{t.label}</td>
-                          <td className="px-4 py-3 align-middle font-mono text-xs">
-                            {t.key}
-                          </td>
-                          <td className="px-4 py-3 align-middle text-xs text-muted-foreground">
-                            {(t.countryCodes ?? []).join(", ") || "—"}
-                          </td>
-                          <td className="px-4 py-3 align-middle text-right">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDeleteTerritory(t._id)}
-                            >
-                              Delete
-                            </Button>
-                          </td>
+                {territories && territories.length > 0 && (
+                  <div className="overflow-x-auto rounded-lg border bg-background">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-muted/60">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-medium">Label</th>
+                          <th className="px-4 py-3 text-left font-medium">Key</th>
+                          <th className="px-4 py-3 text-left font-medium">Country codes</th>
+                          <th className="px-4 py-3 text-right font-medium">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      </thead>
+                      <tbody>
+                        {territories.map((t) => (
+                          <tr key={t._id}>
+                            <td className="px-4 py-3 align-middle">{t.label}</td>
+                            <td className="px-4 py-3 align-middle font-mono text-xs">{t.key}</td>
+                            <td className="px-4 py-3 align-middle text-xs text-muted-foreground">
+                              {(t.countryCodes ?? []).join(", ") || "—"}
+                            </td>
+                            <td className="px-4 py-3 align-middle text-right">
+                              <Button size="sm" variant="outline" onClick={() => handleDeleteTerritory(t._id)}>
+                                Delete
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
-    </div>
+    </Protect>
   );
 }
 
@@ -695,8 +665,10 @@ function TeamRow({
   row: {
     member: Membership;
     role: "sales" | "support";
-    regions: string[]; // = territories.key[]
+    regions: string[];
     available: boolean;
+    slackUserId?: string;
+    slackDmChannel?: string;
   };
   territoryOptions: TerritoryOption[];
   onSave: (row: {
@@ -713,35 +685,21 @@ function TeamRow({
 
   const handleClickSave = async () => {
     setSaving(true);
-    await onSave({
-      member: row.member,
-      role,
-      regions,
-      available,
-    });
+    await onSave({ member: row.member, role, regions, available });
     setSaving(false);
   };
 
   return (
     <tr>
-      {/* USER */}
       <td className="px-4 py-3 align-middle">
         <div className="flex flex-col">
-          <span className="font-medium">
-            {row.member.name || row.member.email}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {row.member.email}
-          </span>
+          <span className="font-medium">{row.member.name || row.member.email}</span>
+          <span className="text-xs text-muted-foreground">{row.member.email}</span>
         </div>
       </td>
 
-      {/* ROLE */}
       <td className="px-4 py-3 align-middle">
-        <Select
-          value={role}
-          onValueChange={(v) => setRole(v as "sales" | "support")}
-        >
+        <Select value={role} onValueChange={(v) => setRole(v as "sales" | "support")}>
           <SelectTrigger className="w-[120px]">
             <SelectValue />
           </SelectTrigger>
@@ -752,36 +710,24 @@ function TeamRow({
         </Select>
       </td>
 
-      {/* TERRITORIES MultiSelect */}
       <td className="px-4 py-3 align-middle">
         <Label className="sr-only">Territories</Label>
         <MultiSelect
           options={territoryOptions}
           value={regions}
           onValueChange={setRegions}
-          placeholder={
-            territoryOptions.length
-              ? "Select territories"
-              : "No territories yet"
-          }
+          placeholder={territoryOptions.length ? "Select territories" : "No territories yet"}
           className="max-w-xs"
         />
       </td>
 
-      {/* AVAILABLE */}
       <td className="px-4 py-3 align-middle">
         <div className="flex items-center gap-2">
-          <Switch
-            checked={available}
-            onCheckedChange={(v) => setAvailable(Boolean(v))}
-          />
-          <span className="text-xs text-muted-foreground">
-            {available ? "Online" : "Offline"}
-          </span>
+          <Switch checked={available} onCheckedChange={(v) => setAvailable(Boolean(v))} />
+          <span className="text-xs text-muted-foreground">{available ? "Online" : "Offline"}</span>
         </div>
       </td>
 
-      {/* SAVE */}
       <td className="px-4 py-3 align-middle text-right">
         <Button size="sm" onClick={handleClickSave} disabled={saving}>
           {saving ? "Saving…" : "Save"}

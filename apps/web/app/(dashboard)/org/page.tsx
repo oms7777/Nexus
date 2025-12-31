@@ -1,23 +1,29 @@
 "use client";
 
-import { OrganizationProfile } from "@clerk/nextjs";
+
+import { OrganizationProfile, Protect, useOrganization } from "@clerk/nextjs";
 
 export default function Page() {
+  const { membership } = useOrganization();
+  const isAdmin = membership?.role === "org:admin";
+
   return (
-    <div className="p-6">
-      <OrganizationProfile
-        routing="hash"
-        appearance={{
-          elements: {
-            // ⚠️ selon les versions, Clerk utilise ces keys (une partie suffit, le reste est ignoré)
-            organizationProfileDangerSection: "hidden",
-            organizationProfileLeaveOrganization: "hidden",
-            organizationProfileDeleteOrganization: "hidden",
-            organizationProfileLeaveOrganizationAction: "hidden",
-            organizationProfileDeleteOrganizationAction: "hidden",
-          },
-        }}
-      />
-    </div>
+    <Protect
+    >
+      <div className="p-6">
+        <OrganizationProfile
+          routing="hash"
+          appearance={{
+            elements: {
+              organizationProfileDangerSection: "hidden",
+              organizationProfileLeaveOrganization: "hidden",
+              organizationProfileDeleteOrganization: "hidden",
+              organizationProfileLeaveOrganizationAction: "hidden",
+              organizationProfileDeleteOrganizationAction: "hidden",
+            },
+          }}
+        />
+      </div>
+    </Protect>
   );
 }
