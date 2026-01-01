@@ -445,19 +445,32 @@ export default function TeamPage() {
                     routing="hash"
                     appearance={{
                       elements: {
+                        // ✅ cache ce qui ne sert pas
                         organizationProfileDangerSection: "hidden",
                         organizationProfileLeaveOrganization: "hidden",
                         organizationProfileDeleteOrganization: "hidden",
                         organizationProfileLeaveOrganizationAction: "hidden",
                         organizationProfileDeleteOrganizationAction: "hidden",
 
-                        // force Clerk à remplir
+                        // ✅ on masque l'identité visuelle "Organization" / "General"
+                        organizationProfilePage: "p-0",
+                        organizationProfileSectionTitle: "hidden",
+                        organizationProfileSectionContent: "p-0",
+
+                        // ✅ IMPORTANT: on masque la sidebar interne de Clerk (onglets)
+                        // et on garde seulement le contenu "members" (via #members)
+                        navbar: "hidden",
+                        navbarMobileMenuButton: "hidden",
+                        navbarButtons: "hidden",
+
+                        // ✅ force Clerk à remplir le conteneur
                         rootBox: "w-full h-full max-w-none",
                         card: "w-full h-full max-w-none border-0 shadow-none rounded-none",
                         pageScrollBox: "w-full h-full max-w-none",
                       },
                     }}
                   />
+
                 </div>
               </div>
             </DialogContent>
