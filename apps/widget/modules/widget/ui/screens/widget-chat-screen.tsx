@@ -665,6 +665,7 @@ export const WidgetChatScreen = () => {
         organizationId,
         userId: rep.userId, // slots spécifiques à ce sales
         days: 21,
+        contactSessionId: contactSessionId ?? undefined,
       });
       setSlots(s);
     } finally {
@@ -726,6 +727,7 @@ export const WidgetChatScreen = () => {
           organizationId,
           userId: calendarAccount.userId,
           days: 21,
+          contactSessionId: contactSessionId ?? undefined,
         });
         setSlots(s);
       } finally {
@@ -971,7 +973,7 @@ export const WidgetChatScreen = () => {
                   </Button>
                 </div>
               )}
-              
+
             {/* consent card */}
             {step === "consent" && mustAcceptConsent && consentCfg && consentCfg.enabled !== false && (
                 <div className="p-3">

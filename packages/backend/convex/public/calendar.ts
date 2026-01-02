@@ -86,6 +86,7 @@ export const listSlots = action({
     userId: v.optional(v.string()),
     days: v.number(),
     slotMinutes: v.optional(v.number()),
+    contactSessionId: v.optional(v.id("contactSessions")),
   },
   handler: async (ctx, { organizationId, userId, days, slotMinutes }) => {
     const acct = await ctx.runQuery(api.public.calendar.getAccount, {

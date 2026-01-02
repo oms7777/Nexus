@@ -116,6 +116,15 @@ export const create = mutation({
       existingActive.organizationId === args.organizationId &&
       existingActive.status !== "resolved"
     ) {
+      // ✅ IMPORTANT: Experience shown must also be logged on reuse
+      await ctx.runMutation(api.public.analytics.log, {
+        organizationId: args.organizationId,
+        type: "experience_shown",
+        sessionId: args.contactSessionId,
+        conversationId: existingActive._id,
+        meta: { threadId: existingActive.threadId, reused: true, suppressGreet: !!args.suppressGreet },
+      });
+
       await ctx.runMutation(api.public.analytics.log, {
         organizationId: args.organizationId,
         type: "conversation_reused",
@@ -155,6 +164,7 @@ export const create = mutation({
       threadId,
     });
 
+    // ✅ experience_shown = on a affiché l’expérience (et/ou créé thread + UI ready)
     await ctx.runMutation(api.public.analytics.log, {
       organizationId: args.organizationId,
       type: "experience_shown",
@@ -163,6 +173,7 @@ export const create = mutation({
       meta: { threadId, suppressGreet: !!args.suppressGreet },
     });
 
+    // ✅ conversation_created = création effective d’une conversation Convex
     await ctx.runMutation(api.public.analytics.log, {
       organizationId: args.organizationId,
       type: "conversation_created",

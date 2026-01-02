@@ -1,3 +1,4 @@
+// apps/web/app/(dashboard)/analytics/overview/page.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -13,13 +14,7 @@ function makeRange(days: number) {
   return { fromTs, toTs };
 }
 
-function RangePills({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
+function RangePills({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const opts = [7, 30, 90];
   return (
     <div className="inline-flex rounded-xl border bg-white p-1 shadow-sm">
@@ -60,9 +55,7 @@ function StatCard({
     <div className="rounded-2xl border bg-white p-6 shadow-sm">
       <div className="text-sm text-muted-foreground">{label}</div>
       <div className="text-4xl font-semibold mt-2">{(value ?? 0).toLocaleString()}</div>
-      {pct ? (
-        <div className="mt-2 text-xs text-muted-foreground">vs previous period: {pct}</div>
-      ) : null}
+      {pct ? <div className="mt-2 text-xs text-muted-foreground">vs previous period: {pct}</div> : null}
     </div>
   );
 }
@@ -87,8 +80,7 @@ function LockedAdvancedCard() {
       </div>
 
       <div className="mt-6 rounded-xl bg-muted p-4 text-sm">
-        Enable <span className="font-medium">Advanced Analytics</span> in your plan/add-on to
-        view this section.
+        Enable <span className="font-medium">Advanced Analytics</span> in your plan/add-on to view this section.
       </div>
     </div>
   );
@@ -134,7 +126,7 @@ function Table({
       </div>
       <div className="divide-y">
         {rows.length === 0 ? (
-          <div className="px-4 py-4 text-sm text-muted-foreground">No data.</div>
+          <div className="px-4 py-4 text-sm text-muted-foreground">No data yet.</div>
         ) : (
           rows.map((r, idx) => (
             <div key={idx} className="grid grid-cols-12 gap-3 px-4 py-3 text-sm">
@@ -155,15 +147,20 @@ export default function AnalyticsOverviewPage() {
   const [days, setDays] = useState(30);
   const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
 
-  // ✅ overview() returns: { period, kpi, deltas, conversion, inbound_response, pounce, top_sources, top_territories, top_pages }
-  const overview = useQuery(
-    api.public.analytics.overview,
-    orgId ? ({ organizationId: orgId, fromTs, toTs } as any) : "skip",
-  );
-
-  // ✅ gating via entitlements
   const entitlements = useQuery(api.public.entitlements.getEntitlements, orgId ? {} : "skip");
   const advancedEnabled = !!entitlements?.features?.canUseAdvancedAnalytics;
+
+  const overview = useQuery(
+    api.public.analytics.overview,
+    orgId
+      ? {
+          organizationId: orgId,
+          fromTs,
+          toTs,
+          ...(advancedEnabled ? { slaSeconds: 120 } : {}),
+        }
+      : "skip",
+  );
 
   if (!orgId) return <div className="p-6">No organization</div>;
   if (overview === undefined) return <div className="p-6">Loading…</div>;
@@ -189,9 +186,7 @@ export default function AnalyticsOverviewPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-2xl font-semibold">Analytics</div>
-          <div className="text-sm text-muted-foreground">
-            Overview of widget activity for the selected period.
-          </div>
+          <div className="text-sm text-muted-foreground">Overview of widget activity for the selected period.</div>
         </div>
         <RangePills value={days} onChange={setDays} />
       </div>
@@ -207,28 +202,20 @@ export default function AnalyticsOverviewPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="text-lg font-semibold">Advanced Analytics</div>
-          <div className="text-xs text-muted-foreground">
-            {advancedEnabled ? "Enabled" : "Add-on required"}
-          </div>
+          <div className="text-xs text-muted-foreground">{advancedEnabled ? "Enabled" : "Add-on required"}</div>
         </div>
 
         {!advancedEnabled ? (
           <LockedAdvancedCard />
         ) : (
           <div className="grid gap-4 grid-cols-1 xl:grid-cols-2">
-            <CardShell
-              title="Territory breakdown"
-              subtitle="Top territories by sessions + meetings"
-            >
+            <CardShell title="Territory breakdown" subtitle="Top territories by sessions + meetings">
               <div className="h-[280px]">
                 <TerritoryBarChart data={topTerritories as any} />
               </div>
             </CardShell>
 
-            <CardShell
-              title="Attribution — Top sources"
-              subtitle="Where your sessions & meetings come from"
-            >
+            <CardShell title="Attribution — Top sources" subtitle="Where your sessions & meetings come from">
               <Table
                 columns={["Source", "Sessions • Conversations • Meetings"]}
                 rows={topSources.slice(0, 8).map((s: any) => [
