@@ -21,15 +21,23 @@ type Row = {
   inbound_requests?: number;
 };
 
+type ChartRow = {
+  name: string;
+  sessions: number;
+  meetings: number;
+};
+
+const fmtNumber = (v: unknown) => Number(v ?? 0).toLocaleString();
+
 export function TerritoryBarChart({ data }: { data: Row[] }) {
-  const rows = (data ?? [])
+  const rows: ChartRow[] = (Array.isArray(data) ? data : [])
     .slice()
-    .sort((a, b) => (b.sessions ?? 0) - (a.sessions ?? 0))
+    .sort((a, b) => Number(b.sessions ?? 0) - Number(a.sessions ?? 0))
     .slice(0, 10)
     .map((r) => ({
-      name: r.territoryLabel || r.territoryKey,
-      sessions: r.sessions ?? 0,
-      meetings: r.meetings ?? 0,
+      name: (r.territoryLabel || r.territoryKey || "Unknown").toString(),
+      sessions: Number(r.sessions ?? 0),
+      meetings: Number(r.meetings ?? 0),
     }));
 
   if (!rows.length) {
@@ -41,8 +49,11 @@ export function TerritoryBarChart({ data }: { data: Row[] }) {
       <BarChart data={rows} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="name" tickMargin={8} />
-        <YAxis width={36} />
-        <Tooltip />
+        <YAxis width={40} tickFormatter={fmtNumber} />
+        <Tooltip
+          formatter={(value) => fmtNumber(value)}
+          labelFormatter={(label) => String(label ?? "")}
+        />
         <Legend />
         <Bar dataKey="sessions" />
         <Bar dataKey="meetings" />
