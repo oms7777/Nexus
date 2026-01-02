@@ -70,6 +70,7 @@ import VoiceCallButton from "../components/VoiceCallButton";
 /* ---------------- helpers ---------------- */
 
 const formSchema = z.object({ message: z.string().min(1) });
+const HUMAN_FALLBACK_SECONDS = 30; // X secondes avant fallback booking
 
 type Slot = { start: number; end: number };
 
@@ -458,6 +459,68 @@ export const WidgetChatScreen = () => {
       : "skip",
     { initialNumItems: 10 }
   );
+
+  const hasRepStarted = useQuery(
+    api.public.analytics.hasInboundRepStarted,
+    organizationId && conversationId
+      ? { organizationId, conversationId }
+      : "skip"
+  ) as boolean | undefined;
+
+  const fallbackTimerRef = useRef<any>(null);
+  const fallbackShownRef = useRef(false);
+
+  useEffect(() => {
+    // reset si pas de conversation
+    if (!conversationId) {
+      fallbackShownRef.current = false;
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+      return;
+    }
+
+    const isEscalated = conversation?.status === "escalated";
+    const humanAlreadyReplied = hasRepStarted === true;
+
+    // humain a répondu => stop
+    if (humanAlreadyReplied) {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+      return;
+    }
+
+    // pas escalated => stop
+    if (!isEscalated) {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+      fallbackShownRef.current = false;
+      return;
+    }
+
+    // déjà montré => ne pas spam
+    if (fallbackShownRef.current) return;
+
+    // arm timer
+    if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+
+    fallbackTimerRef.current = setTimeout(() => {
+      if (fallbackShownRef.current) return;
+
+      // encore escalated et toujours pas d'humain?
+      fallbackShownRef.current = true;
+
+      setLocalMsgs((m) => [
+        ...m,
+        {
+          role: "assistant",
+          text:
+            `⏳ If no teammate answers right away, you can book a quick meeting instead.\n` +
+            `Click “Book a meeting” to pick a slot.`,
+        },
+      ]);
+    }, HUMAN_FALLBACK_SECONDS * 1000);
+
+    return () => {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+    };
+  }, [conversationId, conversation?.status, hasRepStarted]);
 
 
   // local messages + booking
@@ -897,7 +960,18 @@ export const WidgetChatScreen = () => {
               );
             })}
 
-
+            {/* ✅ Fallback booking CTA after X seconds if escalated & no human reply */}
+            {conversation?.status === "escalated" &&
+              hasRepStarted === false &&
+              fallbackShownRef.current &&
+              step === "idle" && (
+                <div className="p-3">
+                  <Button className="w-full" onClick={startBookingLikePromo}>
+                    Book a meeting
+                  </Button>
+                </div>
+              )}
+              
             {/* consent card */}
             {step === "consent" && mustAcceptConsent && consentCfg && consentCfg.enabled !== false && (
                 <div className="p-3">

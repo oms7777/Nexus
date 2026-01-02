@@ -1,30 +1,74 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { SignalBadge } from "./SignalBadge";
 
 type Row = {
   account: string;
-  engagement: string;
-  timeOnSite: string;
-  sessions: number;
+  tier?: "Hot" | "Warm" | "Neutral" | string;
+  score?: number;
+  intent?: "High" | "Medium" | "Low" | string;
 
-  // advanced (optionnels)
+  sessions?: number;
+  conversations?: number;
+  meetings?: number;
+  inboundRequests?: number;
+  experiences?: number;
+
+  source?: string;
+  territory?: string;
   countryCode?: string;
   city?: string;
-  utm_source?: string;
-  territory?: string;
+
+  topPages?: string[];
+  reasons?: string[];
+  lastSeenTs?: number;
 };
 
-type SortKey = "sessions" | "account";
+type SortKey = "score" | "sessions" | "meetings" | "account";
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
-
 function safeNum(x: any) {
   const n = Number(x ?? 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+function TierBadge({ value }: { value?: string }) {
+  const v = (value ?? "Neutral").toLowerCase();
+  const isHot = v === "hot";
+  const isWarm = v === "warm";
+
+  const label = isHot ? "Hot" : isWarm ? "Warm" : "Neutral";
+
+  return (
+    <span
+      className={[
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
+        isHot ? "bg-red-50" : isWarm ? "bg-amber-50" : "bg-muted",
+      ].join(" ")}
+    >
+      {label}
+    </span>
+  );
+}
+
+function IntentBadge({ value }: { value?: string }) {
+  const v = (value ?? "Low").toLowerCase();
+  const isHigh = v === "high";
+  const isMedium = v === "medium";
+  const label = isHigh ? "High" : isMedium ? "Medium" : "Low";
+
+  return (
+    <span
+      className={[
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
+        isHigh ? "bg-emerald-50" : isMedium ? "bg-blue-50" : "bg-muted",
+      ].join(" ")}
+    >
+      Intent: {label}
+    </span>
+  );
 }
 
 export function SignalsTable({
@@ -35,7 +79,7 @@ export function SignalsTable({
   advanced: boolean;
 }) {
   const [q, setQ] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("sessions");
+  const [sortKey, setSortKey] = useState<SortKey>("score");
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -46,7 +90,9 @@ export function SignalsTable({
 
     base.sort((a, b) => {
       if (sortKey === "account") return safeStr(a.account).localeCompare(safeStr(b.account));
-      return safeNum(b.sessions) - safeNum(a.sessions);
+      if (sortKey === "sessions") return safeNum(b.sessions) - safeNum(a.sessions);
+      if (sortKey === "meetings") return safeNum(b.meetings) - safeNum(a.meetings);
+      return safeNum(b.score) - safeNum(a.score);
     });
 
     return base;
@@ -72,7 +118,9 @@ export function SignalsTable({
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
           >
+            <option value="score">Score</option>
             <option value="sessions">Sessions</option>
+            <option value="meetings">Meetings</option>
             <option value="account">Account</option>
           </select>
         </div>
@@ -83,16 +131,17 @@ export function SignalsTable({
         className={[
           "grid gap-3 border-b px-4 py-2 text-xs text-muted-foreground uppercase",
           advanced
-            ? "grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr]"
-            : "grid-cols-[2fr_1fr_1fr_1fr]",
+            ? "grid-cols-[2.2fr_0.8fr_1fr_0.9fr_0.8fr_1fr_1fr]"
+            : "grid-cols-[2.2fr_0.8fr_1fr_0.9fr_0.8fr]",
         ].join(" ")}
       >
         <div>Account</div>
-        <div>Engagement</div>
-        {advanced ? <div>Territory</div> : null}
-        {advanced ? <div>UTM</div> : null}
-        <div>Time on site</div>
+        <div>Tier</div>
+        <div>Intent</div>
+        <div>Score</div>
         <div>Sessions</div>
+        {advanced ? <div>Territory</div> : null}
+        {advanced ? <div>Source</div> : null}
       </div>
 
       {/* rows */}
@@ -105,22 +154,35 @@ export function SignalsTable({
             className={[
               "grid gap-3 px-4 py-3 border-b last:border-0 items-center",
               advanced
-                ? "grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr]"
-                : "grid-cols-[2fr_1fr_1fr_1fr]",
+                ? "grid-cols-[2.2fr_0.8fr_1fr_0.9fr_0.8fr_1fr_1fr]"
+                : "grid-cols-[2.2fr_0.8fr_1fr_0.9fr_0.8fr]",
             ].join(" ")}
           >
-            <div className="font-medium truncate">{row.account}</div>
-            <div>
-              <SignalBadge value={row.engagement} />
+            <div className="min-w-0">
+              <div className="font-medium truncate">{row.account}</div>
+              <div className="mt-1 text-xs text-muted-foreground truncate">
+                {(row.reasons ?? []).slice(0, 3).join(" • ") || "—"}
+              </div>
             </div>
 
-            {advanced ? <div className="text-sm">{row.territory ?? "—"}</div> : null}
-            {advanced ? <div className="text-sm">{row.utm_source ?? "—"}</div> : null}
+            <div>
+              <TierBadge value={row.tier} />
+            </div>
 
-            <div className="text-sm">{row.timeOnSite ?? "—"}</div>
+            <div>
+              <IntentBadge value={row.intent} />
+            </div>
+
+            <div className="tabular-nums text-sm font-medium">
+              {safeNum(row.score).toLocaleString()}
+            </div>
+
             <div className="tabular-nums text-sm font-medium">
               {safeNum(row.sessions).toLocaleString()}
             </div>
+
+            {advanced ? <div className="text-sm">{row.territory ?? "—"}</div> : null}
+            {advanced ? <div className="text-sm">{row.source ?? "direct"}</div> : null}
           </div>
         ))
       )}

@@ -7,7 +7,6 @@ import { useOrganization } from "@clerk/nextjs";
 
 import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/EngagementFunnelChart";
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
-import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
 import { PounceRatesChart } from "@/modules/analytics/funnel/components/PounceRatesChart";
 
 function makeRange(days: number) {
@@ -61,9 +60,7 @@ function Card({
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-medium text-muted-foreground">{title}</div>
-          {subtitle ? (
-            <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
-          ) : null}
+          {subtitle ? <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div> : null}
         </div>
         {badge ? (
           <div className="rounded-full border px-3 py-1 text-xs font-medium">{badge}</div>
@@ -74,11 +71,11 @@ function Card({
   );
 }
 
-function Row({ label, value }: { label: string; value: number }) {
+function Row({ label, value }: { label: string; value: any }) {
   return (
     <div className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium tabular-nums">{(value ?? 0).toLocaleString()}</span>
+      <span className="font-medium tabular-nums">{String(value ?? "—")}</span>
     </div>
   );
 }
@@ -97,17 +94,20 @@ function LockedAdvancedCard() {
       </div>
 
       <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-        <div>• SLA-based metric: “Started &lt; SLA”</div>
-        <div>• Better inbound attribution (availability → start)</div>
+        <div>• SLA-based inbound metrics (median/p90/p99 & within-SLA)</div>
         <div>• Future: segmentation (territory / utm / reps)</div>
       </div>
 
       <div className="mt-6 rounded-xl bg-muted p-4 text-sm">
         Enable <span className="font-medium">Advanced Analytics</span> to view SLA & advanced
-        metrics.
+        inbound metrics.
       </div>
     </div>
   );
+}
+
+function pct(x: number) {
+  return `${Math.round(x * 100)}%`;
 }
 
 export default function AnalyticsFunnelPage() {
@@ -139,10 +139,31 @@ export default function AnalyticsFunnelPage() {
   if (!orgId) return <div className="p-6">No organization</div>;
   if (funnels === undefined) return <div className="p-6">Loading…</div>;
 
-  const engagement = funnels?.engagement;
-  const conversion = funnels?.conversion;
-  const inbound = funnels?.inbound;
-  const pounce = funnels?.pounce;
+  // funnels(): { funnel, conversion, inbound_ops, by_source, by_territory, pounce }
+  const funnelSteps = funnels?.funnel ?? [];
+  const conversion = funnels?.conversion ?? null;
+  const inboundOps = funnels?.inbound_ops ?? null;
+  const pounce = funnels?.pounce ?? null;
+
+  // Build engagement object for EngagementFunnelChart from funnel steps
+  const byStep = new Map<string, number>(
+    funnelSteps.map((s: any) => [String(s.step ?? ""), Number(s.value ?? 0)]),
+  );
+
+  const engagement = {
+    sessions: Number(byStep.get("Sessions") ?? 0),
+    experiences: Number(byStep.get("Experience shown") ?? 0),
+    conversations: Number(byStep.get("Conversations") ?? 0),
+    meetings: Number(byStep.get("Meetings") ?? 0),
+  };
+
+  // Adapt conversion object to what ConversionRatesChart expects
+  const conversionForChart = {
+    meetings_from_conversations_num: engagement.meetings,
+    meetings_from_conversations_den: engagement.conversations,
+    conversations_from_experiences_num: engagement.conversations,
+    conversations_from_experiences_den: engagement.experiences,
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -151,7 +172,7 @@ export default function AnalyticsFunnelPage() {
         <div>
           <div className="text-2xl font-semibold">Funnels</div>
           <div className="text-sm text-muted-foreground">
-            Engagement → conversations → meetings, plus inbound & pounce health.
+            Engagement → conversations → meetings, plus inbound response time & pounce.
           </div>
         </div>
 
@@ -169,7 +190,7 @@ export default function AnalyticsFunnelPage() {
             <div>
               <div className="text-sm font-medium">Advanced controls</div>
               <div className="text-xs text-muted-foreground">
-                SLA is used to compute “Started &lt; SLA”.
+                SLA is used to compute “within SLA rate” on inbound response time.
               </div>
             </div>
 
@@ -195,10 +216,10 @@ export default function AnalyticsFunnelPage() {
         {/* Engagement */}
         <Card title="Engagement Funnel" subtitle="High-level product usage" badge="Core">
           <div className="space-y-2">
-            <Row label="Sessions" value={engagement?.sessions ?? 0} />
-            <Row label="Experience shown" value={engagement?.experiences ?? 0} />
-            <Row label="Conversations created" value={engagement?.conversations ?? 0} />
-            <Row label="Meetings booked" value={engagement?.meetings ?? 0} />
+            <Row label="Sessions" value={engagement.sessions.toLocaleString()} />
+            <Row label="Experience shown" value={engagement.experiences.toLocaleString()} />
+            <Row label="Conversations created" value={engagement.conversations.toLocaleString()} />
+            <Row label="Meetings booked" value={engagement.meetings.toLocaleString()} />
           </div>
 
           <div className="mt-4">
@@ -209,44 +230,56 @@ export default function AnalyticsFunnelPage() {
         {/* Conversion */}
         <Card title="Conversion Funnel" subtitle="Rates from experiences & conversations" badge="Core">
           <div className="mt-1">
-            <ConversionRatesChart data={conversion} />
+            <ConversionRatesChart data={conversionForChart} />
           </div>
         </Card>
 
-        {/* Inbound */}
+        {/* Inbound response time */}
         <Card
-          title="Inbound Chat Health"
+          title="Inbound Response Time"
           subtitle={advancedEnabled ? "Includes SLA-based metric" : "SLA metric requires Advanced"}
           badge={advancedEnabled ? "Advanced" : "Core"}
         >
-          <div className="space-y-2">
-            <Row label="Inbound chat requests" value={inbound?.requests ?? 0} />
-            <Row label="Requests with rep available" value={inbound?.with_rep_available ?? 0} />
-            <Row label="Requests where rep started" value={inbound?.rep_started ?? 0} />
-            {advancedEnabled ? (
-              <Row label="Started < SLA" value={inbound?.started_before_sla ?? 0} />
-            ) : (
-              <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                Started &lt; SLA is available in Advanced Analytics.
-              </div>
-            )}
-          </div>
+          {!inboundOps ? (
+            <div className="text-sm text-muted-foreground">No inbound response data.</div>
+          ) : (
+            <div className="space-y-2">
+              <Row
+                label="Conversations with rep response"
+                value={(inboundOps.conversations_with_rep ?? 0).toLocaleString()}
+              />
+              <Row label="Median (sec)" value={inboundOps.median_sec ?? "—"} />
+              <Row label="P90 (sec)" value={inboundOps.p90_sec ?? "—"} />
+              <Row label="P99 (sec)" value={inboundOps.p99_sec ?? "—"} />
 
-          <div className="mt-4">
-            <InboundHealthChart data={inbound} showSla={advancedEnabled} />
-          </div>
+              {advancedEnabled ? (
+                <Row
+                  label="Within SLA rate"
+                  value={
+                    typeof inboundOps.within_sla_rate === "number"
+                      ? pct(inboundOps.within_sla_rate)
+                      : "—"
+                  }
+                />
+              ) : (
+                <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                  Within SLA rate is available in Advanced Analytics.
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* Pounce */}
         <Card title="Pounce Conversion" subtitle="How effective rep pounce is" badge="Core">
           <div className="space-y-2">
-            <Row label="Pounce attempts" value={pounce?.attempts ?? 0} />
-            <Row label="Pounce conversations" value={pounce?.conversations ?? 0} />
-            <Row label="Pounce meetings" value={pounce?.meetings ?? 0} />
+            <Row label="Pounce attempts" value={(pounce?.attempts ?? 0).toLocaleString()} />
+            <Row label="Pounce conversations" value={(pounce?.conversations ?? 0).toLocaleString()} />
+            <Row label="Pounce meetings" value={(pounce?.meetings ?? 0).toLocaleString()} />
           </div>
 
           <div className="mt-4">
-            <PounceRatesChart data={pounce} />
+            <PounceRatesChart data={pounce ?? undefined} />
           </div>
         </Card>
       </div>

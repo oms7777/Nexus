@@ -1,4 +1,4 @@
-// convex/public/messages.ts
+// packages/backend/convex/public/messages.ts
 import { ConvexError, v } from "convex/values";
 import { action, query } from "../_generated/server";
 import { components, internal, api } from "../_generated/api";
@@ -78,18 +78,17 @@ export const create = action({
     const shouldTriggerAgent =
       conversation.status === "unresolved" && subscription?.status === "active";
 
-    // 3) settings (same source as UI)
+    // 3) settings
     const widgetSettings = await ctx.runQuery(
       api.public.widgetSettings.getByOrganizationId,
       { organizationId: conversation.organizationId },
     );
 
     const knowledgeMode = ((widgetSettings?.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode);
-
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
 
-    // 4) if not eligible => just save user message (no agent reply)
+    // 4) if not eligible => just save user msg
     if (!shouldTriggerAgent) {
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
@@ -98,18 +97,35 @@ export const create = action({
       return;
     }
 
-    // 5) build agent with chosen provider/model
+    // ✅ reps availability block for the agent
+    const availableReps =
+      (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
+        organizationId: conversation.organizationId,
+      })) ?? [];
+
+    const repsLabel = availableReps
+      .slice(0, 3)
+      .map((r: any) => {
+        const name = (r.name ?? "Rep").trim();
+        const title = (r.title ?? r.role ?? "").trim();
+        return title ? `${name} (${title})` : name;
+      })
+      .join(", ");
+
+    const repsBlock = `<<<REPS_AVAILABLE count="${availableReps.length}" reps="${repsLabel}" >>>`;
+
+    // 5) build agent
     const agent = makeSupportAgent({ llmProvider, llmModel });
 
     // -------------------------
-    // MODE: LLM ONLY (no KB)
+    // MODE: LLM ONLY
     // -------------------------
     if (knowledgeMode === "llm_only") {
       await agent.generateText(
         ctx,
         { threadId: args.threadId },
         {
-          prompt: args.prompt,
+          prompt: `${repsBlock}\n\n${args.prompt}`,
           tools: {
             escalateConversationTool: escalateConversation,
             resolveConversationTool: resolveConversation,
@@ -120,10 +136,7 @@ export const create = action({
     }
 
     // ---------------------------------------
-    // MODE: KB ONLY (B) = answer ONLY from KB
-    // IMPORTANT:
-    // - We DO NOT put KB content inside the user-visible prompt.
-    // - We inject KB only in "system" as INTERNAL_KB_CONTEXT to avoid leaking.
+    // MODE: KB ONLY
     // ---------------------------------------
     if (knowledgeMode === "kb_only") {
       const orgId = conversation.organizationId;
@@ -148,10 +161,7 @@ export const create = action({
         ctx,
         { threadId: args.threadId },
         {
-          // ✅ Prompt = uniquement la question du user (pas de KB dump)
-          prompt: args.prompt,
-
-          // ✅ KB = contexte interne uniquement (anti-leak)
+          prompt: `${repsBlock}\n\n${args.prompt}`,
           // eslint-disable-next-line @typescript-eslint/ban-ts-comment
           // @ts-ignore
           system: `
@@ -168,13 +178,12 @@ ${kbText}
 
     // -------------------------
     // MODE: LLM + KB
-    // (agent can use searchTool)
     // -------------------------
     await agent.generateText(
       ctx,
       { threadId: args.threadId },
       {
-        prompt: args.prompt,
+        prompt: `${repsBlock}\n\n${args.prompt}`,
         tools: {
           escalateConversationTool: escalateConversation,
           resolveConversationTool: resolveConversation,
@@ -198,7 +207,6 @@ export const getMany = query({
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
-    // listMessages doesn't depend on model choice; keep it simple
     const agent = makeSupportAgent({ llmProvider: "openai", llmModel: "gpt-4o-mini" });
 
     return agent.listMessages(ctx, {
