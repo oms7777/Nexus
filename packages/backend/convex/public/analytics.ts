@@ -870,8 +870,10 @@ export const signals = query({
 
     const pickTop = (m: Map<string, number>) => {
       const arr = [...m.entries()].sort((a, b) => b[1] - a[1]);
-      return arr.length ? arr[0][0] : undefined;
+      const top = arr[0];
+      return top ? top[0] : undefined;
     };
+
 
     const pickTopN = (m: Map<string, number>, n = 3) =>
       [...m.entries()]
