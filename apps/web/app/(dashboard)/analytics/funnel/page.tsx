@@ -100,15 +100,11 @@ function LockedAdvancedCard() {
       </div>
 
       <div className="mt-6 rounded-xl bg-muted p-4 text-sm">
-        Enable <span className="font-medium">Advanced Analytics</span> to view SLA & advanced
-        inbound metrics.
+        Enable <span className="font-medium">Advanced Analytics</span> to view SLA & advanced inbound
+        metrics.
       </div>
     </div>
   );
-}
-
-function pct(x: number) {
-  return `${Math.round(x * 100)}%`;
 }
 
 export default function AnalyticsFunnelPage() {
@@ -140,8 +136,7 @@ export default function AnalyticsFunnelPage() {
   if (!orgId) return <div className="p-6">No organization</div>;
   if (data === undefined) return <div className="p-6">Loading…</div>;
 
-  // ✅ New backend shape
-  // { engagement, conversion, inbound, pounce }
+  // ✅ backend shape: { engagement, conversion, inbound, pounce }
   const engagement = data?.engagement ?? {
     sessions: 0,
     experiences: 0,
@@ -205,14 +200,68 @@ export default function AnalyticsFunnelPage() {
         </div>
       )}
 
+      {/* ✅ WOW Narrative KPIs */}
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="text-sm text-muted-foreground">Conv → Meeting</div>
+          <div className="mt-2 text-3xl font-semibold tabular-nums">
+            {conversionForChart.meetings_from_conversations_den > 0
+              ? `${Math.round(
+                  (conversionForChart.meetings_from_conversations_num /
+                    conversionForChart.meetings_from_conversations_den) *
+                    100,
+                )}%`
+              : "—"}
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            {Number(conversionForChart.meetings_from_conversations_num ?? 0).toLocaleString()} /{" "}
+            {Number(conversionForChart.meetings_from_conversations_den ?? 0).toLocaleString()}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="text-sm text-muted-foreground">Exp → Conv</div>
+          <div className="mt-2 text-3xl font-semibold tabular-nums">
+            {conversionForChart.conversations_from_experiences_den > 0
+              ? `${Math.round(
+                  (conversionForChart.conversations_from_experiences_num /
+                    conversionForChart.conversations_from_experiences_den) *
+                    100,
+                )}%`
+              : "—"}
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            {Number(conversionForChart.conversations_from_experiences_num ?? 0).toLocaleString()} /{" "}
+            {Number(conversionForChart.conversations_from_experiences_den ?? 0).toLocaleString()}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="text-sm text-muted-foreground">Next best improvement</div>
+          <div className="mt-2 text-sm text-muted-foreground leading-relaxed">
+            {Number(inbound?.requests ?? 0) > 0 && Number(inbound?.rep_started ?? 0) === 0
+              ? "Reps are not starting inbound conversations. Turn on rep routing & Slack alerts."
+              : Number(pounce?.attempts ?? 0) === 0
+              ? "No pounce activity. Enable pounce to convert high-intent visitors."
+              : "Improve response speed & expand routing coverage for top territories."}
+          </div>
+        </div>
+      </div>
+
       {/* Grid */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Engagement */}
         <Card title="Engagement Funnel" subtitle="High-level product usage" badge="Core">
           <div className="space-y-2">
             <Row label="Sessions" value={Number(engagement.sessions ?? 0).toLocaleString()} />
-            <Row label="Experience shown" value={Number(engagement.experiences ?? 0).toLocaleString()} />
-            <Row label="Conversations created" value={Number(engagement.conversations ?? 0).toLocaleString()} />
+            <Row
+              label="Experience shown"
+              value={Number(engagement.experiences ?? 0).toLocaleString()}
+            />
+            <Row
+              label="Conversations created"
+              value={Number(engagement.conversations ?? 0).toLocaleString()}
+            />
             <Row label="Meetings booked" value={Number(engagement.meetings ?? 0).toLocaleString()} />
           </div>
 
@@ -238,12 +287,24 @@ export default function AnalyticsFunnelPage() {
             <div className="text-sm text-muted-foreground">No inbound data.</div>
           ) : (
             <div className="space-y-2">
-              <Row label="Inbound chat requests" value={Number(inbound.requests ?? 0).toLocaleString()} />
-              <Row label="Requests with rep available" value={Number(inbound.with_rep_available ?? 0).toLocaleString()} />
-              <Row label="Requests where rep started" value={Number(inbound.rep_started ?? 0).toLocaleString()} />
+              <Row
+                label="Inbound chat requests"
+                value={Number(inbound.requests ?? 0).toLocaleString()}
+              />
+              <Row
+                label="Requests with rep available"
+                value={Number(inbound.with_rep_available ?? 0).toLocaleString()}
+              />
+              <Row
+                label="Requests where rep started"
+                value={Number(inbound.rep_started ?? 0).toLocaleString()}
+              />
 
               {advancedEnabled ? (
-                <Row label="Started &lt; SLA" value={Number(inbound.started_before_sla ?? 0).toLocaleString()} />
+                <Row
+                  label="Started &lt; SLA"
+                  value={Number(inbound.started_before_sla ?? 0).toLocaleString()}
+                />
               ) : (
                 <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                   “Started &lt; SLA” is available in Advanced Analytics.
@@ -257,7 +318,10 @@ export default function AnalyticsFunnelPage() {
         <Card title="Pounce Conversion" subtitle="How effective rep pounce is" badge="Core">
           <div className="space-y-2">
             <Row label="Pounce attempts" value={Number(pounce?.attempts ?? 0).toLocaleString()} />
-            <Row label="Pounce conversations" value={Number(pounce?.conversations ?? 0).toLocaleString()} />
+            <Row
+              label="Pounce conversations"
+              value={Number(pounce?.conversations ?? 0).toLocaleString()}
+            />
             <Row label="Pounce meetings" value={Number(pounce?.meetings ?? 0).toLocaleString()} />
           </div>
 

@@ -52,20 +52,28 @@ async function enrichMetaFromSession(ctx: any, sessionId?: any) {
   const currentUrl = safeString(m.currentUrl);
 
   return {
+    // identity-ish
+    sessionName: safeString(session?.name),
+    sessionEmail: safeString(session?.email),
+
+    // geo
     city: safeString(m.city),
     countryCode: safeString(m.countryCode),
     lat: typeof m.lat === "number" ? m.lat : undefined,
     lng: typeof m.lng === "number" ? m.lng : undefined,
 
+    // page
     currentUrl,
     referrer: safeString(m.referrer),
     title: safeString(m.title),
 
+    // tracking
     visitorId: safeString(m.visitorId),
 
     ...pickUtm(currentUrl),
   };
 }
+
 
 function getSessionKey(e: any): string | null {
   if (e.sessionId) return `session:${String(e.sessionId)}`;
@@ -764,11 +772,329 @@ export const signals = query({
 
     const { ccToTerr } = await buildCountryToTerritoryMap(ctx, organizationId);
 
-    // ⚠️ Je renvoie un tableau vide pour ne pas casser ton UI actuelle.
-    // On réaligne Signals UI ensuite.
-    // (Sinon: ton UI attend {account, engagement, timeOnSite, sessions, ...})
-    void ccToTerr;
-    void evts;
-    return [];
+    function emailDomain(email?: string) {
+      if (!email || typeof email !== "string") return undefined;
+      const at = email.indexOf("@");
+      if (at <= 0) return undefined;
+      return email.slice(at + 1).trim().toLowerCase();
+    }
+
+    function accountKeyForEvent(e: any) {
+      const meta = e?.meta ?? {};
+      const direct = safeString(e?.accountId) || safeString(meta?.accountId);
+      if (direct) return { key: `account:${direct}`, label: direct };
+
+      const company = safeString(meta?.company) || safeString(meta?.account);
+      if (company) return { key: `company:${company.toLowerCase()}`, label: company };
+
+      const dom = emailDomain(safeString(meta?.sessionEmail));
+      if (dom) return { key: `emaildom:${dom}`, label: dom };
+
+      const vid = safeString(meta?.visitorId);
+      if (vid) return { key: `visitor:${vid}`, label: `Visitor ${vid.slice(0, 6)}` };
+
+      return { key: "unknown", label: "Unknown" };
+    }
+
+    // Aggregations
+    const agg = new Map<
+      string,
+      {
+        label: string;
+        sessions: Set<string>;
+        conversations: Set<string>;
+        meetings: Set<string>;
+        experiences: number;
+        inboundRequests: number;
+        lastSeenTs: number;
+        sources: Map<string, number>;
+        territories: Map<string, number>;
+        pages: Map<string, number>;
+      }
+    >();
+
+    const ensure = (key: string, label: string) => {
+      let r = agg.get(key);
+      if (!r) {
+        r = {
+          label,
+          sessions: new Set(),
+          conversations: new Set(),
+          meetings: new Set(),
+          experiences: 0,
+          inboundRequests: 0,
+          lastSeenTs: 0,
+          sources: new Map(),
+          territories: new Map(),
+          pages: new Map(),
+        };
+        agg.set(key, r);
+      }
+      return r;
+    };
+
+    const bump = (m: Map<string, number>, k?: string) => {
+      if (!k) return;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    };
+
+    for (const e of evts) {
+      const meta = e?.meta ?? {};
+      const { key, label } = accountKeyForEvent(e);
+      const r = ensure(key, label);
+
+      const ts = safeNumber(e.ts, 0);
+      if (ts) r.lastSeenTs = Math.max(r.lastSeenTs, ts);
+
+      const sk = getSessionKey(e);
+      if (sk) r.sessions.add(sk);
+
+      const ck = getConversationKey(e);
+      if (ck && e.type === "conversation_created") r.conversations.add(ck);
+
+      if (e.type === "meeting_booked") {
+        const mk = getMeetingKey(e);
+        if (mk) r.meetings.add(mk);
+      }
+
+      if (e.type === "experience_shown") r.experiences += 1;
+      if (e.type === "inbound_chat_requested") r.inboundRequests += 1;
+
+      // attribution
+      bump(r.sources, normalizeSource(meta));
+      bump(r.pages, normalizePage(meta));
+
+      const t = getTerritoryForEvent(e, ccToTerr);
+      bump(r.territories, t?.territoryLabel ?? "Unknown");
+    }
+
+    const pickTop = (m: Map<string, number>) => {
+      const arr = [...m.entries()].sort((a, b) => b[1] - a[1]);
+      return arr.length ? arr[0][0] : undefined;
+    };
+
+    const pickTopN = (m: Map<string, number>, n = 3) =>
+      [...m.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([k]) => k);
+
+    // scoring (simple mais “wow”)
+    // meetings >> conversations >> inbound >> sessions >> experiences
+    function scoreOf(r: any) {
+      return (
+        r.meetings.size * 50 +
+        r.conversations.size * 15 +
+        safeNumber(r.inboundRequests, 0) * 8 +
+        r.sessions.size * 3 +
+        safeNumber(r.experiences, 0) * 1
+      );
+    }
+
+    function tierOf(score: number) {
+      if (score >= 120) return "Hot";
+      if (score >= 45) return "Warm";
+      return "Neutral";
+    }
+
+    function intentOf(score: number) {
+      if (score >= 120) return "High";
+      if (score >= 45) return "Medium";
+      return "Low";
+    }
+
+    const rows = [...agg.values()].map((r) => {
+      const score = scoreOf(r);
+      const tier = tierOf(score);
+      const intent = intentOf(score);
+
+      const territory = pickTop(r.territories);
+      const source = pickTop(r.sources);
+      const topPages = pickTopN(r.pages, 3);
+
+      const reasons: string[] = [];
+      if (r.meetings.size > 0) reasons.push(`${r.meetings.size} meeting(s) booked`);
+      if (r.conversations.size > 0) reasons.push(`${r.conversations.size} conversation(s)`);
+      if (r.inboundRequests > 0) reasons.push(`${r.inboundRequests} inbound request(s)`);
+      if (topPages?.length) reasons.push(`Top page: ${topPages[0]}`);
+
+      return {
+        account: r.label,
+        tier,
+        intent,
+        score,
+        sessions: r.sessions.size,
+        conversations: r.conversations.size,
+        meetings: r.meetings.size,
+        inboundRequests: r.inboundRequests,
+        experiences: r.experiences,
+        territory,
+        source,
+        topPages,
+        reasons: reasons.slice(0, 4),
+        lastSeenTs: r.lastSeenTs || undefined,
+      };
+    });
+
+    rows.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+    return rows.slice(0, 200);
+  },
+});
+
+export const trends = query({
+  args: {
+    organizationId: v.string(),
+    fromTs: v.number(),
+    toTs: v.number(),
+  },
+  handler: async (ctx, { organizationId, fromTs, toTs }) => {
+    const evts = await ctx.db
+      .query("analyticsEvents")
+      .withIndex("by_org_ts", (q: any) =>
+        q.eq("organizationId", organizationId).gte("ts", fromTs).lte("ts", toTs),
+      )
+      .collect();
+
+    const byDay = new Map<
+      string,
+      {
+        day: string;
+        sessions: Set<string>;
+        conversations: Set<string>;
+        meetings: Set<string>;
+        inboundRequests: number;
+        experiences: number;
+      }
+    >();
+
+    const ensure = (day: string) => {
+      let r = byDay.get(day);
+      if (!r) {
+        r = {
+          day,
+          sessions: new Set(),
+          conversations: new Set(),
+          meetings: new Set(),
+          inboundRequests: 0,
+          experiences: 0,
+        };
+        byDay.set(day, r);
+      }
+      return r;
+    };
+
+    for (const e of evts) {
+      const ts = safeNumber(e.ts, 0);
+      if (!ts) continue;
+
+      const day = dayKeyUTC(ts);
+      const r = ensure(day);
+
+      const sk = getSessionKey(e);
+      if (sk) r.sessions.add(sk);
+
+      const ck = getConversationKey(e);
+      if (ck && e.type === "conversation_created") r.conversations.add(ck);
+
+      if (e.type === "meeting_booked") {
+        const mk = getMeetingKey(e);
+        if (mk) r.meetings.add(mk);
+      }
+
+      if (e.type === "inbound_chat_requested") r.inboundRequests += 1;
+      if (e.type === "experience_shown") r.experiences += 1;
+    }
+
+    const out = [...byDay.values()]
+      .map((r) => ({
+        day: r.day,
+        sessions: r.sessions.size,
+        conversations: r.conversations.size,
+        meetings: r.meetings.size,
+        inboundRequests: r.inboundRequests,
+        experiences: r.experiences,
+      }))
+      .sort((a, b) => (a.day < b.day ? -1 : 1));
+
+    return out;
+  },
+});
+
+export const repsLeaderboard = query({
+  args: {
+    organizationId: v.string(),
+    fromTs: v.number(),
+    toTs: v.number(),
+    slaSeconds: v.optional(v.number()),
+  },
+  handler: async (ctx, { organizationId, fromTs, toTs, slaSeconds }) => {
+    const evts = await ctx.db
+      .query("analyticsEvents")
+      .withIndex("by_org_ts", (q: any) =>
+        q.eq("organizationId", organizationId).gte("ts", fromTs).lte("ts", toTs),
+      )
+      .collect();
+
+    // userId = rep user (quand dispo). On agrège rep_started & meetings.
+    const reps = new Map<
+      string,
+      {
+        repUserId: string;
+        rep_started: number;
+        meetings: number;
+      }
+    >();
+
+    const ensure = (repUserId: string) => {
+      let r = reps.get(repUserId);
+      if (!r) {
+        r = { repUserId, rep_started: 0, meetings: 0 };
+        reps.set(repUserId, r);
+      }
+      return r;
+    };
+
+    for (const e of evts) {
+      const repUserId = safeString(e.userId);
+      if (!repUserId) continue;
+
+      if (e.type === "inbound_rep_started") {
+        ensure(repUserId).rep_started += 1;
+      }
+      if (e.type === "meeting_booked") {
+        ensure(repUserId).meetings += 1;
+      }
+    }
+
+    // SLA metrics global (on peut faire per-rep plus tard)
+    const inboundStats = computeFirstResponseStats(evts, slaSeconds);
+
+    // enrich with Convex users table
+    const rows = [];
+    for (const r of reps.values()) {
+      const u = await ctx.db
+        .query("users")
+        .withIndex("by_org_external", (q: any) =>
+          q.eq("organizationId", organizationId).eq("externalId", r.repUserId),
+        )
+        .unique();
+
+      rows.push({
+        repUserId: r.repUserId,
+        name: u?.name ?? "Rep",
+        avatarUrl: u?.avatarUrl ?? undefined,
+        title: u?.title ?? undefined,
+        rep_started: r.rep_started,
+        meetings: r.meetings,
+      });
+    }
+
+    rows.sort((a, b) => (b.meetings - a.meetings) || (b.rep_started - a.rep_started));
+
+    return {
+      inboundStats,
+      reps: rows.slice(0, 10),
+    };
   },
 });

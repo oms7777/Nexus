@@ -1170,20 +1170,6 @@ export const WidgetChatScreen = () => {
                       end: s.end,
                     });
 
-                    logEvent({
-                      organizationId,
-                      type: "meeting_booked",
-                      sessionId: contactSessionId,
-                      meta: {
-                        start: s.start,
-                        end: s.end,
-                        bookingId: res?.bookingId,
-                        meetingUrl: res?.meetingUrl,
-                        lead: qdata,
-                        repUserId: selectedRep?.userId,
-                        repName: selectedRep?.name,
-                      },
-                    }).catch(() => {});
 
                     const repDisplayName =
                       selectedRep?.name || selectedRep?.title || "our team";

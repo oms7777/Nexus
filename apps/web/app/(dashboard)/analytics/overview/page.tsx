@@ -6,12 +6,27 @@ import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
 
-import { TerritoryBarChart } from "@/modules/analytics/overview/components/TerritoryBarChart";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+} from "recharts";
 
 function makeRange(days: number) {
   const toTs = Date.now();
   const fromTs = toTs - days * 24 * 60 * 60 * 1000;
   return { fromTs, toTs };
+}
+
+function niceDayLabel(day: string) {
+  const parts = day.split("-");
+  if (parts.length !== 3) return day;
+  return `${parts[1]}/${parts[2]}`;
 }
 
 function RangePills({ value, onChange }: { value: number; onChange: (v: number) => void }) {
@@ -42,10 +57,12 @@ function StatCard({
   label,
   value,
   delta,
+  sub,
 }: {
   label: string;
   value: number;
   delta?: number | null;
+  sub?: string;
 }) {
   const d = typeof delta === "number" ? delta : null;
   const sign = d !== null && d > 0 ? "+" : "";
@@ -53,34 +70,17 @@ function StatCard({
 
   return (
     <div className="rounded-2xl border bg-white p-6 shadow-sm">
-      <div className="text-sm text-muted-foreground">{label}</div>
-      <div className="text-4xl font-semibold mt-2">{(value ?? 0).toLocaleString()}</div>
-      {pct ? <div className="mt-2 text-xs text-muted-foreground">vs previous period: {pct}</div> : null}
-    </div>
-  );
-}
-
-function LockedAdvancedCard() {
-  return (
-    <div className="rounded-2xl border bg-white p-6 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-base font-semibold">Advanced Analytics</div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            Unlock territory breakdown & attribution leaderboards.
-          </div>
+          <div className="text-sm text-muted-foreground">{label}</div>
+          <div className="text-4xl font-semibold mt-2">{(value ?? 0).toLocaleString()}</div>
+          {sub ? <div className="mt-2 text-xs text-muted-foreground">{sub}</div> : null}
         </div>
-        <div className="rounded-full border px-3 py-1 text-xs font-medium">Locked</div>
-      </div>
-
-      <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-        <div>• Territory breakdown (sessions + meetings)</div>
-        <div>• Top sources & top pages</div>
-        <div>• Advanced inbound response metrics</div>
-      </div>
-
-      <div className="mt-6 rounded-xl bg-muted p-4 text-sm">
-        Enable <span className="font-medium">Advanced Analytics</span> in your plan/add-on to view this section.
+        {pct ? (
+          <div className="rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
+            vs prev: {pct}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -89,26 +89,29 @@ function LockedAdvancedCard() {
 function CardShell({
   title,
   subtitle,
+  right,
   children,
 }: {
   title: string;
   subtitle?: string;
+  right?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="rounded-2xl border bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-sm text-muted-foreground">{title}</div>
-          {subtitle ? <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div> : null}
+          <div className="text-base font-semibold">{title}</div>
+          {subtitle ? <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div> : null}
         </div>
+        {right ? <div>{right}</div> : null}
       </div>
       <div className="mt-4">{children}</div>
     </div>
   );
 }
 
-function Table({
+function MiniTable({
   columns,
   rows,
 }: {
@@ -118,11 +121,8 @@ function Table({
   return (
     <div className="overflow-hidden rounded-xl border">
       <div className="grid grid-cols-12 gap-3 border-b bg-muted/30 px-4 py-2 text-xs uppercase text-muted-foreground">
-        {columns.map((c, i) => (
-          <div key={i} className={i === 0 ? "col-span-5" : "col-span-7"}>
-            {c}
-          </div>
-        ))}
+        <div className="col-span-5">{columns[0]}</div>
+        <div className="col-span-7">{columns[1]}</div>
       </div>
       <div className="divide-y">
         {rows.length === 0 ? (
@@ -162,80 +162,216 @@ export default function AnalyticsOverviewPage() {
       : "skip",
   );
 
+  const trends = useQuery(
+    api.public.analytics.trends,
+    orgId ? { organizationId: orgId, fromTs, toTs } : "skip",
+  );
+
+  const reps = useQuery(
+    api.public.analytics.repsLeaderboard,
+    orgId
+      ? ({
+          organizationId: orgId,
+          fromTs,
+          toTs,
+          ...(advancedEnabled ? { slaSeconds: 120 } : {}),
+        } as any)
+      : "skip",
+  );
+
   if (!orgId) return <div className="p-6">No organization</div>;
-  if (overview === undefined) return <div className="p-6">Loading…</div>;
+  if (overview === undefined || trends === undefined || reps === undefined) return <div className="p-6">Loading…</div>;
 
   const kpi = overview?.kpi ?? {};
   const deltas = overview?.deltas ?? {};
+  const inbound = overview?.inbound_response ?? null;
 
-  const cards: Array<{ label: string; value: number; delta?: number | null }> = [
-    { label: "Sessions", value: Number(kpi.sessions ?? 0), delta: deltas.sessions ?? null },
-    { label: "Experience shown", value: Number(kpi.experiences ?? 0), delta: deltas.experiences ?? null },
-    { label: "Inbound chat requested", value: Number(kpi.inboundRequests ?? 0), delta: deltas.inboundRequests ?? null },
-    { label: "Conversations", value: Number(kpi.conversations ?? 0), delta: deltas.conversations ?? null },
-    { label: "Meetings booked", value: Number(kpi.meetings ?? 0), delta: deltas.meetings ?? null },
+  const cards: Array<{ label: string; value: number; delta?: number | null; sub?: string }> = [
+    { label: "Sessions", value: Number(kpi.sessions ?? 0), delta: deltas.sessions ?? null, sub: "Top-of-funnel traffic" },
+    { label: "Experience shown", value: Number(kpi.experiences ?? 0), delta: deltas.experiences ?? null, sub: "Widget exposure" },
+    { label: "Inbound chat requested", value: Number(kpi.inboundRequests ?? 0), delta: deltas.inboundRequests ?? null, sub: "High intent moments" },
+    { label: "Conversations", value: Number(kpi.conversations ?? 0), delta: deltas.conversations ?? null, sub: "Qualified engagement" },
+    { label: "Meetings booked", value: Number(kpi.meetings ?? 0), delta: deltas.meetings ?? null, sub: "Business outcomes" },
   ];
 
   const topSources = Array.isArray(overview?.top_sources) ? overview.top_sources : [];
   const topPages = Array.isArray(overview?.top_pages) ? overview.top_pages : [];
   const topTerritories = Array.isArray(overview?.top_territories) ? overview.top_territories : [];
 
+  const trendRows = (Array.isArray(trends) ? trends : []).map((r: any) => ({
+    day: niceDayLabel(String(r.day)),
+    sessions: Number(r.sessions ?? 0),
+    conversations: Number(r.conversations ?? 0),
+    meetings: Number(r.meetings ?? 0),
+  }));
+
+  const inboundStat = reps?.inboundStats ?? null;
+  const repRows = Array.isArray(reps?.reps) ? reps.reps : [];
+
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-6">
+      {/* Executive header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="text-2xl font-semibold">Analytics</div>
-          <div className="text-sm text-muted-foreground">Overview of widget activity for the selected period.</div>
+          <div className="text-2xl font-semibold">Executive Analytics</div>
+          <div className="text-sm text-muted-foreground">
+            Pipeline performance, response speed, and rep impact for the selected period.
+          </div>
         </div>
         <RangePills value={days} onChange={setDays} />
       </div>
 
-      {/* Core analytics */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+      {/* KPI grid */}
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-5">
         {cards.map((c) => (
-          <StatCard key={c.label} label={c.label} value={c.value} delta={c.delta} />
+          <StatCard key={c.label} label={c.label} value={c.value} delta={c.delta} sub={c.sub} />
         ))}
       </div>
 
-      {/* Advanced analytics */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="text-lg font-semibold">Advanced Analytics</div>
-          <div className="text-xs text-muted-foreground">{advancedEnabled ? "Enabled" : "Add-on required"}</div>
+      {/* WOW: Trends + Inbound response */}
+      <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <CardShell
+            title="Pipeline trend"
+            subtitle="Sessions → Conversations → Meetings over time"
+            right={<div className="rounded-full border px-3 py-1 text-xs font-medium">Core</div>}
+          >
+            {trendRows.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No trend data yet.</div>
+            ) : (
+              <div className="h-[320px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendRows} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="day" tickMargin={8} />
+                    <YAxis width={42} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="sessions" dot={false} strokeWidth={2} />
+                    <Line type="monotone" dataKey="conversations" dot={false} strokeWidth={2} />
+                    <Line type="monotone" dataKey="meetings" dot={false} strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardShell>
         </div>
 
-        {!advancedEnabled ? (
-          <LockedAdvancedCard />
-        ) : (
-          <div className="grid gap-4 grid-cols-1 xl:grid-cols-2">
-            <CardShell title="Territory breakdown" subtitle="Top territories by sessions + meetings">
-              <div className="h-[280px]">
-                <TerritoryBarChart data={topTerritories as any} />
+        <CardShell
+          title="Inbound response speed"
+          subtitle="How fast reps start after inbound request (SLA-ready)"
+          right={
+            <div className="rounded-full border px-3 py-1 text-xs font-medium">
+              {advancedEnabled ? "Advanced" : "Core"}
+            </div>
+          }
+        >
+          {!advancedEnabled ? (
+            <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
+              Enable <span className="font-medium">Advanced Analytics</span> to unlock SLA metrics (median, p90, SLA rate).
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border p-3">
+                  <div className="text-xs text-muted-foreground">Median</div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums">
+                    {inboundStat?.median_sec ?? inbound?.median_sec ?? "—"}s
+                  </div>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <div className="text-xs text-muted-foreground">p90</div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums">
+                    {inboundStat?.p90_sec ?? inbound?.p90_sec ?? "—"}s
+                  </div>
+                </div>
               </div>
-            </CardShell>
 
-            <CardShell title="Attribution — Top sources" subtitle="Where your sessions & meetings come from">
-              <Table
-                columns={["Source", "Sessions • Conversations • Meetings"]}
-                rows={topSources.slice(0, 8).map((s: any) => [
-                  String(s.source ?? "direct"),
-                  `${Number(s.sessions ?? 0).toLocaleString()} • ${Number(s.conversations ?? 0).toLocaleString()} • ${Number(s.meetings ?? 0).toLocaleString()}`,
+              <div className="rounded-xl border p-3">
+                <div className="text-xs text-muted-foreground">Within SLA rate</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums">
+                  {typeof (inboundStat?.within_sla_rate ?? inbound?.within_sla_rate) === "number"
+                    ? `${Math.round(((inboundStat?.within_sla_rate ?? inbound?.within_sla_rate) as number) * 100)}%`
+                    : "—"}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  SLA: {inboundStat?.slaSeconds ?? inbound?.slaSeconds ?? 120}s
+                </div>
+              </div>
+            </div>
+          )}
+        </CardShell>
+      </div>
+
+      {/* Attribution + Reps */}
+      <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <CardShell title="Attribution & territories" subtitle="What drives pipeline outcomes">
+            <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+              <div>
+                <div className="mb-2 text-sm font-medium">Top sources</div>
+                <MiniTable
+                  columns={["Source", "Sessions • Conversations • Meetings"]}
+                  rows={topSources.slice(0, 8).map((s: any) => [
+                    String(s.source ?? "direct"),
+                    `${Number(s.sessions ?? 0).toLocaleString()} • ${Number(s.conversations ?? 0).toLocaleString()} • ${Number(s.meetings ?? 0).toLocaleString()}`,
+                  ])}
+                />
+              </div>
+
+              <div>
+                <div className="mb-2 text-sm font-medium">Top pages</div>
+                <MiniTable
+                  columns={["Page", "Sessions • Conversations • Meetings"]}
+                  rows={topPages.slice(0, 8).map((p: any) => [
+                    String(p.page ?? "/"),
+                    `${Number(p.sessions ?? 0).toLocaleString()} • ${Number(p.conversations ?? 0).toLocaleString()} • ${Number(p.meetings ?? 0).toLocaleString()}`,
+                  ])}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-2 text-sm font-medium">Top territories</div>
+              <MiniTable
+                columns={["Territory", "Sessions • Conversations • Meetings"]}
+                rows={topTerritories.slice(0, 8).map((t: any) => [
+                  String(t.territoryLabel ?? t.territoryKey ?? "Unknown"),
+                  `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
                 ])}
               />
+            </div>
+          </CardShell>
+        </div>
 
-              <div className="mt-4" />
-
-              <Table
-                columns={["Top pages", "Sessions • Conversations • Meetings"]}
-                rows={topPages.slice(0, 8).map((p: any) => [
-                  String(p.page ?? "/"),
-                  `${Number(p.sessions ?? 0).toLocaleString()} • ${Number(p.conversations ?? 0).toLocaleString()} • ${Number(p.meetings ?? 0).toLocaleString()}`,
-                ])}
-              />
-            </CardShell>
-          </div>
-        )}
+        <CardShell title="Top reps impact" subtitle="Who converts inbound into meetings">
+          {repRows.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              No rep events tracked yet. (This fills when you log rep actions with `userId`.)
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {repRows.slice(0, 8).map((r: any) => (
+                <div key={r.repUserId} className="flex items-center justify-between rounded-xl border p-3">
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{r.name ?? "Rep"}</div>
+                    <div className="text-xs text-muted-foreground truncate">{r.title ?? "—"}</div>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <div className="text-right">
+                      <div className="font-semibold tabular-nums">{Number(r.meetings ?? 0).toLocaleString()}</div>
+                      <div className="text-xs text-muted-foreground">meetings</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold tabular-nums">{Number(r.rep_started ?? 0).toLocaleString()}</div>
+                      <div className="text-xs text-muted-foreground">started</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardShell>
       </div>
     </div>
   );

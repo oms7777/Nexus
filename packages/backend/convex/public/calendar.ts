@@ -365,6 +365,7 @@ export const bookSlot = action({
       await ctx.runMutation(api.public.analytics.log, {
         organizationId,
         type: "meeting_booked",
+        userId: acct.userId,
         sessionId: contactSessionId,
         meta: {
           bookingId,
