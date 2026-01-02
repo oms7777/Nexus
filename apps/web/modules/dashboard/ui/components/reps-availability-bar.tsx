@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React from "react";
 import { api } from "@workspace/backend/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 import { Switch } from "@workspace/ui/components/switch";
@@ -21,34 +21,29 @@ export function RepsAvailabilityBar({ organizationId }: { organizationId?: strin
   const { organization } = useOrganization();
   const orgId = organizationId ?? organization?.id;
 
-  // Pas d'org => rien à afficher
-  if (!orgId) return null;
+  // ✅ IMPORTANT: hooks toujours appelés, avec "skip" si pas d'orgId
+  const reps = useQuery(
+    api.private.repsPresence.listAvailableForOrg,
+    orgId ? { organizationId: orgId } : "skip",
+  ) as RepRow[] | undefined;
 
-  const reps = useQuery(api.private.repsPresence.listAvailableForOrg, { organizationId: orgId }) as
-    | RepRow[]
-    | undefined;
-
-  const me = useQuery(api.private.repsPresence.getMyPresence, { organizationId: orgId }) as
-    | MyPresence
-    | undefined;
+  const me = useQuery(
+    api.private.repsPresence.getMyPresence,
+    orgId ? { organizationId: orgId } : "skip",
+  ) as MyPresence | undefined;
 
   const setMyAvailability = useMutation(api.private.repsPresence.setMyAvailability);
 
-  const myAvailable = !!me?.available;
+  if (!orgId) return null;
 
-  // ✅ Responsive: moins d'avatars sur petit écran
-  const shown = useMemo(() => {
-    const all = reps ?? [];
-    // on garde 3 “par défaut”; tu peux augmenter si tu veux
-    return all.slice(0, 10);
-  }, [reps]);
+  const myAvailable = !!me?.available;
+  const shown = (reps ?? []).slice(0, 5);
 
   return (
-    <div className="flex items-center gap-3 min-w-0">
-      {/* Avatars */}
-      <div className="flex items-center -space-x-2 min-w-0">
+    <div className="flex items-center gap-3">
+      <div className="flex items-center -space-x-2">
         {shown.length === 0 ? (
-          <div className="hidden sm:block text-xs text-muted-foreground">No reps available</div>
+          <div className="text-xs text-muted-foreground">No reps available</div>
         ) : (
           shown.map((r) => (
             <div
@@ -56,17 +51,14 @@ export function RepsAvailabilityBar({ organizationId }: { organizationId?: strin
               className="rounded-full ring-2 ring-background bg-muted"
               title={`${r.name ?? "Rep"}${r.title ? ` • ${r.title}` : ""}`}
             >
-              {/* ✅ plus petit pour gagner de la place */}
-              <DicebearAvatar imageUrl={r.avatarUrl} seed={r.userId} size={24} />
+              <DicebearAvatar imageUrl={r.avatarUrl} seed={r.userId} size={28} />
             </div>
           ))
         )}
       </div>
 
-      {/* Switch */}
-      <div className="flex items-center gap-2 shrink-0">
-        {/* ✅ Cache le texte en mobile */}
-        <span className="hidden sm:inline text-xs text-muted-foreground">Available</span>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">Available</span>
         <Switch
           checked={myAvailable}
           onCheckedChange={(checked) => {
