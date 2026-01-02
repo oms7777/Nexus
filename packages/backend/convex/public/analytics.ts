@@ -104,16 +104,24 @@ function percentile(sortedNums: number[], p: number) {
 }
 
 function median(sortedNums: number[]) {
-  if (!sortedNums.length) return null;
-  const mid = Math.floor(sortedNums.length / 2);
-  if (sortedNums.length % 2 === 0) return (sortedNums[mid - 1] + sortedNums[mid]) / 2;
-  return sortedNums[mid];
+  const n = sortedNums.length;
+  if (n === 0) return null;
+
+  const mid = Math.floor(n / 2);
+
+  // odd
+  if (n % 2 === 1) {
+    const v = sortedNums[mid];
+    return typeof v === "number" ? v : null;
+  }
+
+  // even
+  const a = sortedNums[mid - 1];
+  const b = sortedNums[mid];
+  if (typeof a !== "number" || typeof b !== "number") return null;
+  return (a + b) / 2;
 }
 
-function rate(num: number, den: number) {
-  if (!den || den <= 0) return 0;
-  return num / den;
-}
 
 function deltaPct(current: number, previous: number) {
   if (!previous) return current ? 1 : 0;
