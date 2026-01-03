@@ -1,4 +1,3 @@
-// apps/web/app/(dashboard)/analytics/funnel/page.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";
@@ -88,28 +87,88 @@ function LockedAdvancedCard() {
         <div>
           <div className="text-base font-semibold">Advanced Funnel Analytics</div>
           <div className="mt-1 text-sm text-muted-foreground">
-            Unlock SLA tracking and deeper inbound breakdowns.
+            Unlock response-time targets and deeper inbound breakdowns.
           </div>
         </div>
         <div className="rounded-full border px-3 py-1 text-xs font-medium">Locked</div>
       </div>
 
       <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-        <div>• SLA-based inbound metrics</div>
+        <div>• Response-time targets (ex: “started within 2 minutes”)</div>
         <div>• Future: segmentation (territory / utm / reps)</div>
       </div>
 
       <div className="mt-6 rounded-xl bg-muted p-4 text-sm">
-        Enable <span className="font-medium">Advanced Analytics</span> to view SLA & advanced inbound
-        metrics.
+        Enable <span className="font-medium">Advanced Analytics</span> to view response-time targets.
       </div>
     </div>
   );
 }
 
+function pct(num: number, den: number) {
+  if (!den) return "—";
+  return `${Math.round((num / den) * 100)}%`;
+}
+
+function buildNextBestImprovement(data: any) {
+  const engagement = data?.engagement ?? {};
+  const inbound = data?.inbound ?? {};
+  const conversion = data?.conversion ?? {};
+
+  const sessions = Number(engagement.sessions ?? 0);
+  const experiences = Number(engagement.experiences ?? 0);
+  const conversations = Number(engagement.conversations ?? 0);
+  const meetings = Number(engagement.meetings ?? 0);
+
+  const inboundRequests = Number(inbound.requests ?? 0);
+  const repStarted = Number(inbound.rep_started ?? 0);
+
+  // Simple priority rules
+  if (inboundRequests > 0 && repStarted === 0) {
+    return {
+      title: "Turn on inbound coverage",
+      body:
+        "Reps are not starting inbound conversations. Enable routing + Slack alerts, and make sure at least one rep is Online.",
+    };
+  }
+
+  if (conversations > 0 && meetings === 0) {
+    return {
+      title: "Improve meeting conversion",
+      body:
+        "You’re getting conversations but no meetings. Try adding a stronger “Book a meeting” CTA earlier, and simplify the booking flow.",
+    };
+  }
+
+  if (experiences > 0 && conversations / Math.max(1, experiences) < 0.2) {
+    return {
+      title: "Increase chat start rate",
+      body:
+        "Many experiences are shown but few conversations start. Improve the greet message, add 2–3 strong suggestions, and confirm widget placement/targeting.",
+    };
+  }
+
+  if (sessions > 0 && experiences === 0) {
+    return {
+      title: "Widget visibility",
+      body:
+        "Sessions exist but the experience isn’t being shown. Check targeting rules and placement so visitors actually see the widget.",
+    };
+  }
+
+  // default
+  const convToMeeting = `${pct(conversion.meetings_from_conversations_num ?? 0, conversion.meetings_from_conversations_den ?? 0)}`;
+  return {
+    title: "Keep iterating",
+    body: `Current conv → meeting is ${convToMeeting}. Next step: test variations of the booking prompt and routing rules.`,
+  };
+}
+
 export default function AnalyticsFunnelPage() {
-  const { organization } = useOrganization();
+  const { organization, membership } = useOrganization();
   const orgId = organization?.id;
+
+  const isOrgAdmin = membership?.role === "org:admin";
 
   const [days, setDays] = useState(30);
   const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
@@ -118,8 +177,8 @@ export default function AnalyticsFunnelPage() {
   const entitlements = useQuery(api.public.entitlements.getEntitlements, orgId ? {} : "skip");
   const advancedEnabled = !!entitlements?.features?.canUseAdvancedAnalytics;
 
-  // SLA only if advanced
-  const [slaSeconds, setSlaSeconds] = useState<number>(120);
+  // Response target (admin-only control)
+  const [responseTargetSeconds, setResponseTargetSeconds] = useState<number>(120);
 
   const data = useQuery(
     api.public.analytics.funnels,
@@ -128,7 +187,7 @@ export default function AnalyticsFunnelPage() {
           organizationId: orgId,
           fromTs,
           toTs,
-          ...(advancedEnabled ? { slaSeconds } : {}),
+          ...(advancedEnabled ? { slaSeconds: responseTargetSeconds } : {}),
         } as any)
       : "skip",
   );
@@ -136,23 +195,17 @@ export default function AnalyticsFunnelPage() {
   if (!orgId) return <div className="p-6">No organization</div>;
   if (data === undefined) return <div className="p-6">Loading…</div>;
 
-  // ✅ backend shape: { engagement, conversion, inbound, pounce }
-  const engagement = data?.engagement ?? {
-    sessions: 0,
-    experiences: 0,
-    conversations: 0,
-    meetings: 0,
-  };
-
+  const engagement = data?.engagement ?? { sessions: 0, experiences: 0, conversations: 0, meetings: 0 };
   const conversionForChart = data?.conversion ?? {
     meetings_from_conversations_num: 0,
     meetings_from_conversations_den: 0,
     conversations_from_experiences_num: 0,
     conversations_from_experiences_den: 0,
   };
-
   const inbound = data?.inbound ?? null;
   const pounce = data?.pounce ?? null;
+
+  const nextBest = buildNextBestImprovement(data);
 
   return (
     <div className="p-6 space-y-6">
@@ -177,75 +230,39 @@ export default function AnalyticsFunnelPage() {
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-sm font-medium">Advanced controls</div>
+              <div className="text-sm font-medium">Response-time target</div>
               <div className="text-xs text-muted-foreground">
-                SLA is used to compute “started before SLA” for inbound response.
+                Used to compute “Started within target” for inbound response.
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">SLA</span>
-              <select
-                className="h-9 rounded-lg border bg-white px-3 text-sm"
-                value={slaSeconds}
-                onChange={(e) => setSlaSeconds(Number(e.target.value))}
-              >
-                <option value={60}>60s</option>
-                <option value={120}>120s</option>
-                <option value={180}>180s</option>
-                <option value={300}>300s</option>
-              </select>
-            </div>
+            {isOrgAdmin ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Target</span>
+                <select
+                  className="h-9 rounded-lg border bg-white px-3 text-sm"
+                  value={responseTargetSeconds}
+                  onChange={(e) => setResponseTargetSeconds(Number(e.target.value))}
+                >
+                  <option value={60}>60s</option>
+                  <option value={120}>120s</option>
+                  <option value={180}>180s</option>
+                  <option value={300}>300s</option>
+                </select>
+              </div>
+            ) : (
+              <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                Admin-only setting
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* ✅ WOW Narrative KPIs */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="text-sm text-muted-foreground">Conv → Meeting</div>
-          <div className="mt-2 text-3xl font-semibold tabular-nums">
-            {conversionForChart.meetings_from_conversations_den > 0
-              ? `${Math.round(
-                  (conversionForChart.meetings_from_conversations_num /
-                    conversionForChart.meetings_from_conversations_den) *
-                    100,
-                )}%`
-              : "—"}
-          </div>
-          <div className="mt-2 text-xs text-muted-foreground">
-            {Number(conversionForChart.meetings_from_conversations_num ?? 0).toLocaleString()} /{" "}
-            {Number(conversionForChart.meetings_from_conversations_den ?? 0).toLocaleString()}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="text-sm text-muted-foreground">Exp → Conv</div>
-          <div className="mt-2 text-3xl font-semibold tabular-nums">
-            {conversionForChart.conversations_from_experiences_den > 0
-              ? `${Math.round(
-                  (conversionForChart.conversations_from_experiences_num /
-                    conversionForChart.conversations_from_experiences_den) *
-                    100,
-                )}%`
-              : "—"}
-          </div>
-          <div className="mt-2 text-xs text-muted-foreground">
-            {Number(conversionForChart.conversations_from_experiences_num ?? 0).toLocaleString()} /{" "}
-            {Number(conversionForChart.conversations_from_experiences_den ?? 0).toLocaleString()}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="text-sm text-muted-foreground">Next best improvement</div>
-          <div className="mt-2 text-sm text-muted-foreground leading-relaxed">
-            {Number(inbound?.requests ?? 0) > 0 && Number(inbound?.rep_started ?? 0) === 0
-              ? "Reps are not starting inbound conversations. Turn on rep routing & Slack alerts."
-              : Number(pounce?.attempts ?? 0) === 0
-              ? "No pounce activity. Enable pounce to convert high-intent visitors."
-              : "Improve response speed & expand routing coverage for top territories."}
-          </div>
-        </div>
+      {/* Top “Next best improvement” */}
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="text-sm font-medium">Next best improvement</div>
+        <div className="mt-1 text-sm text-muted-foreground">{nextBest.body}</div>
       </div>
 
       {/* Grid */}
@@ -254,17 +271,10 @@ export default function AnalyticsFunnelPage() {
         <Card title="Engagement Funnel" subtitle="High-level product usage" badge="Core">
           <div className="space-y-2">
             <Row label="Sessions" value={Number(engagement.sessions ?? 0).toLocaleString()} />
-            <Row
-              label="Experience shown"
-              value={Number(engagement.experiences ?? 0).toLocaleString()}
-            />
-            <Row
-              label="Conversations created"
-              value={Number(engagement.conversations ?? 0).toLocaleString()}
-            />
+            <Row label="Experience shown" value={Number(engagement.experiences ?? 0).toLocaleString()} />
+            <Row label="Conversations created" value={Number(engagement.conversations ?? 0).toLocaleString()} />
             <Row label="Meetings booked" value={Number(engagement.meetings ?? 0).toLocaleString()} />
           </div>
-
           <div className="mt-4">
             <EngagementFunnelChart data={engagement as any} />
           </div>
@@ -280,34 +290,25 @@ export default function AnalyticsFunnelPage() {
         {/* Inbound */}
         <Card
           title="Inbound Chat Health"
-          subtitle={advancedEnabled ? "Includes SLA-based metric" : "SLA metric requires Advanced"}
+          subtitle={advancedEnabled ? "Includes response-time target metric" : "Target metric requires Advanced"}
           badge={advancedEnabled ? "Advanced" : "Core"}
         >
           {!inbound ? (
             <div className="text-sm text-muted-foreground">No inbound data.</div>
           ) : (
             <div className="space-y-2">
-              <Row
-                label="Inbound chat requests"
-                value={Number(inbound.requests ?? 0).toLocaleString()}
-              />
-              <Row
-                label="Requests with rep available"
-                value={Number(inbound.with_rep_available ?? 0).toLocaleString()}
-              />
-              <Row
-                label="Requests where rep started"
-                value={Number(inbound.rep_started ?? 0).toLocaleString()}
-              />
+              <Row label="Inbound chat requests" value={Number(inbound.requests ?? 0).toLocaleString()} />
+              <Row label="Requests with rep available" value={Number(inbound.with_rep_available ?? 0).toLocaleString()} />
+              <Row label="Requests where rep started" value={Number(inbound.rep_started ?? 0).toLocaleString()} />
 
               {advancedEnabled ? (
                 <Row
-                  label="Started &lt; SLA"
+                  label="Started within target"
                   value={Number(inbound.started_before_sla ?? 0).toLocaleString()}
                 />
               ) : (
                 <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                  “Started &lt; SLA” is available in Advanced Analytics.
+                  “Started within target” is available in Advanced Analytics.
                 </div>
               )}
             </div>
@@ -318,10 +319,7 @@ export default function AnalyticsFunnelPage() {
         <Card title="Pounce Conversion" subtitle="How effective rep pounce is" badge="Core">
           <div className="space-y-2">
             <Row label="Pounce attempts" value={Number(pounce?.attempts ?? 0).toLocaleString()} />
-            <Row
-              label="Pounce conversations"
-              value={Number(pounce?.conversations ?? 0).toLocaleString()}
-            />
+            <Row label="Pounce conversations" value={Number(pounce?.conversations ?? 0).toLocaleString()} />
             <Row label="Pounce meetings" value={Number(pounce?.meetings ?? 0).toLocaleString()} />
           </div>
 
