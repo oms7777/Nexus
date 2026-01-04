@@ -168,24 +168,25 @@ export default function AnalyticsOverviewPage() {
     orgId ? { organizationId: orgId, fromTs, toTs } : "skip",
   );
 
+  // ✅ IMPORTANT: On ne charge repsLeaderboard que si Advanced
   const reps = useQuery(
     api.public.analytics.repsLeaderboard,
-    orgId
+    orgId && advancedEnabled
       ? ({
           organizationId: orgId,
           fromTs,
           toTs,
-          ...(advancedEnabled ? { slaSeconds: 120 } : {}),
+          slaSeconds: 120,
         } as any)
       : "skip",
   );
 
   if (!orgId) return <div className="p-6">No organization</div>;
-  if (overview === undefined || trends === undefined || reps === undefined) return <div className="p-6">Loading…</div>;
+  if (overview === undefined || trends === undefined || (advancedEnabled && reps === undefined))
+    return <div className="p-6">Loading…</div>;
 
   const kpi = overview?.kpi ?? {};
   const deltas = overview?.deltas ?? {};
-  const inbound = overview?.inbound_response ?? null;
 
   const cards: Array<{ label: string; value: number; delta?: number | null; sub?: string }> = [
     { label: "Sessions", value: Number(kpi.sessions ?? 0), delta: deltas.sessions ?? null, sub: "Top-of-funnel traffic" },
@@ -215,7 +216,7 @@ export default function AnalyticsOverviewPage() {
         <div>
           <div className="text-2xl font-semibold">Executive Analytics</div>
           <div className="text-sm text-muted-foreground">
-            Pipeline performance, response speed, and rep impact for the selected period.
+            Pipeline performance for the selected period.
           </div>
         </div>
         <RangePills value={days} onChange={setDays} />
@@ -227,149 +228,145 @@ export default function AnalyticsOverviewPage() {
         ))}
       </div>
 
-      <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <CardShell
-            title="Pipeline trend"
-            subtitle="Sessions → Conversations → Meetings over time"
-            right={<div className="rounded-full border px-3 py-1 text-xs font-medium">Core</div>}
-          >
-            {trendRows.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No trend data yet.</div>
-            ) : (
-              <div className="h-[320px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trendRows} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="day" tickMargin={8} />
-                    <YAxis width={42} />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="sessions" dot={false} strokeWidth={2} />
-                    <Line type="monotone" dataKey="conversations" dot={false} strokeWidth={2} />
-                    <Line type="monotone" dataKey="meetings" dot={false} strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </CardShell>
-        </div>
-
+      {/* ✅ Starter voit uniquement la Trend */}
+      <div className="grid gap-4 grid-cols-1">
         <CardShell
-          title="Inbound response speed"
-          subtitle="How fast reps start after inbound request (SLA-ready)"
-          right={
-            <div className="rounded-full border px-3 py-1 text-xs font-medium">
-              {advancedEnabled ? "Advanced" : "Core"}
-            </div>
-          }
+          title="Pipeline trend"
+          subtitle="Sessions → Conversations → Meetings over time"
+          right={<div className="rounded-full border px-3 py-1 text-xs font-medium">Core</div>}
         >
-          {!advancedEnabled ? (
-            <div className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">
-              Enable <span className="font-medium">Advanced Analytics</span> to unlock SLA metrics (median, p90, SLA rate).
-            </div>
+          {trendRows.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No trend data yet.</div>
           ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border p-3">
-                  <div className="text-xs text-muted-foreground">Median</div>
-                  <div className="mt-1 text-xl font-semibold tabular-nums">
-                    {inboundStat?.median_sec ?? inbound?.median_sec ?? "—"}s
-                  </div>
-                </div>
-                <div className="rounded-xl border p-3">
-                  <div className="text-xs text-muted-foreground">p90</div>
-                  <div className="mt-1 text-xl font-semibold tabular-nums">
-                    {inboundStat?.p90_sec ?? inbound?.p90_sec ?? "—"}s
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border p-3">
-                <div className="text-xs text-muted-foreground">Within SLA rate</div>
-                <div className="mt-1 text-xl font-semibold tabular-nums">
-                  {typeof (inboundStat?.within_sla_rate ?? inbound?.within_sla_rate) === "number"
-                    ? `${Math.round(((inboundStat?.within_sla_rate ?? inbound?.within_sla_rate) as number) * 100)}%`
-                    : "—"}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  SLA: {inboundStat?.slaSeconds ?? inbound?.slaSeconds ?? 120}s
-                </div>
-              </div>
+            <div className="h-[320px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendRows} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="day" tickMargin={8} />
+                  <YAxis width={42} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="sessions" dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="conversations" dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="meetings" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           )}
         </CardShell>
       </div>
 
-      <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <CardShell title="Attribution & territories" subtitle="What drives pipeline outcomes">
-            <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-              <div>
-                <div className="mb-2 text-sm font-medium">Top sources</div>
-                <MiniTable
-                  columns={["Source", "Sessions • Conversations • Meetings"]}
-                  rows={topSources.slice(0, 8).map((s: any) => [
-                    String(s.source ?? "direct"),
-                    `${Number(s.sessions ?? 0).toLocaleString()} • ${Number(s.conversations ?? 0).toLocaleString()} • ${Number(s.meetings ?? 0).toLocaleString()}`,
-                  ])}
-                />
-              </div>
-
-              <div>
-                <div className="mb-2 text-sm font-medium">Top pages</div>
-                <MiniTable
-                  columns={["Page", "Sessions • Conversations • Meetings"]}
-                  rows={topPages.slice(0, 8).map((p: any) => [
-                    String(p.page ?? "/"),
-                    `${Number(p.sessions ?? 0).toLocaleString()} • ${Number(p.conversations ?? 0).toLocaleString()} • ${Number(p.meetings ?? 0).toLocaleString()}`,
-                  ])}
-                />
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="mb-2 text-sm font-medium">Top territories</div>
-              <MiniTable
-                columns={["Territory", "Sessions • Conversations • Meetings"]}
-                rows={topTerritories.slice(0, 8).map((t: any) => [
-                  String(t.territoryLabel ?? t.territoryKey ?? "Unknown"),
-                  `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                ])}
-              />
-            </div>
-          </CardShell>
-        </div>
-
-        <CardShell title="Top reps impact" subtitle="Who converts inbound into meetings">
-          {repRows.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              No rep events tracked yet. (This fills when you log rep actions with `userId`.)
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {repRows.slice(0, 8).map((r: any) => (
-                <div key={r.repUserId} className="flex items-center justify-between rounded-xl border p-3">
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{r.name ?? "Rep"}</div>
-                    <div className="text-xs text-muted-foreground truncate">{r.title ?? "—"}</div>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm">
-                    <div className="text-right">
-                      <div className="font-semibold tabular-nums">{Number(r.meetings ?? 0).toLocaleString()}</div>
-                      <div className="text-xs text-muted-foreground">meetings</div>
+      {/* ✅ Advanced only: inbound speed + attribution + reps */}
+      {advancedEnabled ? (
+        <>
+          <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
+            <CardShell
+              title="Inbound response speed"
+              subtitle="How fast reps start after inbound request (SLA-ready)"
+              right={<div className="rounded-full border px-3 py-1 text-xs font-medium">Advanced</div>}
+            >
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border p-3">
+                    <div className="text-xs text-muted-foreground">Median</div>
+                    <div className="mt-1 text-xl font-semibold tabular-nums">
+                      {inboundStat?.median_sec ?? "—"}s
                     </div>
-                    <div className="text-right">
-                      <div className="font-semibold tabular-nums">{Number(r.rep_started ?? 0).toLocaleString()}</div>
-                      <div className="text-xs text-muted-foreground">started</div>
+                  </div>
+                  <div className="rounded-xl border p-3">
+                    <div className="text-xs text-muted-foreground">p90</div>
+                    <div className="mt-1 text-xl font-semibold tabular-nums">
+                      {inboundStat?.p90_sec ?? "—"}s
                     </div>
                   </div>
                 </div>
-              ))}
+
+                <div className="rounded-xl border p-3">
+                  <div className="text-xs text-muted-foreground">Within SLA rate</div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums">
+                    {typeof inboundStat?.within_sla_rate === "number"
+                      ? `${Math.round(inboundStat.within_sla_rate * 100)}%`
+                      : "—"}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    SLA: {inboundStat?.slaSeconds ?? 120}s
+                  </div>
+                </div>
+              </div>
+            </CardShell>
+          </div>
+
+          <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
+            <div className="xl:col-span-2">
+              <CardShell title="Attribution & territories" subtitle="What drives pipeline outcomes">
+                <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Top sources</div>
+                    <MiniTable
+                      columns={["Source", "Sessions • Conversations • Meetings"]}
+                      rows={topSources.slice(0, 8).map((s: any) => [
+                        String(s.source ?? "direct"),
+                        `${Number(s.sessions ?? 0).toLocaleString()} • ${Number(s.conversations ?? 0).toLocaleString()} • ${Number(s.meetings ?? 0).toLocaleString()}`,
+                      ])}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Top pages</div>
+                    <MiniTable
+                      columns={["Page", "Sessions • Conversations • Meetings"]}
+                      rows={topPages.slice(0, 8).map((p: any) => [
+                        String(p.page ?? "/"),
+                        `${Number(p.sessions ?? 0).toLocaleString()} • ${Number(p.conversations ?? 0).toLocaleString()} • ${Number(p.meetings ?? 0).toLocaleString()}`,
+                      ])}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="mb-2 text-sm font-medium">Top territories</div>
+                  <MiniTable
+                    columns={["Territory", "Sessions • Conversations • Meetings"]}
+                    rows={topTerritories.slice(0, 8).map((t: any) => [
+                      String(t.territoryLabel ?? t.territoryKey ?? "Unknown"),
+                      `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                    ])}
+                  />
+                </div>
+              </CardShell>
             </div>
-          )}
-        </CardShell>
-      </div>
+
+            <CardShell title="Top reps impact" subtitle="Who converts inbound into meetings">
+              {repRows.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  No rep events tracked yet. (This fills when you log rep actions with `userId`.)
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {repRows.slice(0, 8).map((r: any) => (
+                    <div key={r.repUserId} className="flex items-center justify-between rounded-xl border p-3">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{r.name ?? "Rep"}</div>
+                        <div className="text-xs text-muted-foreground truncate">{r.title ?? "—"}</div>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm">
+                        <div className="text-right">
+                          <div className="font-semibold tabular-nums">{Number(r.meetings ?? 0).toLocaleString()}</div>
+                          <div className="text-xs text-muted-foreground">meetings</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold tabular-nums">{Number(r.rep_started ?? 0).toLocaleString()}</div>
+                          <div className="text-xs text-muted-foreground">started</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardShell>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

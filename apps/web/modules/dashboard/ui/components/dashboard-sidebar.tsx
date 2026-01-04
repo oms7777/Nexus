@@ -174,11 +174,6 @@ export const DashboardSidebar = () => {
               ))}
             </SidebarMenu>
 
-            {!canUseAdvancedAnalytics && (
-              <p className={cn("px-3 pt-2 text-xs text-muted-foreground", labelClass)}>
-                Upgrade to unlock Funnel & Signals.
-              </p>
-            )}
           </SidebarGroupContent>
         </SidebarGroup>
 
