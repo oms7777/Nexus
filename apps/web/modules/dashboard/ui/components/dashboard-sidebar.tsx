@@ -44,7 +44,7 @@ function BrandHeader() {
         className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted"
       >
         <img
-          src="/brand/inboundless.svg"
+          src="/logoo.jpg"
           alt="Inboundless"
           className="h-7 w-7 shrink-0"
         />
