@@ -1,10 +1,11 @@
-// apps/web/app/(dashboard)/analytics/overview/page.tsx
 "use client";
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
+
+import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
 
 import {
   ResponsiveContainer,
@@ -144,11 +145,11 @@ export default function AnalyticsOverviewPage() {
   const { organization } = useOrganization();
   const orgId = organization?.id;
 
+  const ent = useEntitlements();
+  const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
+
   const [days, setDays] = useState(30);
   const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
-
-  const entitlements = useQuery(api.public.entitlements.getEntitlements, orgId ? {} : "skip");
-  const advancedEnabled = !!entitlements?.features?.canUseAdvancedAnalytics;
 
   const overview = useQuery(
     api.public.analytics.overview,
@@ -210,7 +211,6 @@ export default function AnalyticsOverviewPage() {
 
   return (
     <div className="space-y-6">
-      {/* Executive header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="text-2xl font-semibold">Executive Analytics</div>
@@ -221,14 +221,12 @@ export default function AnalyticsOverviewPage() {
         <RangePills value={days} onChange={setDays} />
       </div>
 
-      {/* KPI grid */}
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-5">
         {cards.map((c) => (
           <StatCard key={c.label} label={c.label} value={c.value} delta={c.delta} sub={c.sub} />
         ))}
       </div>
 
-      {/* WOW: Trends + Inbound response */}
       <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <CardShell
@@ -303,7 +301,6 @@ export default function AnalyticsOverviewPage() {
         </CardShell>
       </div>
 
-      {/* Attribution + Reps */}
       <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <CardShell title="Attribution & territories" subtitle="What drives pipeline outcomes">

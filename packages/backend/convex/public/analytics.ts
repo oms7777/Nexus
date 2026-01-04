@@ -1,6 +1,6 @@
 // packages/backend/convex/public/analytics.ts
 import { query, mutation } from "../_generated/server";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 
 /* ============================================================
    Helpers
@@ -99,6 +99,28 @@ function getMeetingKey(e: any): string | null {
   if (email && ts) return `min:${bucketMin}:email:${String(email)}`;
 
   return null;
+}
+
+async function requireAdvancedAnalytics(ctx: any, organizationId: string) {
+  const sub = await ctx.db
+    .query("subscriptions")
+    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
+    .unique();
+
+  const plan = String(sub?.plan ?? "starter");
+  const status = String(sub?.status ?? "paused");
+
+  const isActive = status === "active" || status === "trial";
+  const hasAdvanced = plan === "growth" || plan === "enterprise";
+
+  if (!isActive || !hasAdvanced) {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "Advanced Analytics required",
+    });
+  }
+
+  return { plan, status };
 }
 
 function uniqueCount(keys: Array<string | null | undefined>) {
@@ -533,6 +555,7 @@ export const funnels = query({
     slaSeconds: v.optional(v.number()),
   },
   handler: async (ctx, { organizationId, fromTs, toTs, slaSeconds }) => {
+    await requireAdvancedAnalytics(ctx, organizationId);
     const evts = await ctx.db
       .query("analyticsEvents")
       .withIndex("by_org_ts", (q: any) =>

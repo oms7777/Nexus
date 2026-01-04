@@ -34,7 +34,6 @@ import { cn } from "@workspace/ui/lib/utils";
 import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
 
 function BrandHeader() {
-  // ✅ “Inboundless + logo” et en mode icon => logo only
   const labelClass = "group-data-[collapsible=icon]:hidden";
 
   return (
@@ -43,11 +42,7 @@ function BrandHeader() {
         href="/"
         className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted"
       >
-        <img
-          src="/logoo.jpg"
-          alt="Inboundless"
-          className="h-7 w-7 shrink-0"
-        />
+        <img src="/logoo.jpg" alt="Inboundless" className="h-7 w-7 shrink-0" />
         <span className={cn("font-semibold tracking-tight", labelClass)}>
           Inboundless
         </span>
@@ -69,6 +64,8 @@ export const DashboardSidebar = () => {
   const canSeeIntegrations = !!(f.canUseSlack || f.canUseSalesforce);
   const canUseVoice = !!f.canUseVoice;
   const canUseBooking = !!f.canUseBooking;
+
+  // ✅ Standard vs Advanced Analytics
   const canUseAdvancedAnalytics = !!f.canUseAdvancedAnalytics;
 
   const pipelineItems = [
@@ -76,14 +73,19 @@ export const DashboardSidebar = () => {
     { title: "Conversations", url: "/conversations", icon: InboxIcon },
   ];
 
-  const analyticsItems = useMemo(
-    () => [
-      { title: "Overview", url: "/analytics/overview", icon: BarChart3 },
-      { title: "Funnel", url: "/analytics/funnel", icon: Filter },
-      { title: "Signals", url: "/analytics/signals", icon: Activity },
-    ],
-    [],
-  );
+  // ✅ Starter: only Overview
+  const analyticsItems = useMemo(() => {
+    const base = [{ title: "Overview", url: "/analytics/overview", icon: BarChart3 }];
+
+    if (canUseAdvancedAnalytics) {
+      base.push(
+        { title: "Funnel", url: "/analytics/funnel", icon: Filter },
+        { title: "Signals", url: "/analytics/signals", icon: Activity },
+      );
+    }
+
+    return base;
+  }, [canUseAdvancedAnalytics]);
 
   const profileItems = useMemo(() => {
     const base = [
@@ -117,13 +119,8 @@ export const DashboardSidebar = () => {
     ].filter(Boolean) as { title: string; url: string; icon: any }[];
   }, [ent.isLoading, canSeeIntegrations, canUseVoice]);
 
-  // ✅ texte caché quand le sidebar est en mode icon
   const labelClass = "group-data-[collapsible=icon]:hidden";
-
-  // ✅ icônes + grandes (avant: size-4)
   const iconClass = "size-5";
-
-  // ✅ meilleur look en “icon mode” (boutons plus carrés / centrés)
   const itemClass =
     "flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted " +
     "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2";
@@ -179,7 +176,7 @@ export const DashboardSidebar = () => {
 
             {!canUseAdvancedAnalytics && (
               <p className={cn("px-3 pt-2 text-xs text-muted-foreground", labelClass)}>
-                Some analytics are limited on your plan.
+                Upgrade to unlock Funnel & Signals.
               </p>
             )}
           </SidebarGroupContent>
