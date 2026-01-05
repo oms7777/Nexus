@@ -34,7 +34,8 @@ function computeEntitlements(sub: any) {
   const canUseAdvancedPromos = isActive && (plan === "growth" || plan === "enterprise");
 
   // Analytics avancées (de base) : Growth+ (exec = addon advancedAnalytics, plus tard)
-  const canUseAdvancedAnalytics = isActive && (plan === "growth" || plan === "enterprise");
+  const canUseAdvancedAnalytics = isActive && addons.advancedAnalytics === true;
+
 
   // Booking: ton pricing dit "1 calendar" en Starter (et Growth aussi par défaut)
   // Ici on ne gère pas multi-calendar encore, donc on expose juste un flag "canUseBooking"

@@ -85,24 +85,37 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         const organizationId = subscription?.payer?.organization_id;
         if (!organizationId) return new Response("Missing Organization ID", { status: 400 });
 
-        const rawStatus = (subscription.status ?? "").toLowerCase();
-        const isActive = rawStatus === "active";
-        const newMaxAllowedMemberships = isActive ? 5 : 1;
-
-        await clerkClient.organizations.updateOrganization(organizationId, {
-          maxAllowedMemberships: newMaxAllowedMemberships,
-        });
-
+        // 1) update status local (comme avant)
         await ctx.runMutation(internal.system.subscriptions.setStatusFromClerk, {
           organizationId,
           clerkStatus: subscription.status ?? "paused",
         });
 
-        return new Response(JSON.stringify({ ok: true, handled: "subscription.updated", organizationId }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
+        // 2) lire la subscription Convex pour calculer le vrai seat cap reps
+        const sub = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
+          organizationId,
         });
+
+        const base = Number(sub?.limits?.reps ?? 0);
+        const extra = Number(sub?.addons?.extraReps ?? 0);
+        const maxAllowedMemberships = Math.max(1, base + extra); // au moins 1
+
+        // 3) pousser dans Clerk (bloque members + invitations)
+        await clerkClient.organizations.updateOrganization(organizationId, {
+          maxAllowedMemberships,
+        });
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            handled: "subscription.updated",
+            organizationId,
+            maxAllowedMemberships,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
       }
+
 
       default:
         return new Response(JSON.stringify({ ok: true, ignored: true, type: event.type }), {

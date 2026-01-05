@@ -34,6 +34,8 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 
+import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+
 type Membership = {
   id: string;
   userId: string;
@@ -72,18 +74,8 @@ const PRESET_TERRITORIES: {
     key: "mena",
     hint: "DZ, BH, EG, JO, KW, LB, MA, OM, QA, SA, AE, TN…",
   },
-  {
-    id: "europe",
-    label: "Europe",
-    key: "europe",
-    hint: "Most EU / EEA countries",
-  },
-  {
-    id: "north_america",
-    label: "North America",
-    key: "north_america",
-    hint: "US, CA, MX…",
-  },
+  { id: "europe", label: "Europe", key: "europe", hint: "Most EU / EEA countries" },
+  { id: "north_america", label: "North America", key: "north_america", hint: "US, CA, MX…" },
   { id: "apac", label: "APAC", key: "apac", hint: "Asia-Pacific countries" },
 ];
 
@@ -115,6 +107,14 @@ export default function TeamPage() {
   const { organization, membership, isLoaded } = useOrganization();
   const isAdmin = membership?.role === "org:admin";
 
+  const ent = useEntitlements();
+  const isStarter = ent.plan === "starter";
+
+  // ✅ policy produit
+  // Starter: pas de territoires + pas d'auto-assign, donc pas besoin de routing avancé UI.
+  const canUseTerritoriesUi = !isStarter; // (tu peux aussi le lier à canUseAdvancedRouting)
+  const canUseRoutingModeUi = !isStarter; // Starter => toujours visitor_choice
+
   const [inviteOpen, setInviteOpen] = useState(false);
 
   // ✅ Admin-only: redirect silencieux
@@ -127,7 +127,6 @@ export default function TeamPage() {
   // ✅ force l'onglet Members quand on ouvre
   useEffect(() => {
     if (!inviteOpen) return;
-    // Clerk routing="hash" => #members
     if (typeof window !== "undefined") {
       window.location.hash = "members";
     }
@@ -143,10 +142,24 @@ export default function TeamPage() {
 
   const setRoutingMode = useMutation(api.private.widgetSettings.setRoutingMode);
 
+  // ✅ Starter: force visitor_choice (hard policy)
+  useEffect(() => {
+    if (!canQuery) return;
+    if (!isStarter) return;
+    if (widgetSettings === undefined) return; // loading
+    const current = widgetSettings?.routingMode ?? "auto_assign";
+    if (current !== "visitor_choice") {
+      // pas de toast, on force silencieusement
+      setRoutingMode({ routingMode: "visitor_choice" } as any).catch(() => {});
+    }
+  }, [canQuery, isStarter, widgetSettings, setRoutingMode]);
+
   // 🔹 Territories
   const territories = useQuery(
     api.private.territories.listForOrg,
-    canQuery ? ({ organizationId: organization!.id } as any) : ("skip" as any),
+    canQuery && canUseTerritoriesUi
+      ? ({ organizationId: organization!.id } as any)
+      : ("skip" as any),
   ) as
     | {
         _id: string;
@@ -287,13 +300,16 @@ export default function TeamPage() {
   };
 
   const handleToggleRouting = async (checked: boolean) => {
+    // Starter: pas autorisé (policy)
+    if (isStarter) return;
+
     const nextAuto = Boolean(checked);
     setAutoRouting(nextAuto);
 
     try {
       await setRoutingMode({
         routingMode: nextAuto ? "auto_assign" : "visitor_choice",
-      });
+      } as any);
       toast.success("Routing mode updated");
     } catch (e) {
       console.error(e);
@@ -414,10 +430,10 @@ export default function TeamPage() {
           {/* HEADER + INVITE MODAL */}
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-2">
-              <h1 className="text-2xl md:text-4xl">Team & Territories</h1>
+              <h1 className="text-2xl md:text-4xl">Team</h1>
               <p className="text-sm text-muted-foreground">
-                Choose which teammates receive inbound leads, which territories
-                they cover, and how routing behaves.
+                Manage who receives inbound leads and their availability.
+                {isStarter ? " (Starter: visitor chooses rep, no territories.)" : null}
               </p>
             </div>
 
@@ -425,6 +441,7 @@ export default function TeamPage() {
               Invite member
             </Button>
           </div>
+
           <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
             <DialogContent
               className="
@@ -438,84 +455,68 @@ export default function TeamPage() {
                 <DialogTitle>Members</DialogTitle>
               </DialogHeader>
 
-              {/* le contenu prend toute la hauteur restante */}
               <div className="h-[calc(100%-72px)] px-6 pb-6">
                 <div className="h-full w-full rounded-xl border bg-background overflow-hidden">
                   <OrganizationProfile
                     routing="hash"
                     appearance={{
                       elements: {
-                        // ✅ cache ce qui ne sert pas
                         organizationProfileDangerSection: "hidden",
                         organizationProfileLeaveOrganization: "hidden",
                         organizationProfileDeleteOrganization: "hidden",
                         organizationProfileLeaveOrganizationAction: "hidden",
                         organizationProfileDeleteOrganizationAction: "hidden",
 
-                        // ✅ on masque l'identité visuelle "Organization" / "General"
                         organizationProfilePage: "p-0",
                         organizationProfileSectionTitle: "hidden",
                         organizationProfileSectionContent: "p-0",
 
-                        // ✅ IMPORTANT: on masque la sidebar interne de Clerk (onglets)
-                        // et on garde seulement le contenu "members" (via #members)
                         navbar: "hidden",
                         navbarMobileMenuButton: "hidden",
                         navbarButtons: "hidden",
 
-                        // ✅ force Clerk à remplir le conteneur
                         rootBox: "w-full h-full max-w-none",
                         card: "w-full h-full max-w-none border-0 shadow-none rounded-none",
                         pageScrollBox: "w-full h-full max-w-none",
                       },
                     }}
                   />
-
                 </div>
               </div>
             </DialogContent>
           </Dialog>
 
+          {/* ROUTING MODE (hidden for Starter) */}
+          {canUseRoutingModeUi ? (
+            <>
+              <div className="rounded-lg border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Routing mode</p>
+                  <p className="text-xs text-muted-foreground">
+                    Switch between <span className="font-medium">auto-assign</span> (rules + presence + territories)
+                    or letting visitors <span className="font-medium">choose a rep</span>.
+                  </p>
+                </div>
 
+                <div className="flex items-center gap-2 text-xs md:text-sm">
+                  <span className={!autoRouting ? "font-medium" : "text-muted-foreground"}>
+                    Visitor chooses rep
+                  </span>
+                  <Switch checked={autoRouting} onCheckedChange={handleToggleRouting} />
+                  <span className={autoRouting ? "font-medium" : "text-muted-foreground"}>
+                    Auto-assign best rep
+                  </span>
+                </div>
+              </div>
 
-          {/* ROUTING MODE */}
-          <div className="rounded-lg border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Routing mode</p>
-              <p className="text-xs text-muted-foreground">
-                Switch between{" "}
-                <span className="font-medium">auto-assign</span> (rules +
-                presence + territories) or letting visitors{" "}
-                <span className="font-medium">choose a rep</span>.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs md:text-sm">
-              <span
-                className={!autoRouting ? "font-medium" : "text-muted-foreground"}
-              >
-                Visitor chooses rep
-              </span>
-              <Switch
-                checked={autoRouting}
-                onCheckedChange={handleToggleRouting}
-              />
-              <span
-                className={autoRouting ? "font-medium" : "text-muted-foreground"}
-              >
-                Auto-assign best rep
-              </span>
-            </div>
-          </div>
-
-          <Separator />
+              <Separator />
+            </>
+          ) : null}
 
           {/* TEAM TABLE */}
           <div className="space-y-3">
             <h2 className="text-lg font-semibold">Team</h2>
-            {loadingMembers && (
-              <p className="text-sm text-muted-foreground">Loading team…</p>
-            )}
+            {loadingMembers && <p className="text-sm text-muted-foreground">Loading team…</p>}
 
             <div className="overflow-x-auto rounded-lg border bg-background">
               <table className="min-w-full text-sm">
@@ -523,12 +524,13 @@ export default function TeamPage() {
                   <tr>
                     <th className="px-4 py-3 text-left font-medium">User</th>
                     <th className="px-4 py-3 text-left font-medium">Role</th>
-                    <th className="px-4 py-3 text-left font-medium">
-                      Territories
-                    </th>
-                    <th className="px-4 py-3 text-left font-medium">
-                      Receives leads
-                    </th>
+
+                    {/* Starter: hide territories column entirely */}
+                    {!isStarter ? (
+                      <th className="px-4 py-3 text-left font-medium">Territories</th>
+                    ) : null}
+
+                    <th className="px-4 py-3 text-left font-medium">Receives leads</th>
                     <th className="px-4 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -539,6 +541,7 @@ export default function TeamPage() {
                       key={row.member.userId}
                       row={row}
                       territoryOptions={territoryOptions}
+                      hideTerritories={isStarter}
                       onSave={async (payload) =>
                         handleSaveRep({
                           ...payload,
@@ -553,7 +556,7 @@ export default function TeamPage() {
                     <tr>
                       <td
                         className="px-4 py-6 text-center text-muted-foreground"
-                        colSpan={5}
+                        colSpan={isStarter ? 4 : 5}
                       >
                         No members found in this organization.
                       </td>
@@ -563,177 +566,168 @@ export default function TeamPage() {
               </table>
             </div>
 
-            <p className="text-xs text-muted-foreground">
-              Routing uses these settings together with your rules (geo, URL,
-              UTM…) and territories to pick the right rep.
-            </p>
+            {!isStarter ? (
+              <p className="text-xs text-muted-foreground">
+                Routing uses these settings together with your rules (geo, URL, UTM…) and territories to pick the right rep.
+              </p>
+            ) : null}
           </div>
 
-          <Separator />
+          {/* TERRITORIES (hidden for Starter) */}
+          {canUseTerritoriesUi ? (
+            <>
+              <Separator />
 
-          {/* TERRITORIES */}
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold">Territories</h2>
+              <div className="space-y-3">
+                <h2 className="text-lg font-semibold">Territories</h2>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Create a territory</CardTitle>
-              </CardHeader>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Create a territory</CardTitle>
+                  </CardHeader>
 
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Region preset (optional)</Label>
-                    <Select
-                      value={selectedPreset}
-                      onValueChange={(v) => handlePresetChange(v as PresetId)}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Choose a preset…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRESET_TERRITORIES.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.label}
-                            {p.hint ? ` – ${p.hint}` : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Pick a region (MENA, Europe…) to auto-configure label &
-                      key. Leave country codes empty to use the built-in mapping.
-                    </p>
-                  </div>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label>Region preset (optional)</Label>
+                        <Select
+                          value={selectedPreset}
+                          onValueChange={(v) => handlePresetChange(v as PresetId)}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Choose a preset…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PRESET_TERRITORIES.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.label}
+                                {p.hint ? ` – ${p.hint}` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Pick a region (MENA, Europe…) to auto-configure label & key.
+                          Leave country codes empty to use the built-in mapping.
+                        </p>
+                      </div>
 
-                  <div className="space-y-1">
-                    <Label>Country preset (optional)</Label>
-                    <Select
-                      value={selectedCountry}
-                      onValueChange={handleCountryChange}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Choose a country…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {COUNTRY_PRESETS.map((c) => (
-                          <SelectItem key={c.code} value={c.code}>
-                            {c.label} ({c.code})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      This fills the country codes field with one ISO code (FR,
-                      DE, …). You can still edit it.
-                    </p>
-                  </div>
-                </div>
+                      <div className="space-y-1">
+                        <Label>Country preset (optional)</Label>
+                        <Select value={selectedCountry} onValueChange={handleCountryChange}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Choose a country…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {COUNTRY_PRESETS.map((c) => (
+                              <SelectItem key={c.code} value={c.code}>
+                                {c.label} ({c.code})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          This fills the country codes field with one ISO code (FR, DE, …).
+                          You can still edit it.
+                        </p>
+                      </div>
+                    </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label>Label</Label>
-                    <Input
-                      placeholder="France, DACH, North America…"
-                      value={territoryLabel}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setTerritoryLabel(v);
-                        if (!territoryKey) setTerritoryKey(slugify(v));
-                      }}
-                    />
-                  </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="space-y-1">
+                        <Label>Label</Label>
+                        <Input
+                          placeholder="France, DACH, North America…"
+                          value={territoryLabel}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setTerritoryLabel(v);
+                            if (!territoryKey) setTerritoryKey(slugify(v));
+                          }}
+                        />
+                      </div>
 
-                  <div className="space-y-1">
-                    <Label>Key (slug)</Label>
-                    <Input
-                      placeholder="france, dach, north_america…"
-                      value={territoryKey}
-                      onChange={(e) => setTerritoryKey(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Used internally to link reps & routing rules (ex:{" "}
-                      <code className="font-mono">mena</code>).
-                    </p>
-                  </div>
+                      <div className="space-y-1">
+                        <Label>Key (slug)</Label>
+                        <Input
+                          placeholder="france, dach, north_america…"
+                          value={territoryKey}
+                          onChange={(e) => setTerritoryKey(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Used internally to link reps & routing rules (ex: <code className="font-mono">mena</code>).
+                        </p>
+                      </div>
 
-                  <div className="space-y-1">
-                    <Label>Country codes (optional)</Label>
-                    <Input
-                      placeholder="FR, BE, LU"
-                      value={countryCodesRaw}
-                      onChange={(e) => setCountryCodesRaw(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Comma-separated ISO codes. Leave empty to use the preset
-                      mapping.
-                    </p>
-                  </div>
-                </div>
+                      <div className="space-y-1">
+                        <Label>Country codes (optional)</Label>
+                        <Input
+                          placeholder="FR, BE, LU"
+                          value={countryCodesRaw}
+                          onChange={(e) => setCountryCodesRaw(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Comma-separated ISO codes. Leave empty to use the preset mapping.
+                        </p>
+                      </div>
+                    </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleCreateTerritory}>Save territory</Button>
-                </div>
-              </CardContent>
-            </Card>
+                    <div className="flex justify-end">
+                      <Button onClick={handleCreateTerritory}>Save territory</Button>
+                    </div>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Existing territories</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {territories && territories.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    No territories yet. Create at least one (France, MENA, North
-                    America…) then map reps to them.
-                  </p>
-                )}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Existing territories</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {territories && territories.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No territories yet. Create at least one then map reps to them.
+                      </p>
+                    )}
 
-                {territories && territories.length > 0 && (
-                  <div className="overflow-x-auto rounded-lg border bg-background">
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-muted/60">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-medium">
-                            Label
-                          </th>
-                          <th className="px-4 py-3 text-left font-medium">Key</th>
-                          <th className="px-4 py-3 text-left font-medium">
-                            Country codes
-                          </th>
-                          <th className="px-4 py-3 text-right font-medium">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {territories.map((t) => (
-                          <tr key={t._id}>
-                            <td className="px-4 py-3 align-middle">{t.label}</td>
-                            <td className="px-4 py-3 align-middle font-mono text-xs">
-                              {t.key}
-                            </td>
-                            <td className="px-4 py-3 align-middle text-xs text-muted-foreground">
-                              {(t.countryCodes ?? []).join(", ") || "—"}
-                            </td>
-                            <td className="px-4 py-3 align-middle text-right">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleDeleteTerritory(t._id)}
-                              >
-                                Delete
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                    {territories && territories.length > 0 && (
+                      <div className="overflow-x-auto rounded-lg border bg-background">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-muted/60">
+                            <tr>
+                              <th className="px-4 py-3 text-left font-medium">Label</th>
+                              <th className="px-4 py-3 text-left font-medium">Key</th>
+                              <th className="px-4 py-3 text-left font-medium">Country codes</th>
+                              <th className="px-4 py-3 text-right font-medium">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {territories.map((t) => (
+                              <tr key={t._id}>
+                                <td className="px-4 py-3 align-middle">{t.label}</td>
+                                <td className="px-4 py-3 align-middle font-mono text-xs">{t.key}</td>
+                                <td className="px-4 py-3 align-middle text-xs text-muted-foreground">
+                                  {(t.countryCodes ?? []).join(", ") || "—"}
+                                </td>
+                                <td className="px-4 py-3 align-middle text-right">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleDeleteTerritory(t._id)}
+                                  >
+                                    Delete
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
     </Protect>
@@ -743,6 +737,7 @@ export default function TeamPage() {
 function TeamRow({
   row,
   territoryOptions,
+  hideTerritories,
   onSave,
 }: {
   row: {
@@ -754,6 +749,7 @@ function TeamRow({
     slackDmChannel?: string;
   };
   territoryOptions: TerritoryOption[];
+  hideTerritories?: boolean;
   onSave: (row: {
     member: Membership;
     role: "sales" | "support";
@@ -768,7 +764,7 @@ function TeamRow({
 
   const handleClickSave = async () => {
     setSaving(true);
-    await onSave({ member: row.member, role, regions, available });
+    await onSave({ member: row.member, role, regions: hideTerritories ? [] : regions, available });
     setSaving(false);
   };
 
@@ -776,18 +772,13 @@ function TeamRow({
     <tr>
       <td className="px-4 py-3 align-middle">
         <div className="flex flex-col">
-          <span className="font-medium">
-            {row.member.name || row.member.email}
-          </span>
+          <span className="font-medium">{row.member.name || row.member.email}</span>
           <span className="text-xs text-muted-foreground">{row.member.email}</span>
         </div>
       </td>
 
       <td className="px-4 py-3 align-middle">
-        <Select
-          value={role}
-          onValueChange={(v) => setRole(v as "sales" | "support")}
-        >
+        <Select value={role} onValueChange={(v) => setRole(v as "sales" | "support")}>
           <SelectTrigger className="w-[120px]">
             <SelectValue />
           </SelectTrigger>
@@ -798,28 +789,23 @@ function TeamRow({
         </Select>
       </td>
 
-      <td className="px-4 py-3 align-middle">
-        <Label className="sr-only">Territories</Label>
-        <MultiSelect
-          options={territoryOptions}
-          value={regions}
-          onValueChange={setRegions}
-          placeholder={
-            territoryOptions.length ? "Select territories" : "No territories yet"
-          }
-          className="max-w-xs"
-        />
-      </td>
+      {!hideTerritories ? (
+        <td className="px-4 py-3 align-middle">
+          <Label className="sr-only">Territories</Label>
+          <MultiSelect
+            options={territoryOptions}
+            value={regions}
+            onValueChange={setRegions}
+            placeholder={territoryOptions.length ? "Select territories" : "No territories yet"}
+            className="max-w-xs"
+          />
+        </td>
+      ) : null}
 
       <td className="px-4 py-3 align-middle">
         <div className="flex items-center gap-2">
-          <Switch
-            checked={available}
-            onCheckedChange={(v) => setAvailable(Boolean(v))}
-          />
-          <span className="text-xs text-muted-foreground">
-            {available ? "Online" : "Offline"}
-          </span>
+          <Switch checked={available} onCheckedChange={(v) => setAvailable(Boolean(v))} />
+          <span className="text-xs text-muted-foreground">{available ? "Online" : "Offline"}</span>
         </div>
       </td>
 
