@@ -31,7 +31,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@workspace/ui/components/tabs";
-import { useMutation, useAction } from "convex/react";
+import { useMutation, useAction, useQuery } from "convex/react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import z from "zod";
@@ -50,6 +50,12 @@ type FormSchema = z.infer<typeof widgetSettingsSchema>;
 export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
   const addFile = useAction(api.private.files.addFile);
+
+  // ✅ entitlements (Starter => pas d’onglet promos)
+  const entitlements =
+    useQuery(api.public.entitlements.getEntitlements, {}) ?? null;
+
+  const canUseAdvancedPromos = !!entitlements?.features?.canUseAdvancedPromos;
 
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -207,7 +213,12 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         <Tabs defaultValue="branding" className="w-full">
           <TabsList className="mb-2 w-full justify-start">
             <TabsTrigger value="branding">Branding & Chat</TabsTrigger>
-            <TabsTrigger value="promos">Page-based Promos</TabsTrigger>
+
+            {/* ✅ Starter: hide completely */}
+            {canUseAdvancedPromos ? (
+              <TabsTrigger value="promos">Page-based Promos</TabsTrigger>
+            ) : null}
+
             <TabsTrigger value="consent">Consent & Privacy</TabsTrigger>
           </TabsList>
 
@@ -246,10 +257,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                           <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                             <div className="space-y-1 text-xs text-muted-foreground">
                               <p>Or upload a logo from your computer.</p>
-                              <p>
-                                We’ll store it securely and reuse it across
-                                promos.
-                              </p>
+                              <p>We’ll store it securely and reuse it across promos.</p>
                             </div>
 
                             <div className="flex items-center gap-3">
@@ -267,9 +275,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 accept="image/*"
                                 className="hidden"
                                 onChange={(e) =>
-                                  handleLogoFile(
-                                    e.target.files?.[0] || undefined,
-                                  )
+                                  handleLogoFile(e.target.files?.[0] || undefined)
                                 }
                               />
 
@@ -278,9 +284,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 variant="outline"
                                 size="sm"
                                 disabled={uploadingLogo}
-                                onClick={() =>
-                                  logoFileInputRef.current?.click()
-                                }
+                                onClick={() => logoFileInputRef.current?.click()}
                               >
                                 {uploadingLogo ? "Uploading…" : "Upload logo"}
                               </Button>
@@ -351,9 +355,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
                             </div>
-                            <FormDescription>
-                              Text color for primary CTA buttons.
-                            </FormDescription>
+                            <FormDescription>Text color for primary CTA buttons.</FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -401,9 +403,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
                             </div>
-                            <FormDescription>
-                              Text color for secondary CTA buttons.
-                            </FormDescription>
+                            <FormDescription>Text color for secondary CTA buttons.</FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -426,9 +426,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
                             </div>
-                            <FormDescription>
-                              Background of the promo nudge card.
-                            </FormDescription>
+                            <FormDescription>Background of the promo nudge card.</FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -452,8 +450,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                               />
                             </div>
                             <FormDescription>
-                              Color of the round chat button at the bottom of
-                              the page.
+                              Color of the round chat button at the bottom of the page.
                             </FormDescription>
                             <FormMessage />
                           </FormItem>
@@ -469,12 +466,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                     </div>
 
                     <div className="flex h-full items-end justify-center rounded-xl border bg-slate-50 px-4 pb-6 pt-4">
-                      {/* ✅ Wider frame so promo never clips */}
                       <div className="relative h-[420px] w-full max-w-[640px] overflow-hidden rounded-2xl border bg-white shadow-sm">
-                        {/* Anchor group (chat + promo) bottom-right */}
                         <div className="absolute bottom-4 right-4">
                           <div className="relative">
-                            {/* Promo nudge (left + above bubble) */}
                             <div className="absolute bottom-[140px] right-[40px] z-20 w-[260px] translate-x-[-300px]">
                               <div
                                 className="rounded-2xl border p-4 shadow-lg shadow-slate-200"
@@ -550,7 +544,6 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                               </div>
                             </div>
 
-                            {/* Chat window */}
                             <div className="h-[320px] w-[340px] rounded-2xl border bg-white shadow-sm">
                               <div className="flex items-center justify-between border-b px-4 py-2">
                                 <div className="flex items-center gap-2">
@@ -591,7 +584,6 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 </div>
                               </div>
 
-                              {/* Bubble (bottom-right inside chat window) */}
                               <div className="pointer-events-none absolute bottom-0 right-0">
                                 <div className="absolute bottom-4 right-4 flex items-center gap-2">
                                   <div className="rounded-full bg-white/70 px-2 py-1 text-[10px] text-slate-600 shadow-sm">
@@ -620,7 +612,6 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
               </CardContent>
             </Card>
 
-            {/* General chat settings */}
             <Card>
               <CardHeader>
                 <CardTitle>General Chat Settings</CardTitle>
@@ -716,24 +707,26 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
             </Card>
           </TabsContent>
 
-          {/* 2️⃣ PAGE-BASED PROMOS */}
-          <TabsContent value="promos" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Page-based Promos</CardTitle>
-                <CardDescription>
-                  Configure smart nudges shown above the chat bubble based on
-                  page URL and UTM parameters.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <PromosPanel
-                  theme={themeWatch ?? undefined}
-                  brandLogoUrl={logoUrl || undefined}
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
+          {/* 2️⃣ PAGE-BASED PROMOS (Growth/Enterprise only) */}
+          {canUseAdvancedPromos ? (
+            <TabsContent value="promos" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Page-based Promos</CardTitle>
+                  <CardDescription>
+                    Configure smart nudges shown above the chat bubble based on
+                    page URL and UTM parameters.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PromosPanel
+                    theme={themeWatch ?? undefined}
+                    brandLogoUrl={logoUrl || undefined}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          ) : null}
 
           {/* 3️⃣ CONSENT & PRIVACY */}
           <TabsContent value="consent" className="space-y-6">

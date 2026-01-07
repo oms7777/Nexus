@@ -28,6 +28,14 @@ type ThemePayload = {
   chatBubbleColor?: string;
 };
 
+type SuggestionsPayload = {
+  greetMessage?: string;
+  suggestions: string[];
+  privacyUrl?: string;
+  theme?: ThemePayload;
+  brandLogoUrl?: string;
+};
+
 export default function SmartPromo() {
   const orgId = useAtomValue(organizationIdAtom);
 
@@ -46,7 +54,8 @@ export default function SmartPromo() {
   const createConversation = useMutation(api.public.conversations.create);
 
   const [parentHref, setParentHref] = useState<string>();
-  const sentRef = useRef(false);
+  const sentPromoRef = useRef(false);
+  const sentSuggestionsRef = useRef(false);
 
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
@@ -56,6 +65,14 @@ export default function SmartPromo() {
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip"
   );
+
+  // ✅ public plan (no auth)
+  const publicPlan = useQuery(
+    api.public.entitlements.getPublicPlan,
+    orgId ? { organizationId: orgId } : "skip"
+  );
+
+  const canUseAdvancedPromos = !!publicPlan?.canUseAdvancedPromos;
 
   const memberAvatars =
     useQuery(
@@ -74,10 +91,11 @@ export default function SmartPromo() {
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
       : undefined;
 
+  // ✅ promos only if allowed
   const promos =
     useQuery(
       api.public.promos.listForPage,
-      orgId && currentUrl
+      canUseAdvancedPromos && orgId && currentUrl
         ? { organizationId: orgId, currentUrl, utmSource: utm }
         : "skip"
     ) ?? [];
@@ -92,15 +110,6 @@ export default function SmartPromo() {
     promoRef.current = promo;
   }, [promo]);
 
-  /**
-   * ✅ SAFE START
-   * - RESPECTE CONSENTGIVEN:
-   *   - INTENT "CHAT" => IDLE (SI DÉJÀ CONSENTI)
-   *   - INTENT "BOOK" => ASK_NAME (SI DÉJÀ CONSENTI)
-   *   - SINON => CONSENT
-   * - RÉUTILISE CONVERSATIONID SI DÉJÀ PRÉSENTE
-   * - NE FAIT PAS DE GETONE (ZÉRO CRASH)
-   */
   const ensureAndStart = async (intent: "chat" | "book") => {
     if (!orgId) {
       setScreen("error");
@@ -117,11 +126,8 @@ export default function SmartPromo() {
         : "consent";
 
     setStep(nextStep as any);
-
-    // TOUJOURS ALLER AU CHAT UI (LE CHAT SCREEN GÈRE LE RESTE)
     setScreen("chat");
 
-    // ASSURER LA SESSION (MAIS NE PAS CASSER SI ÇA RATE)
     let sessionId: Id<"contactSessions"> | null = null;
     try {
       sessionId =
@@ -133,10 +139,8 @@ export default function SmartPromo() {
       return;
     }
 
-    // RÉUTILISER LA CONVERSATION SI DÉJÀ LÀ
     if (currentConvId) return;
 
-    // SINON CRÉER UNE CONVERSATION (SAFE)
     try {
       const created = await createConversation({
         contactSessionId: sessionId!,
@@ -144,9 +148,10 @@ export default function SmartPromo() {
         suppressGreet: intent === "book" ? true : undefined,
       } as any);
 
-      // ✅ supporte les 2 signatures (ancienne: Id, nouvelle: {conversationId, threadId})
       const newConversationId =
-        typeof created === "string" ? (created as Id<"conversations">) : created.conversationId;
+        typeof created === "string"
+          ? (created as Id<"conversations">)
+          : created.conversationId;
 
       setConversationId(newConversationId);
     } catch {}
@@ -158,26 +163,6 @@ export default function SmartPromo() {
     if (cta.kind === "open_url" && cta.url) {
       window.open(cta.url, "_blank", "noopener,noreferrer");
     }
-  };
-
-  /**
-   * ✅ VOICE START (CONSENT-GATED)
-   * - SI CONSENT OK => SCREEN "VOICE"
-   * - SINON => SCREEN "CHAT" + STEP "CONSENT" + FLAG POUR REDIRIGER VERS VOICE
-   */
-  const openVoice = () => {
-    if (consentGiven) {
-      setScreen("voice");
-      return;
-    }
-
-    try {
-      sessionStorage.setItem("nexus:after-consent", "voice");
-    } catch {}
-
-    setBookingIntent("chat");
-    setStep("consent" as any);
-    setScreen("chat");
   };
 
   // HOST → WIDGET BRIDGE
@@ -192,12 +177,6 @@ export default function SmartPromo() {
 
       if (t === "nexus:open-chat") {
         void ensureAndStart("chat");
-        return;
-      }
-
-      // ✅ NEW: OPEN VOICE FROM HOST (NUDGE MIC)
-      if (t === "nexus:open-voice") {
-        openVoice();
         return;
       }
 
@@ -241,8 +220,7 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, consentGiven, contactSessionId, currentConvId]);
 
-  // ----- PAYLOAD FOR HOST (THÈME + LOGO + MULTI-CTA)
-  const makePayload = () => {
+  const makePromoPayload = () => {
     if (!promo) return null;
 
     const avatars: string[] =
@@ -279,21 +257,49 @@ export default function SmartPromo() {
     };
   };
 
-  // ---- ENVOI FIABLE AU HOST : UNIQUEMENT SI PROMO PRÊTE
+  const makeSuggestionsPayload = (): SuggestionsPayload | null => {
+    if (!ws) return null;
+
+    const theme: ThemePayload | undefined = (ws as any)?.theme;
+    const brandLogoUrl: string | undefined = (ws as any)?.brandLogoUrl;
+
+    const privacyUrl =
+      (ws as any)?.consent?.privacyUrl || (ws as any)?.privacyUrl || undefined;
+
+    const greetMessage: string | undefined = (ws as any)?.greetMessage;
+
+    const s1 = (ws as any)?.defaultSuggestions?.suggestion1?.trim();
+    const s2 = (ws as any)?.defaultSuggestions?.suggestion2?.trim();
+    const s3 = (ws as any)?.defaultSuggestions?.suggestion3?.trim();
+
+    const suggestions = [s1, s2, s3].filter(Boolean) as string[];
+    if (!suggestions.length) return null;
+
+    return {
+      greetMessage,
+      suggestions,
+      privacyUrl,
+      theme,
+      brandLogoUrl,
+    };
+  };
+
+  // ✅ SEND PROMO (Growth/Enterprise)
   useEffect(() => {
     if (!isEmbedded) return;
+    if (!canUseAdvancedPromos) return;
 
-    const payload = makePayload();
+    const payload = makePromoPayload();
     if (!payload) return;
 
     const send = () =>
       window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
 
-    if (sentRef.current) {
+    if (sentPromoRef.current) {
       send();
       return;
     }
-    sentRef.current = true;
+    sentPromoRef.current = true;
 
     send();
     const t1 = setTimeout(send, 120);
@@ -303,10 +309,37 @@ export default function SmartPromo() {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [isEmbedded, promo, memberAvatars, ws, parentHref]);
+  }, [isEmbedded, canUseAdvancedPromos, promo, memberAvatars, ws, parentHref]);
+
+  // ✅ SEND SUGGESTIONS (Starter)
+  useEffect(() => {
+    if (!isEmbedded) return;
+    if (canUseAdvancedPromos) return;
+
+    const payload = makeSuggestionsPayload();
+    if (!payload) return;
+
+    const send = () =>
+      window.parent?.postMessage({ type: "nexus:suggestions", payload }, "*");
+
+    if (sentSuggestionsRef.current) {
+      send();
+      return;
+    }
+    sentSuggestionsRef.current = true;
+
+    send();
+    const t1 = setTimeout(send, 120);
+    const t2 = setTimeout(send, 600);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isEmbedded, canUseAdvancedPromos, ws, parentHref]);
 
   // PREVIEW INTERNE
-  const showInternal = !!promo && !isEmbedded;
+  const showInternal = !!promo && !isEmbedded && canUseAdvancedPromos;
   if (!showInternal) return null;
 
   return (

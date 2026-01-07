@@ -8,6 +8,18 @@ type Rules = {
   utmSource?: string[];
 };
 
+type Plan = "starter" | "growth" | "enterprise";
+
+function isSubActive(sub: any) {
+  const status = (sub?.status ?? "paused") as string;
+  return status === "active" || status === "trial";
+}
+
+function canUseAdvancedPromos(sub: any) {
+  const plan = (sub?.plan ?? "starter") as Plan;
+  return isSubActive(sub) && (plan === "growth" || plan === "enterprise");
+}
+
 /* -------------------- Normalisation -------------------- */
 
 function normalizeRules(rules?: Rules | null): Rules | undefined {
@@ -35,12 +47,10 @@ function matches(url: string, utm: string | undefined, rawRules?: Rules) {
   try {
     const u = new URL(url);
 
-    // 1) Path prefix
     if (rules.pathPrefix && !u.pathname.startsWith(rules.pathPrefix)) {
       return false;
     }
 
-    // 2) URL includes
     if (rules.urlIncludes?.length) {
       const hit = rules.urlIncludes.some(
         (s) => u.pathname.includes(s) || u.search.includes(s),
@@ -48,7 +58,6 @@ function matches(url: string, utm: string | undefined, rawRules?: Rules) {
       if (!hit) return false;
     }
 
-    // 3) utmSource
     if (rules.utmSource?.length) {
       if (!utm || !rules.utmSource.includes(utm)) return false;
     }
@@ -61,8 +70,6 @@ function matches(url: string, utm: string | undefined, rawRules?: Rules) {
 }
 
 /* -------------------- Specificity ranking -------------------- */
-// But : la promo la plus précise gagne
-// Exemple : "/pricing/team" > "/pricing" > "/"
 
 function ruleSpecificity(rawRules?: Rules | null): number {
   const rules = normalizeRules(rawRules);
@@ -70,13 +77,8 @@ function ruleSpecificity(rawRules?: Rules | null): number {
 
   let score = 0;
 
-  // Longueur du pathPrefix = signal principal
   if (rules.pathPrefix) score += rules.pathPrefix.length * 10;
-
-  // Includes = bonus
   if (rules.urlIncludes?.length) score += rules.urlIncludes.length * 5;
-
-  // UTM = bonus léger
   if (rules.utmSource?.length) score += rules.utmSource.length * 3;
 
   return score;
@@ -94,6 +96,18 @@ export const listForPage = query({
     try {
       if (!organizationId || !currentUrl) return [];
 
+      // ✅ gate plan/status
+      const sub = await ctx.db
+        .query("subscriptions")
+        .withIndex("by_organization_id", (q) =>
+          q.eq("organizationId", organizationId),
+        )
+        .unique();
+
+      if (!canUseAdvancedPromos(sub)) {
+        return [];
+      }
+
       const all = await ctx.db
         .query("promos")
         .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
@@ -105,7 +119,6 @@ export const listForPage = query({
         matches(currentUrl, utmSource, p.rules as Rules),
       );
 
-      // 👉 Tri automatique : plus spécifique en premier
       matched.sort(
         (a, b) =>
           ruleSpecificity(b.rules as Rules) - ruleSpecificity(a.rules as Rules),

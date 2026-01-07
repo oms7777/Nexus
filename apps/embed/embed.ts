@@ -38,6 +38,15 @@ type PromoPayload = {
   ctaList?: SimpleCta[];
 };
 
+// ✅ NEW: Suggestions nudge (Starter = chips)
+type SuggestionsPayload = {
+  greetMessage?: string;
+  suggestions: string[];
+  privacyUrl?: string;
+  theme?: ThemePayload;
+  brandLogoUrl?: string;
+};
+
 (function () {
   // DOM
   let iframe: HTMLIFrameElement | null = null;
@@ -48,7 +57,7 @@ type PromoPayload = {
 
   // State
   let isOpen = false;
-  let hasPromoPayload = false;
+  let hasNudgePayload = false; // ✅ was hasPromoPayload
   let nudgeDismissed = false;
   let iframeLoaded = false;
   let TARGET_ORIGIN = "";
@@ -114,7 +123,7 @@ type PromoPayload = {
     button.innerHTML = chatBubbleIcon;
 
     // ✅ IMPORTANT:
-    // - bouton invisible tant qu'on n'a pas reçu theme/promo
+    // - bouton invisible tant qu'on n'a pas reçu theme/promo/suggestions
     // - supprime le flash “bleu”
     button.style.cssText = `
       all: unset;
@@ -239,6 +248,22 @@ type PromoPayload = {
         break;
       }
 
+      // ✅ NEW: Starter suggestions nudge (chips)
+      case "nexus:suggestions": {
+        const sp = payload as SuggestionsPayload;
+
+        if (!NUDGE_ENABLED) return;
+
+        hasNudgePayload = true;
+
+        theme = sp.theme || theme || null;
+        brandLogoUrl = sp.brandLogoUrl || brandLogoUrl || null;
+
+        applyThemeToFab();
+        renderSuggestionsNudge(sp);
+        break;
+      }
+
       case "nexus:promo": {
         const promoPayload = payload as PromoPayload;
 
@@ -253,7 +278,7 @@ type PromoPayload = {
 
         if (!NUDGE_ENABLED) return;
 
-        hasPromoPayload = true;
+        hasNudgePayload = true;
 
         // Thème + logo venant du widget
         theme = promoPayload.theme || theme || null;
@@ -289,8 +314,8 @@ type PromoPayload = {
     if (!button) return;
     if (fabRevealed) return;
 
-    // ✅ On rend visible dès qu'on a un theme OU un logo OU un promo payload
-    if (!theme && !brandLogoUrl && !hasPromoPayload) return;
+    // ✅ On rend visible dès qu'on a un theme OU un logo OU un nudge payload
+    if (!theme && !brandLogoUrl && !hasNudgePayload) return;
 
     fabRevealed = true;
     button.style.opacity = "1";
@@ -358,6 +383,147 @@ type PromoPayload = {
 
   /* ---------------- Nudge ---------------- */
 
+  // ✅ NEW: Starter nudge = chips
+  function renderSuggestionsNudge(payload: SuggestionsPayload) {
+    if (!NUDGE_ENABLED) return;
+
+    const palette: ThemePayload = payload.theme || theme || {};
+    const primaryColor = palette.primaryColor || "#0ea5e9";
+    const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
+
+    if (!nudge) {
+      nudge = document.createElement("div");
+      nudge.id = "nexus-nudge";
+      nudge.style.cssText = `
+        all: unset;
+        position: fixed;
+        width: 340px; max-width: min(340px, calc(100vw - 96px));
+        z-index: 2147483001;
+        background: ${nudgeBg};
+        border: 1px solid #e5e7eb; border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.12);
+        padding: 12px;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
+        font-size: 14px;
+        line-height: 1.4;
+        opacity: 0; transform: translateY(6px);
+        transition: opacity .18s ease, transform .18s ease;
+        pointer-events: auto;
+        background-clip: padding-box;
+      `;
+      document.body.appendChild(nudge);
+
+      caret = document.createElement("div");
+      caret.style.cssText = `
+        position: fixed;
+        width: 12px; height: 12px;
+        background: ${nudgeBg};
+        border-left: 1px solid #e5e7eb;
+        border-top: 1px solid #e5e7eb;
+        transform: rotate(45deg);
+        z-index: 2147483002;
+        box-shadow: 0 2px 8px rgba(0,0,0,.08);
+        opacity: 0; transition: opacity .18s ease;
+      `;
+      document.body.appendChild(caret);
+    }
+
+    const suggestions = Array.isArray(payload.suggestions)
+      ? payload.suggestions.slice(0, 3)
+      : [];
+
+    const chips = suggestions
+      .map(
+        (s, i) => `
+          <button data-sugg-index="${i}"
+            style="
+              all: unset;
+              display:inline-flex;
+              align-items:center;
+              justify-content:center;
+              padding:8px 10px;
+              border-radius:9999px;
+              border:1px solid ${primaryColor}59;
+              cursor:pointer;
+              font-weight:600;
+              font-size:12px;
+              line-height:1;
+              color:${primaryColor};
+              background:${primaryColor}14;
+              white-space:nowrap;
+              max-width:100%;
+              overflow:hidden;
+              text-overflow:ellipsis;
+            ">
+            ${escapeHtml(s)}
+          </button>
+        `,
+      )
+      .join("");
+
+    nudge!.innerHTML = `
+      <div style="position:relative">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:800;font-size:14px;color:#111827;">
+              ${escapeHtml("Quick questions")}
+            </div>
+
+            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
+              ${chips}
+            </div>
+
+            ${
+              payload.privacyUrl
+                ? `<div style="margin-top:10px">
+                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                      style="color:#6b7280;font-size:11px;text-decoration:underline">
+                      View our privacy policy.
+                    </a>
+                  </div>`
+                : ""
+            }
+          </div>
+
+          <button id="nexus-close" title="Close"
+            style="
+              all: unset;
+              border-radius:9999px;
+              width:20px;height:20px;
+              display:flex;align-items:center;justify-content:center;
+              color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;
+            ">×</button>
+        </div>
+      </div>
+    `;
+
+    const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
+    closeBtn?.addEventListener("click", () => {
+      nudgeDismissed = true;
+      removeNudge();
+    });
+
+    const btns = nudge!.querySelectorAll<HTMLButtonElement>(
+      "button[data-sugg-index]",
+    );
+    btns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        openChat();
+      });
+    });
+
+    placeNudge();
+    if (!isOpen && !nudgeDismissed) {
+      requestAnimationFrame(() => {
+        if (nudge) {
+          nudge.style.opacity = "1";
+          nudge.style.transform = "translateY(0)";
+        }
+        if (caret) caret.style.opacity = "1";
+      });
+    }
+  }
+
   function renderNudge(payload: PromoPayload) {
     if (!NUDGE_ENABLED) return;
 
@@ -409,13 +575,18 @@ type PromoPayload = {
       document.body.appendChild(caret);
     }
 
-    const avatars = Array.isArray(payload.avatars) ? payload.avatars.slice(0, 3) : [];
+    const avatars = Array.isArray(payload.avatars)
+      ? payload.avatars.slice(0, 3)
+      : [];
 
     const ctaList: SimpleCta[] =
-      Array.isArray(payload.ctaList) && payload.ctaList.length ? payload.ctaList : [];
+      Array.isArray(payload.ctaList) && payload.ctaList.length
+        ? payload.ctaList
+        : [];
 
     const hasMulti = ctaList.length > 0;
-    const identityMode: "auto" | "logo" | "avatars" = payload.identityMode || "auto";
+    const identityMode: "auto" | "logo" | "avatars" =
+      payload.identityMode || "auto";
 
     let identityHtml = "";
 
@@ -445,7 +616,9 @@ type PromoPayload = {
               width:26px;height:26px;border-radius:9999px;object-fit:cover;
               border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
               position: relative; ${
-                i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
+                i
+                  ? `margin-left:-10px; z-index:${10 - i};`
+                  : "z-index:10;"
               }
             " />`,
           )
@@ -475,7 +648,9 @@ type PromoPayload = {
               width:26px;height:26px;border-radius:9999px;object-fit:cover;
               border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
               position: relative; ${
-                i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
+                i
+                  ? `margin-left:-10px; z-index:${10 - i};`
+                  : "z-index:10;"
               }
             " />`,
           )
@@ -492,7 +667,8 @@ type PromoPayload = {
          </span>`
       : "";
 
-    const title = payload.title || "Discover the right solution for your business project.";
+    const title =
+      payload.title || "Discover the right solution for your business project.";
     const body = payload.body || "Chat with our assistant or book a 15-min demo.";
 
     const buttonsHtml = hasMulti
@@ -506,7 +682,9 @@ type PromoPayload = {
               const color = isPrimary ? primaryTextColor : secondaryTextColor;
               const border = isPrimary ? "" : "border:1px solid #e5e7eb;";
               const label =
-                cta.label && cta.label.trim().length ? cta.label : defaultLabelForKind(cta.kind);
+                cta.label && cta.label.trim().length
+                  ? cta.label
+                  : defaultLabelForKind(cta.kind);
 
               return `
                 <button data-cta-index="${index}"
@@ -588,7 +766,7 @@ type PromoPayload = {
         </div>
       `;
 
-    // ✅ NEW: micro au milieu sous le texte (attire l'oeil)
+    // ✅ micro au milieu sous le texte
     const micHtml = `
       <div style="display:flex;justify-content:center;margin-top:10px;">
         <button id="nexus-voice"
@@ -606,7 +784,6 @@ type PromoPayload = {
             box-shadow:0 6px 18px rgba(0,0,0,.18);
             transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
           ">
-          <!-- simple mic icon (SVG) -->
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
             xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
@@ -667,7 +844,6 @@ type PromoPayload = {
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
     const voiceBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-voice");
 
-    // ✅ NEW: hover micro
     voiceBtn?.addEventListener("mouseenter", () => {
       if (!voiceBtn) return;
       voiceBtn.style.transform = "scale(1.06)";
@@ -679,7 +855,6 @@ type PromoPayload = {
       voiceBtn.style.boxShadow = "0 6px 18px rgba(0,0,0,.18)";
     });
 
-    // ✅ NEW: click micro -> ouvre widget + va au voice screen
     voiceBtn?.addEventListener("click", () => {
       show();
       setTimeout(() => {
@@ -688,14 +863,18 @@ type PromoPayload = {
     });
 
     if (hasMulti) {
-      const btns = nudge!.querySelectorAll<HTMLButtonElement>("button[data-cta-index]");
+      const btns = nudge!.querySelectorAll<HTMLButtonElement>(
+        "button[data-cta-index]",
+      );
       btns.forEach((btn) => {
         const idx = Number(btn.getAttribute("data-cta-index") || "0");
         btn.addEventListener("click", () => runNudgeCta(idx));
       });
     } else {
-      const primaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
-      const secondaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
+      const primaryBtn =
+        nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
+      const secondaryBtn =
+        nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
       primaryBtn?.addEventListener("click", () => openChat());
       secondaryBtn?.addEventListener("click", () => openBooking());
     }
@@ -828,7 +1007,8 @@ type PromoPayload = {
     button.innerHTML = chatBubbleIcon;
     applyThemeToFab();
 
-    if (!nudgeDismissed && hasPromoPayload && nudge && caret) {
+    // ✅ was hasPromoPayload
+    if (!nudgeDismissed && hasNudgePayload && nudge && caret) {
       nudge.style.display = "block";
       nudge.style.opacity = "1";
       nudge.style.transform = "translateY(0)";
@@ -876,7 +1056,7 @@ type PromoPayload = {
     theme = null;
     brandLogoUrl = null;
     fabRevealed = false;
-    hasPromoPayload = false;
+    hasNudgePayload = false; // ✅ reset
     nudgeDismissed = false;
   }
 

@@ -1,6 +1,6 @@
 // packages/backend/convex/public/entitlements.ts
 import { query } from "../_generated/server";
-import { ConvexError } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 type Plan = "starter" | "growth" | "enterprise";
 
@@ -24,18 +24,14 @@ function computeEntitlements(sub: any) {
   const canUseBooking = isActive;
 
   const effectiveWebsites = Number(limits.websites ?? 0) + Number(addons.extraWebsites ?? 0);
-
-  // ✅ reps = seat cap direct (no extraReps)
   const effectiveReps = Number(limits.reps ?? 0);
 
   return {
     plan,
     status,
     isActive,
-
     addons,
     limits,
-
     effectiveLimits: {
       websites: effectiveWebsites,
       reps: effectiveReps,
@@ -44,16 +40,13 @@ function computeEntitlements(sub: any) {
       voiceMinutes: Number(limits.voiceMinutes ?? 0),
       snapshotsGb: Number(limits.snapshotsGb ?? 0),
     },
-
     features: {
       canUseSlack,
       canUseSalesforce,
       canUseVoice,
-
       canUseAdvancedRouting,
       canUseAdvancedPromos,
       canUseAdvancedAnalytics,
-
       canUseBooking,
     },
   };
@@ -86,5 +79,24 @@ export const getEntitlements = query({
       .unique();
 
     return computeEntitlements(sub ?? { plan: "starter", status: "paused", addons: {}, limits: {} });
+  },
+});
+
+// ✅ NEW: Public minimal plan for widget (no auth)
+export const getPublicPlan = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    const sub = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    const plan: Plan = (sub?.plan ?? "starter") as Plan;
+    const status: string = (sub?.status ?? "paused") as string;
+    const isActive = status === "active" || status === "trial";
+
+    const canUseAdvancedPromos = isActive && (plan === "growth" || plan === "enterprise");
+
+    return { plan, status, isActive, canUseAdvancedPromos };
   },
 });
