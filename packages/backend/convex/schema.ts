@@ -26,10 +26,8 @@ export default defineSchema({
       v.literal("trial"),
     ),
 
-    // ✅ NON-OPTIONAL, champs NON-OPTIONAL
     addons: v.object({
-      extraWebsites: v.number(),       // +150€ / site / mois (quantité)
-      extraReps: v.number(),           // +100€ / rep / mois (quantité)
+      extraWebsites: v.number(),       // +150€ / site / mois
       highVolumeTraffic: v.boolean(),  // +500€ / mois
 
       salesforce: v.boolean(),         // +300€ / mois

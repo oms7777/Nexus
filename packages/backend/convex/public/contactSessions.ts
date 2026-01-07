@@ -1,4 +1,4 @@
-// convex/public/contactSessions.ts
+// packages/backend/convex/public/contactSessions.ts
 import { ConvexError, v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { SESSION_DURATION_MS } from "../constants";
@@ -6,9 +6,45 @@ import { api } from "../_generated/api";
 
 /**
  * Petit flag interne dans metadata pour éviter de logger session_started 10x.
- * On le garde dans metadata pour ne pas toucher au schema.
  */
 const SESSION_STARTED_FLAG = "__analytics_session_started_logged";
+
+/** -------------------------------------------------------------
+ * Metadata schema (STRICT) — important pour éviter crash Convex
+ * ----------------------------------------------------------- */
+const MetadataSchema = v.object({
+  userAgent: v.optional(v.string()),
+  language: v.optional(v.string()),
+  languages: v.optional(v.string()),
+  platform: v.optional(v.string()),
+  vendor: v.optional(v.string()),
+  screenResolution: v.optional(v.string()),
+  viewportSize: v.optional(v.string()),
+  timezone: v.optional(v.string()),
+  timezoneOffset: v.optional(v.number()),
+  cookieEnabled: v.optional(v.boolean()),
+  referrer: v.optional(v.string()),
+  currentUrl: v.optional(v.string()),
+  title: v.optional(v.string()),
+  pages: v.optional(v.array(v.string())),
+});
+
+type Metadata = {
+  userAgent?: string;
+  language?: string;
+  languages?: string;
+  platform?: string;
+  vendor?: string;
+  screenResolution?: string;
+  viewportSize?: string;
+  timezone?: string;
+  timezoneOffset?: number;
+  cookieEnabled?: boolean;
+  referrer?: string;
+  currentUrl?: string;
+  title?: string;
+  pages?: string[];
+};
 
 /** -------------------------------------------------------------
  * Consent
@@ -41,12 +77,19 @@ export const grantConsent = mutation({
 /** -------------------------------------------------------------
  * Helpers
  * ----------------------------------------------------------- */
-function mergeMetadata(oldMd: Record<string, any>, incoming: any) {
-  const newMd: Record<string, any> = { ...oldMd, ...(incoming ?? {}) };
+function isPlainObject(x: unknown): x is Record<string, any> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
+}
 
-  // pages: dédoublonnage si présent
+function mergeMetadata(oldMd: Record<string, any>, incoming: unknown) {
+  // ✅ critical: ignore non-object metadata to avoid crashes
+  if (!isPlainObject(incoming)) return { ...oldMd };
+
+  const newMd: Record<string, any> = { ...oldMd, ...incoming };
+
+  // pages: dedupe si présent
   const a = Array.isArray(oldMd.pages) ? oldMd.pages : [];
-  const b = Array.isArray(incoming?.pages) ? incoming.pages : [];
+  const b = Array.isArray((incoming as any).pages) ? (incoming as any).pages : [];
   if (a.length || b.length) {
     newMd.pages = Array.from(new Set<string>([...a, ...b]));
   }
@@ -54,24 +97,19 @@ function mergeMetadata(oldMd: Record<string, any>, incoming: any) {
   return newMd;
 }
 
-/**
- * Log "session_started" UNE SEULE FOIS par session.
- * - Si déjà loggé (flag metadata), on ne fait rien.
- * - Sinon: on patch la session metadata + on log l'event.
- */
-async function ensureSessionStartedLogged(ctx: any, opts: {
-  organizationId: string;
-  contactSessionId: any; // Id<"contactSessions">
-  metadata?: Record<string, any>;
-  source: "create" | "ensure_new" | "ensure_existing" | "touch" | "setCurrentUrl";
-}) {
+async function ensureSessionStartedLogged(
+  ctx: any,
+  opts: {
+    organizationId: string;
+    contactSessionId: any; // Id<"contactSessions">
+    source: "create" | "ensure_new" | "ensure_existing" | "touch" | "setCurrentUrl";
+  },
+) {
   const s = await ctx.db.get(opts.contactSessionId);
   if (!s) return;
 
   const md = (s.metadata ?? {}) as Record<string, any>;
-  const already = md?.[SESSION_STARTED_FLAG] === true;
-
-  if (already) return;
+  if (md?.[SESSION_STARTED_FLAG] === true) return;
 
   // 1) patch flag
   await ctx.db.patch(opts.contactSessionId, {
@@ -87,14 +125,10 @@ async function ensureSessionStartedLogged(ctx: any, opts: {
       organizationId: opts.organizationId,
       type: "session_started",
       sessionId: opts.contactSessionId,
-      meta: {
-        source: opts.source,
-        // tu peux enrichir si tu veux, mais ton analytics.log enrichit déjà
-        // via sessionId (countryCode/city/currentUrl/utm/etc)
-      },
+      meta: { source: opts.source },
     });
   } catch {
-    // no-op: analytics doit jamais casser la session
+    // no-op
   }
 }
 
@@ -106,24 +140,7 @@ export const create = mutation({
     name: v.string(),
     email: v.string(),
     organizationId: v.string(),
-    metadata: v.optional(
-      v.object({
-        userAgent: v.optional(v.string()),
-        language: v.optional(v.string()),
-        languages: v.optional(v.string()),
-        platform: v.optional(v.string()),
-        vendor: v.optional(v.string()),
-        screenResolution: v.optional(v.string()),
-        viewportSize: v.optional(v.string()),
-        timezone: v.optional(v.string()),
-        timezoneOffset: v.optional(v.number()),
-        cookieEnabled: v.optional(v.boolean()),
-        referrer: v.optional(v.string()),
-        currentUrl: v.optional(v.string()),
-        title: v.optional(v.string()),
-        pages: v.optional(v.array(v.string())),
-      }),
-    ),
+    metadata: v.optional(MetadataSchema),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -137,11 +154,9 @@ export const create = mutation({
       metadata: args.metadata,
     });
 
-    // ✅ log session_started 1x
     await ensureSessionStartedLogged(ctx, {
       organizationId: args.organizationId,
       contactSessionId: id,
-      metadata: args.metadata as any,
       source: "create",
     });
 
@@ -150,21 +165,19 @@ export const create = mutation({
 });
 
 /** -------------------------------------------------------------
- * ensure — tracker site-wide
- * - si sessionId valide ⇒ prolonge + merge metadata
- * - sinon ⇒ crée session anonyme
+ * ensure — tracker site-wide (SAFE)
  * ----------------------------------------------------------- */
 export const ensure = mutation({
   args: {
     organizationId: v.string(),
     sessionId: v.optional(v.id("contactSessions")),
-    metadata: v.optional(v.any()),
+    metadata: v.optional(MetadataSchema), // ✅ strict again
   },
   handler: async (ctx, { organizationId, sessionId, metadata }) => {
     const now = Date.now();
     const expiresAt = now + SESSION_DURATION_MS;
 
-    // --- case: reuse existing session
+    // reuse existing
     if (sessionId) {
       const cur = await ctx.db.get(sessionId);
       if (cur && cur.organizationId === organizationId) {
@@ -173,11 +186,9 @@ export const ensure = mutation({
 
         await ctx.db.patch(sessionId, { expiresAt, metadata: newMd });
 
-        // ✅ si pas encore loggé, on log ici (1 seule fois)
         await ensureSessionStartedLogged(ctx, {
           organizationId,
           contactSessionId: sessionId,
-          metadata: newMd,
           source: "ensure_existing",
         });
 
@@ -185,7 +196,7 @@ export const ensure = mutation({
       }
     }
 
-    // --- case: create new anonymous session
+    // create new anonymous
     const id = await ctx.db.insert("contactSessions", {
       name: "Visitor",
       email: "",
@@ -194,11 +205,9 @@ export const ensure = mutation({
       metadata,
     });
 
-    // ✅ log session_started 1x
     await ensureSessionStartedLogged(ctx, {
       organizationId,
       contactSessionId: id,
-      metadata: (metadata ?? {}) as Record<string, any>,
       source: "ensure_new",
     });
 
@@ -212,7 +221,7 @@ export const ensure = mutation({
 export const touch = mutation({
   args: {
     sessionId: v.id("contactSessions"),
-    metadata: v.optional(v.any()),
+    metadata: v.optional(MetadataSchema), // ✅ strict
   },
   handler: async (ctx, { sessionId, metadata }) => {
     const cur = await ctx.db.get(sessionId);
@@ -228,12 +237,9 @@ export const touch = mutation({
       await ctx.db.patch(sessionId, { expiresAt });
     }
 
-    // (optionnel) on ne log pas session_started ici,
-    // ensure/create suffit. Mais on peut sécuriser:
     await ensureSessionStartedLogged(ctx, {
       organizationId: cur.organizationId,
       contactSessionId: sessionId,
-      metadata: (cur.metadata ?? {}) as Record<string, any>,
       source: "touch",
     });
 
@@ -270,11 +276,9 @@ export const setCurrentUrl = mutation({
       expiresAt: Date.now() + SESSION_DURATION_MS,
     });
 
-    // ✅ sécurité: si session_started jamais loggé, on le log ici (1x)
     await ensureSessionStartedLogged(ctx, {
       organizationId: cur.organizationId,
       contactSessionId: sessionId,
-      metadata: (cur.metadata ?? {}) as Record<string, any>,
       source: "setCurrentUrl",
     });
 
@@ -282,9 +286,6 @@ export const setCurrentUrl = mutation({
   },
 });
 
-/** -------------------------------------------------------------
- * validate
- * ----------------------------------------------------------- */
 export const validate = mutation({
   args: { contactSessionId: v.id("contactSessions") },
   handler: async (ctx, args) => {

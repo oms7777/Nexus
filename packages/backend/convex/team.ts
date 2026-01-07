@@ -2,16 +2,13 @@
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 
-/** Centralize auth/org resolution */
 async function requireOrgId(ctx: any): Promise<string> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
-  }
+  if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
   const orgId = identity.orgId as string | undefined;
-  if (!orgId) {
-    throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-  }
+  if (!orgId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+
   return orgId;
 }
 
@@ -34,9 +31,7 @@ export const getRepForOrgUser = query({
 
     return await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId),
-      )
+      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
       .unique();
   },
 });
@@ -50,29 +45,18 @@ export const upsertRepPresence = mutation({
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
   },
-  handler: async (
-    ctx,
-    { userId, role, regions, available, slackUserId, slackDmChannel },
-  ) => {
+  handler: async (ctx, { userId, role, regions, available, slackUserId, slackDmChannel }) => {
     const organizationId = await requireOrgId(ctx);
-
-    if (!userId) {
-      throw new ConvexError({
-        code: "BAD_REQUEST",
-        message: "userId is required",
-      });
-    }
+    if (!userId) throw new ConvexError({ code: "BAD_REQUEST", message: "userId is required" });
 
     const existing = await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId),
-      )
+      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
       .unique();
 
     const now = Date.now();
 
-    const base: any = {
+    const payload: any = {
       organizationId,
       userId,
       role,
@@ -84,11 +68,11 @@ export const upsertRepPresence = mutation({
     };
 
     if (existing) {
-      await ctx.db.patch(existing._id, base);
+      await ctx.db.patch(existing._id, payload);
       return existing._id;
     }
 
-    const id = await ctx.db.insert("repsPresence", base);
+    const id = await ctx.db.insert("repsPresence", payload);
     return id;
   },
 });
@@ -105,20 +89,15 @@ export const connectRepSlack = mutation({
 
     const existing = await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", userId),
-      )
+      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
       .unique();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        slackUserId,
-        slackDmChannel,
-        updatedAt: now,
-      });
+      await ctx.db.patch(existing._id, { slackUserId, slackDmChannel, updatedAt: now });
       return existing._id;
     }
 
+    // compat: create if missing
     const id = await ctx.db.insert("repsPresence", {
       organizationId,
       userId,

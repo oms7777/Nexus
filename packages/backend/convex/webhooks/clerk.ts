@@ -49,11 +49,9 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         const organizationId: string | undefined = data?.id;
         const createdBy: string | undefined = data?.created_by || data?.createdBy;
 
-        if (!organizationId) {
-          return new Response("Missing organization id", { status: 400 });
-        }
+        if (!organizationId) return new Response("Missing organization id", { status: 400 });
 
-        // ✅ Invite-only: si ce n'est pas un admin interne, on supprime l'org
+        // invite-only (optionnel)
         if (
           createdBy &&
           INTERNAL_ADMIN_USER_IDS.length > 0 &&
@@ -61,13 +59,13 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         ) {
           console.warn("[clerk-webhook] blocking org creation (invite-only). Deleting org:", organizationId);
           await clerkClient.organizations.deleteOrganization(organizationId);
-          return new Response(
-            JSON.stringify({ ok: true, blocked: true, deleted: true, organizationId }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ ok: true, blocked: true, deleted: true, organizationId }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         }
 
-        // ✅ flow normal: ensure subscription doc
+        // ensure sub
         const subId = await ctx.runMutation(internal.system.subscriptions.ensureForOrg, { organizationId });
 
         return new Response(
@@ -85,10 +83,18 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         const organizationId = subscription?.payer?.organization_id;
         if (!organizationId) return new Response("Missing Organization ID", { status: 400 });
 
-        // ✅ On garde uniquement le statut local (features gating), mais on NE TOUCHE PLUS aux seats Clerk ici
         await ctx.runMutation(internal.system.subscriptions.setStatusFromClerk, {
           organizationId,
           clerkStatus: subscription.status ?? "paused",
+        });
+
+        const sub = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, { organizationId });
+
+        // ✅ Seat cap = limits.reps (Starter 3, Growth 10, Enterprise 9999...)
+        const seatCap = Math.max(1, Number(sub?.limits?.reps ?? 1));
+
+        await clerkClient.organizations.updateOrganization(organizationId, {
+          maxAllowedMemberships: seatCap,
         });
 
         return new Response(
@@ -96,6 +102,7 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
             ok: true,
             handled: "subscription.updated",
             organizationId,
+            maxAllowedMemberships: seatCap,
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );

@@ -4,27 +4,14 @@ import { internalMutation, internalQuery } from "../_generated/server";
 
 /* ----------------------------- Validators ----------------------------- */
 
-export const Plan = v.union(
-  v.literal("starter"),
-  v.literal("growth"),
-  v.literal("enterprise"),
-);
+export const Plan = v.union(v.literal("starter"), v.literal("growth"), v.literal("enterprise"));
 
-export const Status = v.union(
-  v.literal("active"),
-  v.literal("paused"),
-  v.literal("trial"),
-);
+export const Status = v.union(v.literal("active"), v.literal("paused"), v.literal("trial"));
 
-export const EnterpriseTier = v.union(
-  v.literal("light"),
-  v.literal("core"),
-  v.literal("heavy"),
-);
+export const EnterpriseTier = v.union(v.literal("light"), v.literal("core"), v.literal("heavy"));
 
 export const Addons = v.object({
   extraWebsites: v.number(),
-  extraReps: v.number(),
   highVolumeTraffic: v.boolean(),
   salesforce: v.boolean(),
   voiceAi: v.boolean(),
@@ -36,8 +23,10 @@ export const Addons = v.object({
 });
 
 export const Limits = v.object({
-  websites: v.number(),
+  // ✅ reps = seat cap (memberships). Plus de addons extraReps.
   reps: v.number(),
+
+  websites: v.number(),
   monthlyEvents: v.number(),
   aiTokens: v.number(),
   voiceMinutes: v.number(),
@@ -49,7 +38,6 @@ export const Limits = v.object({
 function defaultAddons() {
   return {
     extraWebsites: 0,
-    extraReps: 0,
     highVolumeTraffic: false,
     salesforce: false,
     voiceAi: false,
@@ -63,8 +51,10 @@ function defaultAddons() {
 
 function defaultLimits() {
   return {
+    // ✅ Starter default seat cap (tu peux mettre 3 ici)
+    reps: 3,
+
     websites: 1,
-    reps: 1,
     monthlyEvents: 50_000,
     aiTokens: 2_000_000,
     voiceMinutes: 0,
@@ -101,9 +91,7 @@ export const ensureForOrg = internalMutation({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
 
-    if (existing) {
-      return { ok: true, created: false, id: existing._id };
-    }
+    if (existing) return { ok: true, created: false, id: existing._id };
 
     const now = Date.now();
 
@@ -118,29 +106,6 @@ export const ensureForOrg = internalMutation({
     });
 
     return { ok: true, created: true, id };
-  },
-});
-
-/**
- * ✅ NEW: Ensure pour plusieurs orgs (one-shot migration)
- */
-export const ensureForOrgs = internalMutation({
-  args: { organizationIds: v.array(v.string()) },
-  handler: async (ctx, { organizationIds }) => {
-    const results: Array<{ organizationId: string; created: boolean }> = [];
-
-    for (const organizationId of organizationIds) {
-      const res = await ctx.runMutation(
-        // important: appeler la mutation interne existante
-        // via ctx.runMutation
-        // @ts-ignore (convex internal typing)
-        (ctx as any).internal.system.subscriptions.ensureForOrg,
-        { organizationId }
-      );
-      results.push({ organizationId, created: !!res?.created });
-    }
-
-    return { ok: true, results };
   },
 });
 
@@ -187,9 +152,6 @@ export const upsertFull = internalMutation({
   },
 });
 
-/**
- * ✅ NEW: setPlanForOrg (pratique pour tes orgs demo / toi)
- */
 export const setPlanForOrg = internalMutation({
   args: {
     organizationId: v.string(),
@@ -205,7 +167,6 @@ export const setPlanForOrg = internalMutation({
     const now = Date.now();
 
     if (!existing) {
-      // si pas de doc, on le crée
       const created = await ctx.db.insert("subscriptions", {
         organizationId,
         plan,
@@ -252,7 +213,6 @@ export const setStatusFromClerk = internalMutation({
         startedAt: (existing as any).startedAt ?? now,
         updatedAt: now,
       });
-
       return { ok: true, id: existing._id, created: false };
     }
 
@@ -267,25 +227,5 @@ export const setStatusFromClerk = internalMutation({
     });
 
     return { ok: true, id, created: true };
-  },
-});
-
-export const backfillAll = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const subs = await ctx.db.query("subscriptions").collect();
-    const now = Date.now();
-
-    for (const s of subs) {
-      await ctx.db.patch(s._id, {
-        plan: (s as any).plan ?? "starter",
-        addons: (s as any).addons ?? defaultAddons(),
-        limits: (s as any).limits ?? defaultLimits(),
-        startedAt: (s as any).startedAt ?? now,
-        updatedAt: now,
-      });
-    }
-
-    return { ok: true, count: subs.length };
   },
 });
