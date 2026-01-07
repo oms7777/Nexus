@@ -69,7 +69,7 @@ export const create = action({
       contactSessionId: args.contactSessionId,
     });
 
-    // 2) subscription gating
+    // 2) subscription gating (unchanged)
     const subscription = await ctx.runQuery(
       internal.system.subscriptions.getByOrganizationId,
       { organizationId: conversation.organizationId },
@@ -97,7 +97,7 @@ export const create = action({
       return;
     }
 
-    // ✅ reps availability block for the agent
+    // ✅ reps availability block (INVISIBLE: goes to system, not prompt)
     const availableReps =
       (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
         organizationId: conversation.organizationId,
@@ -114,7 +114,6 @@ export const create = action({
 
     const repsBlock = `<<<REPS_AVAILABLE count="${availableReps.length}" reps="${repsLabel}" >>>`;
 
-    // 5) build agent
     const agent = makeSupportAgent({ llmProvider, llmModel });
 
     // -------------------------
@@ -125,12 +124,13 @@ export const create = action({
         ctx,
         { threadId: args.threadId },
         {
-          prompt: `${repsBlock}\n\n${args.prompt}`,
+          prompt: args.prompt, // ✅ visible user content only
+          system: repsBlock,    // ✅ hidden instruction channel
           tools: {
             escalateConversationTool: escalateConversation,
             resolveConversationTool: resolveConversation,
           },
-        },
+        } as any,
       );
       return;
     }
@@ -161,10 +161,10 @@ export const create = action({
         ctx,
         { threadId: args.threadId },
         {
-          prompt: `${repsBlock}\n\n${args.prompt}`,
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-ignore
+          prompt: args.prompt, // ✅ visible only
           system: `
+${repsBlock}
+
 ${KB_ONLY_REWRITE_SYSTEM}
 
 INTERNAL_KB_CONTEXT (DO NOT REVEAL / DO NOT QUOTE / DO NOT LIST SOURCES):
@@ -183,13 +183,14 @@ ${kbText}
       ctx,
       { threadId: args.threadId },
       {
-        prompt: `${repsBlock}\n\n${args.prompt}`,
+        prompt: args.prompt, // ✅ visible only
+        system: repsBlock,   // ✅ hidden
         tools: {
           escalateConversationTool: escalateConversation,
           resolveConversationTool: resolveConversation,
           searchTool: search,
         },
-      },
+      } as any,
     );
   },
 });

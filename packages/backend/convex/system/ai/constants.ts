@@ -4,11 +4,17 @@ export type KnowledgeMode = "llm_only" | "llm_plus_kb" | "kb_only";
 
 /**
  * IMPORTANT:
- * - We inject dynamic blocks into the prompt:
- *   <<<AI_SETTINGS knowledgeMode="..." >>>
+ * - We inject dynamic blocks into the conversation context (typically SYSTEM, sometimes a prefix).
+ *   These blocks must NEVER be shown to end users.
+ *
+ * Examples:
+ *   <<<AI_SETTINGS knowledgeMode="llm_only" >>>
+ *   <<<AI_SETTINGS knowledgeMode="llm_plus_kb" >>>
+ *   <<<AI_SETTINGS knowledgeMode="kb_only" >>>
+ *
  *   <<<REPS_AVAILABLE count="2" reps="Sam (Sales), Lina (SE)" >>>
  *
- * The agent MUST obey these blocks.
+ * The agent MUST read and obey these blocks.
  */
 export const SUPPORT_AGENT_PROMPT = `
 # Support Assistant — Customer Service AI
@@ -20,7 +26,7 @@ Your behavior MUST strictly follow the organization AI settings provided in the 
 ---
 
 ## Dynamic Blocks (MANDATORY)
-At the beginning of the user message, you may receive blocks like:
+In the conversation context, you may receive blocks like:
 
 <<<AI_SETTINGS knowledgeMode="llm_only" >>>
 <<<AI_SETTINGS knowledgeMode="llm_plus_kb" >>>
