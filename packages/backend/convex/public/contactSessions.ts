@@ -4,13 +4,9 @@ import { mutation } from "../_generated/server";
 import { SESSION_DURATION_MS } from "../constants";
 import { api } from "../_generated/api";
 
-/**
- * Petit flag interne dans metadata pour éviter de logger session_started 10x.
- */
-const SESSION_STARTED_FLAG = "__analytics_session_started_logged";
-
 /** -------------------------------------------------------------
- * Metadata schema (STRICT) — important pour éviter crash Convex
+ * Metadata schema (STRICT) — doit matcher EXACTEMENT le schema Convex
+ * (sinon Convex crash au patch/insert)
  * ----------------------------------------------------------- */
 const MetadataSchema = v.object({
   userAgent: v.optional(v.string()),
@@ -27,6 +23,20 @@ const MetadataSchema = v.object({
   currentUrl: v.optional(v.string()),
   title: v.optional(v.string()),
   pages: v.optional(v.array(v.string())),
+
+  // GEO (dans ton schema)
+  ip: v.optional(v.string()),
+  city: v.optional(v.string()),
+  countryCode: v.optional(v.string()),
+  lat: v.optional(v.number()),
+  lng: v.optional(v.number()),
+
+  // tracking
+  visitorId: v.optional(v.string()),
+  clientIp: v.optional(v.string()),
+
+  // visitor_choice
+  preferredRepUserId: v.optional(v.string()),
 });
 
 type Metadata = {
@@ -44,6 +54,17 @@ type Metadata = {
   currentUrl?: string;
   title?: string;
   pages?: string[];
+
+  ip?: string;
+  city?: string;
+  countryCode?: string;
+  lat?: number;
+  lng?: number;
+
+  visitorId?: string;
+  clientIp?: string;
+
+  preferredRepUserId?: string;
 };
 
 /** -------------------------------------------------------------
@@ -81,22 +102,25 @@ function isPlainObject(x: unknown): x is Record<string, any> {
   return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
-function mergeMetadata(oldMd: Record<string, any>, incoming: unknown) {
-  // ✅ critical: ignore non-object metadata to avoid crashes
-  if (!isPlainObject(incoming)) return { ...oldMd };
+function mergeMetadata(oldMd: Metadata, incoming?: Metadata) {
+  if (!incoming) return { ...(oldMd ?? {}) };
 
-  const newMd: Record<string, any> = { ...oldMd, ...incoming };
+  const merged: Metadata = { ...(oldMd ?? {}), ...incoming };
 
-  // pages: dedupe si présent
-  const a = Array.isArray(oldMd.pages) ? oldMd.pages : [];
-  const b = Array.isArray((incoming as any).pages) ? (incoming as any).pages : [];
+  // pages: dédoublonnage si présent
+  const a = Array.isArray(oldMd?.pages) ? oldMd.pages : [];
+  const b = Array.isArray(incoming.pages) ? incoming.pages : [];
   if (a.length || b.length) {
-    newMd.pages = Array.from(new Set<string>([...a, ...b]));
+    merged.pages = Array.from(new Set<string>([...a, ...b]));
   }
 
-  return newMd;
+  return merged;
 }
 
+/**
+ * Log "session_started" UNE SEULE FOIS par session (sans écrire de flag dans metadata).
+ * Idempotence => check analyticsEvents(type=session_started, sessionId=...)
+ */
 async function ensureSessionStartedLogged(
   ctx: any,
   opts: {
@@ -105,21 +129,14 @@ async function ensureSessionStartedLogged(
     source: "create" | "ensure_new" | "ensure_existing" | "touch" | "setCurrentUrl";
   },
 ) {
-  const s = await ctx.db.get(opts.contactSessionId);
-  if (!s) return;
+  const existing = await ctx.db
+    .query("analyticsEvents")
+    .withIndex("by_session", (q: any) => q.eq("sessionId", opts.contactSessionId))
+    .filter((q: any) => q.eq(q.field("type"), "session_started"))
+    .first();
 
-  const md = (s.metadata ?? {}) as Record<string, any>;
-  if (md?.[SESSION_STARTED_FLAG] === true) return;
+  if (existing) return;
 
-  // 1) patch flag
-  await ctx.db.patch(opts.contactSessionId, {
-    metadata: {
-      ...md,
-      [SESSION_STARTED_FLAG]: true,
-    },
-  });
-
-  // 2) log analytics (non bloquant)
   try {
     await ctx.runMutation(api.public.analytics.log, {
       organizationId: opts.organizationId,
@@ -128,7 +145,7 @@ async function ensureSessionStartedLogged(
       meta: { source: opts.source },
     });
   } catch {
-    // no-op
+    // analytics ne doit jamais casser la session
   }
 }
 
@@ -165,13 +182,13 @@ export const create = mutation({
 });
 
 /** -------------------------------------------------------------
- * ensure — tracker site-wide (SAFE)
+ * ensure — tracker site-wide (SAFE + STRICT)
  * ----------------------------------------------------------- */
 export const ensure = mutation({
   args: {
     organizationId: v.string(),
     sessionId: v.optional(v.id("contactSessions")),
-    metadata: v.optional(MetadataSchema), // ✅ strict again
+    metadata: v.optional(MetadataSchema),
   },
   handler: async (ctx, { organizationId, sessionId, metadata }) => {
     const now = Date.now();
@@ -181,8 +198,12 @@ export const ensure = mutation({
     if (sessionId) {
       const cur = await ctx.db.get(sessionId);
       if (cur && cur.organizationId === organizationId) {
-        const oldMd = (cur.metadata ?? {}) as Record<string, any>;
-        const newMd = mergeMetadata(oldMd, metadata);
+        const oldMd = (cur.metadata ?? {}) as Metadata;
+
+        // ✅ extra safety: if metadata somehow isn't an object, ignore it
+        const safeIncoming = isPlainObject(metadata) ? (metadata as Metadata) : undefined;
+
+        const newMd = mergeMetadata(oldMd, safeIncoming);
 
         await ctx.db.patch(sessionId, { expiresAt, metadata: newMd });
 
@@ -221,7 +242,7 @@ export const ensure = mutation({
 export const touch = mutation({
   args: {
     sessionId: v.id("contactSessions"),
-    metadata: v.optional(MetadataSchema), // ✅ strict
+    metadata: v.optional(MetadataSchema),
   },
   handler: async (ctx, { sessionId, metadata }) => {
     const cur = await ctx.db.get(sessionId);
@@ -230,8 +251,9 @@ export const touch = mutation({
     const expiresAt = Date.now() + SESSION_DURATION_MS;
 
     if (metadata) {
-      const oldMd = (cur.metadata ?? {}) as Record<string, any>;
-      const newMd = mergeMetadata(oldMd, metadata);
+      const oldMd = (cur.metadata ?? {}) as Metadata;
+      const safeIncoming = isPlainObject(metadata) ? (metadata as Metadata) : undefined;
+      const newMd = mergeMetadata(oldMd, safeIncoming);
       await ctx.db.patch(sessionId, { expiresAt, metadata: newMd });
     } else {
       await ctx.db.patch(sessionId, { expiresAt });
@@ -261,7 +283,7 @@ export const setCurrentUrl = mutation({
     const cur = await ctx.db.get(sessionId);
     if (!cur) return { ok: false };
 
-    const md = (cur.metadata ?? {}) as Record<string, any>;
+    const md = (cur.metadata ?? {}) as Metadata;
     const pages = Array.isArray(md.pages) ? md.pages.slice() : [];
     if (pages[pages.length - 1] !== url) pages.push(url);
 
@@ -286,13 +308,15 @@ export const setCurrentUrl = mutation({
   },
 });
 
+/** -------------------------------------------------------------
+ * validate
+ * ----------------------------------------------------------- */
 export const validate = mutation({
   args: { contactSessionId: v.id("contactSessions") },
   handler: async (ctx, args) => {
     const s = await ctx.db.get(args.contactSessionId);
     if (!s) return { valid: false, reason: "Contact session not found" };
-    if (s.expiresAt < Date.now())
-      return { valid: false, reason: "Contact session expired" };
+    if (s.expiresAt < Date.now()) return { valid: false, reason: "Contact session expired" };
     return { valid: true, contactSession: s };
   },
 });
