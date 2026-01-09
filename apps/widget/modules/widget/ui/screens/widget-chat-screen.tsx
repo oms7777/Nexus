@@ -71,6 +71,15 @@ import VoiceCallButton from "../components/VoiceCallButton";
 
 const formSchema = z.object({ message: z.string().min(1) });
 const HUMAN_FALLBACK_SECONDS = 30; // X secondes avant fallback booking
+// plan public (no auth) pour gating voice
+const organizationId = useAtomValue(organizationIdAtom);
+
+const publicPlan = useQuery(
+  api.public.entitlements.getPublicPlan,
+  organizationId ? { organizationId } : "skip"
+);
+
+const canUseVoice = !!publicPlan?.canUseVoice;
 
 type Slot = { start: number; end: number };
 
@@ -923,7 +932,7 @@ export const WidgetChatScreen = () => {
 
         <div className="flex items-center gap-1">
           {/* 🎙️ Voice call */}
-          <VoiceCallButton />
+          {canUseVoice && <VoiceCallButton />}
 
           {/* 📅 Book a meeting (same behavior as SmartPromo secondary CTA) */}
           <Button

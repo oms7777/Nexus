@@ -36,6 +36,7 @@ type PromoPayload = {
 
   identityMode?: "auto" | "logo" | "avatars";
   ctaList?: SimpleCta[];
+  canUseVoice?: boolean;
 };
 
 // ✅ NEW: Suggestions nudge (Starter = chips)
@@ -537,6 +538,7 @@ type SuggestionsPayload = {
     // ✅ NEW: couleurs micro = bubble (branding)
     const micBg = palette.chatBubbleColor || palette.primaryColor || "#3b82f6";
     const micFg = palette.primaryTextColor || "#ffffff";
+    const canUseVoice = payload.canUseVoice !== false;
 
     if (!nudge) {
       nudge = document.createElement("div");
@@ -767,37 +769,39 @@ type SuggestionsPayload = {
       `;
 
     // ✅ micro au milieu sous le texte
-    const micHtml = `
-      <div style="display:flex;justify-content:center;margin-top:10px;">
-        <button id="nexus-voice"
-          title="Voice call"
-          style="
-            all: unset;
-            width:44px;height:44px;
-            border-radius:9999px;
-            background:${micBg};
-            color:${micFg};
-            cursor:pointer;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            box-shadow:0 6px 18px rgba(0,0,0,.18);
-            transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
-          ">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-            xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M12 18v3" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M8 21h8" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
-    `;
+    const micHtml = canUseVoice
+      ? `
+        <div style="display:flex;justify-content:center;margin-top:10px;">
+          <button id="nexus-voice"
+            title="Voice call"
+            style="
+              all: unset;
+              width:44px;height:44px;
+              border-radius:9999px;
+              background:${micBg};
+              color:${micFg};
+              cursor:pointer;
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              box-shadow:0 6px 18px rgba(0,0,0,.18);
+              transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+            ">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M12 18v3" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M8 21h8" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      `
+      : "";
 
     nudge!.innerHTML = `
       <div style="position:relative">
@@ -844,23 +848,26 @@ type SuggestionsPayload = {
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
     const voiceBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-voice");
 
-    voiceBtn?.addEventListener("mouseenter", () => {
-      if (!voiceBtn) return;
-      voiceBtn.style.transform = "scale(1.06)";
-      voiceBtn.style.boxShadow = "0 10px 22px rgba(0,0,0,.22)";
-    });
-    voiceBtn?.addEventListener("mouseleave", () => {
-      if (!voiceBtn) return;
-      voiceBtn.style.transform = "scale(1)";
-      voiceBtn.style.boxShadow = "0 6px 18px rgba(0,0,0,.18)";
-    });
+    if (canUseVoice) {
+      voiceBtn?.addEventListener("mouseenter", () => {
+        if (!voiceBtn) return;
+        voiceBtn.style.transform = "scale(1.06)";
+        voiceBtn.style.boxShadow = "0 10px 22px rgba(0,0,0,.22)";
+      });
 
-    voiceBtn?.addEventListener("click", () => {
-      show();
-      setTimeout(() => {
-        postToWidget({ type: "nexus:open-voice" });
-      }, 50);
-    });
+      voiceBtn?.addEventListener("mouseleave", () => {
+        if (!voiceBtn) return;
+        voiceBtn.style.transform = "scale(1)";
+        voiceBtn.style.boxShadow = "0 6px 18px rgba(0,0,0,.18)";
+      });
+
+      voiceBtn?.addEventListener("click", () => {
+        show();
+        setTimeout(() => {
+          postToWidget({ type: "nexus:open-voice" });
+        }, 50);
+      });
+    }
 
     if (hasMulti) {
       const btns = nudge!.querySelectorAll<HTMLButtonElement>(

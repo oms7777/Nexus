@@ -34,6 +34,9 @@ type SuggestionsPayload = {
   privacyUrl?: string;
   theme?: ThemePayload;
   brandLogoUrl?: string;
+
+  // ✅ NEW
+  canUseVoice?: boolean;
 };
 
 export default function SmartPromo() {
@@ -72,7 +75,12 @@ export default function SmartPromo() {
     orgId ? { organizationId: orgId } : "skip"
   );
 
-  const canUseAdvancedPromos = !!publicPlan?.canUseAdvancedPromos;
+  const canUseAdvancedPromos = !!(publicPlan as any)?.canUseAdvancedPromos;
+
+  // ✅ NEW: robust voice flag (support both shapes)
+  const canUseVoice =
+    !!(publicPlan as any)?.canUseVoice ||
+    !!(publicPlan as any)?.features?.canUseVoice;
 
   const memberAvatars =
     useQuery(
@@ -254,6 +262,9 @@ export default function SmartPromo() {
       brandLogoUrl,
       identityMode: promo.identityMode ?? "auto",
       ctaList: simpleCtaList,
+
+      // ✅ NEW
+      canUseVoice,
     };
   };
 
@@ -281,6 +292,9 @@ export default function SmartPromo() {
       privacyUrl,
       theme,
       brandLogoUrl,
+
+      // ✅ NEW
+      canUseVoice,
     };
   };
 
@@ -309,7 +323,7 @@ export default function SmartPromo() {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [isEmbedded, canUseAdvancedPromos, promo, memberAvatars, ws, parentHref]);
+  }, [isEmbedded, canUseAdvancedPromos, promo, memberAvatars, ws, parentHref, canUseVoice]);
 
   // ✅ SEND SUGGESTIONS (Starter)
   useEffect(() => {
@@ -336,7 +350,7 @@ export default function SmartPromo() {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [isEmbedded, canUseAdvancedPromos, ws, parentHref]);
+  }, [isEmbedded, canUseAdvancedPromos, ws, parentHref, canUseVoice]);
 
   // PREVIEW INTERNE
   const showInternal = !!promo && !isEmbedded && canUseAdvancedPromos;
