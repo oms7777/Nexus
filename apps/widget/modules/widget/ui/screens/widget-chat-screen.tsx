@@ -688,6 +688,7 @@ export const WidgetChatScreen = () => {
     company?: string;
     role?: string;
     phone?: string;
+    description: string;
   }) => {
     setQdata(lead);
 
@@ -1123,6 +1124,7 @@ export const WidgetChatScreen = () => {
                   phone: (qdata as any).phone,
                   company: qdata.company,
                   role: qdata.role,
+                  description: (qdata as any).description,
                 }}
                 onSubmit={(lead) => {
                   if (organizationId) {
@@ -1161,7 +1163,8 @@ export const WidgetChatScreen = () => {
                       !organizationId ||
                       !contactSessionId ||
                       !qdata.name ||
-                      !qdata.email
+                      !qdata.email ||
+                      !(qdata as any).description
                     )
                       return;
 
@@ -1174,6 +1177,7 @@ export const WidgetChatScreen = () => {
                       attendeePhone: (qdata as any).phone,
                       attendeeCompany: qdata.company,
                       attendeeRole: qdata.role,
+                      attendeeDescription: (qdata as any).description,
                       start: s.start,
                       end: s.end,
                     });

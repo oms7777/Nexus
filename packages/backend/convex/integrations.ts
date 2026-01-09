@@ -453,13 +453,16 @@ export const createSalesforceLeadAndEvent = action({
     attendeePhone: v.optional(v.string()),
     attendeeCompany: v.optional(v.string()),
     attendeeRole: v.optional(v.string()),
+
+    // ✅ NEW
+    attendeeDescription: v.optional(v.string()),
+
     startIso: v.string(),
     endIso: v.string(),
     meetingUrl: v.optional(v.string()),
     source: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // hard-gate here too
     await requireSalesforceEntitled(ctx, args.organizationId);
 
     const integration = await getSalesforceIntegrationByOrg(ctx, args.organizationId);
@@ -487,12 +490,13 @@ export const createSalesforceLeadAndEvent = action({
     const title = (args.attendeeRole ?? "").trim() || undefined;
 
     const leadStatus = "Open - Not Contacted";
+    const useCase = (args.attendeeDescription ?? "").trim() || undefined;
 
     // 1) Lookup Lead by Email
     let leadId: string | null = null;
     try {
       const safeEmail = (args.attendeeEmail || "").replace(/'/g, "\\'");
-      const soql = `SELECT Id FROM Lead WHERE Email = '${safeEmail}' ORDER BY CreatedDate DESC LIMIT 1`;
+      const soql = `SELECT Id, Description FROM Lead WHERE Email = '${safeEmail}' ORDER BY CreatedDate DESC LIMIT 1`;
       const qUrl = `${base}/query?q=${encodeURIComponent(soql)}`;
 
       const qRes = await sfFetch(ctx, args.organizationId, qUrl, { method: "GET" }, accessToken);
@@ -500,6 +504,26 @@ export const createSalesforceLeadAndEvent = action({
 
       if (qRes.ok && Array.isArray(qJson?.records) && qJson.records.length > 0) {
         leadId = String(qJson.records[0].Id);
+
+        // ✅ Optional: patch Lead.Description if empty or if you want to always update
+        const existingDesc = String(qJson.records[0].Description ?? "").trim();
+        if (useCase && !existingDesc) {
+          try {
+            await sfFetch(
+              ctx,
+              args.organizationId,
+              `${base}/sobjects/Lead/${leadId}`,
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ Description: useCase }),
+              },
+              accessToken
+            );
+          } catch (e) {
+            console.log("Salesforce Lead patch (Description) failed:", (e as any)?.detail ?? e);
+          }
+        }
       }
     } catch (e) {
       console.log("Salesforce Lead lookup failed:", (e as any)?.detail ?? e);
@@ -516,6 +540,9 @@ export const createSalesforceLeadAndEvent = action({
         Title: title,
         LeadSource: args.source ?? "Inboundless",
         Status: leadStatus,
+
+        // ✅ NEW: standard Lead.Description
+        Description: useCase,
       };
 
       Object.keys(leadPayload).forEach((k) => leadPayload[k] === undefined && delete leadPayload[k]);
@@ -561,6 +588,9 @@ export const createSalesforceLeadAndEvent = action({
 
     // 3) Create Event linked to Lead (WhoId)
     const descriptionLines = [
+      // ✅ Put use case first (best for SDRs)
+      useCase ? `Use case: ${useCase}` : null,
+      "",
       "Booked via Inboundless",
       `Name: ${args.attendeeName}`,
       `Email: ${args.attendeeEmail}`,

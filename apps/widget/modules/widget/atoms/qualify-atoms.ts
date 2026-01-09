@@ -1,3 +1,4 @@
+// apps/widget/modules/widget/atoms/qualify-atoms.ts
 "use client";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
@@ -19,6 +20,10 @@ export type QualifyData = {
   phone?: string;
   company?: string;
   role?: string;
+
+  // ✅ NEW: qualification description / use case
+  description?: string;
+
   region?: "EMEA" | "NA" | "LATAM" | "APAC";
 };
 

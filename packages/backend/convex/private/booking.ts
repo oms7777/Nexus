@@ -8,8 +8,10 @@ type Auth = { orgId: string; userId: string };
 async function getAuth(ctx: any): Promise<Auth> {
   const id = await ctx.auth.getUserIdentity();
   if (!id) throw new ConvexError("UNAUTHENTICATED");
+
   const orgId = (id as any).orgId as string | undefined;
   if (!orgId) throw new ConvexError("NO_ORG");
+
   return { orgId, userId: id.subject as string };
 }
 
@@ -31,7 +33,6 @@ export const listMine = query({
       )
       .filter((q) => q.eq(q.field("createdByUserId"), userId));
 
-    // tri chronologique + limite
     const bookings: Doc<"calendarBookings">[] = await q
       .order("asc")
       .take(limit ?? 50);

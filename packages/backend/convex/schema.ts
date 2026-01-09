@@ -364,6 +364,7 @@ export default defineSchema({
         company: v.optional(v.string()),
         role: v.optional(v.string()),
         phone: v.optional(v.string()),
+        description: v.optional(v.string()),
       }),
     ),
     createdAt: v.number(),

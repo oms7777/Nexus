@@ -69,7 +69,7 @@ export const getSettingsForOrg = query({
     const settings = await ctx.db
       .query("calendarSettings")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", effectiveUserId!)
+        q.eq("organizationId", organizationId).eq("userId", effectiveUserId!),
       )
       .unique();
 
@@ -162,6 +162,7 @@ export const listSlots = action({
       for (let t = win.startMs; t + durationMs <= win.endMs; t += stepMs) {
         const start = Math.max(t, now);
         const end = start + durationMs;
+
         const paddedStart = start - bufferMs;
         const paddedEnd = end + bufferMs;
 
@@ -199,11 +200,12 @@ export const bookSlot = action({
     contactSessionId: v.id("contactSessions"),
     attendeeName: v.string(),
     attendeeEmail: v.string(),
-    attendeePhone: v.optional(v.string()), // ✅ NEW
+    attendeePhone: v.optional(v.string()),
     start: v.number(),
     end: v.number(),
     attendeeCompany: v.optional(v.string()),
     attendeeRole: v.optional(v.string()),
+    attendeeDescription: v.optional(v.string()), // ✅ NEW
   },
   handler: async (
     ctx,
@@ -213,12 +215,13 @@ export const bookSlot = action({
       contactSessionId,
       attendeeName,
       attendeeEmail,
-      attendeePhone, // ✅ NEW
+      attendeePhone,
       start,
       end,
       attendeeCompany,
       attendeeRole,
-    }
+      attendeeDescription, // ✅ IMPORTANT: was missing in your handler destructuring
+    },
   ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
     let effectiveUserId = userId;
 
@@ -240,12 +243,16 @@ export const bookSlot = action({
     });
     if (!acct) throw new Error("No connected calendar for this organization / user");
 
+    const useCase = (attendeeDescription ?? "").trim();
+
     const descriptionLines = [
+      useCase ? `Use case: ${useCase}` : null,
+      "",
       `Booked via widget (org: ${organizationId})`,
       `Rep: ${acct.userId}`,
       `Name: ${attendeeName}`,
       `Email: ${attendeeEmail}`,
-      attendeePhone ? `Phone: ${attendeePhone}` : null, // ✅ NEW
+      attendeePhone ? `Phone: ${attendeePhone}` : null,
       attendeeCompany ? `Company: ${attendeeCompany}` : null,
       attendeeRole ? `Role: ${attendeeRole}` : null,
     ].filter(Boolean);
@@ -263,8 +270,7 @@ export const bookSlot = action({
       ],
     });
 
-    const meetingUrl: string | undefined =
-      event?.hangoutLink ?? event?.htmlLink ?? undefined;
+    const meetingUrl: string | undefined = event?.hangoutLink ?? event?.htmlLink ?? undefined;
 
     const bookingId = await ctx.runMutation(api.public.booking.create, {
       organizationId,
@@ -280,7 +286,8 @@ export const bookSlot = action({
         calendarId: "primary",
         company: attendeeCompany,
         role: attendeeRole,
-        phone: attendeePhone, // ✅ NEW
+        phone: attendeePhone,
+        description: useCase || undefined, // ✅ NEW (requires schema update)
       },
     });
 
@@ -290,9 +297,10 @@ export const bookSlot = action({
         organizationId,
         attendeeName,
         attendeeEmail,
-        attendeePhone, // ✅ NEW
+        attendeePhone,
         attendeeCompany,
         attendeeRole,
+        attendeeDescription: useCase || undefined,
         startIso: new Date(start).toISOString(),
         endIso: new Date(end).toISOString(),
         meetingUrl,
@@ -302,7 +310,7 @@ export const bookSlot = action({
       console.log("Salesforce create Lead/Event failed:", e);
     }
 
-    // Slack notification — non bloquant (optionnel: tu peux aussi y ajouter le phone)
+    // Slack notification — non bloquant
     try {
       const startDate = new Date(start);
       const dateLabel = startDate.toLocaleString("en-US", {
@@ -317,9 +325,10 @@ export const bookSlot = action({
       const lines = [
         "📅 *New meeting booked!*",
         `• Client: *${attendeeName}* (${attendeeEmail})`,
-        attendeePhone ? `• Phone: ${attendeePhone}` : null, // ✅ NEW
+        attendeePhone ? `• Phone: ${attendeePhone}` : null,
         attendeeCompany ? `• Company: ${attendeeCompany}` : null,
         attendeeRole ? `• Role: ${attendeeRole}` : null,
+        useCase ? `• Use case: ${useCase}` : null,
         `• When: *${dateLabel}*`,
         meetingUrl ? `• Link: ${meetingUrl}` : null,
       ].filter(Boolean);
@@ -339,7 +348,7 @@ export const bookSlot = action({
       console.log("Slack sendSlackMessage failed:", e);
     }
 
-    // email sales — non bloquant (optionnel: ajoute phone dans le template si tu veux)
+    // email sales — non bloquant
     const salesEmail = acct.email;
     if (salesEmail) {
       try {
@@ -354,7 +363,10 @@ export const bookSlot = action({
           meetingUrl,
           organizationId,
           bookingId: String(bookingId),
-        });
+
+          attendeePhone,
+          attendeeDescription: useCase || undefined,
+        } as any);
       } catch (e) {
         console.log("sendBookingEmailToSales skipped/failed:", e);
       }
@@ -371,9 +383,10 @@ export const bookSlot = action({
           bookingId,
           attendeeName,
           attendeeEmail,
-          attendeePhone, // ✅ NEW
+          attendeePhone,
           attendeeCompany,
           attendeeRole,
+          attendeeDescription: useCase || undefined,
           start,
           end,
           meetingUrl,
@@ -388,7 +401,6 @@ export const bookSlot = action({
     return { bookingId, meetingUrl };
   },
 });
-
 
 export const getAuthUrl = action({
   args: { redirectUrl: v.string() },

@@ -18,7 +18,8 @@ export const create = mutation({
         calendarId: v.optional(v.string()),
         company: v.optional(v.string()),
         role: v.optional(v.string()),
-        phone: v.optional(v.string()), // ✅ NEW
+        phone: v.optional(v.string()),
+        description: v.optional(v.string()), // ✅ NEW
       })
     ),
   },
@@ -33,7 +34,7 @@ export const create = mutation({
       createdByUserId: args.createdByUserId,
       meetingUrl: args.meetingUrl,
       externalEventId: args.externalEventId,
-      providerData: args.providerData,
+      providerData: args.providerData, // ✅ now includes description
       createdAt: Date.now(),
     });
   },
