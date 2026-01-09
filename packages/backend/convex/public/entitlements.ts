@@ -9,15 +9,15 @@ function computeEntitlements(sub: any) {
   const status: string = (sub?.status ?? "paused") as string;
 
   const isActive = status === "active" || status === "trial";
-
   const addons = sub?.addons ?? {};
   const limits = sub?.limits ?? {};
 
   const canUseSlack = isActive && (plan === "growth" || plan === "enterprise");
   const canUseSalesforce = isActive && plan !== "starter" && addons.salesforce === true;
 
-  // ✅ Voice = addon gate (tu peux étendre ensuite: voiceAiHighVolume, limits.voiceMinutes, etc.)
-  const canUseVoice = isActive && addons.voiceAi === true;
+  // ✅ NEW: voice flag (fallback to old voiceAi if still present)
+  const voiceEnabled = addons.voice === true || addons.voiceAi === true;
+  const canUseVoice = isActive && voiceEnabled;
 
   const canUseAdvancedRouting = isActive && (plan === "growth" || plan === "enterprise");
   const canUseAdvancedPromos = isActive && (plan === "growth" || plan === "enterprise");
@@ -80,9 +80,7 @@ export const getEntitlements = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .unique();
 
-    return computeEntitlements(
-      sub ?? { plan: "starter", status: "paused", addons: {}, limits: {} }
-    );
+    return computeEntitlements(sub ?? { plan: "starter", status: "paused", addons: {}, limits: {} });
   },
 });
 
@@ -95,24 +93,31 @@ export const getPublicPlan = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
 
-    // ✅ on calcule comme "entitlements", mais on renvoie un subset safe
-    const ent = computeEntitlements(
-      sub ?? { plan: "starter", status: "paused", addons: {}, limits: {} }
-    );
+    const plan: Plan = (sub?.plan ?? "starter") as Plan;
+    const status: string = (sub?.status ?? "paused") as string;
+    const isActive = status === "active" || status === "trial";
+    type AddonsShape = {
+        salesforce?: boolean;
+        advancedAnalytics?: boolean;
+        extraWebsites?: number;
 
-    return {
-      plan: ent.plan,
-      status: ent.status,
-      isActive: ent.isActive,
+        // NEW
+        voice?: boolean;
+        voiceHighVolume?: boolean;
 
-      // ✅ keep existing
-      canUseAdvancedPromos: ent.features.canUseAdvancedPromos,
+        // OLD (fallback)
+        voiceAi?: boolean;
+        voiceAiHighVolume?: boolean;
+        };
 
-      // ✅ NEW: voice gating for widget + embed
-      canUseVoice: ent.features.canUseVoice,
+    const addons = (sub?.addons ?? {}) as AddonsShape;
 
-      // ✅ Optionnel mais pratique (si tu veux éviter de rajouter 15 champs plus tard)
-      features: ent.features,
-    };
+    const canUseAdvancedPromos = isActive && (plan === "growth" || plan === "enterprise");
+
+    // ✅ NEW: include voice
+    const voiceEnabled = addons.voice === true || addons.voiceAi === true;
+    const canUseVoice = isActive && voiceEnabled;
+
+    return { plan, status, isActive, canUseAdvancedPromos, canUseVoice };
   },
 });

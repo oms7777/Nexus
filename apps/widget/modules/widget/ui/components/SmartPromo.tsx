@@ -78,9 +78,7 @@ export default function SmartPromo() {
   const canUseAdvancedPromos = !!(publicPlan as any)?.canUseAdvancedPromos;
 
   // ✅ NEW: robust voice flag (support both shapes)
-  const canUseVoice =
-    !!(publicPlan as any)?.canUseVoice ||
-    !!(publicPlan as any)?.features?.canUseVoice;
+  const canUseVoice = !!publicPlan?.canUseVoice;
 
   const memberAvatars =
     useQuery(

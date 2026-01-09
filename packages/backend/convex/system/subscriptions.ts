@@ -4,18 +4,31 @@ import { internalMutation, internalQuery } from "../_generated/server";
 
 /* ----------------------------- Validators ----------------------------- */
 
-export const Plan = v.union(v.literal("starter"), v.literal("growth"), v.literal("enterprise"));
+export const Plan = v.union(
+  v.literal("starter"),
+  v.literal("growth"),
+  v.literal("enterprise"),
+);
 
 export const Status = v.union(v.literal("active"), v.literal("paused"), v.literal("trial"));
 
 export const EnterpriseTier = v.union(v.literal("light"), v.literal("core"), v.literal("heavy"));
 
+// ✅ NEW: voice + voiceHighVolume
+// ✅ KEEP: voiceAi / voiceAiHighVolume optional for backward compat
 export const Addons = v.object({
   extraWebsites: v.number(),
   highVolumeTraffic: v.boolean(),
   salesforce: v.boolean(),
-  voiceAi: v.boolean(),
-  voiceAiHighVolume: v.boolean(),
+
+  // NEW
+  voice: v.boolean(),
+  voiceHighVolume: v.boolean(),
+
+  // OLD (optional)
+  voiceAi: v.optional(v.boolean()),
+  voiceAiHighVolume: v.optional(v.boolean()),
+
   sso: v.boolean(),
   securityPackPlus: v.boolean(),
   compliancePack: v.boolean(),
@@ -23,9 +36,7 @@ export const Addons = v.object({
 });
 
 export const Limits = v.object({
-  // ✅ reps = seat cap (memberships). Plus de addons extraReps.
   reps: v.number(),
-
   websites: v.number(),
   monthlyEvents: v.number(),
   aiTokens: v.number(),
@@ -40,8 +51,15 @@ function defaultAddons() {
     extraWebsites: 0,
     highVolumeTraffic: false,
     salesforce: false,
-    voiceAi: false,
-    voiceAiHighVolume: false,
+
+    // NEW defaults
+    voice: false,
+    voiceHighVolume: false (as boolean),
+
+    // OLD kept (optional)
+    // voiceAi: false,
+    // voiceAiHighVolume: false,
+
     sso: false,
     securityPackPlus: false,
     compliancePack: false,
@@ -51,9 +69,7 @@ function defaultAddons() {
 
 function defaultLimits() {
   return {
-    // ✅ Starter default seat cap (tu peux mettre 3 ici)
     reps: 3,
-
     websites: 1,
     monthlyEvents: 50_000,
     aiTokens: 2_000_000,
