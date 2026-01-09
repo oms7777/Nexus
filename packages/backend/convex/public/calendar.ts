@@ -248,8 +248,6 @@ export const bookSlot = action({
     const descriptionLines = [
       useCase ? `Use case: ${useCase}` : null,
       "",
-      `Booked via widget (org: ${organizationId})`,
-      `Rep: ${acct.userId}`,
       `Name: ${attendeeName}`,
       `Email: ${attendeeEmail}`,
       attendeePhone ? `Phone: ${attendeePhone}` : null,

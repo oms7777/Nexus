@@ -91,7 +91,6 @@ export default function QualifyCard({
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. outbound consent compliance, Salesforce sync, high-volume traffic…"
               className="min-h-[90px]"
             />
             <p className="mt-1 text-[11px] text-muted-foreground">
