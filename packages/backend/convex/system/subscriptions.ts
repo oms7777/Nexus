@@ -54,7 +54,7 @@ function defaultAddons() {
 
     // NEW defaults
     voice: false,
-    voiceHighVolume: false (as boolean),
+    voiceHighVolume: false,
 
     // OLD kept (optional)
     // voiceAi: false,

@@ -32,8 +32,13 @@ export default defineSchema({
 
       salesforce: v.boolean(),         // +300€ / mois
 
-      voiceAi: v.boolean(),            // +1 000€ / mois
-      voiceAiHighVolume: v.boolean(),  // +500€ / mois
+      // ✅ NEW (canonical)
+      voice: v.boolean(),              // voice enabled
+      voiceHighVolume: v.boolean(),    // voice high volume
+
+      // ✅ OLD (backward compat)
+      voiceAi: v.optional(v.boolean()),            // legacy
+      voiceAiHighVolume: v.optional(v.boolean()),  // legacy
 
       sso: v.boolean(),                // +500€ / mois
       securityPackPlus: v.boolean(),   // +1 000€ / mois
@@ -49,8 +54,7 @@ export default defineSchema({
       monthlyEvents: v.number(),
       aiTokens: v.number(),
 
-      // ✅ je te conseille de les rendre NON-OPTIONAL aussi
-      // (mets 0 si non inclus)
+      // ✅ non-optional (0 si non inclus)
       voiceMinutes: v.number(),
       snapshotsGb: v.number(),
     }),
@@ -62,7 +66,6 @@ export default defineSchema({
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_status", ["status"]),
-
 
   websites: defineTable({
     organizationId: v.string(),
@@ -94,9 +97,6 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_org_month", ["organizationId", "month"]),
-
-
-
     
   widgetSettings: defineTable({
     organizationId: v.string(),
