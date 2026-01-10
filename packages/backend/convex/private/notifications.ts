@@ -95,6 +95,8 @@ export const sendBookingEmailToSales = action({
     attendeeEmail: v.string(),
     attendeeCompany: v.optional(v.string()),
     attendeeRole: v.optional(v.string()),
+    attendeePhone: v.optional(v.string()),         
+    attendeeDescription: v.optional(v.string()),
     startIso: v.string(),
     endIso: v.string(),
     meetingUrl: v.optional(v.string()),

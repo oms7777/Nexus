@@ -1,38 +1,10 @@
 "use client";
 
-/**
- * WidgetLoadingScreen
- * -------------------
- * Rôle :
- * - Valide organizationId
- * - Garantit une contactSession (mais ne crée PAS de conversation)
- * - Charge widgetSettings + secrets Vapi
- * - Redirige :
- *    - par défaut => écran "chat"
- *    - ?nochat=1 => écran "selection" (debug)
- *
- * ✅ Changement clé :
- * - On ne ré-impose PLUS "consent" si le consent a déjà été donné.
- *
- * ✅ NEW (IMPORTANT) :
- * - Si on (re)crée une nouvelle contactSession => on reset aussi conversationId
- *   pour éviter les mismatches (conversation liée à une ancienne session)
- *
- * - NOUVEAU :
- *   Quand la contactSession est prête, on envoie un postMessage au parent
- *   pour qu’il démarre rrweb + Pusher côté PAGE host :
- *
- *      window.parent.postMessage(
- *        { type: "nexus:session-ready", payload: { sessionId, organizationId } },
- *        "*"
- *      );
- */
-
 import { useAtomValue, useSetAtom } from "jotai";
 import { LoaderIcon } from "lucide-react";
 import {
   contactSessionIdAtomFamily,
-  conversationIdAtom, // ✅ NEW
+  conversationIdAtom,
   errorMessageAtom,
   loadingMessageAtom,
   organizationIdAtom,
@@ -42,38 +14,25 @@ import {
 } from "../../atoms/widget-atoms";
 import { consentGivenAtom, qualifyStepAtom } from "../../atoms/qualify-atoms";
 import { WidgetHeader } from "../components/widget-header";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
 type InitStep = "org" | "session" | "settings" | "vapi" | "done";
 
-/** ?nochat=1 => on reste sur l’écran de sélection pour debug */
 function getNoChat(): boolean {
   if (typeof window === "undefined") return false;
   const v = new URLSearchParams(window.location.search).get("nochat");
   return v === "1" || v === "true";
 }
 
-/**
- * Informe la page host (embed.js) que la session est prête.
- * C’est la page host qui démarrera rrweb + Pusher.
- */
-function notifyParentSessionReady(params: {
-  organizationId: string;
-  sessionId: string;
-}) {
+function notifyParentSessionReady(params: { organizationId: string; sessionId: string }) {
   if (typeof window === "undefined") return;
   if (!window.parent || window.parent === window) return;
 
-  const { organizationId, sessionId } = params;
-
   try {
     window.parent.postMessage(
-      {
-        type: "nexus:session-ready",
-        payload: { organizationId, sessionId },
-      },
+      { type: "nexus:session-ready", payload: { organizationId: params.organizationId, sessionId: params.sessionId } },
       "*"
     );
   } catch (err) {
@@ -81,14 +40,8 @@ function notifyParentSessionReady(params: {
   }
 }
 
-export const WidgetLoadingScreen = ({
-  organizationId,
-}: {
-  organizationId: string | null;
-}) => {
+export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string | null }) => {
   const [step, setStep] = useState<InitStep>("org");
-
-  const loadingMessage = useAtomValue(loadingMessageAtom);
   const consentGiven = useAtomValue(consentGivenAtom);
 
   const setWidgetSettings = useSetAtom(widgetSettingsAtom);
@@ -99,23 +52,21 @@ export const WidgetLoadingScreen = ({
   const setVapiSecrets = useSetAtom(vapiSecretsAtom);
   const setQualifyStep = useSetAtom(qualifyStepAtom);
 
-  // ✅ NEW: reset conversation quand session regen
   const setConversationId = useSetAtom(conversationIdAtom);
 
-  const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(organizationId || "")
-  );
-  const setContactSessionId = useSetAtom(
-    contactSessionIdAtomFamily(organizationId || "")
-  );
+  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(organizationId || ""));
+  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(organizationId || ""));
 
-  /* 1) Valider l’org */
   const validateOrganization = useAction(api.public.organizations.validate);
 
+  // prevent infinite regen loops
+  const regeneratedOnceRef = useRef(false);
+
+  /* 1) Validate org */
   useEffect(() => {
     if (step !== "org") return;
 
-    setLoadingMessage("Finding organization ID...");
+    setLoadingMessage("Verifying organization...");
 
     if (!organizationId) {
       setErrorMessage("Organization ID is required");
@@ -123,7 +74,6 @@ export const WidgetLoadingScreen = ({
       return;
     }
 
-    setLoadingMessage("Verifying organization...");
     validateOrganization({ organizationId })
       .then((result) => {
         if (result.valid) {
@@ -138,20 +88,10 @@ export const WidgetLoadingScreen = ({
         setErrorMessage("Unable to verify organization");
         setScreen("error");
       });
-  }, [
-    step,
-    organizationId,
-    setErrorMessage,
-    setScreen,
-    setOrganizationId,
-    validateOrganization,
-    setLoadingMessage,
-  ]);
+  }, [step, organizationId, validateOrganization, setOrganizationId, setErrorMessage, setScreen, setLoadingMessage]);
 
-  /* 2) S’assurer d’avoir une session (mais pas de conversation) */
-  const validateContactSession = useMutation(
-    api.public.contactSessions.validate
-  );
+  /* 2) Ensure contactSession */
+  const validateContactSession = useMutation(api.public.contactSessions.validate);
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
 
   useEffect(() => {
@@ -165,19 +105,15 @@ export const WidgetLoadingScreen = ({
       return;
     }
 
-    const notifyIfNeeded = (sessionId: string) => {
-      notifyParentSessionReady({ organizationId, sessionId });
-    };
-
-    const ensure = async () => {
+    const regen = async () => {
       try {
         const id = await ensureContactSession({ organizationId });
 
-        // ✅ IMPORTANT: si on regen une session, on drop la conversation persistée
+        // ✅ critical: wipe conversation bound to previous session
         setConversationId(null);
 
         setContactSessionId(id);
-        notifyIfNeeded(id);
+        notifyParentSessionReady({ organizationId, sessionId: id });
         setStep("settings");
       } catch {
         setErrorMessage("Unable to start a session");
@@ -186,60 +122,68 @@ export const WidgetLoadingScreen = ({
     };
 
     if (!contactSessionId) {
-      void ensure();
+      void regen();
       return;
     }
 
     validateContactSession({ contactSessionId })
       .then((res) => {
         if (res.valid) {
-          notifyIfNeeded(contactSessionId);
+          notifyParentSessionReady({ organizationId, sessionId: contactSessionId });
           setStep("settings");
         } else {
-          // ✅ session invalide => on regen + reset conversation dans ensure()
-          ensure();
+          if (regeneratedOnceRef.current) {
+            setErrorMessage(res.reason || "Session invalid");
+            setScreen("error");
+            return;
+          }
+          regeneratedOnceRef.current = true;
+          void regen();
         }
       })
-      .catch(() => ensure());
+      .catch(() => {
+        if (regeneratedOnceRef.current) {
+          setErrorMessage("Session invalid");
+          setScreen("error");
+          return;
+        }
+        regeneratedOnceRef.current = true;
+        void regen();
+      });
   }, [
     step,
-    contactSessionId,
     organizationId,
+    contactSessionId,
     validateContactSession,
     ensureContactSession,
     setContactSessionId,
+    setConversationId,
     setLoadingMessage,
     setErrorMessage,
     setScreen,
-    setConversationId,
   ]);
 
-  /* 3) Charger les widgetSettings */
+  /* 3) widgetSettings */
   const widgetSettings = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     organizationId ? { organizationId } : "skip"
   );
 
   useEffect(() => {
-    if (widgetSettings !== undefined) {
-      setWidgetSettings(widgetSettings);
+    if (widgetSettings === undefined) return;
 
-      // 🔥 envoyer le thème AU PARENT immédiatement
-      try {
-        const theme = (widgetSettings as any)?.theme;
-        const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
+    setWidgetSettings(widgetSettings);
 
-        window.parent?.postMessage(
-          { type: "nexus:theme", payload: { theme, brandLogoUrl } },
-          "*"
-        );
-      } catch {}
+    try {
+      const theme = (widgetSettings as any)?.theme;
+      const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
+      window.parent?.postMessage({ type: "nexus:theme", payload: { theme, brandLogoUrl } }, "*");
+    } catch {}
 
-      setStep("vapi");
-    }
+    setStep("vapi");
   }, [widgetSettings, setWidgetSettings]);
 
-  /* 4) Charger les secrets Vapi (si présents) */
+  /* 4) Vapi secrets */
   const getVapiSecrets = useAction(api.public.secrets.getVapiSecrets);
 
   useEffect(() => {
@@ -261,30 +205,20 @@ export const WidgetLoadingScreen = ({
         setVapiSecrets(null);
         setStep("done");
       });
-  }, [
-    step,
-    organizationId,
-    getVapiSecrets,
-    setVapiSecrets,
-    setLoadingMessage,
-    setScreen,
-    setErrorMessage,
-  ]);
+  }, [step, organizationId, getVapiSecrets, setVapiSecrets, setLoadingMessage, setErrorMessage, setScreen]);
 
-  /* 5) Aller à l’écran chat (ou selection), SANS ré-imposer le consent si déjà donné */
+  /* 5) route to chat */
   useEffect(() => {
     if (step !== "done") return;
 
-    if (getNoChat()) {
-      setScreen("chat");
-      return;
-    }
-
-    // ✅ IMPORTANT : si consent déjà donné, on revient en idle (chat direct)
-    // sinon on force consent (comportement normal)
     setQualifyStep(consentGiven ? "idle" : "consent");
+
+    // ✅ your behavior
     setScreen("chat");
+    if (getNoChat()) setScreen("chat");
   }, [step, consentGiven, setQualifyStep, setScreen]);
+
+  const loadingMessage = useAtomValue(loadingMessageAtom);
 
   return (
     <>
