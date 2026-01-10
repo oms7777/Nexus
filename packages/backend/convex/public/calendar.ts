@@ -1,3 +1,4 @@
+// packages/backend/convex/public/calendar.ts
 import { query, action } from "../_generated/server";
 import { v } from "convex/values";
 import { api } from "../_generated/api";
@@ -205,7 +206,7 @@ export const bookSlot = action({
     end: v.number(),
     attendeeCompany: v.optional(v.string()),
     attendeeRole: v.optional(v.string()),
-    attendeeDescription: v.optional(v.string()), // ✅ NEW
+    attendeeDescription: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -220,7 +221,7 @@ export const bookSlot = action({
       end,
       attendeeCompany,
       attendeeRole,
-      attendeeDescription, // ✅ IMPORTANT: was missing in your handler destructuring
+      attendeeDescription,
     },
   ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
     let effectiveUserId = userId;
@@ -285,7 +286,7 @@ export const bookSlot = action({
         company: attendeeCompany,
         role: attendeeRole,
         phone: attendeePhone,
-        description: useCase || undefined, // ✅ NEW (requires schema update)
+        description: useCase || undefined,
       },
     });
 
@@ -308,7 +309,7 @@ export const bookSlot = action({
       console.log("Salesforce create Lead/Event failed:", e);
     }
 
-    // Slack notification — non bloquant
+    // Slack — non bloquant
     try {
       const startDate = new Date(start);
       const dateLabel = startDate.toLocaleString("en-US", {
@@ -331,7 +332,10 @@ export const bookSlot = action({
         meetingUrl ? `• Link: ${meetingUrl}` : null,
       ].filter(Boolean);
 
-      const rep = await ctx.runQuery(api.team.getRepForOrgUser, {
+      // ✅ FIX: public-safe lookup (no Clerk auth)
+      const rep = await ctx.runQuery(api.team.getRepForVisitor, {
+        organizationId,
+        contactSessionId,
         userId: acct.userId,
       });
 

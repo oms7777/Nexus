@@ -12,6 +12,8 @@ async function requireOrgId(ctx: any): Promise<string> {
   return orgId;
 }
 
+/* ---------------- PRIVATE (dashboard) ---------------- */
+
 export const listRepsForOrg = query({
   args: {},
   handler: async (ctx) => {
@@ -35,6 +37,36 @@ export const getRepForOrgUser = query({
       .unique();
   },
 });
+
+/* ---------------- ✅ PUBLIC SAFE (widget booking) ---------------- */
+
+export const getRepForVisitor = query({
+  args: {
+    organizationId: v.string(),
+    contactSessionId: v.id("contactSessions"),
+    userId: v.string(),
+  },
+  handler: async (ctx, { organizationId, contactSessionId, userId }) => {
+    const session = await ctx.db.get(contactSessionId);
+
+    if (!session) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
+    }
+    if (session.organizationId !== organizationId) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid org" });
+    }
+    if (session.expiresAt < Date.now()) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Session expired" });
+    }
+
+    return await ctx.db
+      .query("repsPresence")
+      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
+      .unique();
+  },
+});
+
+/* ---------------- MUTATIONS (dashboard) ---------------- */
 
 export const upsertRepPresence = mutation({
   args: {

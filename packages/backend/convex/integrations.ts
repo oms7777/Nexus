@@ -25,15 +25,68 @@ async function requireOrgId(ctx: any): Promise<string> {
   return orgId;
 }
 
-async function getSubscriptionByOrg(ctx: any, organizationId: string) {
-  return await ctx.db
-    .query("subscriptions")
-    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
-    .unique();
+/* ============================================================
+   DB GETTERS (QUERY) — usable from ACTION via ctx.runQuery
+   ============================================================ */
+
+export const _getSubscriptionByOrg = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    return await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
+export const _getSlackIntegrationByOrg = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    return await ctx.db
+      .query("slackIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
+export const _getSalesforceIntegrationByOrg = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    return await ctx.db
+      .query("salesforceIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
+export const _getSalesforceAppConfigByOrg = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    return await ctx.db
+      .query("salesforceAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
+/* ============================================================
+   Entitlements (works in queries/mutations & actions)
+   ============================================================ */
+
+async function getSubscriptionByOrgSafe(ctx: any, organizationId: string) {
+  // ✅ If query/mutation: ctx.db exists
+  if (ctx.db) {
+    return await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
+      .unique();
+  }
+  // ✅ If action: use ctx.runQuery
+  return await ctx.runQuery(api.integrations._getSubscriptionByOrg, { organizationId });
 }
 
 async function requireSlackEntitled(ctx: any, organizationId: string) {
-  const sub = await getSubscriptionByOrg(ctx, organizationId);
+  const sub = await getSubscriptionByOrgSafe(ctx, organizationId);
   const plan: Plan = (sub?.plan ?? "starter") as Plan;
   const status = sub?.status ?? "paused";
 
@@ -48,7 +101,7 @@ async function requireSlackEntitled(ctx: any, organizationId: string) {
 }
 
 async function requireSalesforceEntitled(ctx: any, organizationId: string) {
-  const sub = await getSubscriptionByOrg(ctx, organizationId);
+  const sub = await getSubscriptionByOrgSafe(ctx, organizationId);
   const plan: Plan = (sub?.plan ?? "starter") as Plan;
   const status = sub?.status ?? "paused";
   const addons = sub?.addons ?? {};
@@ -63,28 +116,6 @@ async function requireSalesforceEntitled(ctx: any, organizationId: string) {
   return sub;
 }
 
-/** DB getters by orgId (used by worker actions that receive orgId) */
-async function getSlackIntegrationByOrg(ctx: any, organizationId: string) {
-  return await ctx.db
-    .query("slackIntegrations")
-    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
-    .unique();
-}
-
-async function getSalesforceIntegrationByOrg(ctx: any, organizationId: string) {
-  return await ctx.db
-    .query("salesforceIntegrations")
-    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
-    .unique();
-}
-
-async function getSalesforceAppConfigByOrg(ctx: any, organizationId: string) {
-  return await ctx.db
-    .query("salesforceAppConfigs")
-    .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
-    .unique();
-}
-
 /* ============================================================
    SLACK INTEGRATION (dashboard/private)
    ============================================================ */
@@ -94,7 +125,11 @@ export const getSlackIntegration = query({
   handler: async (ctx) => {
     const organizationId = await requireOrgId(ctx);
     await requireSlackEntitled(ctx, organizationId);
-    return await getSlackIntegrationByOrg(ctx, organizationId);
+
+    return await ctx.db
+      .query("slackIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
   },
 });
 
@@ -110,7 +145,10 @@ export const saveSlackIntegration = mutation({
     await requireSlackEntitled(ctx, organizationId);
 
     const now = Date.now();
-    const existing = await getSlackIntegrationByOrg(ctx, organizationId);
+    const existing = await ctx.db
+      .query("slackIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -141,7 +179,11 @@ export const disconnectSlackIntegration = mutation({
     const organizationId = await requireOrgId(ctx);
     await requireSlackEntitled(ctx, organizationId);
 
-    const existing = await getSlackIntegrationByOrg(ctx, organizationId);
+    const existing = await ctx.db
+      .query("slackIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
     if (!existing) return;
     await ctx.db.delete(existing._id);
   },
@@ -149,6 +191,7 @@ export const disconnectSlackIntegration = mutation({
 
 /* ============================================================
    SLACK WORKER (called from booking/calendar; keeps orgId)
+   ✅ FIX: no ctx.db in action
    ============================================================ */
 
 export const sendSlackMessage = action({
@@ -158,10 +201,11 @@ export const sendSlackMessage = action({
     channelOverride: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId, text, channelOverride }) => {
-    // hard-gate worker side too
     await requireSlackEntitled(ctx, organizationId);
 
-    const integration = await getSlackIntegrationByOrg(ctx, organizationId);
+    const integration = await ctx.runQuery(api.integrations._getSlackIntegrationByOrg, {
+      organizationId,
+    });
     if (!integration) return;
 
     const rawChannel = channelOverride ?? integration.defaultChannel ?? "general";
@@ -192,7 +236,11 @@ export const getSalesforceAppConfig = query({
   handler: async (ctx) => {
     const organizationId = await requireOrgId(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
-    return await getSalesforceAppConfigByOrg(ctx, organizationId);
+
+    return await ctx.db
+      .query("salesforceAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
   },
 });
 
@@ -207,7 +255,10 @@ export const upsertSalesforceAppConfig = mutation({
     await requireSalesforceEntitled(ctx, organizationId);
 
     const now = Date.now();
-    const existing = await getSalesforceAppConfigByOrg(ctx, organizationId);
+    const existing = await ctx.db
+      .query("salesforceAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -239,7 +290,11 @@ export const getSalesforceIntegration = query({
   handler: async (ctx) => {
     const organizationId = await requireOrgId(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
-    return await getSalesforceIntegrationByOrg(ctx, organizationId);
+
+    return await ctx.db
+      .query("salesforceIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
   },
 });
 
@@ -254,7 +309,10 @@ export const saveSalesforceIntegration = mutation({
     await requireSalesforceEntitled(ctx, organizationId);
 
     const now = Date.now();
-    const existing = await getSalesforceIntegrationByOrg(ctx, organizationId);
+    const existing = await ctx.db
+      .query("salesforceIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -283,7 +341,11 @@ export const disconnectSalesforceIntegration = mutation({
     const organizationId = await requireOrgId(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
 
-    const existing = await getSalesforceIntegrationByOrg(ctx, organizationId);
+    const existing = await ctx.db
+      .query("salesforceIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
     if (!existing) return;
     await ctx.db.delete(existing._id);
   },
@@ -291,6 +353,7 @@ export const disconnectSalesforceIntegration = mutation({
 
 /* ============================================================
    SALESFORCE: AUTO REFRESH (worker; keeps orgId)
+   ✅ FIX: no ctx.db in action
    ============================================================ */
 
 async function parseSfError(res: Response): Promise<any> {
@@ -320,7 +383,7 @@ export const _updateSalesforceAccessToken = mutation({
 
     const existing = await ctx.db
       .query("salesforceIntegrations")
-      .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
 
     if (!existing) return { ok: false as const, reason: "NOT_CONNECTED" as const };
@@ -339,13 +402,17 @@ export const refreshSalesforceAccessToken = action({
   handler: async (ctx, { organizationId }) => {
     await requireSalesforceEntitled(ctx, organizationId);
 
-    const integration = await getSalesforceIntegrationByOrg(ctx, organizationId);
+    const integration = await ctx.runQuery(api.integrations._getSalesforceIntegrationByOrg, {
+      organizationId,
+    });
 
     if (!integration?.refreshToken || !integration?.instanceUrl) {
       return { ok: false as const, reason: "NO_REFRESH_TOKEN" as const };
     }
 
-    const appConfig = await getSalesforceAppConfigByOrg(ctx, organizationId);
+    const appConfig = await ctx.runQuery(api.integrations._getSalesforceAppConfigByOrg, {
+      organizationId,
+    });
 
     const loginUrl = appConfig?.loginUrl?.trim() || "https://login.salesforce.com";
     const clientId = appConfig?.clientId || "";
@@ -389,7 +456,7 @@ async function sfFetch(
   organizationId: string,
   url: string,
   init: RequestInit,
-  accessToken: string
+  accessToken: string,
 ) {
   const doFetch = async (token: string) => {
     const headers = new Headers(init.headers || {});
@@ -423,8 +490,10 @@ async function sfFetch(
     throw err;
   }
 
-  // 4) Reload token from DB
-  const updated = await getSalesforceIntegrationByOrg(ctx, organizationId);
+  // 4) Reload token from DB (via query)
+  const updated = await ctx.runQuery(api.integrations._getSalesforceIntegrationByOrg, {
+    organizationId,
+  });
   const newToken = updated?.accessToken;
 
   if (!newToken) {
@@ -443,6 +512,7 @@ async function sfFetch(
 
 /* ============================================================
    SALESFORCE: CREATE/UPSERT LEAD + EVENT (worker; keeps orgId)
+   ✅ FIX: no ctx.db in action
    ============================================================ */
 
 export const createSalesforceLeadAndEvent = action({
@@ -453,10 +523,7 @@ export const createSalesforceLeadAndEvent = action({
     attendeePhone: v.optional(v.string()),
     attendeeCompany: v.optional(v.string()),
     attendeeRole: v.optional(v.string()),
-
-    // ✅ NEW
     attendeeDescription: v.optional(v.string()),
-
     startIso: v.string(),
     endIso: v.string(),
     meetingUrl: v.optional(v.string()),
@@ -465,7 +532,9 @@ export const createSalesforceLeadAndEvent = action({
   handler: async (ctx, args) => {
     await requireSalesforceEntitled(ctx, args.organizationId);
 
-    const integration = await getSalesforceIntegrationByOrg(ctx, args.organizationId);
+    const integration = await ctx.runQuery(api.integrations._getSalesforceIntegrationByOrg, {
+      organizationId: args.organizationId,
+    });
 
     if (!integration?.accessToken || !integration?.instanceUrl) {
       return {
@@ -505,7 +574,7 @@ export const createSalesforceLeadAndEvent = action({
       if (qRes.ok && Array.isArray(qJson?.records) && qJson.records.length > 0) {
         leadId = String(qJson.records[0].Id);
 
-        // ✅ Optional: patch Lead.Description if empty or if you want to always update
+        // Optional: patch Lead.Description if empty
         const existingDesc = String(qJson.records[0].Description ?? "").trim();
         if (useCase && !existingDesc) {
           try {
@@ -518,7 +587,7 @@ export const createSalesforceLeadAndEvent = action({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ Description: useCase }),
               },
-              accessToken
+              accessToken,
             );
           } catch (e) {
             console.log("Salesforce Lead patch (Description) failed:", (e as any)?.detail ?? e);
@@ -540,8 +609,6 @@ export const createSalesforceLeadAndEvent = action({
         Title: title,
         LeadSource: args.source ?? "Inboundless",
         Status: leadStatus,
-
-        // ✅ NEW: standard Lead.Description
         Description: useCase,
       };
 
@@ -557,7 +624,7 @@ export const createSalesforceLeadAndEvent = action({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(leadPayload),
           },
-          accessToken
+          accessToken,
         );
 
         const leadJson: any = await leadRes.json().catch(() => ({}));
@@ -588,7 +655,6 @@ export const createSalesforceLeadAndEvent = action({
 
     // 3) Create Event linked to Lead (WhoId)
     const descriptionLines = [
-      // ✅ Put use case first (best for SDRs)
       useCase ? `Use case: ${useCase}` : null,
       "",
       "Booked via Inboundless",
@@ -618,7 +684,7 @@ export const createSalesforceLeadAndEvent = action({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(eventPayload),
         },
-        accessToken
+        accessToken,
       );
 
       const eventJson: any = await eventRes.json().catch(() => ({}));
