@@ -214,6 +214,7 @@ export default defineSchema({
         cookieEnabled: v.optional(v.boolean()),
         referrer: v.optional(v.string()),
         currentUrl: v.optional(v.string()),
+        utmSource: v.optional(v.string()),
         title: v.optional(v.string()),
         // GEO
         ip: v.optional(v.string()),

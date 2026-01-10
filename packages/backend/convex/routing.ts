@@ -5,11 +5,11 @@ import type { Doc } from "./_generated/dataModel";
 
 /**
  * Petit helper local: est-ce que la règle matche ce visiteur ?
- * (version simplifiée: pays + urlIncludes)
+ * (pays + urlIncludes + utmSource)
  */
 function ruleMatches(
   rule: Doc<"routingRules">,
-  ctx: { countryCode?: string; currentUrl?: string },
+  ctx: { countryCode?: string; currentUrl?: string; utmSource?: string },
 ): boolean {
   const m = rule.match ?? {};
 
@@ -23,10 +23,16 @@ function ruleMatches(
   // URL substring
   if (m.urlIncludes && m.urlIncludes.length > 0) {
     if (!ctx.currentUrl) return false;
-    const ok = m.urlIncludes.some((sub: string) =>
-      ctx.currentUrl!.toLowerCase().includes(sub.toLowerCase()),
-    );
+    const url = ctx.currentUrl.toLowerCase();
+    const ok = m.urlIncludes.some((sub: string) => url.includes(sub.toLowerCase()));
     if (!ok) return false;
+  }
+
+  // utm_source
+  if (m.utmSource && m.utmSource.length > 0) {
+    if (!ctx.utmSource || !m.utmSource.includes(ctx.utmSource)) {
+      return false;
+    }
   }
 
   return true;
@@ -59,6 +65,17 @@ async function resolveTerritoryKeysForCountry(
     .map((t) => t.key);
 }
 
+function extractUtmSourceFromUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  try {
+    const u = new URL(url);
+    const v = u.searchParams.get("utm_source");
+    return v ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Choisit UN rep pour une session donnée.
  * Retourne son userId (Clerk) ou null.
@@ -78,9 +95,14 @@ export const pickRepForSession = query({
     if (!session) return null;
     if (session.organizationId !== organizationId) return null;
 
+    const currentUrl = session.metadata?.currentUrl as string | undefined;
+
     const matchCtx = {
       countryCode: session.metadata?.countryCode as string | undefined,
-      currentUrl: session.metadata?.currentUrl as string | undefined,
+      currentUrl,
+      utmSource:
+        (session.metadata?.utmSource as string | undefined) ??
+        extractUtmSourceFromUrl(currentUrl),
     };
 
     // 2) récupérer tous les reps de l’org (source of truth)
@@ -92,12 +114,12 @@ export const pickRepForSession = query({
     if (!reps.length) return null;
 
     // 3) Si le visiteur a explicitement choisi un rep côté widget
-    const preferredRepUserId =
-      session.metadata?.preferredRepUserId as string | undefined;
+    const preferredRepUserId = session.metadata?.preferredRepUserId as string | undefined;
 
     if (preferredRepUserId) {
       const preferred = reps.find((r) => r.userId === preferredRepUserId);
-      if (preferred && preferred.available) {
+      // ✅ MAJ: on exige dispo + role sales (tu peux enlever role si tu veux support aussi)
+      if (preferred && preferred.available && preferred.role === "sales") {
         return preferred.userId;
       }
     }
@@ -116,9 +138,7 @@ export const pickRepForSession = query({
       const target = rule.routeTo;
 
       // candidats: reps dispo + bon rôle
-      let candidates = reps.filter(
-        (r) => r.available && r.role === target.role,
-      );
+      let candidates = reps.filter((r) => r.available && r.role === target.role);
 
       // filtre repIds si défini
       if (target.repIds && target.repIds.length > 0) {

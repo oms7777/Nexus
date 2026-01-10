@@ -13,6 +13,17 @@ export type PublicRep = {
   title?: string;
 };
 
+function extractUtmSourceFromUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  try {
+    const u = new URL(url);
+    const v = u.searchParams.get("utm_source");
+    return v ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const listRepsForVisitor = query({
   args: {
     organizationId: v.string(),
@@ -21,10 +32,7 @@ export const listRepsForVisitor = query({
     currentUrl: v.optional(v.string()),
     utmSource: v.optional(v.string()),
   },
-  handler: async (
-    ctx,
-    { organizationId, contactSessionId, countryCode, currentUrl, utmSource },
-  ) => {
+  handler: async (ctx, { organizationId, contactSessionId, countryCode, currentUrl, utmSource }) => {
     try {
       if (!organizationId) return [] as PublicRep[];
 
@@ -35,38 +43,37 @@ export const listRepsForVisitor = query({
 
       if (contactSessionId) {
         const session = await ctx.db.get(contactSessionId);
+
+        // ✅ MAJ: session must belong to org + not expired
         if (session && session.organizationId === organizationId) {
-          const md = session.metadata ?? {};
-          if (!visitorCountry && typeof md.countryCode === "string") {
-            visitorCountry = md.countryCode;
+          if (session.expiresAt && session.expiresAt < Date.now()) {
+            return [] as PublicRep[];
           }
-          if (!visitorUrl && typeof md.currentUrl === "string") {
-            visitorUrl = md.currentUrl;
+
+          const md = session.metadata ?? {};
+          if (!visitorCountry && typeof md.countryCode === "string") visitorCountry = md.countryCode;
+          if (!visitorUrl && typeof md.currentUrl === "string") visitorUrl = md.currentUrl;
+
+          // optional if you ever store it
+          if (!visitorUtmSource && typeof (md as any).utmSource === "string") {
+            visitorUtmSource = (md as any).utmSource;
           }
         }
       }
 
-      // 2) Extraire utm_source depuis l'URL
-      if (visitorUrl && !visitorUtmSource) {
-        try {
-          const u = new URL(visitorUrl);
-          visitorUtmSource = u.searchParams.get("utm_source") ?? undefined;
-        } catch {
-          // ignore
-        }
+      // 2) Extraire utm_source depuis l'URL si absent
+      if (!visitorUtmSource) {
+        visitorUtmSource = extractUtmSourceFromUrl(visitorUrl);
       }
 
       // 3) Tous les reps sales de l'org (source of truth)
       const rawReps = await ctx.db
         .query("repsPresence")
-        .withIndex("by_org_role", (q) =>
-          q.eq("organizationId", organizationId).eq("role", "sales"),
-        )
+        .withIndex("by_org_role", (q) => q.eq("organizationId", organizationId).eq("role", "sales"))
         .collect();
 
-      // ✅ on filtre uniquement sur "available" (pas sur users table)
+      // ✅ uniquement dispo
       const availableReps = rawReps.filter((r) => r.available);
-
       if (!availableReps.length) return [] as PublicRep[];
 
       // 4) Territories pour countryCode
@@ -83,11 +90,12 @@ export const listRepsForVisitor = query({
           .map((t) => t.key);
       }
 
-      // 5) Routing rules
+      // 5) Routing rules (priority order)
       const rules = await ctx.db
         .query("routingRules")
         .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
-        .collect();
+        .order("asc")
+        .take(100);
 
       const ruleMatchesVisitor = (rule: Doc<"routingRules">): boolean => {
         const match = rule.match ?? {};
@@ -101,14 +109,13 @@ export const listRepsForVisitor = query({
 
         if (matchUrlIncludes && matchUrlIncludes.length) {
           if (!visitorUrl) return false;
-          const ok = matchUrlIncludes.some((sub: string) => visitorUrl.includes(sub));
+          const url = visitorUrl.toLowerCase();
+          const ok = matchUrlIncludes.some((sub: string) => url.includes(sub.toLowerCase()));
           if (!ok) return false;
         }
 
         if (matchUtmSourceArr && matchUtmSourceArr.length) {
-          if (!visitorUtmSource || !matchUtmSourceArr.includes(visitorUtmSource)) {
-            return false;
-          }
+          if (!visitorUtmSource || !matchUtmSourceArr.includes(visitorUtmSource)) return false;
         }
 
         return true;
@@ -142,7 +149,7 @@ export const listRepsForVisitor = query({
         }
       }
 
-      // fallback geo
+      // 6) fallback geo (si aucune rule match)
       if (!ruleApplied && visitorTerritoryKeys.length > 0) {
         const geoFiltered = availableReps.filter((r) => {
           const repsRegions: string[] = r.regions ?? [];
@@ -152,7 +159,7 @@ export const listRepsForVisitor = query({
         if (geoFiltered.length > 0) matchedReps = geoFiltered;
       }
 
-      // 6) Enrichissement profil (best effort)
+      // 7) Enrichissement profil (best effort)
       const users = await ctx.db
         .query("users")
         .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
@@ -160,7 +167,7 @@ export const listRepsForVisitor = query({
 
       const byExternalId = new Map(users.map((u) => [u.externalId, u]));
 
-      const result: PublicRep[] = matchedReps.map((rep) => {
+      return matchedReps.map((rep) => {
         const u = byExternalId.get(rep.userId);
 
         return {
@@ -173,8 +180,6 @@ export const listRepsForVisitor = query({
           available: rep.available,
         };
       });
-
-      return result;
     } catch (e) {
       console.log("routing.listRepsForVisitor error:", e);
       return [] as PublicRep[];
