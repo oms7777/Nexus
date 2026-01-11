@@ -293,15 +293,15 @@ type SuggestionsPayload = {
       case "nexus:session-ready": {
         if (!organizationId) return;
         if (!payload || typeof payload.sessionId !== "string") return;
-        if (trackingStarted) return;
+        //if (trackingStarted) return;
 
-        trackingStarted = true;
-        trackingSessionId = payload.sessionId;
+        //trackingStarted = true;
+        //trackingSessionId = payload.sessionId;
 
-        initVisitorTracking({
-          orgId: organizationId,
-          sessionId: payload.sessionId,
-        });
+        //initVisitorTracking({
+          //orgId: organizationId,
+          //sessionId: payload.sessionId,
+        //});
 
         break;
       }
