@@ -49,6 +49,17 @@ type SuggestionsPayload = {
 };
 
 (function () {
+  /**
+   * ✅ HARD GUARDS (definitive fix)
+   * - Prevents double-injection from patching history multiple times
+   * - Prevents duplicate DOM / listeners in SPA / Next / HMR / copy-paste twice
+   */
+  const W = window as any;
+
+  // If already loaded, do nothing (but keep existing widget alive)
+  if (W.__NEXUS_WIDGET_LOADED__ && W.NexusWidget) return;
+  W.__NEXUS_WIDGET_LOADED__ = true;
+
   // DOM
   let iframe: HTMLIFrameElement | null = null;
   let container: HTMLDivElement | null = null;
@@ -118,6 +129,9 @@ type SuggestionsPayload = {
   }
 
   function render() {
+    // If already rendered in this page, don't render again
+    if (document.getElementById("nexus-widget-button")) return;
+
     // ----- FAB (chat bubble) -----
     button = document.createElement("button");
     button.id = "nexus-widget-button";
@@ -202,10 +216,8 @@ type SuggestionsPayload = {
     container.appendChild(iframe);
     document.body.appendChild(container);
 
-    // Messaging
-    window.addEventListener("message", handleMessage);
-    patchHistoryForSpa();
-    window.addEventListener("popstate", sendParentLocation);
+    // Messaging (guarded globally)
+    attachGlobalListenersOnce();
 
     // Nudge positioning
     window.addEventListener("resize", placeNudge);
@@ -371,14 +383,43 @@ type SuggestionsPayload = {
     postToWidget({ type: "nexus:parent-location", href: location.href });
   }
 
+  /**
+   * ✅ Definitive fix: prevent multiple history patches + listener duplicates.
+   */
+  function attachGlobalListenersOnce() {
+    const W = window as any;
+
+    if (!W.__NEXUS_WIDGET_GLOBAL_LISTENERS__) {
+      W.__NEXUS_WIDGET_GLOBAL_LISTENERS__ = true;
+
+      window.addEventListener("message", handleMessage);
+      window.addEventListener("popstate", sendParentLocation);
+
+      patchHistoryForSpa();
+    }
+  }
+
   function patchHistoryForSpa() {
+    const W = window as any;
+
+    // ✅ patch only once globally
+    if (W.__NEXUS_WIDGET_HISTORY_PATCHED__) return;
+    W.__NEXUS_WIDGET_HISTORY_PATCHED__ = true;
+
     (["pushState", "replaceState"] as const).forEach((fn) => {
       const orig = (history as any)[fn];
-      (history as any)[fn] = function (...args: any[]) {
+
+      // ✅ do not wrap if already wrapped (double injection / hmr / client paste twice)
+      if (orig && (orig as any).__nexusPatched) return;
+
+      const wrapped = function (this: History, ...args: any[]) {
         const ret = orig.apply(this, args);
         if (iframeLoaded) sendParentLocation();
         return ret;
       };
+
+      (wrapped as any).__nexusPatched = true;
+      (history as any)[fn] = wrapped;
     });
   }
 
@@ -1039,8 +1080,7 @@ type SuggestionsPayload = {
   /* ---------------- Lifecycle ---------------- */
 
   function destroy() {
-    window.removeEventListener("message", handleMessage);
-    window.removeEventListener("popstate", sendParentLocation);
+    // NOTE: we do not remove global listeners / history patch to avoid breaking host apps.
     window.removeEventListener("resize", placeNudge);
     window.removeEventListener("scroll", placeNudge);
     removeNudge();
