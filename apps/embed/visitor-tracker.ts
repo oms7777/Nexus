@@ -112,11 +112,11 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     });
 
     // Curseur live
-    //document.addEventListener("mousemove", (e) => {
-      //channel.trigger("client-cursor", {
-        //x: e.clientX / window.innerWidth,
-        //y: e.clientY / window.innerHeight,
-      //});
-    //});
+    document.addEventListener("mousemove", (e) => {
+      channel.trigger("client-cursor", {
+        x: e.clientX / window.innerWidth,
+        y: e.clientY / window.innerHeight,
+      });
+    });
   });
 }

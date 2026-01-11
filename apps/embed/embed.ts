@@ -183,23 +183,23 @@ type SuggestionsPayload = {
     `;
 
     // ----- Iframe -----
-    iframe = document.createElement("iframe");
-    iframe.src = buildWidgetUrl();
-    iframe.allow = "microphone; clipboard-read; clipboard-write";
-    iframe.style.cssText = `width:100%;height:100%;border:none;`;
+    //iframe = document.createElement("iframe");
+    //iframe.src = buildWidgetUrl();
+    //iframe.allow = "microphone; clipboard-read; clipboard-write";
+    //iframe.style.cssText = `width:100%;height:100%;border:none;`;
 
-    iframe.onload = () => {
-      iframeLoaded = true;
-      TARGET_ORIGIN = new URL(iframe!.src).origin;
+    //iframe.onload = () => {
+      //iframeLoaded = true;
+      //TARGET_ORIGIN = new URL(iframe!.src).origin;
 
-      postToWidget({ type: "nexus:embed-ready" });
-      sendParentLocation();
+      //postToWidget({ type: "nexus:embed-ready" });
+      //sendParentLocation();
 
       // ✅ si theme déjà reçu (rare), l’appliquer maintenant
-      applyThemeToFab();
-    };
+      //applyThemeToFab();
+    //};
 
-    container.appendChild(iframe);
+    //container.appendChild(iframe);
     document.body.appendChild(container);
 
     // Messaging
