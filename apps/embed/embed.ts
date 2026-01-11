@@ -203,13 +203,13 @@ type SuggestionsPayload = {
     document.body.appendChild(container);
 
     // Messaging
-    window.addEventListener("message", handleMessage);
-    patchHistoryForSpa();
-    window.addEventListener("popstate", sendParentLocation);
+    //window.addEventListener("message", handleMessage);
+    //patchHistoryForSpa();
+    //window.addEventListener("popstate", sendParentLocation);
 
     // Nudge positioning
-    window.addEventListener("resize", placeNudge);
-    window.addEventListener("scroll", placeNudge, { passive: true });
+    //window.addEventListener("resize", placeNudge);
+    //window.addEventListener("scroll", placeNudge, { passive: true });
   }
 
   function buildWidgetUrl(): string {
