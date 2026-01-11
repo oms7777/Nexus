@@ -30,7 +30,6 @@ type PromoPayload = {
   badgeText?: string;
   privacyUrl?: string;
 
-  // Thème & branding envoyés par le widget
   theme?: ThemePayload;
   brandLogoUrl?: string;
 
@@ -39,7 +38,6 @@ type PromoPayload = {
   canUseVoice?: boolean;
 };
 
-// ✅ NEW: Suggestions nudge (Starter = chips)
 type SuggestionsPayload = {
   greetMessage?: string;
   suggestions: string[];
@@ -50,15 +48,33 @@ type SuggestionsPayload = {
 
 (function () {
   /**
-   * ✅ HARD GUARDS (definitive fix)
-   * - Prevents double-injection from patching history multiple times
-   * - Prevents duplicate DOM / listeners in SPA / Next / HMR / copy-paste twice
+   * ✅ HARD GUARDS
+   * - Avoid double injection / HMR / SPA causing infinite listeners and history patches
+   * - Adds URL debug switches to diagnose freezes without DevTools
+   * - Throttles scroll/resize nudge positioning (common freeze cause)
    */
   const W = window as any;
 
-  // If already loaded, do nothing (but keep existing widget alive)
+  // Already loaded? exit (keep existing widget instance alive)
   if (W.__NEXUS_WIDGET_LOADED__ && W.NexusWidget) return;
   W.__NEXUS_WIDGET_LOADED__ = true;
+
+  // ✅ Debug switches (no console needed)
+  // ?nexus=0  -> disable widget entirely
+  // ?nudge=0  -> disable nudge
+  // ?track=0  -> disable tracking
+  // ?spa=0    -> disable history patch + parent-location spam
+  const DEBUG = { nexus: true, nudge: true, track: true, spa: true };
+
+  try {
+    const qs = new URL(window.location.href).searchParams;
+    if (qs.get("nexus") === "0") return;
+    if (qs.get("nudge") === "0") DEBUG.nudge = false;
+    if (qs.get("track") === "0") DEBUG.track = false;
+    if (qs.get("spa") === "0") DEBUG.spa = false;
+  } catch {
+    // ignore
+  }
 
   // DOM
   let iframe: HTMLIFrameElement | null = null;
@@ -69,7 +85,7 @@ type SuggestionsPayload = {
 
   // State
   let isOpen = false;
-  let hasNudgePayload = false; // ✅ was hasPromoPayload
+  let hasNudgePayload = false;
   let nudgeDismissed = false;
   let iframeLoaded = false;
   let TARGET_ORIGIN = "";
@@ -86,8 +102,19 @@ type SuggestionsPayload = {
   let theme: ThemePayload | null = null;
   let brandLogoUrl: string | null = null;
 
-  // ✅ NEW: éviter le flash bleu
+  // Prevent flash
   let fabRevealed = false;
+
+  // ✅ RAF throttle for placeNudge (avoid layout thrash / freeze)
+  let placeNudgeRaf = 0;
+  function schedulePlaceNudge() {
+    if (!DEBUG.nudge) return;
+    if (placeNudgeRaf) return;
+    placeNudgeRaf = window.requestAnimationFrame(() => {
+      placeNudgeRaf = 0;
+      placeNudge();
+    });
+  }
 
   // ----- Read attributes from <script> -----
   const currentScript = document.currentScript as HTMLScriptElement | null;
@@ -114,7 +141,10 @@ type SuggestionsPayload = {
   }
 
   if (!organizationId) {
-    console.error("Nexus Widget: data-organization-id attribute is required");
+    // no console reliance; but still log if possible
+    try {
+      console.error("Nexus Widget: data-organization-id attribute is required");
+    } catch {}
     return;
   }
 
@@ -132,14 +162,11 @@ type SuggestionsPayload = {
     // If already rendered in this page, don't render again
     if (document.getElementById("nexus-widget-button")) return;
 
-    // ----- FAB (chat bubble) -----
+    // ----- FAB -----
     button = document.createElement("button");
     button.id = "nexus-widget-button";
     button.innerHTML = chatBubbleIcon;
 
-    // ✅ IMPORTANT:
-    // - bouton invisible tant qu'on n'a pas reçu theme/promo/suggestions
-    // - supprime le flash “bleu”
     button.style.cssText = `
       all: unset;
       position: fixed;
@@ -207,21 +234,23 @@ type SuggestionsPayload = {
       TARGET_ORIGIN = new URL(iframe!.src).origin;
 
       postToWidget({ type: "nexus:embed-ready" });
-      sendParentLocation();
 
-      // ✅ si theme déjà reçu (rare), l’appliquer maintenant
+      // ✅ avoid parent-location spam if SPA debug disabled
+      if (DEBUG.spa) sendParentLocation();
+
+      // apply theme if already received
       applyThemeToFab();
     };
 
     container.appendChild(iframe);
     document.body.appendChild(container);
 
-    // Messaging (guarded globally)
+    // Messaging + SPA patch guarded globally
     attachGlobalListenersOnce();
 
-    // Nudge positioning
-    window.addEventListener("resize", placeNudge);
-    window.addEventListener("scroll", placeNudge, { passive: true });
+    // ✅ Nudge positioning (throttled)
+    window.addEventListener("resize", schedulePlaceNudge);
+    window.addEventListener("scroll", schedulePlaceNudge, { passive: true });
   }
 
   function buildWidgetUrl(): string {
@@ -235,7 +264,7 @@ type SuggestionsPayload = {
   function handleMessage(event: MessageEvent) {
     const { type, payload } = event.data || {};
 
-    // Si iframe chargée, on sécurise l'origin
+    // Secure origin after iframe loaded
     if (iframeLoaded && TARGET_ORIGIN && event.origin !== TARGET_ORIGIN) return;
 
     switch (type) {
@@ -249,10 +278,6 @@ type SuggestionsPayload = {
         }
         break;
 
-      /**
-       * ✅ thème envoyé dès le loading screen
-       * payload: { theme, brandLogoUrl }
-       */
       case "nexus:theme": {
         const p = payload as { theme?: ThemePayload; brandLogoUrl?: string };
         theme = p?.theme || null;
@@ -261,11 +286,10 @@ type SuggestionsPayload = {
         break;
       }
 
-      // ✅ NEW: Starter suggestions nudge (chips)
       case "nexus:suggestions": {
         const sp = payload as SuggestionsPayload;
 
-        if (!NUDGE_ENABLED) return;
+        if (!NUDGE_ENABLED || !DEBUG.nudge) return;
 
         hasNudgePayload = true;
 
@@ -280,6 +304,7 @@ type SuggestionsPayload = {
       case "nexus:promo": {
         const promoPayload = payload as PromoPayload;
 
+        // ack best effort
         iframe?.contentWindow?.postMessage(
           { type: "nexus:host-ack" },
           TARGET_ORIGIN || "*",
@@ -289,11 +314,10 @@ type SuggestionsPayload = {
           TARGET_ORIGIN || "*",
         );
 
-        if (!NUDGE_ENABLED) return;
+        if (!NUDGE_ENABLED || !DEBUG.nudge) return;
 
         hasNudgePayload = true;
 
-        // Thème + logo venant du widget
         theme = promoPayload.theme || theme || null;
         brandLogoUrl = promoPayload.brandLogoUrl || brandLogoUrl || null;
 
@@ -309,6 +333,9 @@ type SuggestionsPayload = {
 
         trackingStarted = true;
         trackingSessionId = payload.sessionId;
+
+        // ✅ tracking kill-switch (common freeze cause)
+        if (!DEBUG.track) return;
 
         initVisitorTracking({
           orgId: organizationId,
@@ -327,7 +354,7 @@ type SuggestionsPayload = {
     if (!button) return;
     if (fabRevealed) return;
 
-    // ✅ On rend visible dès qu'on a un theme OU un logo OU un nudge payload
+    // Reveal once we have a theme OR logo OR a nudge payload
     if (!theme && !brandLogoUrl && !hasNudgePayload) return;
 
     fabRevealed = true;
@@ -345,13 +372,11 @@ type SuggestionsPayload = {
     button.style.background = bubbleColor;
     button.style.color = textColor;
 
-    // ✅ NEW: plus de flash bleu
     revealFabIfNeeded();
 
-    // Si le widget est ouvert, on garde le X (ne pas remplacer innerHTML)
+    // Keep X if open
     if (isOpen) return;
 
-    // Si un logo est défini → on l'affiche dans la bulle
     if (brandLogoUrl) {
       const safeLogo = escapeAttr(brandLogoUrl);
       button.innerHTML = `
@@ -379,7 +404,15 @@ type SuggestionsPayload = {
     iframe.contentWindow.postMessage(msg, origin);
   }
 
+  // ✅ throttle parent-location to avoid message storms
+  let lastParentLocationSentAt = 0;
   function sendParentLocation() {
+    if (!DEBUG.spa) return;
+
+    const now = Date.now();
+    if (now - lastParentLocationSentAt < 250) return;
+    lastParentLocationSentAt = now;
+
     postToWidget({ type: "nexus:parent-location", href: location.href });
   }
 
@@ -389,31 +422,31 @@ type SuggestionsPayload = {
   function attachGlobalListenersOnce() {
     const W = window as any;
 
-    if (!W.__NEXUS_WIDGET_GLOBAL_LISTENERS__) {
-      W.__NEXUS_WIDGET_GLOBAL_LISTENERS__ = true;
+    if (W.__NEXUS_WIDGET_GLOBAL_LISTENERS__) return;
+    W.__NEXUS_WIDGET_GLOBAL_LISTENERS__ = true;
 
-      window.addEventListener("message", handleMessage);
-      window.addEventListener("popstate", sendParentLocation);
+    window.addEventListener("message", handleMessage);
+    window.addEventListener("popstate", sendParentLocation);
 
-      patchHistoryForSpa();
-    }
+    if (DEBUG.spa) patchHistoryForSpa();
   }
 
   function patchHistoryForSpa() {
     const W = window as any;
 
-    // ✅ patch only once globally
     if (W.__NEXUS_WIDGET_HISTORY_PATCHED__) return;
     W.__NEXUS_WIDGET_HISTORY_PATCHED__ = true;
 
     (["pushState", "replaceState"] as const).forEach((fn) => {
       const orig = (history as any)[fn];
+      if (!orig) return;
 
-      // ✅ do not wrap if already wrapped (double injection / hmr / client paste twice)
-      if (orig && (orig as any).__nexusPatched) return;
+      // prevent double wrap
+      if ((orig as any).__nexusPatched) return;
 
       const wrapped = function (this: History, ...args: any[]) {
         const ret = orig.apply(this, args);
+        // ✅ send is throttled
         if (iframeLoaded) sendParentLocation();
         return ret;
       };
@@ -425,9 +458,8 @@ type SuggestionsPayload = {
 
   /* ---------------- Nudge ---------------- */
 
-  // ✅ NEW: Starter nudge = chips
   function renderSuggestionsNudge(payload: SuggestionsPayload) {
-    if (!NUDGE_ENABLED) return;
+    if (!NUDGE_ENABLED || !DEBUG.nudge) return;
 
     const palette: ThemePayload = payload.theme || theme || {};
     const primaryColor = palette.primaryColor || "#0ea5e9";
@@ -554,7 +586,7 @@ type SuggestionsPayload = {
       });
     });
 
-    placeNudge();
+    schedulePlaceNudge();
     if (!isOpen && !nudgeDismissed) {
       requestAnimationFrame(() => {
         if (nudge) {
@@ -567,7 +599,7 @@ type SuggestionsPayload = {
   }
 
   function renderNudge(payload: PromoPayload) {
-    if (!NUDGE_ENABLED) return;
+    if (!NUDGE_ENABLED || !DEBUG.nudge) return;
 
     const palette: ThemePayload = payload.theme || theme || {};
     const primaryColor = palette.primaryColor || "#0ea5e9";
@@ -576,7 +608,6 @@ type SuggestionsPayload = {
     const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
     const secondaryTextColor = palette.secondaryTextColor || "#111827";
 
-    // ✅ NEW: couleurs micro = bubble (branding)
     const micBg = palette.chatBubbleColor || palette.primaryColor || "#3b82f6";
     const micFg = palette.primaryTextColor || "#ffffff";
     const canUseVoice = payload.canUseVoice !== false;
@@ -618,18 +649,12 @@ type SuggestionsPayload = {
       document.body.appendChild(caret);
     }
 
-    const avatars = Array.isArray(payload.avatars)
-      ? payload.avatars.slice(0, 3)
-      : [];
-
+    const avatars = Array.isArray(payload.avatars) ? payload.avatars.slice(0, 3) : [];
     const ctaList: SimpleCta[] =
-      Array.isArray(payload.ctaList) && payload.ctaList.length
-        ? payload.ctaList
-        : [];
+      Array.isArray(payload.ctaList) && payload.ctaList.length ? payload.ctaList : [];
 
     const hasMulti = ctaList.length > 0;
-    const identityMode: "auto" | "logo" | "avatars" =
-      payload.identityMode || "auto";
+    const identityMode: "auto" | "logo" | "avatars" = payload.identityMode || "auto";
 
     let identityHtml = "";
 
@@ -659,9 +684,7 @@ type SuggestionsPayload = {
               width:26px;height:26px;border-radius:9999px;object-fit:cover;
               border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
               position: relative; ${
-                i
-                  ? `margin-left:-10px; z-index:${10 - i};`
-                  : "z-index:10;"
+                i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
               }
             " />`,
           )
@@ -691,9 +714,7 @@ type SuggestionsPayload = {
               width:26px;height:26px;border-radius:9999px;object-fit:cover;
               border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
               position: relative; ${
-                i
-                  ? `margin-left:-10px; z-index:${10 - i};`
-                  : "z-index:10;"
+                i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
               }
             " />`,
           )
@@ -809,7 +830,6 @@ type SuggestionsPayload = {
         </div>
       `;
 
-    // ✅ micro au milieu sous le texte
     const micHtml = canUseVoice
       ? `
         <div style="display:flex;justify-content:center;margin-top:10px;">
@@ -919,10 +939,8 @@ type SuggestionsPayload = {
         btn.addEventListener("click", () => runNudgeCta(idx));
       });
     } else {
-      const primaryBtn =
-        nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
-      const secondaryBtn =
-        nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
+      const primaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
+      const secondaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
       primaryBtn?.addEventListener("click", () => openChat());
       secondaryBtn?.addEventListener("click", () => openBooking());
     }
@@ -932,7 +950,7 @@ type SuggestionsPayload = {
       removeNudge();
     });
 
-    placeNudge();
+    schedulePlaceNudge();
     if (!isOpen && !nudgeDismissed) {
       requestAnimationFrame(() => {
         if (nudge) {
@@ -1041,7 +1059,7 @@ type SuggestionsPayload = {
     button.innerHTML = closeIcon;
     applyThemeToFab();
 
-    sendParentLocation();
+    if (DEBUG.spa) sendParentLocation();
   }
 
   function hide() {
@@ -1055,15 +1073,14 @@ type SuggestionsPayload = {
     button.innerHTML = chatBubbleIcon;
     applyThemeToFab();
 
-    // ✅ was hasPromoPayload
-    if (!nudgeDismissed && hasNudgePayload && nudge && caret) {
+    if (!nudgeDismissed && hasNudgePayload && nudge && caret && DEBUG.nudge) {
       nudge.style.display = "block";
       nudge.style.opacity = "1";
       nudge.style.transform = "translateY(0)";
       caret.style.display = "block";
       caret.style.opacity = "1";
-      placeNudge();
-      postToWidget({ type: "nexus:parent-location", href: location.href });
+      schedulePlaceNudge();
+      if (DEBUG.spa) sendParentLocation();
     }
   }
 
@@ -1080,9 +1097,8 @@ type SuggestionsPayload = {
   /* ---------------- Lifecycle ---------------- */
 
   function destroy() {
-    // NOTE: we do not remove global listeners / history patch to avoid breaking host apps.
-    window.removeEventListener("resize", placeNudge);
-    window.removeEventListener("scroll", placeNudge);
+    window.removeEventListener("resize", schedulePlaceNudge);
+    window.removeEventListener("scroll", schedulePlaceNudge);
     removeNudge();
 
     if (container) {
@@ -1103,7 +1119,7 @@ type SuggestionsPayload = {
     theme = null;
     brandLogoUrl = null;
     fabRevealed = false;
-    hasNudgePayload = false; // ✅ reset
+    hasNudgePayload = false;
     nudgeDismissed = false;
   }
 
