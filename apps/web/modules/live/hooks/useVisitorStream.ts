@@ -21,10 +21,10 @@ export function useVisitorStream(opts: { orgId: string; sessionId: string }) {
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
       forceTLS: true,
+      disableStats: true,
 
-      // ✅ IMPORTANT: jamais de xhr_streaming / xhr_polling
       enabledTransports: ["ws", "wss"],
-      disabledTransports: ["xhr_streaming", "xhr_polling"],
+      disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
 
       authEndpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
       channelAuthorization: {
@@ -32,6 +32,7 @@ export function useVisitorStream(opts: { orgId: string; sessionId: string }) {
         transport: "ajax",
       },
     });
+
 
     const chanName = `presence-org_${orgId}_session_${sessionId}`;
     const ch = pusher.subscribe(chanName) as Channel;
