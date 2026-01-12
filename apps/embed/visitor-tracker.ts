@@ -4,17 +4,15 @@ import type { eventWithTime, listenerHandler } from "@rrweb/types";
 import Pusher, { type Channel } from "pusher-js";
 
 let started = false;
-let channelRef: Channel | null = null;
+
 let pusherRef: Pusher | null = null;
+let channelRef: Channel | null = null;
 
 let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 
 let stopRecording: (() => void) | null = null;
 let stopFlushTimer: (() => void) | null = null;
-
-// cursor
-let stopCursor: (() => void) | null = null;
 
 // Live batching
 let liveQueue: eventWithTime[] = [];
@@ -37,8 +35,8 @@ const MAX_EVENT_BYTES = 9_000;
 const FLUSH_EVERY_MS = 250;
 
 // Safety caps
-const MAX_SNAPSHOT_BUFFER_EVENTS = 6_000;
-const MAX_QUEUE_EVENTS = 1_500;
+const MAX_SNAPSHOT_BUFFER_EVENTS = 6_000; // avoid runaway memory if snapshot never sends
+const MAX_QUEUE_EVENTS = 1_500; // if queue floods, drop oldest
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
@@ -54,11 +52,6 @@ function cleanup() {
     stopFlushTimer?.();
   } catch {}
   stopFlushTimer = null;
-
-  try {
-    stopCursor?.();
-  } catch {}
-  stopCursor = null;
 
   try {
     channelRef?.unbind_all();
@@ -89,20 +82,22 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   // never track inside widget iframe
   if (window.self !== window.top) return;
 
-  started = true;
-
-  // ✅ MAJ: purge Pusher “transport memory” (cause classique de freeze)
-  // Si Pusher a mémorisé xhr_streaming, ça peut créer une tempête de requêtes au refresh.
+  // ✅ Purge du transport cache (cause principale du freeze au refresh)
   try {
-    window.localStorage.removeItem("pusherTransportTLS");
+    localStorage.removeItem("pusherTransportTLS");
+    localStorage.removeItem("pusherTransportNonTLS");
   } catch {}
 
-  // ✅ MAJ: force WebSocket only (évite xhr_streaming / xhr_polling)
+  started = true;
+
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
+
+    // ✅ IMPORTANT: jamais de xhr_streaming / xhr_polling
     enabledTransports: ["ws", "wss"],
-    disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
+    disabledTransports: ["xhr_streaming", "xhr_polling"],
+
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
@@ -125,31 +120,32 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
     try {
       const chunk = liveQueue.splice(0, 120);
-      const filtered = chunk.filter((e) => e.type !== 2); // never send FullSnapshot
-      if (filtered.length === 0) {
-        flushing = false;
-        return;
-      }
+
+      // Never send FullSnapshot over Pusher
+      const filtered = chunk.filter((e) => e.type !== 2);
+      if (filtered.length === 0) return;
 
       const payload = { events: filtered };
       const json = JSON.stringify(payload);
       const bytes = safeBytes(json);
 
-      // split progressively if too big
+      // If too big, split progressively
       if (bytes > MAX_EVENT_BYTES && filtered.length > 1) {
+        // Put back and split smaller
         liveQueue.unshift(...filtered);
+
         const half = Math.ceil(filtered.length / 2);
         const a = liveQueue.splice(0, half);
         const b = liveQueue.splice(0, half);
+
+        // Push back remainder (keep order)
         liveQueue.unshift(...b);
         liveQueue.unshift(...a);
-        flushing = false;
         return;
       }
 
       // If even one event too big → skip it
       if (bytes > MAX_EVENT_BYTES && filtered.length === 1) {
-        flushing = false;
         return;
       }
 
@@ -161,11 +157,11 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     }
   };
 
+  // Timer flush
   const timer = window.setInterval(flush, FLUSH_EVERY_MS);
   stopFlushTimer = () => window.clearInterval(timer);
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // ✅ rrweb recording with sampling
     const stop: listenerHandler | undefined = record({
       sampling: {
         mousemove: 120,
@@ -177,8 +173,10 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
         try {
           const isFullSnapshot = event.type === 2;
 
+          // Buffer early events until snapshot is sent
           if (!snapshotSent) {
             snapshotBuffer.push(event);
+
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
               snapshotBuffer.splice(
                 0,
@@ -187,8 +185,10 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
             }
           }
 
+          // First FullSnapshot -> send snapshot to backend
           if (isFullSnapshot && !snapshotSent) {
             snapshotSent = true;
+
             const snapshotEvents = [...snapshotBuffer];
             snapshotBuffer = [];
 
@@ -201,16 +201,20 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
                 events: snapshotEvents,
               }),
             }).catch(() => {
-              // best effort only
+              // Do not block UI
             });
 
-            return; // don't enqueue FullSnapshot for live
+            return; // do not enqueue the FullSnapshot for live
           }
 
+          // until snapshot sent, no live streaming
           if (!snapshotSent) return;
+
+          // never send FullSnapshot via pusher
           if (isFullSnapshot) return;
 
           liveQueue.push(event);
+
           if (liveQueue.length > MAX_QUEUE_EVENTS) {
             liveQueue.splice(0, liveQueue.length - MAX_QUEUE_EVENTS);
           }
@@ -221,36 +225,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     });
 
     stopRecording = stop ? (() => stop()) : null;
-
-    // ✅ MAJ: live cursor (throttled via RAF)
-    let raf = 0;
-    let lastX = 0;
-    let lastY = 0;
-
-    const onMove = (e: MouseEvent) => {
-      if (!snapshotSent || !channelRef) return;
-
-      lastX = e.clientX / window.innerWidth;
-      lastY = e.clientY / window.innerHeight;
-
-      if (raf) return;
-      raf = window.requestAnimationFrame(() => {
-        raf = 0;
-        if (!snapshotSent || !channelRef) return;
-        channelRef.trigger("client-cursor", { x: lastX, y: lastY });
-      });
-    };
-
-    document.addEventListener("mousemove", onMove, { passive: true });
-    stopCursor = () => document.removeEventListener("mousemove", onMove);
   });
 
   channel.bind("pusher:subscription_error", () => {
-    cleanup();
-  });
-
-  // bonus: si pusher se déconnecte, on nettoie pour éviter les loops “zombies”
-  pusher.connection.bind("disconnected", () => {
     cleanup();
   });
 }

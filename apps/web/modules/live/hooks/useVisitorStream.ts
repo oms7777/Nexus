@@ -4,29 +4,29 @@
 import { useEffect, useRef, useState } from "react";
 import Pusher, { type Channel } from "pusher-js";
 
-export function useVisitorStream(opts: {
-  orgId: string;
-  sessionId: string;
-  onRrwebEvents?: (events: any[]) => void;
-}) {
-  const { orgId, sessionId, onRrwebEvents } = opts;
-
+export function useVisitorStream(opts: { orgId: string; sessionId: string }) {
+  const { orgId, sessionId } = opts;
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const chanRef = useRef<Channel | null>(null);
 
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
-    // ✅ MAJ: force WS only (évite xhr_streaming qui peut freeze)
+    // ✅ Purge du transport cache (cause principale du freeze au refresh)
     try {
-      window.localStorage.removeItem("pusherTransportTLS");
+      localStorage.removeItem("pusherTransportTLS");
+      localStorage.removeItem("pusherTransportNonTLS");
     } catch {}
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
       forceTLS: true,
+
+      // ✅ IMPORTANT: jamais de xhr_streaming / xhr_polling
       enabledTransports: ["ws", "wss"],
-      disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
+      disabledTransports: ["xhr_streaming", "xhr_polling"],
+
+      authEndpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
       channelAuthorization: {
         endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
         transport: "ajax",
@@ -37,27 +37,41 @@ export function useVisitorStream(opts: {
     const ch = pusher.subscribe(chanName) as Channel;
     chanRef.current = ch;
 
+    if (typeof window !== "undefined") {
+      (window as any).__inboundlessStreamChannel = ch;
+    }
+
     ch.bind("pusher:subscription_succeeded", () => {
-      // ok
+      console.log("[stream] subscription_succeeded", chanName);
     });
 
+    ch.bind("pusher:subscription_error", (status: any) => {
+      console.warn("[stream] subscription_error", status);
+    });
+
+    // Live cursor
     ch.bind("client-cursor", (p: { x: number; y: number }) => {
       setCursor(p);
     });
 
-    // ✅ MAJ: rrweb events live
+    // Debug rrweb events if needed
     ch.bind("client-rrweb", (payload: any) => {
-      const events = Array.isArray(payload?.events) ? payload.events : [];
-      if (events.length && onRrwebEvents) onRrwebEvents(events);
+      // console.log("[stream] client-rrweb raw payload:", payload);
     });
 
     return () => {
-      ch.unbind_all();
-      pusher.unsubscribe(chanName);
-      pusher.disconnect();
+      try {
+        ch.unbind_all();
+      } catch {}
+      try {
+        pusher.unsubscribe(chanName);
+      } catch {}
+      try {
+        pusher.disconnect();
+      } catch {}
       chanRef.current = null;
     };
-  }, [orgId, sessionId, onRrwebEvents]);
+  }, [orgId, sessionId]);
 
   return { cursor };
 }
