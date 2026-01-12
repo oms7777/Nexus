@@ -1,7 +1,7 @@
 // apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
@@ -15,9 +15,10 @@ export function LiveVisitorView({
   sessionId,
 }: {
   orgId: string;
-  sessionId: string; // contactSession._id casté en string dans ContactPanel
+  sessionId: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const replayerRef = useRef<Replayer | null>(null);
 
   // 1) Dernier snapshot pour cette session
   const snaps =
@@ -28,7 +29,28 @@ export function LiveVisitorView({
 
   const latest = snaps[0];
 
-  // 2) On instancie un Replayer *statique* dès qu'on a un snapshot
+  const applyScale = useCallback(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    const content = root.firstElementChild as HTMLElement | null;
+    if (!content) return;
+
+    const rootRect = root.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    if (!contentRect.width || !contentRect.height) return;
+
+    const scale = Math.min(
+      rootRect.width / contentRect.width,
+      rootRect.height / contentRect.height,
+      1,
+    );
+
+    content.style.transformOrigin = "top left";
+    content.style.transform = `scale(${scale})`;
+  }, []);
+
+  // 2) Init Replayer depuis snapshot (une seule fois par snapshot)
   useEffect(() => {
     if (!containerRef.current) return;
     if (!latest?.snapshot) return;
@@ -36,60 +58,54 @@ export function LiveVisitorView({
     try {
       const events = JSON.parse(latest.snapshot) as eventWithTime[];
 
-      console.log("[live] init Replayer from snapshot", {
-        count: events.length,
-      });
-
-      // On nettoie le container
+      // clear UI
       containerRef.current.innerHTML = "";
 
       const replayer = new Replayer(events, {
         root: containerRef.current,
+        liveMode: true,
       });
 
-      // Comme dans l’exemple Medium : on lance le replay
+      replayerRef.current = replayer;
+
+      // on “play” pour que le DOM soit construit
       replayer.play();
 
-      // 🔍 IMPORTANT : on scale le contenu rrweb pour qu'il tienne
-      // entièrement dans le panneau de 360px de haut.
-      setTimeout(() => {
-        const root = containerRef.current;
-        if (!root) return;
-
-        // rrweb met son contenu dans le premier enfant du root
-        const content = root.firstElementChild as HTMLElement | null;
-        if (!content) return;
-
-        const rootRect = root.getBoundingClientRect();
-        const contentRect = content.getBoundingClientRect();
-
-        if (!contentRect.width || !contentRect.height) return;
-
-        const scale = Math.min(
-          rootRect.width / contentRect.width,
-          rootRect.height / contentRect.height,
-          1,
-        );
-
-        console.log("[live] apply scale", { scale, rootRect, contentRect });
-
-        content.style.transformOrigin = "top left";
-        content.style.transform = `scale(${scale})`;
-      }, 0);
+      // scale
+      setTimeout(applyScale, 0);
 
       return () => {
-        replayer.pause();
-        replayer.destroy();
+        try {
+          replayer.pause();
+          replayer.destroy();
+        } catch {}
+        replayerRef.current = null;
       };
-    } catch (err) {
-      console.error("[live] failed to init Replayer from snapshot", err);
+    } catch {
+      // ignore
     }
-  }, [latest?.snapshot]);
+  }, [latest?.snapshot, applyScale]);
 
-  // 3) Flux live Pusher juste pour le curseur
+  // 3) Live stream: curseur + rrweb events
   const { cursor } = useVisitorStream({
     orgId,
     sessionId,
+    onRrwebEvents: (events) => {
+      const r = replayerRef.current as any;
+      if (!r) return;
+
+      // ✅ MAJ: push live events into rrweb
+      for (const e of events) {
+        try {
+          r.addEvent(e);
+        } catch {
+          // ignore
+        }
+      }
+
+      // optional rescale (light)
+      requestAnimationFrame(() => applyScale());
+    },
   });
 
   return (
@@ -97,13 +113,8 @@ export function LiveVisitorView({
       className="relative rounded-xl border overflow-hidden bg-black/5"
       style={{ height: 360 }}
     >
-      {/* Zone où rrweb reconstruit la page */}
-      <div
-        ref={containerRef}
-        className="absolute inset-0 overflow-hidden"
-      />
+      <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
 
-      {/* Curseur live au-dessus */}
       {cursor && (
         <div
           className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none"
