@@ -10,6 +10,7 @@ function makeCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") ?? "*";
   return {
     "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Requested-With, Authorization",
     Vary: "Origin",
@@ -25,7 +26,6 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-
     const sessionIdRaw = body?.sessionId as string | undefined;
     const url = body?.url as string | undefined;
     const title = body?.title as string | undefined;
