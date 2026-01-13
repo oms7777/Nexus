@@ -9,22 +9,18 @@ let started = false;
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 
-// rrweb record() peut retourner undefined
 let stopRecording: listenerHandler | undefined;
 
-// timers / unsub
 let flushTimer: number | null = null;
 let uninstallNav: (() => void) | null = null;
-
-// ✅ mousemove listener ref (avoid leaks)
-let onMouseMoveRef: ((e: MouseEvent) => void) | null = null;
 
 let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 
-// Live batching
 let liveQueue: eventWithTime[] = [];
 let flushing = false;
+
+let onMouseMoveRef: ((e: MouseEvent) => void) | null = null;
 
 type VisitorTrackingOptions = {
   orgId: string;
@@ -36,28 +32,38 @@ const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
-// Pusher limit ~10KB per client event
-const MAX_EVENT_BYTES = 9_000;
+// ---------- SAFETY / PERF ----------
+const MAX_EVENT_BYTES = 8_500;
 
-// Flush cadence
-const FLUSH_EVERY_MS = 250;
+// ✅ much less aggressive
+const FLUSH_EVERY_MS = 450;
+const CURSOR_THROTTLE_MS = 120;
 
-// ✅ Memory safety caps
-const MAX_SNAPSHOT_BUFFER_EVENTS = 900;
-const MAX_QUEUE_EVENTS = 400;
+// ✅ hard memory caps (lower than before)
+const MAX_SNAPSHOT_BUFFER_EVENTS = 350;
+const MAX_QUEUE_EVENTS = 220;
 
-// ✅ Snapshot throttling
-const SNAPSHOT_COOLDOWN_MS = 1600;
+// ✅ snapshot rate limit
+const SNAPSHOT_COOLDOWN_MS = 2500;
 let lastSnapshotTs = 0;
 
-// ✅ Cursor throttling
-const CURSOR_THROTTLE_MS = 60;
-let lastCursorTs = 0;
-
-// ✅ Track nav changes
-let lastHref: string | null = null;
+// ✅ nav snapshot request throttling
+const NAV_SNAPSHOT_THROTTLE_MS = 2500;
 let lastNavSnapshotRequestTs = 0;
-const NAV_SNAPSHOT_THROTTLE_MS = 1200;
+
+// ✅ circuit breaker: if queue keeps exploding, stop tracking
+const QUEUE_OVERFLOW_HARD_LIMIT = 650;
+let overflowStrikes = 0;
+const MAX_OVERFLOW_STRIKES = 3;
+
+// ✅ avoid heavy work on hidden tabs
+function isHidden() {
+  try {
+    return document.visibilityState === "hidden";
+  } catch {
+    return false;
+  }
+}
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
@@ -88,7 +94,6 @@ function cleanup() {
     uninstallNav = null;
   }
 
-  // ✅ remove mousemove listener always (prevents leaks)
   if (onMouseMoveRef) {
     try {
       window.removeEventListener("mousemove", onMouseMoveRef);
@@ -112,9 +117,8 @@ function cleanup() {
   flushing = false;
 
   lastSnapshotTs = 0;
-  lastCursorTs = 0;
-  lastHref = null;
   lastNavSnapshotRequestTs = 0;
+  overflowStrikes = 0;
 
   started = false;
 }
@@ -123,18 +127,21 @@ export function destroyVisitorTracking() {
   cleanup();
 }
 
-/* ---------------- cursor ---------------- */
+// ---------------- cursor ----------------
 
+let lastCursorTs = 0;
 function normalizeCursor(e: MouseEvent) {
   const w = window.innerWidth || 1;
   const h = window.innerHeight || 1;
-  const x = Math.min(1, Math.max(0, e.clientX / w));
-  const y = Math.min(1, Math.max(0, e.clientY / h));
-  return { x, y };
+  return {
+    x: Math.min(1, Math.max(0, e.clientX / w)),
+    y: Math.min(1, Math.max(0, e.clientY / h)),
+  };
 }
 
 function triggerCursor(e: MouseEvent) {
   if (!channelRef) return;
+  if (isHidden()) return;
 
   const now = Date.now();
   if (now - lastCursorTs < CURSOR_THROTTLE_MS) return;
@@ -145,63 +152,40 @@ function triggerCursor(e: MouseEvent) {
   } catch {}
 }
 
-/* ---------------- snapshot posting ---------------- */
+// ---------------- snapshot posting ----------------
 
-async function postSnapshot(
-  orgId: string,
-  sessionId: string,
-  events: eventWithTime[]
-) {
+async function postSnapshot(orgId: string, sessionId: string, events: eventWithTime[]) {
   if (!events.length) return;
 
   const now = Date.now();
   if (now - lastSnapshotTs < SNAPSHOT_COOLDOWN_MS) return;
   lastSnapshotTs = now;
 
-  // ✅ hard safety: keep from FullSnapshot and trim tail
+  // keep from first FullSnapshot and trim tail hard
   const fullIndex = events.findIndex((e) => e.type === 2);
   if (fullIndex > 0) events = events.slice(fullIndex);
 
-  if (events.length > 900) {
+  // hard trim
+  if (events.length > 420) {
     const full = events.find((e) => e.type === 2);
-    const tail = events.slice(-400);
+    const tail = events.slice(-220);
     events = full ? [full, ...tail] : tail;
-  }
-
-  const body = JSON.stringify({ organizationId: orgId, sessionId, events });
-  if (safeBytes(body) > 1_700_000) {
-    const full = events.find((e) => e.type === 2);
-    const tail = events.slice(-200);
-    const smaller = full ? [full, ...tail] : tail;
-
-    try {
-      await fetch(SNAPSHOT_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organizationId: orgId,
-          sessionId,
-          events: smaller,
-        }),
-        keepalive: true,
-        mode: "cors",
-      });
-    } catch {}
-    return;
   }
 
   try {
     await fetch(SNAPSHOT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body,
+      body: JSON.stringify({ organizationId: orgId, sessionId, events }),
       keepalive: true,
       mode: "cors",
     });
   } catch {}
 }
 
-/* ---------------- SPA navigation watcher ---------------- */
+// ---------------- SPA nav watcher (light) ----------------
+
+let lastHref: string | null = null;
 
 function installNavigationWatcher(onChange: (href: string) => void) {
   if (typeof window === "undefined") return () => {};
@@ -221,7 +205,6 @@ function installNavigationWatcher(onChange: (href: string) => void) {
     originalPush(...args);
     emitIfChanged();
   };
-
   const patchedReplace: History["replaceState"] = (...args) => {
     originalReplace(...args);
     emitIfChanged();
@@ -247,7 +230,7 @@ function installNavigationWatcher(onChange: (href: string) => void) {
   };
 }
 
-/* ---------------- main init ---------------- */
+// ---------------- main init ----------------
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
@@ -282,19 +265,30 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     if (!snapshotSent) return;
     if (flushing) return;
     if (liveQueue.length === 0) return;
+    if (isHidden()) return;
+
+    // circuit breaker: too much => stop
+    if (liveQueue.length > QUEUE_OVERFLOW_HARD_LIMIT) {
+      overflowStrikes++;
+      liveQueue = liveQueue.slice(-MAX_QUEUE_EVENTS); // keep tail
+      if (overflowStrikes >= MAX_OVERFLOW_STRIKES) {
+        cleanup();
+      }
+      return;
+    }
 
     flushing = true;
+
     try {
-      const chunk = liveQueue.splice(0, 90);
+      const chunk = liveQueue.splice(0, 70);
       const filtered = chunk.filter((e) => e.type !== 2);
       if (!filtered.length) return;
 
       const payload = { events: filtered };
       const json = JSON.stringify(payload);
-      const bytes = safeBytes(json);
 
-      if (bytes > MAX_EVENT_BYTES) {
-        // trop gros => on drop ce batch (safety)
+      if (safeBytes(json) > MAX_EVENT_BYTES) {
+        // too big => drop this batch
         return;
       }
 
@@ -308,66 +302,56 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
   flushTimer = window.setInterval(flush, FLUSH_EVERY_MS);
 
-  // ---- cursor stream ----
+  // ---- cursor stream (optional but cheap) ----
   onMouseMoveRef = (e: MouseEvent) => triggerCursor(e);
   window.addEventListener("mousemove", onMouseMoveRef, { passive: true });
 
-  // ---- rrweb recording ----
   channel.bind("pusher:subscription_succeeded", () => {
-    // ✅ navigation watcher -> request new FullSnapshot (throttled) + reset gating
+    // ✅ on nav: DO NOT call takeFullSnapshot (can freeze)
+    // Instead: allow next FullSnapshot if rrweb emits one naturally
+    // And request a snapshot post from buffer the moment a FullSnapshot appears.
     uninstallNav = installNavigationWatcher(() => {
       const now = Date.now();
       if (now - lastNavSnapshotRequestTs < NAV_SNAPSHOT_THROTTLE_MS) return;
       lastNavSnapshotRequestTs = now;
 
-      // ✅ CRITICAL: allow next FullSnapshot to be accepted and posted
+      // allow next FullSnapshot to be accepted
       snapshotSent = false;
       snapshotBuffer = [];
-
-      try {
-        if (typeof (record as any).takeFullSnapshot === "function") {
-          (record as any).takeFullSnapshot();
-        }
-      } catch {}
     });
 
     stopRecording = record({
       sampling: {
-        mousemove: 140,
+        // ✅ less heavy
+        mousemove: 220,
         mouseInteraction: true,
-        scroll: 180,
+        scroll: 260,
         input: "last",
       },
       emit(event: eventWithTime) {
         try {
+          if (isHidden()) return;
+
           const isFullSnapshot = event.type === 2;
 
-          // buffer until we post a snapshot
+          // buffer until snapshot posted
           if (!snapshotSent) {
             snapshotBuffer.push(event);
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
-              snapshotBuffer.splice(
-                0,
-                snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS
-              );
+              snapshotBuffer.splice(0, snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS);
             }
           }
 
-          // ✅ post snapshot when we get a FullSnapshot after reset (or first time)
+          // post snapshot on first FullSnapshot after reset / first time
           if (isFullSnapshot && !snapshotSent) {
             snapshotSent = true;
-
             const snapshotEvents = [...snapshotBuffer];
             snapshotBuffer = [];
-
             void postSnapshot(orgId, sessionId, snapshotEvents);
-            return; // never stream FullSnapshot over pusher
+            return; // never stream FullSnapshot
           }
 
-          // no live streaming until first snapshot posted
           if (!snapshotSent) return;
-
-          // never send FullSnapshot via pusher
           if (isFullSnapshot) return;
 
           liveQueue.push(event);
