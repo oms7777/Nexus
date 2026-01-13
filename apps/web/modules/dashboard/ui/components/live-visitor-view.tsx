@@ -6,18 +6,8 @@ import type { eventWithTime } from "@rrweb/types";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
-import type { Id } from "@workspace/backend/_generated/dataModel";
-import "rrweb/dist/rrweb.css";
 
-export function LiveVisitorView({
-  orgId,
-  sessionId,
-  height = 360,
-}: {
-  orgId: string;
-  sessionId: Id<"contactSessions">;
-  height?: number;
-}) {
+export function LiveVisitorView({ orgId, sessionId }: any) {
   const containerRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
@@ -30,33 +20,21 @@ export function LiveVisitorView({
   const snapshot = snaps[0];
 
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    // cleanup previous
-    try {
-      replayerRef.current?.destroy();
-    } catch {}
-    replayerRef.current = null;
-
-    if (!snapshot?.snapshot) {
-      containerRef.current.innerHTML = "";
-      return;
-    }
+    if (!containerRef.current || !snapshot?.snapshot) return;
 
     const events = JSON.parse(snapshot.snapshot) as eventWithTime[];
+
     containerRef.current.innerHTML = "";
 
     replayerRef.current = new Replayer(events, {
       root: containerRef.current,
-      liveMode: true,
+      liveMode: false,
     });
 
     replayerRef.current.play();
 
     return () => {
-      try {
-        replayerRef.current?.destroy();
-      } catch {}
+      replayerRef.current?.destroy();
       replayerRef.current = null;
     };
   }, [snapshot?.snapshot]);
@@ -64,7 +42,7 @@ export function LiveVisitorView({
   const { cursor } = useVisitorStream({ orgId, sessionId });
 
   return (
-    <div className="relative rounded-xl border overflow-hidden" style={{ height }}>
+    <div className="relative h-[360px] border rounded overflow-hidden">
       <div ref={containerRef} className="absolute inset-0" />
 
       {cursor && (
@@ -77,7 +55,6 @@ export function LiveVisitorView({
           }}
         />
       )}
-
     </div>
   );
 }

@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Pusher from "pusher-js";
-import type { Id } from "@workspace/backend/_generated/dataModel";
 
 export function useVisitorStream({
   orgId,
   sessionId,
 }: {
   orgId: string;
-  sessionId: Id<"contactSessions">;
+  sessionId: string;
 }) {
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
@@ -30,9 +29,7 @@ export function useVisitorStream({
     channel.bind("client-cursor", setCursor);
 
     return () => {
-      try {
-        channel.unbind_all();
-      } catch {}
+      channel.unbind_all();
       pusher.disconnect();
     };
   }, [orgId, sessionId]);
