@@ -1,6 +1,6 @@
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
-import { initVisitorTracking } from "./visitor-tracker";
+import { initVisitorTracking, destroyVisitorTracking } from "./visitor-tracker";
 
 const NUDGE_ENABLED = true;
 
@@ -1044,6 +1044,10 @@ type SuggestionsPayload = {
     window.removeEventListener("resize", placeNudge);
     window.removeEventListener("scroll", placeNudge);
     removeNudge();
+
+    try {
+      destroyVisitorTracking();
+    } catch {}
 
     if (container) {
       container.remove();

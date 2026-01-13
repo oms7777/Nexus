@@ -1,28 +1,23 @@
+// apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "@rrweb/types";
-import Pusher, { type Channel } from "pusher-js";
+import Pusher from "pusher-js";
+import type { Channel } from "pusher-js";
 
 let started = false;
 
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 
+// ✅ record() peut retourner undefined selon la version rrweb
+let stopRecording: listenerHandler | undefined;
+
 let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
-
-let stopRecording: (() => void) | null = null;
-let stopFlushTimer: (() => void) | null = null;
 
 // Live batching
 let liveQueue: eventWithTime[] = [];
 let flushing = false;
-
-// Cursor live
-let cursorRaf = 0;
-let cursorAttached = false;
-let lastCursorX = 0;
-let lastCursorY = 0;
-let lastCursorSentAt = 0;
 
 type VisitorTrackingOptions = {
   orgId: string;
@@ -48,32 +43,20 @@ function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
 }
 
-function detachCursor() {
-  if (!cursorAttached) return;
-  cursorAttached = false;
-
+function purgePusherTransportCache() {
   try {
-    if (cursorRaf) cancelAnimationFrame(cursorRaf);
-  } catch {}
-  cursorRaf = 0;
-
-  try {
-    document.removeEventListener("mousemove", onMouseMove as any);
-  } catch {}
+    localStorage.removeItem("pusherTransportTLS");
+    localStorage.removeItem("pusherTransportNonTLS");
+  } catch {
+    // ignore
+  }
 }
 
 function cleanup() {
-  detachCursor();
-
   try {
     stopRecording?.();
   } catch {}
-  stopRecording = null;
-
-  try {
-    stopFlushTimer?.();
-  } catch {}
-  stopFlushTimer = null;
+  stopRecording = undefined;
 
   try {
     channelRef?.unbind_all();
@@ -85,6 +68,7 @@ function cleanup() {
   } catch {}
   pusherRef = null;
 
+  // reset state
   liveQueue = [];
   snapshotBuffer = [];
   snapshotSent = false;
@@ -97,61 +81,25 @@ export function destroyVisitorTracking() {
   cleanup();
 }
 
-function onMouseMove(e: MouseEvent) {
-  // normalize 0..1
-  lastCursorX = Math.max(0, Math.min(1, e.clientX / window.innerWidth));
-  lastCursorY = Math.max(0, Math.min(1, e.clientY / window.innerHeight));
-}
-
-function attachCursor() {
-  if (cursorAttached) return;
-  cursorAttached = true;
-
-  document.addEventListener("mousemove", onMouseMove, { passive: true });
-
-  const loop = () => {
-    cursorRaf = requestAnimationFrame(loop);
-
-    if (!snapshotSent) return;
-    if (!channelRef) return;
-
-    const now = Date.now();
-
-    // throttle ~12 fps
-    if (now - lastCursorSentAt < 80) return;
-    lastCursorSentAt = now;
-
-    try {
-      channelRef.trigger("client-cursor", { x: lastCursorX, y: lastCursorY });
-    } catch {
-      // ignore
-    }
-  };
-
-  cursorRaf = requestAnimationFrame(loop);
-}
-
-export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
+export function initVisitorTracking({
+  orgId,
+  sessionId,
+}: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
   // never track inside widget iframe
   if (window.self !== window.top) return;
 
-  // ✅ purge transport cache (évite freeze)
-  try {
-    localStorage.removeItem("pusherTransportTLS");
-    localStorage.removeItem("pusherTransportNonTLS");
-  } catch {}
-
   started = true;
+
+  purgePusherTransportCache();
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
-    disableStats: true,
 
-    // ✅ WS only + disable SockJS/XHR
+    // ✅ WS only
     enabledTransports: ["ws", "wss"],
     disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
 
@@ -164,7 +112,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   pusherRef = pusher;
 
   const channelName = `presence-org_${orgId}_session_${sessionId}`;
-  const channel = pusher.subscribe(channelName);
+  const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
 
   const flush = () => {
@@ -186,11 +134,11 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       const json = JSON.stringify(payload);
       const bytes = safeBytes(json);
 
-      // If too big, split progressively
+      // Split si trop gros
       if (bytes > MAX_EVENT_BYTES && filtered.length > 1) {
         liveQueue.unshift(...filtered);
-
         const half = Math.ceil(filtered.length / 2);
+
         const a = liveQueue.splice(0, half);
         const b = liveQueue.splice(0, half);
 
@@ -199,7 +147,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
         return;
       }
 
-      // If even one event too big → skip it
+      // Si un seul event trop gros -> skip
       if (bytes > MAX_EVENT_BYTES && filtered.length === 1) return;
 
       channelRef.trigger("client-rrweb", payload);
@@ -211,13 +159,10 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   };
 
   const timer = window.setInterval(flush, FLUSH_EVERY_MS);
-  stopFlushTimer = () => window.clearInterval(timer);
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // ✅ cursor live seulement quand subscription ok
-    attachCursor();
-
-    const stop: listenerHandler | undefined = record({
+    // ✅ stopRecording peut être undefined selon rrweb
+    stopRecording = record({
       sampling: {
         mousemove: 120,
         mouseInteraction: true,
@@ -255,11 +200,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
                 sessionId,
                 events: snapshotEvents,
               }),
-            }).catch(() => {
-              // do not block UI
-            });
+            }).catch(() => {});
 
-            return; // do not enqueue FullSnapshot for live
+            return; // do not enqueue the FullSnapshot for live
           }
 
           // until snapshot sent, no live streaming
@@ -278,11 +221,15 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
         }
       },
     });
-
-    stopRecording = stop ? (() => stop()) : null;
   });
 
   channel.bind("pusher:subscription_error", () => {
+    window.clearInterval(timer);
+    cleanup();
+  });
+
+  pusher.connection.bind("disconnected", () => {
+    window.clearInterval(timer);
     cleanup();
   });
 }
