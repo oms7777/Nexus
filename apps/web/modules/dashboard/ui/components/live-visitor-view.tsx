@@ -1,3 +1,4 @@
+// apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
 import { useEffect, useRef } from "react";
@@ -13,13 +14,12 @@ import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 function computeScale(root: HTMLElement, content: HTMLElement) {
   const rootRect = root.getBoundingClientRect();
   const contentRect = content.getBoundingClientRect();
-
   if (!contentRect.width || !contentRect.height) return 1;
 
   return Math.min(
     rootRect.width / contentRect.width,
     rootRect.height / contentRect.height,
-    1,
+    1
   );
 }
 
@@ -35,7 +35,6 @@ export function LiveVisitorView({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
-  // 1) Latest snapshot for this session
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
       sessionId,
@@ -44,7 +43,6 @@ export function LiveVisitorView({
 
   const latest = snaps[0];
 
-  // 2) Init a STATIC Replayer whenever we have a snapshot
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
@@ -61,49 +59,62 @@ export function LiveVisitorView({
       return;
     }
 
+    let ro: ResizeObserver | null = null;
+    let destroyed = false;
+
     try {
       const events = JSON.parse(latest.snapshot) as eventWithTime[];
 
-      // clear container
       root.innerHTML = "";
 
-      const replayer = new Replayer(events, {
-        root,
-        // IMPORTANT: keep it simple & permissive (like your working version)
-        // no liveMode here
-      });
-
+      const replayer = new Replayer(events, { root });
       replayerRef.current = replayer;
-      replayer.play();
 
-      // ✅ Scale content to fit panel
-      const applyScale = () => {
+      // ✅ helper: wait for rrweb DOM before scaling
+      const applyScaleWhenReady = (tries = 0) => {
+        if (destroyed) return;
         const r = containerRef.current;
         if (!r) return;
 
-        // rrweb injects its content inside root
-        const content = r.firstElementChild as HTMLElement | null;
-        if (!content) return;
+        // ✅ PATCH: target rrweb wrapper if present (avoids scaling wrong element)
+        const content =
+          (r.querySelector(".rrweb-replayer-wrapper") as HTMLElement | null) ||
+          (r.querySelector(".replayer-wrapper") as HTMLElement | null) ||
+          (r.firstElementChild as HTMLElement | null);
+
+        if (!content) {
+          if (tries < 30)
+            requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
+          return;
+        }
+
+        const rect = content.getBoundingClientRect();
+        if ((!rect.width || !rect.height) && tries < 30) {
+          requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
+          return;
+        }
 
         const scale = computeScale(r, content);
         content.style.transformOrigin = "top left";
         content.style.transform = `scale(${scale})`;
       };
 
-      // Apply scale after layout
-      requestAnimationFrame(() => {
-        applyScale();
-        // apply twice (rrweb can adjust size after first paint)
-        requestAnimationFrame(applyScale);
-      });
+      // start from the beginning and play
+      try {
+        (replayer as any).play?.(0);
+      } catch {
+        replayer.play();
+      }
 
-      // Re-apply scale on resize
-      const ro = new ResizeObserver(() => applyScale());
+      applyScaleWhenReady();
+
+      ro = new ResizeObserver(() => applyScaleWhenReady());
       ro.observe(root);
 
       return () => {
+        destroyed = true;
         try {
-          ro.disconnect();
+          ro?.disconnect();
         } catch {}
         try {
           replayer.pause();
@@ -114,14 +125,16 @@ export function LiveVisitorView({
     } catch (err) {
       console.error("[live] failed to init Replayer from snapshot", err);
       root.innerHTML = "";
+      return () => {
+        destroyed = true;
+        try {
+          ro?.disconnect();
+        } catch {}
+      };
     }
   }, [latest?.snapshot]);
 
-  // 3) Live stream (cursor only)
-  const { cursor } = useVisitorStream({
-    orgId,
-    sessionId,
-  });
+  const { cursor } = useVisitorStream({ orgId, sessionId });
 
   return (
     <div
