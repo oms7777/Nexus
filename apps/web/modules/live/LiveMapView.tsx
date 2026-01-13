@@ -120,7 +120,7 @@ export default function LiveMapView() {
 
           <LiveVisitorView
             orgId={orgId}
-            sessionId={selected.contactSessionId as any}
+            sessionId={selected.contactSessionId as Id<"contactSessions">}
           />
 
           {/* Optionnel */}
