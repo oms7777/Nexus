@@ -9,21 +9,25 @@ let started = false;
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 
+// rrweb record() peut retourner undefined
 let stopRecording: listenerHandler | undefined;
 
+// timers / unsub
 let flushTimer: number | null = null;
-
-let snapshotSent = false;
-let snapshotBuffer: eventWithTime[] = [];
-
-let liveQueue: eventWithTime[] = [];
-let flushing = false;
+let uninstallNav: (() => void) | null = null;
 
 let onMouseMoveRef: ((e: MouseEvent) => void) | null = null;
 
-// ---- URL watcher (SAFE, no history patch) ----
-let urlPollTimer: number | null = null;
-let lastHref: string | null = null;
+let snapshotSentOnce = false; // ✅ on garde "true" après 1er snapshot, on ne repasse plus en attente
+let snapshotBuffer: eventWithTime[] = [];
+
+// ✅ navigation snapshot state (ne bloque jamais le live)
+let wantNewSnapshot = false;
+let lastNavSnapshotRequestTs = 0;
+
+// Live batching
+let liveQueue: eventWithTime[] = [];
+let flushing = false;
 
 type VisitorTrackingOptions = {
   orgId: string;
@@ -37,20 +41,24 @@ const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // ---------- SAFETY / PERF ----------
 const MAX_EVENT_BYTES = 8_500;
+
+// flush + cursor: moins agressif
 const FLUSH_EVERY_MS = 450;
 const CURSOR_THROTTLE_MS = 120;
 
-const MAX_SNAPSHOT_BUFFER_EVENTS = 350;
-const MAX_QUEUE_EVENTS = 220;
+// caps mémoire
+const MAX_SNAPSHOT_BUFFER_EVENTS = 420;
+const MAX_QUEUE_EVENTS = 260;
 
+// snapshot rate limit
 const SNAPSHOT_COOLDOWN_MS = 2500;
 let lastSnapshotTs = 0;
 
-// Fallback snapshot: at most every 6s (prevents freeze loops)
-const FALLBACK_SNAPSHOT_THROTTLE_MS = 6000;
-let lastFallbackSnapshotTs = 0;
+// nav snapshot throttling
+const NAV_SNAPSHOT_THROTTLE_MS = 5000; // ✅ important: éviter snapshot à chaque micro-nav
 
-const QUEUE_OVERFLOW_HARD_LIMIT = 650;
+// circuit breaker
+const QUEUE_OVERFLOW_HARD_LIMIT = 900;
 let overflowStrikes = 0;
 const MAX_OVERFLOW_STRIKES = 3;
 
@@ -84,9 +92,11 @@ function cleanup() {
     flushTimer = null;
   }
 
-  if (urlPollTimer) {
-    window.clearInterval(urlPollTimer);
-    urlPollTimer = null;
+  if (uninstallNav) {
+    try {
+      uninstallNav();
+    } catch {}
+    uninstallNav = null;
   }
 
   if (onMouseMoveRef) {
@@ -108,13 +118,15 @@ function cleanup() {
 
   liveQueue = [];
   snapshotBuffer = [];
-  snapshotSent = false;
   flushing = false;
 
+  // reset snapshot flags
+  snapshotSentOnce = false;
+  wantNewSnapshot = false;
+
   lastSnapshotTs = 0;
-  lastFallbackSnapshotTs = 0;
+  lastNavSnapshotRequestTs = 0;
   overflowStrikes = 0;
-  lastHref = null;
 
   started = false;
 }
@@ -126,6 +138,7 @@ export function destroyVisitorTracking() {
 /* ---------------- cursor ---------------- */
 
 let lastCursorTs = 0;
+
 function normalizeCursor(e: MouseEvent) {
   const w = window.innerWidth || 1;
   const h = window.innerHeight || 1;
@@ -157,12 +170,13 @@ async function postSnapshot(orgId: string, sessionId: string, events: eventWithT
   if (now - lastSnapshotTs < SNAPSHOT_COOLDOWN_MS) return;
   lastSnapshotTs = now;
 
+  // ✅ trim: keep from first FullSnapshot + small tail
   const fullIndex = events.findIndex((e) => e.type === 2);
   if (fullIndex > 0) events = events.slice(fullIndex);
 
-  if (events.length > 420) {
+  if (events.length > 520) {
     const full = events.find((e) => e.type === 2);
-    const tail = events.slice(-220);
+    const tail = events.slice(-260);
     events = full ? [full, ...tail] : tail;
   }
 
@@ -177,69 +191,87 @@ async function postSnapshot(orgId: string, sessionId: string, events: eventWithT
   } catch {}
 }
 
-/* ---------------- page signal (URL/title) ---------------- */
+/* ---------------- SPA nav watcher ---------------- */
 
-function sendPageSignal() {
-  if (!channelRef) return;
+let lastHref: string | null = null;
 
-  try {
-    channelRef.trigger("client-page", {
-      href: window.location.href,
-      title: document.title || "",
-      ts: Date.now(),
-    });
-  } catch {}
-}
+function installNavigationWatcher(onChange: (href: string) => void) {
+  if (typeof window === "undefined") return () => {};
 
-/* ---------------- fallback full snapshot (rare) ---------------- */
+  const emitIfChanged = () => {
+    const href = window.location.href;
+    if (href !== lastHref) {
+      lastHref = href;
+      onChange(href);
+    }
+  };
 
-function requestFallbackFullSnapshotOnce() {
-  const now = Date.now();
-  if (now - lastFallbackSnapshotTs < FALLBACK_SNAPSHOT_THROTTLE_MS) return;
-  lastFallbackSnapshotTs = now;
+  const originalPush = window.history.pushState.bind(window.history);
+  const originalReplace = window.history.replaceState.bind(window.history);
 
-  // If rrweb supports takeFullSnapshot, call it only when browser is idle
-  const doIt = () => {
-    try {
-      if (typeof (record as any).takeFullSnapshot === "function") {
-        (record as any).takeFullSnapshot();
-      }
-    } catch {}
+  const patchedPush: History["pushState"] = (...args) => {
+    originalPush(...args);
+    emitIfChanged();
+  };
+
+  const patchedReplace: History["replaceState"] = (...args) => {
+    originalReplace(...args);
+    emitIfChanged();
   };
 
   try {
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(doIt, { timeout: 1200 });
-    } else {
-      window.setTimeout(doIt, 650);
-    }
-  } catch {
-    window.setTimeout(doIt, 650);
-  }
+    window.history.pushState = patchedPush;
+    window.history.replaceState = patchedReplace;
+  } catch {}
+
+  window.addEventListener("popstate", emitIfChanged);
+  window.addEventListener("hashchange", emitIfChanged);
+
+  emitIfChanged();
+
+  return () => {
+    try {
+      window.history.pushState = originalPush;
+      window.history.replaceState = originalReplace;
+    } catch {}
+    window.removeEventListener("popstate", emitIfChanged);
+    window.removeEventListener("hashchange", emitIfChanged);
+  };
 }
 
-/* ---------------- URL poll watcher (SAFE) ---------------- */
+function requestNavSnapshotSafely() {
+  // ✅ on ne spam pas
+  const now = Date.now();
+  if (now - lastNavSnapshotRequestTs < NAV_SNAPSHOT_THROTTLE_MS) return;
+  lastNavSnapshotRequestTs = now;
 
-function startUrlPolling() {
-  if (urlPollTimer) return;
+  // ✅ on prépare un nouveau snapshot sans couper le live
+  wantNewSnapshot = true;
+  snapshotBuffer = [];
 
-  lastHref = window.location.href;
+  // ✅ on tente un full snapshot mais en "idle" pour éviter freeze
+  try {
+    const take = (record as unknown as { takeFullSnapshot?: () => void }).takeFullSnapshot;
 
-  urlPollTimer = window.setInterval(() => {
-    if (isHidden()) return;
+    if (typeof take === "function") {
+      const run = () => {
+        try {
+          take();
+        } catch {}
+      };
 
-    const href = window.location.href;
-    if (href === lastHref) return;
+      const ric = (window as any).requestIdleCallback as
+        | ((cb: () => void, opts?: { timeout?: number }) => number)
+        | undefined;
 
-    lastHref = href;
-
-    // Signal page changed (cheap)
-    sendPageSignal();
-
-    // ✅ DO NOT reset snapshotSent here (avoid "Waiting for first snapshot")
-    // Instead: try a rare fallback full snapshot
-    requestFallbackFullSnapshotOnce();
-  }, 700);
+      if (typeof ric === "function") {
+        ric(run, { timeout: 800 });
+      } else {
+        // fallback soft
+        window.setTimeout(run, 120);
+      }
+    }
+  } catch {}
 }
 
 /* ---------------- main init ---------------- */
@@ -274,17 +306,16 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   // ---- live flush ----
   const flush = () => {
     if (!channelRef) return;
-    if (!snapshotSent) return;
+    if (!snapshotSentOnce) return; // only after first snapshot exists
     if (flushing) return;
     if (liveQueue.length === 0) return;
     if (isHidden()) return;
 
+    // breaker
     if (liveQueue.length > QUEUE_OVERFLOW_HARD_LIMIT) {
       overflowStrikes++;
       liveQueue = liveQueue.slice(-MAX_QUEUE_EVENTS);
-      if (overflowStrikes >= MAX_OVERFLOW_STRIKES) {
-        cleanup();
-      }
+      if (overflowStrikes >= MAX_OVERFLOW_STRIKES) cleanup();
       return;
     }
 
@@ -297,7 +328,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       const payload = { events: filtered };
       const json = JSON.stringify(payload);
 
-      if (safeBytes(json) > MAX_EVENT_BYTES) return;
+      if (safeBytes(json) > MAX_EVENT_BYTES) {
+        return; // drop batch
+      }
 
       channelRef.trigger("client-rrweb", payload);
     } catch {
@@ -309,14 +342,13 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
   flushTimer = window.setInterval(flush, FLUSH_EVERY_MS);
 
-  // ---- cursor ----
+  // ---- cursor stream ----
   onMouseMoveRef = (e: MouseEvent) => triggerCursor(e);
   window.addEventListener("mousemove", onMouseMoveRef, { passive: true });
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // start URL watcher (SAFE)
-    sendPageSignal();
-    startUrlPolling();
+    // ✅ nav watcher: demande un snapshot "safe" (idle + throttle)
+    uninstallNav = installNavigationWatcher(() => requestNavSnapshotSafely());
 
     stopRecording = record({
       sampling: {
@@ -331,33 +363,48 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
           const isFullSnapshot = event.type === 2;
 
-          // buffer until snapshot posted
-          if (!snapshotSent) {
+          // ---- 1) first snapshot ever ----
+          if (!snapshotSentOnce) {
             snapshotBuffer.push(event);
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
-              snapshotBuffer.splice(0, snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS);
+              snapshotBuffer.splice(
+                0,
+                snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS
+              );
             }
+
+            if (isFullSnapshot) {
+              snapshotSentOnce = true;
+              const snapshotEvents = [...snapshotBuffer];
+              snapshotBuffer = [];
+              void postSnapshot(orgId, sessionId, snapshotEvents);
+              return; // never stream FullSnapshot
+            }
+
+            return; // no live until first snapshot posted
           }
 
-          // ✅ first FullSnapshot => post snapshot and open the gate
-          if (isFullSnapshot && !snapshotSent) {
-            snapshotSent = true;
+          // ---- 2) nav snapshot refresh (does NOT block live) ----
+          if (wantNewSnapshot) {
+            snapshotBuffer.push(event);
+            if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
+              snapshotBuffer.splice(
+                0,
+                snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS
+              );
+            }
 
-            const snapshotEvents = [...snapshotBuffer];
-            snapshotBuffer = [];
-
-            void postSnapshot(orgId, sessionId, snapshotEvents);
-            return; // never stream FullSnapshot
+            if (isFullSnapshot) {
+              wantNewSnapshot = false;
+              const snapshotEvents = [...snapshotBuffer];
+              snapshotBuffer = [];
+              void postSnapshot(orgId, sessionId, snapshotEvents);
+              return; // never stream FullSnapshot
+            }
+            // continue streaming incrementals even while waiting
           }
 
-          // ✅ If still no snapshot after 2s, request ONE fallback
-          // (rare + idle => avoids freeze)
-          if (!snapshotSent) {
-            // schedule once per ~6s
-            requestFallbackFullSnapshotOnce();
-            return;
-          }
-
+          // ---- 3) normal live ----
           if (isFullSnapshot) return;
 
           liveQueue.push(event);

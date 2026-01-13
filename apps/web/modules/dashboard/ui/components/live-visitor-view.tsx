@@ -1,7 +1,7 @@
 // apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
@@ -9,7 +9,6 @@ import type { eventWithTime } from "@rrweb/types";
 import { Replayer } from "rrweb";
 import "rrweb/dist/rrweb.css";
 
-import Pusher from "pusher-js";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 
 function computeScale(root: HTMLElement, content: HTMLElement) {
@@ -24,7 +23,25 @@ function computeScale(root: HTMLElement, content: HTMLElement) {
   );
 }
 
-type PageSignal = { href?: string; title?: string; ts?: number };
+function trimSnapshotEvents(events: eventWithTime[]) {
+  // ✅ anti-freeze: si le snapshot est énorme, on garde depuis le dernier FullSnapshot + tail
+  if (!Array.isArray(events) || events.length <= 1400) return events;
+
+  // dernier full snapshot
+  let lastFull = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if ((events[i] as any)?.type === 2) {
+      lastFull = i;
+      break;
+    }
+  }
+
+  const from = lastFull >= 0 ? lastFull : Math.max(0, events.length - 1200);
+  const sliced = events.slice(from);
+
+  if (sliced.length > 1200) return sliced.slice(-1200);
+  return sliced;
+}
 
 export function LiveVisitorView({
   orgId,
@@ -38,8 +55,6 @@ export function LiveVisitorView({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
-  const [page, setPage] = useState<PageSignal | null>(null);
-
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
       sessionId,
@@ -48,54 +63,11 @@ export function LiveVisitorView({
 
   const latest = snaps[0];
 
-  // --- listen to client-page (live URL updates) ---
-  useEffect(() => {
-    if (!orgId || !sessionId) return;
-
-    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
-      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-      forceTLS: true,
-      enabledTransports: ["ws", "wss"],
-      disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
-      authEndpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
-    });
-
-    const channelName = `presence-org_${orgId}_session_${sessionId}`;
-    const channel = pusher.subscribe(channelName);
-
-    const onPage = (payload: PageSignal) => {
-      if (!payload) return;
-      setPage(payload);
-    };
-
-    channel.bind("client-page", onPage);
-
-    return () => {
-      try {
-        channel.unbind("client-page", onPage);
-        channel.unbind_all();
-      } catch {}
-      pusher.disconnect();
-    };
-  }, [orgId, sessionId]);
-
-  const pageLabel = useMemo(() => {
-    // Prefer live page signal, fallback to snapshot metadata
-    const href = page?.href || latest?.pageUrl;
-    const title = page?.title || latest?.title;
-
-    if (!href && !title) return null;
-
-    return {
-      href: href || "",
-      title: title || "",
-    };
-  }, [page, latest?.pageUrl, latest?.title]);
-
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
 
+    // cleanup previous
     try {
       replayerRef.current?.pause();
       replayerRef.current?.destroy();
@@ -111,7 +83,8 @@ export function LiveVisitorView({
     let destroyed = false;
 
     try {
-      const events = JSON.parse(latest.snapshot) as eventWithTime[];
+      const parsed = JSON.parse(latest.snapshot) as eventWithTime[];
+      const events = trimSnapshotEvents(parsed);
 
       root.innerHTML = "";
 
@@ -129,12 +102,12 @@ export function LiveVisitorView({
           (r.firstElementChild as HTMLElement | null);
 
         if (!content) {
-          if (tries < 30) requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
+          if (tries < 40) requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
           return;
         }
 
         const rect = content.getBoundingClientRect();
-        if ((!rect.width || !rect.height) && tries < 30) {
+        if ((!rect.width || !rect.height) && tries < 40) {
           requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
           return;
         }
@@ -144,6 +117,7 @@ export function LiveVisitorView({
         content.style.transform = `scale(${scale})`;
       };
 
+      // start from beginning
       try {
         (replayer as any).play?.(0);
       } catch {
@@ -181,18 +155,11 @@ export function LiveVisitorView({
   const { cursor } = useVisitorStream({ orgId, sessionId });
 
   return (
-    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
+    <div
+      className="relative rounded-xl border overflow-hidden bg-black/5"
+      style={{ height }}
+    >
       <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
-
-      {/* ✅ show live URL/title */}
-      {pageLabel && (
-        <div className="absolute left-2 top-2 z-50 rounded-md bg-white/80 px-2 py-1 text-[11px] text-slate-700 backdrop-blur">
-          <div className="font-medium truncate max-w-[320px]">{pageLabel.title || "Page"}</div>
-          {pageLabel.href && (
-            <div className="truncate max-w-[320px] opacity-80">{pageLabel.href}</div>
-          )}
-        </div>
-      )}
 
       {cursor && (
         <div
