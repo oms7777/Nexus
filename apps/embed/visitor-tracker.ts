@@ -15,6 +15,7 @@ let flushTimer: number | null = null;
 let uninstallNav: (() => void) | null = null;
 let onMouseMoveRef: ((e: MouseEvent) => void) | null = null;
 
+// ✅ Option A: the ONLY session id is the widget's Convex contactSessionId
 let convexSessionId: string | null = null;
 
 // snapshot state
@@ -28,38 +29,32 @@ let flushing = false;
 
 type VisitorTrackingOptions = {
   orgId: string;
-  sessionId: string; // external (can be uuid) — kept for backward compat, but NOT used for storage/pusher
+  sessionId: string; // MUST be Convex Id<"contactSessions"> coming from nexus:session-ready
 };
 
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 
-// ✅ your Next routes
-const ENSURE_SESSION_URL = "https://app.inboundless.co/api/tracker/ensure-session";
+// ✅ your Next routes (anonymous + CORS allowed)
 const SET_CURRENT_URL = "https://app.inboundless.co/api/tracker/set-current-url";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // ---------- PERF ----------
 const MAX_EVENT_BYTES = 8_500;
 
-// less aggressive
 const FLUSH_EVERY_MS = 450;
 const CURSOR_THROTTLE_MS = 120;
 
-// caps mémoire
 const MAX_SNAPSHOT_BUFFER_EVENTS = 420;
 const MAX_QUEUE_EVENTS = 260;
 
-// snapshot rate limit (if you ever want refresh snapshots)
 const SNAPSHOT_COOLDOWN_MS = 12_000;
 let lastSnapshotTs = 0;
 
-// nav throttling
 const NAV_URL_THROTTLE_MS = 650;
 let lastNavUrlTs = 0;
 
-// optional snapshot refresh on nav (VERY rare)
 const NAV_SNAPSHOT_THROTTLE_MS = 60_000; // 1 min
 let lastNavSnapshotTs = 0;
 
@@ -162,54 +157,9 @@ function triggerCursor(e: MouseEvent) {
   } catch {}
 }
 
-/* ---------------- Convex session bootstrap ---------------- */
+/* ---------------- URL tracking ---------------- */
 
-async function ensureConvexSession(orgId: string) {
-  // ✅ cache per-tab (and across reloads)
-  try {
-    const cached = localStorage.getItem("inboundless_convex_session_id");
-    if (cached) return cached;
-  } catch {}
-
-  try {
-    const res = await fetch(ENSURE_SESSION_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      mode: "cors",
-      body: JSON.stringify({
-        organizationId: orgId,
-        // no convexSessionId => create/reuse anonymous server-side
-        metadata: {
-          currentUrl: window.location.href,
-          title: document.title,
-          referrer: document.referrer || undefined,
-          viewportSize: `${window.innerWidth}x${window.innerHeight}`,
-          screenResolution: `${screen.width}x${screen.height}`,
-          language: navigator.language,
-          cookieEnabled: navigator.cookieEnabled,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          timezoneOffset: -new Date().getTimezoneOffset(),
-        },
-      }),
-      keepalive: true,
-    });
-
-    const json = (await res.json()) as { ok: boolean; sessionId?: string };
-    if (!json?.ok || !json.sessionId) return null;
-
-    try {
-      localStorage.setItem("inboundless_convex_session_id", json.sessionId);
-    } catch {}
-
-    return json.sessionId;
-  } catch {
-    return null;
-  }
-}
-
-/* ---------------- URL tracking (no-freeze) ---------------- */
-
-async function postCurrentUrl(convexId: string) {
+async function postCurrentUrl(sessionId: string) {
   const now = Date.now();
   if (now - lastNavUrlTs < NAV_URL_THROTTLE_MS) return;
   lastNavUrlTs = now;
@@ -220,7 +170,7 @@ async function postCurrentUrl(convexId: string) {
       headers: { "Content-Type": "application/json" },
       mode: "cors",
       body: JSON.stringify({
-        sessionId: convexId,
+        sessionId,
         url: window.location.href,
         title: document.title,
         referrer: document.referrer || undefined,
@@ -232,7 +182,7 @@ async function postCurrentUrl(convexId: string) {
 
 /* ---------------- snapshot posting ---------------- */
 
-async function postSnapshot(orgId: string, convexId: string, events: eventWithTime[]) {
+async function postSnapshot(orgId: string, sessionId: string, events: eventWithTime[]) {
   if (!events.length) return;
 
   const now = Date.now();
@@ -249,8 +199,8 @@ async function postSnapshot(orgId: string, convexId: string, events: eventWithTi
     events = full ? [full, ...tail] : tail;
   }
 
-  const body = JSON.stringify({ organizationId: orgId, sessionId: convexId, events });
-  if (safeBytes(body) > 1_000_000) return; // hard safety
+  const body = JSON.stringify({ organizationId: orgId, sessionId, events });
+  if (safeBytes(body) > 1_000_000) return;
 
   try {
     await fetch(SNAPSHOT_URL, {
@@ -310,20 +260,18 @@ function installNavigationWatcher(onChange: () => void) {
   };
 }
 
-// ❗ optional: snapshot refresh very rarely (and only idle)
 function requestRareNavSnapshot() {
   const now = Date.now();
   if (now - lastNavSnapshotTs < NAV_SNAPSHOT_THROTTLE_MS) return;
   lastNavSnapshotTs = now;
 
-  // we only refresh snapshot if rrweb gives a full snapshot naturally
   wantNewSnapshot = true;
   snapshotBuffer = [];
 }
 
 /* ---------------- main init ---------------- */
 
-export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
+export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
@@ -333,8 +281,8 @@ export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
   started = true;
   purgePusherTransportCache();
 
-  // ✅ CRITICAL: get a REAL Convex sessionId first
-  convexSessionId = await ensureConvexSession(orgId);
+  // ✅ Option A: use ONLY the sessionId from the widget
+  convexSessionId = sessionId;
   if (!convexSessionId) {
     cleanup();
     return;
@@ -356,12 +304,11 @@ export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
 
   pusherRef = pusher;
 
-  // ✅ IMPORTANT: channel uses convexSessionId (so UI listens to the same)
+  // ✅ channel uses the SAME session id as the app UI
   const channelName = `presence-org_${orgId}_session_${convexSessionId}`;
   const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
 
-  // ---- live flush ----
   const flush = () => {
     if (!channelRef) return;
     if (!snapshotSentOnce) return;
@@ -377,12 +324,10 @@ export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
 
       const payload = { events: filtered };
       const json = JSON.stringify(payload);
-
       if (safeBytes(json) > MAX_EVENT_BYTES) return;
 
       channelRef.trigger("client-rrweb", payload);
     } catch {
-      // ignore
     } finally {
       flushing = false;
     }
@@ -390,12 +335,10 @@ export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
 
   flushTimer = window.setInterval(flush, FLUSH_EVERY_MS);
 
-  // ---- cursor ----
   onMouseMoveRef = (e: MouseEvent) => triggerCursor(e);
   window.addEventListener("mousemove", onMouseMoveRef, { passive: true });
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // ✅ Nav watcher: URL updates (cheap) + ultra-rare snapshot refresh request
     uninstallNav = installNavigationWatcher(() => {
       if (!convexSessionId) return;
       void postCurrentUrl(convexSessionId);
@@ -427,12 +370,12 @@ export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
               void postSnapshot(orgId, convexSessionId, snapshotEvents);
-              return; // never stream FullSnapshot
+              return;
             }
             return;
           }
 
-          // 2) optional nav refresh snapshots (rare) — does NOT block live
+          // 2) optional nav refresh snapshots (rare)
           if (wantNewSnapshot) {
             snapshotBuffer.push(event);
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
@@ -455,9 +398,7 @@ export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
           if (liveQueue.length > MAX_QUEUE_EVENTS) {
             liveQueue.splice(0, liveQueue.length - MAX_QUEUE_EVENTS);
           }
-        } catch {
-          // ignore
-        }
+        } catch {}
       },
     });
   });
