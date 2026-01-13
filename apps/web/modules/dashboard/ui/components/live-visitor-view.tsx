@@ -78,11 +78,6 @@ export function LiveVisitorView({
         />
       )}
 
-      {!snapshot?.snapshot && (
-        <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
-          Waiting for first snapshot…
-        </div>
-      )}
     </div>
   );
 }
