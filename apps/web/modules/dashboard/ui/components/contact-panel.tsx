@@ -419,10 +419,10 @@ export const ContactPanel = () => {
 
           <LiveVisitorView
             orgId={contactSession.organizationId}
-            sessionId={contactSession._id as unknown as string}
+            sessionId={contactSession._id}
           />
 
-          <SnapshotsStrip sessionId={contactSession._id as any} limit={8} />
+          <SnapshotsStrip sessionId={contactSession._id} limit={8} />
         </div>
       </div>
     </div>

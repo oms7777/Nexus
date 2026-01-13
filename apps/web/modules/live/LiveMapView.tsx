@@ -6,6 +6,7 @@ import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
+import { Id } from "@workspace/backend/_generated/dataModel";
 // import { SnapshotsStrip } from "@/modules/dashboard/ui/components/SnapshotsStrip"; // optionnel
 
 function matches(v: Visitor, q: string) {
@@ -119,7 +120,7 @@ export default function LiveMapView() {
 
           <LiveVisitorView
             orgId={orgId}
-            sessionId={(selected.contactSessionId as unknown as string) ?? ""}
+            sessionId={selected.contactSessionId as Id<"contactSessions">}
           />
 
           {/* Optionnel */}
