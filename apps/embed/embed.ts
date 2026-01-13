@@ -292,20 +292,32 @@ type SuggestionsPayload = {
 
       case "nexus:session-ready": {
         if (!organizationId) return;
-        if (!payload || typeof payload.sessionId !== "string") return;
-        if (trackingStarted) return;
+
+        const sid = payload?.sessionId;
+        if (typeof sid !== "string" || sid.trim().length === 0) return;
+
+        // same session already started
+        if (trackingStarted && trackingSessionId === sid) return;
+
+        // different session -> restart clean
+        if (trackingStarted && trackingSessionId && trackingSessionId !== sid) {
+          try {
+            destroyVisitorTracking();
+          } catch {}
+          trackingStarted = false;
+          trackingSessionId = null;
+        }
 
         trackingStarted = true;
-        trackingSessionId = payload.sessionId;
+        trackingSessionId = sid;
 
         initVisitorTracking({
           orgId: organizationId,
-          sessionId: payload.sessionId,
+          sessionId: sid, // MUST be Convex Id<"contactSessions">
         });
 
         break;
       }
-
       default:
         break;
     }

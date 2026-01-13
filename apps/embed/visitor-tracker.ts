@@ -15,8 +15,8 @@ let flushTimer: number | null = null;
 let uninstallNav: (() => void) | null = null;
 let onMouseMoveRef: ((e: MouseEvent) => void) | null = null;
 
-// ✅ Option A: the ONLY session id is the widget's Convex contactSessionId
-let convexSessionId: string | null = null;
+// ✅ Option A: the ONLY session id is the widget's Convex Id<"contactSessions">
+let activeSessionId: string | null = null;
 
 // snapshot state
 let snapshotSentOnce = false;
@@ -29,7 +29,7 @@ let flushing = false;
 
 type VisitorTrackingOptions = {
   orgId: string;
-  sessionId: string; // MUST be Convex Id<"contactSessions"> coming from nexus:session-ready
+  sessionId: string; // MUST be Convex Id<"contactSessions">
 };
 
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
@@ -42,7 +42,6 @@ const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // ---------- PERF ----------
 const MAX_EVENT_BYTES = 8_500;
-
 const FLUSH_EVERY_MS = 450;
 const CURSOR_THROTTLE_MS = 120;
 
@@ -119,7 +118,7 @@ function cleanup() {
   snapshotSentOnce = false;
   wantNewSnapshot = false;
 
-  convexSessionId = null;
+  activeSessionId = null;
   lastSnapshotTs = 0;
   lastNavUrlTs = 0;
   lastNavSnapshotTs = 0;
@@ -278,18 +277,16 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
   // never track inside widget iframe
   if (window.self !== window.top) return;
 
+  if (!sessionId || sessionId.trim().length === 0) return;
+
   started = true;
   purgePusherTransportCache();
 
   // ✅ Option A: use ONLY the sessionId from the widget
-  convexSessionId = sessionId;
-  if (!convexSessionId) {
-    cleanup();
-    return;
-  }
+  activeSessionId = sessionId;
 
   // push current url immediately
-  void postCurrentUrl(convexSessionId);
+  void postCurrentUrl(activeSessionId);
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
@@ -305,7 +302,7 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
   pusherRef = pusher;
 
   // ✅ channel uses the SAME session id as the app UI
-  const channelName = `presence-org_${orgId}_session_${convexSessionId}`;
+  const channelName = `presence-org_${orgId}_session_${activeSessionId}`;
   const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
 
@@ -328,6 +325,7 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
 
       channelRef.trigger("client-rrweb", payload);
     } catch {
+      // ignore
     } finally {
       flushing = false;
     }
@@ -340,8 +338,8 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
 
   channel.bind("pusher:subscription_succeeded", () => {
     uninstallNav = installNavigationWatcher(() => {
-      if (!convexSessionId) return;
-      void postCurrentUrl(convexSessionId);
+      if (!activeSessionId) return;
+      void postCurrentUrl(activeSessionId);
       requestRareNavSnapshot();
     });
 
@@ -365,12 +363,12 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
               snapshotBuffer.splice(0, snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS);
             }
 
-            if (isFullSnapshot && convexSessionId) {
+            if (isFullSnapshot && activeSessionId) {
               snapshotSentOnce = true;
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
-              void postSnapshot(orgId, convexSessionId, snapshotEvents);
-              return;
+              void postSnapshot(orgId, activeSessionId, snapshotEvents);
+              return; // never stream FullSnapshot
             }
             return;
           }
@@ -382,11 +380,11 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
               snapshotBuffer.splice(0, snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS);
             }
 
-            if (isFullSnapshot && convexSessionId) {
+            if (isFullSnapshot && activeSessionId) {
               wantNewSnapshot = false;
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
-              void postSnapshot(orgId, convexSessionId, snapshotEvents);
+              void postSnapshot(orgId, activeSessionId, snapshotEvents);
               return;
             }
           }
@@ -398,7 +396,9 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
           if (liveQueue.length > MAX_QUEUE_EVENTS) {
             liveQueue.splice(0, liveQueue.length - MAX_QUEUE_EVENTS);
           }
-        } catch {}
+        } catch {
+          // ignore
+        }
       },
     });
   });
