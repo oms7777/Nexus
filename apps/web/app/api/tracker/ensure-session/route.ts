@@ -5,9 +5,10 @@ import type { Id } from "@workspace/backend/_generated/dataModel";
 
 export const runtime = "nodejs";
 
-function cors(req: Request) {
-  const origin = req.headers.get("origin") ?? "*";
-  const reqHeaders = req.headers.get("access-control-request-headers") ?? "content-type";
+function makeCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") || "null";
+  const reqHeaders =
+    req.headers.get("access-control-request-headers") || "content-type";
 
   const h = new Headers();
   h.set("Access-Control-Allow-Origin", origin);
@@ -19,45 +20,39 @@ function cors(req: Request) {
 }
 
 export async function OPTIONS(req: Request) {
-  return new NextResponse(null, { status: 204, headers: cors(req) });
+  return new NextResponse(null, { status: 204, headers: makeCorsHeaders(req) });
 }
 
 export async function POST(req: Request) {
-  const headers = cors(req);
+  const headers = makeCorsHeaders(req);
 
   try {
     const body = await req.json();
 
     const organizationId = body?.organizationId as string | undefined;
-    const convexSessionId = body?.convexSessionId as Id<"contactSessions"> | undefined;
+    const sessionIdRaw = body?.sessionId as string | undefined; // optionnel
     const metadata = body?.metadata;
 
     if (!organizationId) {
       headers.set("Content-Type", "application/json");
-      return new NextResponse(JSON.stringify({ ok: false, error: "Missing organizationId" }), {
-        status: 400,
-        headers,
-      });
+      return NextResponse.json({ ok: false, error: "Missing organizationId" }, { status: 400, headers });
     }
 
-    // reuse or create anonymous
+    const sessionId = sessionIdRaw
+      ? (sessionIdRaw as Id<"contactSessions">)
+      : undefined;
+
     const id = await fetchMutation(api.public.contactSessions.ensure, {
       organizationId,
-      sessionId: convexSessionId, // can be undefined -> create new
+      sessionId, // undefined => create
       metadata,
     });
 
     headers.set("Content-Type", "application/json");
-    return new NextResponse(JSON.stringify({ ok: true, sessionId: id }), {
-      status: 200,
-      headers,
-    });
+    return NextResponse.json({ ok: true, sessionId: id }, { status: 200, headers });
   } catch (err) {
     console.error("[ensure-session] POST error", err);
     headers.set("Content-Type", "application/json");
-    return new NextResponse(JSON.stringify({ ok: false, error: "Internal error" }), {
-      status: 500,
-      headers,
-    });
+    return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500, headers });
   }
 }

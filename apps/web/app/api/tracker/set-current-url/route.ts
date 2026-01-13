@@ -5,9 +5,10 @@ import type { Id } from "@workspace/backend/_generated/dataModel";
 
 export const runtime = "nodejs";
 
-function cors(req: Request) {
-  const origin = req.headers.get("origin") ?? "*";
-  const reqHeaders = req.headers.get("access-control-request-headers") ?? "content-type";
+function makeCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") || "null";
+  const reqHeaders =
+    req.headers.get("access-control-request-headers") || "content-type";
 
   const h = new Headers();
   h.set("Access-Control-Allow-Origin", origin);
@@ -19,11 +20,11 @@ function cors(req: Request) {
 }
 
 export async function OPTIONS(req: Request) {
-  return new NextResponse(null, { status: 204, headers: cors(req) });
+  return new NextResponse(null, { status: 204, headers: makeCorsHeaders(req) });
 }
 
 export async function POST(req: Request) {
-  const headers = cors(req);
+  const headers = makeCorsHeaders(req);
 
   try {
     const body = await req.json();
@@ -35,10 +36,7 @@ export async function POST(req: Request) {
 
     if (!sessionIdRaw || !url) {
       headers.set("Content-Type", "application/json");
-      return new NextResponse(JSON.stringify({ ok: false, error: "Missing sessionId/url" }), {
-        status: 400,
-        headers,
-      });
+      return NextResponse.json({ ok: false, error: "Missing sessionId/url" }, { status: 400, headers });
     }
 
     const sessionId = sessionIdRaw as Id<"contactSessions">;
@@ -51,13 +49,10 @@ export async function POST(req: Request) {
     });
 
     headers.set("Content-Type", "application/json");
-    return new NextResponse(JSON.stringify({ ok: true }), { status: 200, headers });
+    return NextResponse.json({ ok: true }, { status: 200, headers });
   } catch (err) {
     console.error("[set-current-url] error", err);
     headers.set("Content-Type", "application/json");
-    return new NextResponse(JSON.stringify({ ok: false, error: "Internal error" }), {
-      status: 500,
-      headers,
-    });
+    return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500, headers });
   }
 }

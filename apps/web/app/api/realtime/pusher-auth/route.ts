@@ -1,22 +1,19 @@
-// apps/web/app/api/realtime/pusher-auth/route.ts
 import { NextResponse } from "next/server";
 import { pusherServer } from "@/lib/pusher";
 
 export const runtime = "nodejs";
 
-// CORS dyn (www.inboundless.co -> app.inboundless.co)
 function makeCorsHeaders(req: Request) {
-  const origin = req.headers.get("origin") ?? "*";
+  const origin = req.headers.get("origin") || "null";
+  const reqHeaders =
+    req.headers.get("access-control-request-headers") || "content-type,authorization,x-requested-with";
 
   const headers = new Headers();
   headers.set("Access-Control-Allow-Origin", origin);
   headers.set("Access-Control-Allow-Credentials", "true");
   headers.set("Access-Control-Allow-Methods", "POST,OPTIONS");
-  headers.set(
-    "Access-Control-Allow-Headers",
-    "Content-Type, X-Requested-With, Authorization"
-  );
-  headers.set("Vary", "Origin");
+  headers.set("Access-Control-Allow-Headers", reqHeaders);
+  headers.set("Vary", "Origin, Access-Control-Request-Headers");
   return headers;
 }
 
@@ -31,7 +28,6 @@ export async function POST(req: Request) {
     const raw = await req.text();
     let data: Record<string, any> = {};
 
-    // ✅ Pusher => x-www-form-urlencoded (par défaut)
     try {
       data = JSON.parse(raw || "{}");
     } catch {
@@ -50,12 +46,7 @@ export async function POST(req: Request) {
       return new NextResponse("Bad channel", { status: 400, headers: corsHeaders });
     }
 
-    // ✅ Presence data minimal
-    const presenceData = {
-      user_id: "anon",
-      user_info: {},
-    };
-
+    const presenceData = { user_id: "anon", user_info: {} };
     const auth = pusherServer.authorizeChannel(socketId, channelName, presenceData);
 
     corsHeaders.set("Content-Type", "application/json");

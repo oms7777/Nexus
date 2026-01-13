@@ -204,7 +204,7 @@ type SuggestionsPayload = {
 
     // Messaging
     window.addEventListener("message", handleMessage);
-    patchHistoryForSpa();
+
     window.addEventListener("popstate", sendParentLocation);
 
     // Nudge positioning
@@ -371,16 +371,7 @@ type SuggestionsPayload = {
     postToWidget({ type: "nexus:parent-location", href: location.href });
   }
 
-  function patchHistoryForSpa() {
-    (["pushState", "replaceState"] as const).forEach((fn) => {
-      const orig = (history as any)[fn];
-      (history as any)[fn] = function (...args: any[]) {
-        const ret = orig.apply(this, args);
-        if (iframeLoaded) sendParentLocation();
-        return ret;
-      };
-    });
-  }
+
 
   /* ---------------- Nudge ---------------- */
 
