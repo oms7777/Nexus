@@ -9,9 +9,7 @@ const IS_PUBLIC_ROUTE = createRouteMatcher([
   // realtime
   "/api/realtime/pusher-auth(.*)",
 
-  // tracker (CORS + anonymous)
-  "/api/tracker/ensure-session(.*)",
-  "/api/tracker/set-current-url(.*)",
+
   "/api/tracker/snapshot(.*)",
   "/api/tracker/log(.*)",
 ]);
