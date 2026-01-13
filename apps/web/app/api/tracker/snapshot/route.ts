@@ -1,6 +1,8 @@
+// apps/web/app/api/tracker/snapshot/route.ts
 import { NextResponse } from "next/server";
 import { api } from "@workspace/backend/_generated/api";
 import { fetchMutation } from "convex/nextjs";
+import type { Id } from "@workspace/backend/_generated/dataModel";
 import type { eventWithTime } from "@rrweb/types";
 
 export const runtime = "nodejs";
@@ -43,32 +45,23 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const organizationId = body?.organizationId as string | undefined;
-    const externalSessionId = body?.sessionId as string | undefined; // ✅ embed sends string
+    const sessionIdRaw = body?.sessionId as string | undefined; // ✅ Convex Id string
     const events = body?.events as eventWithTime[] | undefined;
 
-    if (!organizationId || !externalSessionId || !Array.isArray(events) || events.length === 0) {
+    if (!organizationId || !sessionIdRaw || !Array.isArray(events) || events.length === 0) {
       return new NextResponse(
         JSON.stringify({ ok: false, error: "Invalid payload" }),
-        { status: 400, headers: { "Content-Type": "application/json", ...cors } },
+        { status: 400, headers: { "Content-Type": "application/json", ...cors } }
       );
     }
 
-    const { pageUrl, title, width, height } = pickMetaFromEvents(events);
+    const sessionId = sessionIdRaw as Id<"contactSessions">;
 
-    // ✅ map external string id -> Convex Id<contactSessions>
-    const convexSessionId = await fetchMutation(api.public.contactSessions.ensureByExternalId, {
-      organizationId,
-      externalSessionId,
-      metadata: {
-        currentUrl: pageUrl,
-        title,
-        viewportSize: width && height ? `${width}x${height}` : undefined,
-      },
-    });
+    const { pageUrl, title, width, height } = pickMetaFromEvents(events);
 
     await fetchMutation(api.public.snapshots.save, {
       organizationId,
-      sessionId: convexSessionId,
+      sessionId,
       pageUrl,
       title,
       width,
@@ -84,7 +77,7 @@ export async function POST(req: Request) {
     console.error("[snapshot] POST error", err);
     return new NextResponse(
       JSON.stringify({ ok: false, error: "Internal error" }),
-      { status: 500, headers: { "Content-Type": "application/json", ...cors } },
+      { status: 500, headers: { "Content-Type": "application/json", ...cors } }
     );
   }
 }

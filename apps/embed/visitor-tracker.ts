@@ -15,51 +15,53 @@ let flushTimer: number | null = null;
 let uninstallNav: (() => void) | null = null;
 let onMouseMoveRef: ((e: MouseEvent) => void) | null = null;
 
-/**
- * IMPORTANT:
- * - externalSessionId = string venant de l’embed (stable/random)
- * - convexSessionId  = vrai Id<contactSessions> retourné par /ensure-session
- */
-let externalSessionIdRef: string | null = null;
-let convexSessionIdRef: string | null = null;
+let convexSessionId: string | null = null;
 
-// Snapshot state
+// snapshot state
 let snapshotSentOnce = false;
 let snapshotBuffer: eventWithTime[] = [];
 let wantNewSnapshot = false;
-let lastNavSnapshotRequestTs = 0;
 
-// Live batching
+// live batching
 let liveQueue: eventWithTime[] = [];
 let flushing = false;
 
 type VisitorTrackingOptions = {
   orgId: string;
-  sessionId: string; // external session id (string)
+  sessionId: string; // external (can be uuid) — kept for backward compat, but NOT used for storage/pusher
 };
 
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
-const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
-const ENSURE_SESSION_URL = "https://app.inboundless.co/api/tracker/ensure-session";
 
-// ---------- SAFETY / PERF ----------
+// ✅ your Next routes
+const ENSURE_SESSION_URL = "https://app.inboundless.co/api/tracker/ensure-session";
+const SET_CURRENT_URL = "https://app.inboundless.co/api/tracker/set-current-url";
+const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
+
+// ---------- PERF ----------
 const MAX_EVENT_BYTES = 8_500;
+
+// less aggressive
 const FLUSH_EVERY_MS = 450;
 const CURSOR_THROTTLE_MS = 120;
 
+// caps mémoire
 const MAX_SNAPSHOT_BUFFER_EVENTS = 420;
 const MAX_QUEUE_EVENTS = 260;
 
-const SNAPSHOT_COOLDOWN_MS = 2500;
+// snapshot rate limit (if you ever want refresh snapshots)
+const SNAPSHOT_COOLDOWN_MS = 12_000;
 let lastSnapshotTs = 0;
 
-const NAV_SNAPSHOT_THROTTLE_MS = 5000;
+// nav throttling
+const NAV_URL_THROTTLE_MS = 650;
+let lastNavUrlTs = 0;
 
-const QUEUE_OVERFLOW_HARD_LIMIT = 900;
-let overflowStrikes = 0;
-const MAX_OVERFLOW_STRIKES = 3;
+// optional snapshot refresh on nav (VERY rare)
+const NAV_SNAPSHOT_THROTTLE_MS = 60_000; // 1 min
+let lastNavSnapshotTs = 0;
 
 function isHidden() {
   try {
@@ -115,7 +117,6 @@ function cleanup() {
   } catch {}
   pusherRef = null;
 
-  // reset queues/state
   liveQueue = [];
   snapshotBuffer = [];
   flushing = false;
@@ -123,12 +124,10 @@ function cleanup() {
   snapshotSentOnce = false;
   wantNewSnapshot = false;
 
+  convexSessionId = null;
   lastSnapshotTs = 0;
-  lastNavSnapshotRequestTs = 0;
-  overflowStrikes = 0;
-
-  externalSessionIdRef = null;
-  convexSessionIdRef = null;
+  lastNavUrlTs = 0;
+  lastNavSnapshotTs = 0;
 
   started = false;
 }
@@ -163,16 +162,84 @@ function triggerCursor(e: MouseEvent) {
   } catch {}
 }
 
+/* ---------------- Convex session bootstrap ---------------- */
+
+async function ensureConvexSession(orgId: string) {
+  // ✅ cache per-tab (and across reloads)
+  try {
+    const cached = localStorage.getItem("inboundless_convex_session_id");
+    if (cached) return cached;
+  } catch {}
+
+  try {
+    const res = await fetch(ENSURE_SESSION_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      mode: "cors",
+      body: JSON.stringify({
+        organizationId: orgId,
+        // no convexSessionId => create/reuse anonymous server-side
+        metadata: {
+          currentUrl: window.location.href,
+          title: document.title,
+          referrer: document.referrer || undefined,
+          viewportSize: `${window.innerWidth}x${window.innerHeight}`,
+          screenResolution: `${screen.width}x${screen.height}`,
+          language: navigator.language,
+          cookieEnabled: navigator.cookieEnabled,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          timezoneOffset: -new Date().getTimezoneOffset(),
+        },
+      }),
+      keepalive: true,
+    });
+
+    const json = (await res.json()) as { ok: boolean; sessionId?: string };
+    if (!json?.ok || !json.sessionId) return null;
+
+    try {
+      localStorage.setItem("inboundless_convex_session_id", json.sessionId);
+    } catch {}
+
+    return json.sessionId;
+  } catch {
+    return null;
+  }
+}
+
+/* ---------------- URL tracking (no-freeze) ---------------- */
+
+async function postCurrentUrl(convexId: string) {
+  const now = Date.now();
+  if (now - lastNavUrlTs < NAV_URL_THROTTLE_MS) return;
+  lastNavUrlTs = now;
+
+  try {
+    await fetch(SET_CURRENT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      mode: "cors",
+      body: JSON.stringify({
+        sessionId: convexId,
+        url: window.location.href,
+        title: document.title,
+        referrer: document.referrer || undefined,
+      }),
+      keepalive: true,
+    });
+  } catch {}
+}
+
 /* ---------------- snapshot posting ---------------- */
 
-async function postSnapshot(orgId: string, externalSessionId: string, events: eventWithTime[]) {
+async function postSnapshot(orgId: string, convexId: string, events: eventWithTime[]) {
   if (!events.length) return;
 
   const now = Date.now();
   if (now - lastSnapshotTs < SNAPSHOT_COOLDOWN_MS) return;
   lastSnapshotTs = now;
 
-  // trim: keep from first FullSnapshot + tail
+  // keep from first FullSnapshot + small tail
   const fullIndex = events.findIndex((e) => e.type === 2);
   if (fullIndex > 0) events = events.slice(fullIndex);
 
@@ -182,15 +249,14 @@ async function postSnapshot(orgId: string, externalSessionId: string, events: ev
     events = full ? [full, ...tail] : tail;
   }
 
+  const body = JSON.stringify({ organizationId: orgId, sessionId: convexId, events });
+  if (safeBytes(body) > 1_000_000) return; // hard safety
+
   try {
     await fetch(SNAPSHOT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        organizationId: orgId,
-        sessionId: externalSessionId, // ✅ IMPORTANT: string id for ensureByExternalId
-        events,
-      }),
+      body,
       keepalive: true,
       mode: "cors",
     });
@@ -201,14 +267,14 @@ async function postSnapshot(orgId: string, externalSessionId: string, events: ev
 
 let lastHref: string | null = null;
 
-function installNavigationWatcher(onChange: (href: string) => void) {
+function installNavigationWatcher(onChange: () => void) {
   if (typeof window === "undefined") return () => {};
 
   const emitIfChanged = () => {
     const href = window.location.href;
     if (href !== lastHref) {
       lastHref = href;
-      onChange(href);
+      onChange();
     }
   };
 
@@ -219,7 +285,6 @@ function installNavigationWatcher(onChange: (href: string) => void) {
     originalPush(...args);
     emitIfChanged();
   };
-
   const patchedReplace: History["replaceState"] = (...args) => {
     originalReplace(...args);
     emitIfChanged();
@@ -245,88 +310,38 @@ function installNavigationWatcher(onChange: (href: string) => void) {
   };
 }
 
-function requestNavSnapshotSafely() {
+// ❗ optional: snapshot refresh very rarely (and only idle)
+function requestRareNavSnapshot() {
   const now = Date.now();
-  if (now - lastNavSnapshotRequestTs < NAV_SNAPSHOT_THROTTLE_MS) return;
-  lastNavSnapshotRequestTs = now;
+  if (now - lastNavSnapshotTs < NAV_SNAPSHOT_THROTTLE_MS) return;
+  lastNavSnapshotTs = now;
 
+  // we only refresh snapshot if rrweb gives a full snapshot naturally
   wantNewSnapshot = true;
   snapshotBuffer = [];
-
-  // takeFullSnapshot en idle (anti-freeze)
-  try {
-    const take = (record as unknown as { takeFullSnapshot?: () => void }).takeFullSnapshot;
-    if (typeof take !== "function") return;
-
-    const run = () => {
-      try {
-        take();
-      } catch {}
-    };
-
-    const ric = (window as any).requestIdleCallback as
-      | ((cb: () => void, opts?: { timeout?: number }) => number)
-      | undefined;
-
-    if (typeof ric === "function") ric(run, { timeout: 800 });
-    else window.setTimeout(run, 120);
-  } catch {}
-}
-
-/* ---------------- ENSURE SESSION (CRITICAL) ---------------- */
-
-async function ensureConvexSessionId(orgId: string, externalSessionId: string) {
-  try {
-    const res = await fetch(ENSURE_SESSION_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      mode: "cors",
-      body: JSON.stringify({
-        organizationId: orgId,
-        externalSessionId,
-        metadata: {
-          currentUrl: typeof window !== "undefined" ? window.location.href : undefined,
-          title: typeof document !== "undefined" ? document.title : undefined,
-          viewportSize:
-            typeof window !== "undefined"
-              ? `${window.innerWidth}x${window.innerHeight}`
-              : undefined,
-          referrer: typeof document !== "undefined" ? document.referrer : undefined,
-        },
-      }),
-    });
-
-    const json = await res.json().catch(() => null);
-    const id = json?.sessionId as string | undefined;
-    return id || null;
-  } catch {
-    return null;
-  }
 }
 
 /* ---------------- main init ---------------- */
 
-export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
+export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
+
+  // never track inside widget iframe
   if (window.self !== window.top) return;
 
   started = true;
   purgePusherTransportCache();
 
-  externalSessionIdRef = sessionId;
-
-  // ✅ CRITICAL: get Convex session id BEFORE subscribing to Pusher
-  convexSessionIdRef = await ensureConvexSessionId(orgId, sessionId);
-
-  // If ensure failed, we can still run, but LIVE VIEW in dashboard won’t match.
-  // Better to stop quietly to avoid inconsistent state.
-  if (!convexSessionIdRef) {
+  // ✅ CRITICAL: get a REAL Convex sessionId first
+  convexSessionId = await ensureConvexSession(orgId);
+  if (!convexSessionId) {
     cleanup();
     return;
   }
 
-  const convexSessionId = convexSessionIdRef;
+  // push current url immediately
+  void postCurrentUrl(convexSessionId);
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
@@ -336,14 +351,12 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
-      // ✅ send orgId + convexSessionId to auth route (optional but useful)
-      params: { orgId, sessionId: convexSessionId },
-    } as any,
+    },
   });
 
   pusherRef = pusher;
 
-  // ✅ IMPORTANT: channel uses CONVEX session id (matches dashboard)
+  // ✅ IMPORTANT: channel uses convexSessionId (so UI listens to the same)
   const channelName = `presence-org_${orgId}_session_${convexSessionId}`;
   const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
@@ -355,13 +368,6 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
     if (flushing) return;
     if (liveQueue.length === 0) return;
     if (isHidden()) return;
-
-    if (liveQueue.length > QUEUE_OVERFLOW_HARD_LIMIT) {
-      overflowStrikes++;
-      liveQueue = liveQueue.slice(-MAX_QUEUE_EVENTS);
-      if (overflowStrikes >= MAX_OVERFLOW_STRIKES) cleanup();
-      return;
-    }
 
     flushing = true;
     try {
@@ -389,14 +395,18 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
   window.addEventListener("mousemove", onMouseMoveRef, { passive: true });
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // nav watcher -> request snapshot refresh (safe)
-    uninstallNav = installNavigationWatcher(() => requestNavSnapshotSafely());
+    // ✅ Nav watcher: URL updates (cheap) + ultra-rare snapshot refresh request
+    uninstallNav = installNavigationWatcher(() => {
+      if (!convexSessionId) return;
+      void postCurrentUrl(convexSessionId);
+      requestRareNavSnapshot();
+    });
 
     stopRecording = record({
       sampling: {
-        mousemove: 220,
+        mousemove: 260,
         mouseInteraction: true,
-        scroll: 260,
+        scroll: 320,
         input: "last",
       },
       emit(event: eventWithTime) {
@@ -405,45 +415,36 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
 
           const isFullSnapshot = event.type === 2;
 
-          // 1) first snapshot
+          // 1) first snapshot ever
           if (!snapshotSentOnce) {
             snapshotBuffer.push(event);
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
               snapshotBuffer.splice(0, snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS);
             }
 
-            if (isFullSnapshot) {
+            if (isFullSnapshot && convexSessionId) {
               snapshotSentOnce = true;
-
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
-
-              if (externalSessionIdRef) {
-                void postSnapshot(orgId, externalSessionIdRef, snapshotEvents);
-              }
+              void postSnapshot(orgId, convexSessionId, snapshotEvents);
               return; // never stream FullSnapshot
             }
-
             return;
           }
 
-          // 2) nav refresh snapshot (without blocking live)
+          // 2) optional nav refresh snapshots (rare) — does NOT block live
           if (wantNewSnapshot) {
             snapshotBuffer.push(event);
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
               snapshotBuffer.splice(0, snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS);
             }
 
-            if (isFullSnapshot) {
+            if (isFullSnapshot && convexSessionId) {
               wantNewSnapshot = false;
-
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
-
-              if (externalSessionIdRef) {
-                void postSnapshot(orgId, externalSessionIdRef, snapshotEvents);
-              }
-              return; // never stream FullSnapshot
+              void postSnapshot(orgId, convexSessionId, snapshotEvents);
+              return;
             }
           }
 
