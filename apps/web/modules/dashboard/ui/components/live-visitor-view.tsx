@@ -23,11 +23,17 @@ function computeScale(root: HTMLElement, content: HTMLElement) {
   );
 }
 
+/**
+ * ✅ anti-freeze + ✅ keep META (type 4) that rrweb needs for correct viewport
+ * Strategy:
+ * - If snapshot is small: keep as-is
+ * - If huge: take from last FullSnapshot (type 2), but ALSO include the last Meta (type 4) right before it (if any)
+ * - Keep a reasonable tail size to avoid Replayer freeze
+ */
 function trimSnapshotEvents(events: eventWithTime[]) {
-  // ✅ anti-freeze: si le snapshot est énorme, on garde depuis le dernier FullSnapshot + tail
   if (!Array.isArray(events) || events.length <= 1400) return events;
 
-  // dernier full snapshot
+  // find last FullSnapshot (type 2)
   let lastFull = -1;
   for (let i = events.length - 1; i >= 0; i--) {
     if ((events[i] as any)?.type === 2) {
@@ -36,9 +42,23 @@ function trimSnapshotEvents(events: eventWithTime[]) {
     }
   }
 
-  const from = lastFull >= 0 ? lastFull : Math.max(0, events.length - 1200);
-  const sliced = events.slice(from);
+  // if we found a last FullSnapshot, also try to include the nearest Meta (type 4) just before it
+  let from = lastFull >= 0 ? lastFull : Math.max(0, events.length - 1200);
 
+  if (lastFull >= 0) {
+    let lastMeta = -1;
+    for (let i = lastFull - 1; i >= 0; i--) {
+      if ((events[i] as any)?.type === 4) {
+        lastMeta = i;
+        break;
+      }
+      // small early stop: meta is typically right before full snapshot
+      if (lastFull - i > 50) break;
+    }
+    if (lastMeta >= 0) from = lastMeta;
+  }
+
+  const sliced = events.slice(from);
   if (sliced.length > 1200) return sliced.slice(-1200);
   return sliced;
 }
@@ -84,7 +104,16 @@ export function LiveVisitorView({
 
     try {
       const parsed = JSON.parse(latest.snapshot) as eventWithTime[];
-      const events = trimSnapshotEvents(parsed);
+
+      // ✅ ensure rrweb order is stable
+      const sorted = Array.isArray(parsed)
+        ? [...parsed].sort(
+            (a: any, b: any) =>
+              (a?.timestamp ?? 0) - (b?.timestamp ?? 0)
+          )
+        : [];
+
+      const events = trimSnapshotEvents(sorted);
 
       root.innerHTML = "";
 
@@ -102,7 +131,8 @@ export function LiveVisitorView({
           (r.firstElementChild as HTMLElement | null);
 
         if (!content) {
-          if (tries < 40) requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
+          if (tries < 40)
+            requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
           return;
         }
 

@@ -25,9 +25,15 @@ export async function OPTIONS(req: Request) {
 }
 
 function pickMetaFromEvents(events: eventWithTime[]) {
+  // ✅ rrweb Meta (type 4) contains href/width/height
+  const meta = events.find((e: any) => e?.type === 4) as any;
+
+  // FullSnapshot can contain some info but is not reliable for viewport meta
   const full = events.find((e: any) => e?.type === 2) as any;
+
   const first = events[0] as any;
-  const src = full?.data ?? first?.data ?? {};
+
+  const src = meta?.data ?? full?.data ?? first?.data ?? {};
 
   return {
     pageUrl: (src?.href as string | undefined) ?? undefined,
