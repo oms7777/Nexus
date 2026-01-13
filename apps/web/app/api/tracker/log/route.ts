@@ -5,17 +5,17 @@ import { fetchMutation } from "convex/nextjs";
 export const runtime = "nodejs";
 
 function makeCorsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "null";
-  const reqHeaders =
-    req.headers.get("access-control-request-headers") || "content-type";
+  const origin = req.headers.get("origin") ?? "*";
+  const requestHeaders =
+    req.headers.get("access-control-request-headers") ?? "content-type";
 
-  const h = new Headers();
-  h.set("Access-Control-Allow-Origin", origin);
-  h.set("Access-Control-Allow-Credentials", "true");
-  h.set("Access-Control-Allow-Methods", "POST,OPTIONS");
-  h.set("Access-Control-Allow-Headers", reqHeaders);
-  h.set("Vary", "Origin, Access-Control-Request-Headers");
-  return h;
+  const headers = new Headers();
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Access-Control-Allow-Methods", "POST,OPTIONS");
+  headers.set("Access-Control-Allow-Headers", requestHeaders);
+  headers.set("Vary", "Origin, Access-Control-Request-Headers");
+  return headers;
 }
 
 export async function OPTIONS(req: Request) {
@@ -30,10 +30,13 @@ export async function POST(req: Request) {
     await fetchMutation(api.public.analytics.log, body);
 
     headers.set("Content-Type", "application/json");
-    return NextResponse.json({ ok: true }, { status: 200, headers });
+    return new NextResponse(JSON.stringify({ ok: true }), { status: 200, headers });
   } catch (err) {
-    console.error("[log] error", err);
+    console.error("[log] POST error", err);
     headers.set("Content-Type", "application/json");
-    return NextResponse.json({ ok: false }, { status: 500, headers });
+    return new NextResponse(
+      JSON.stringify({ ok: false, error: "Internal error" }),
+      { status: 500, headers }
+    );
   }
 }

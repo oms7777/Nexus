@@ -2,21 +2,21 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-const isPublicRoute = createRouteMatcher([
+const IS_PUBLIC_ROUTE = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
 
-  // Realtime
+  // realtime
   "/api/realtime/pusher-auth(.*)",
 
-  // Tracker (IMPORTANT: allow CORS + anonymous)
+  // tracker (CORS + anonymous)
   "/api/tracker/ensure-session(.*)",
   "/api/tracker/set-current-url(.*)",
   "/api/tracker/snapshot(.*)",
   "/api/tracker/log(.*)",
 ]);
 
-const isOrgFreeRoute = createRouteMatcher([
+const IS_ORG_FREE_ROUTE = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/org-selection(.*)",
@@ -42,32 +42,29 @@ function isInviteSignUp(req: Request) {
 export default clerkMiddleware(async (auth, req) => {
   const url = new URL(req.url);
 
-  // ✅ CRITICAL: Let preflight pass through untouched
+  // ✅ MAJ: laisser passer les preflight CORS
   if (req.method === "OPTIONS") {
     return NextResponse.next();
   }
 
   const { userId, orgId } = await auth();
 
-  // ✅ Block direct sign-up (allow invite links)
+  // ✅ bloque le sign-up direct (autorise via lien d'invite)
   if (url.pathname.startsWith("/sign-up") && !isInviteSignUp(req)) {
     const signInUrl = new URL("/sign-in", req.url);
     signInUrl.searchParams.set("redirect_url", "/");
     return NextResponse.redirect(signInUrl);
   }
 
-  // 🔓 Public routes stay public
-  if (!isPublicRoute(req)) {
+  // 🔓 public routes stay public
+  if (!IS_PUBLIC_ROUTE(req)) {
     await auth.protect();
   }
 
-  // 🔐 Force org selection when user is logged but no org chosen
-  if (userId && !orgId && !isOrgFreeRoute(req)) {
+  // 🔐 force org selection
+  if (userId && !orgId && !IS_ORG_FREE_ROUTE(req)) {
     const searchParams = new URLSearchParams({ redirectURL: req.url });
-    const orgSelection = new URL(
-      `/org-selection?${searchParams.toString()}`,
-      req.url,
-    );
+    const orgSelection = new URL(`/org-selection?${searchParams.toString()}`, req.url);
     return NextResponse.redirect(orgSelection);
   }
 
