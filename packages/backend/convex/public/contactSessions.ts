@@ -320,3 +320,62 @@ export const validate = mutation({
     return { valid: true, contactSession: s };
   },
 });
+
+/** -------------------------------------------------------------
+ * ensureByExternalId — embed sends a string session id
+ * We map (organizationId + externalSessionId) -> real Convex Id<contactSessions>
+ * ----------------------------------------------------------- */
+export const ensureByExternalId = mutation({
+  args: {
+    organizationId: v.string(),
+    externalSessionId: v.string(),
+    metadata: v.optional(MetadataSchema),
+  },
+  handler: async (ctx, { organizationId, externalSessionId, metadata }) => {
+    const now = Date.now();
+    const expiresAt = now + SESSION_DURATION_MS;
+
+    const existing = await ctx.db
+      .query("contactSessions")
+      .withIndex("by_org_external_session", (q: any) =>
+        q.eq("organizationId", organizationId).eq("externalSessionId", externalSessionId),
+      )
+      .first();
+
+    if (existing) {
+      const oldMd = (existing.metadata ?? {}) as Metadata;
+      const safeIncoming = isPlainObject(metadata) ? (metadata as Metadata) : undefined;
+      const newMd = mergeMetadata(oldMd, safeIncoming);
+
+      await ctx.db.patch(existing._id, {
+        expiresAt,
+        metadata: newMd,
+      });
+
+      await ensureSessionStartedLogged(ctx, {
+        organizationId,
+        contactSessionId: existing._id,
+        source: "ensure_existing",
+      });
+
+      return existing._id;
+    }
+
+    const id = await ctx.db.insert("contactSessions", {
+      name: "Visitor",
+      email: "",
+      organizationId,
+      externalSessionId, // ✅ stored on the session
+      expiresAt,
+      metadata,
+    });
+
+    await ensureSessionStartedLogged(ctx, {
+      organizationId,
+      contactSessionId: id,
+      source: "ensure_new",
+    });
+
+    return id;
+  },
+});

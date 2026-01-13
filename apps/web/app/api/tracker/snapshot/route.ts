@@ -1,72 +1,90 @@
-// apps/web/app/api/tracker/snapshot/route.ts
 import { NextResponse } from "next/server";
 import { api } from "@workspace/backend/_generated/api";
 import { fetchMutation } from "convex/nextjs";
+import type { eventWithTime } from "@rrweb/types";
 
 export const runtime = "nodejs";
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-  Vary: "Origin",
-};
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: CORS_HEADERS,
-  });
+function makeCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") ?? "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Requested-With, Authorization",
+    Vary: "Origin",
+  } as Record<string, string>;
 }
 
-// (optionnel, juste pour ne pas avoir de 405 si tu testes en GET)
-export async function GET() {
-  return new NextResponse("OK", {
-    status: 200,
-    headers: CORS_HEADERS,
-  });
+export async function OPTIONS(req: Request) {
+  return new NextResponse(null, { status: 204, headers: makeCorsHeaders(req) });
+}
+
+export async function GET(req: Request) {
+  return new NextResponse("OK", { status: 200, headers: makeCorsHeaders(req) });
+}
+
+function pickMetaFromEvents(events: eventWithTime[]) {
+  const full = events.find((e: any) => e?.type === 2) as any;
+  const first = events[0] as any;
+  const src = full?.data ?? first?.data ?? {};
+
+  return {
+    pageUrl: src?.href as string | undefined,
+    title: src?.title as string | undefined,
+    width: src?.width as number | undefined,
+    height: src?.height as number | undefined,
+  };
 }
 
 export async function POST(req: Request) {
-  try {
-    const { organizationId, sessionId, events } = await req.json();
+  const cors = makeCorsHeaders(req);
 
-    if (!organizationId || !sessionId || !Array.isArray(events) || events.length === 0) {
+  try {
+    const body = await req.json();
+
+    const organizationId = body?.organizationId as string | undefined;
+    const externalSessionId = body?.sessionId as string | undefined; // ✅ embed sends string
+    const events = body?.events as eventWithTime[] | undefined;
+
+    if (!organizationId || !externalSessionId || !Array.isArray(events) || events.length === 0) {
       return new NextResponse(
         JSON.stringify({ ok: false, error: "Invalid payload" }),
-        { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } },
+        { status: 400, headers: { "Content-Type": "application/json", ...cors } },
       );
     }
 
-    // On prend le 1er event (snapshot) pour les meta
-    const first = events[0] as any;
+    const { pageUrl, title, width, height } = pickMetaFromEvents(events);
 
-    const pageUrl: string | undefined = first?.data?.href;
-    const title: string | undefined = first?.data?.title;
-    const width: number | undefined = first?.data?.width;
-    const height: number | undefined = first?.data?.height;
-
-    const snapshot = JSON.stringify(events); // ✅ string pour Convex
+    // ✅ map external string id -> Convex Id<contactSessions>
+    const convexSessionId = await fetchMutation(api.public.contactSessions.ensureByExternalId, {
+      organizationId,
+      externalSessionId,
+      metadata: {
+        currentUrl: pageUrl,
+        title,
+        viewportSize: width && height ? `${width}x${height}` : undefined,
+      },
+    });
 
     await fetchMutation(api.public.snapshots.save, {
       organizationId,
-      sessionId,
+      sessionId: convexSessionId,
       pageUrl,
       title,
       width,
       height,
-      snapshot,
+      snapshot: JSON.stringify(events),
     });
 
-    return new NextResponse(
-      JSON.stringify({ ok: true }),
-      { status: 200, headers: { "Content-Type": "application/json", ...CORS_HEADERS } },
-    );
+    return new NextResponse(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...cors },
+    });
   } catch (err) {
     console.error("[snapshot] POST error", err);
     return new NextResponse(
       JSON.stringify({ ok: false, error: "Internal error" }),
-      { status: 500, headers: { "Content-Type": "application/json", ...CORS_HEADERS } },
+      { status: 500, headers: { "Content-Type": "application/json", ...cors } },
     );
   }
 }

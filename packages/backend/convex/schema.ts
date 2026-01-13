@@ -197,6 +197,10 @@ export default defineSchema({
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
     organizationId: v.string(),
+
+    // ✅ NEW: stable external id coming from embed (uuid/string)
+    externalSessionId: v.optional(v.string()),
+
     expiresAt: v.number(),
     isAnonymous: v.optional(v.boolean()),
     identifiedAt: v.optional(v.number()),
@@ -236,14 +240,17 @@ export default defineSchema({
     consent: v.optional(
       v.object({
         given: v.boolean(),
-        ts: v.number(), // ms epoch
+        ts: v.number(),
         privacyUrl: v.optional(v.string()),
         version: v.optional(v.string()),
       }),
     ),
   })
     .index("by_organization_id", ["organizationId"])
-    .index("by_expires_at", ["expiresAt"]),
+    .index("by_expires_at", ["expiresAt"])
+    // ✅ NEW: find session by (org + externalSessionId)
+    .index("by_org_external_session", ["organizationId", "externalSessionId"]),
+
 
   /* ---------- Cache IP -> geo ---------- */
   ipGeoCache: defineTable({

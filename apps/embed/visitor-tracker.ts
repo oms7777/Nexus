@@ -18,10 +18,14 @@ let uninstallNav: (() => void) | null = null;
 
 let onMouseMoveRef: ((e: MouseEvent) => void) | null = null;
 
-let snapshotSentOnce = false; // ✅ on garde "true" après 1er snapshot, on ne repasse plus en attente
+// ✅ IMPORTANT: now we always track with a REAL Convex Id
+let convexSessionIdRef: string | null = null;
+
+// snapshots
+let snapshotSentOnce = false; // ✅ stays true after first successful snapshot
 let snapshotBuffer: eventWithTime[] = [];
 
-// ✅ navigation snapshot state (ne bloque jamais le live)
+// ✅ navigation snapshot refresh (never blocks live)
 let wantNewSnapshot = false;
 let lastNavSnapshotRequestTs = 0;
 
@@ -31,22 +35,24 @@ let flushing = false;
 
 type VisitorTrackingOptions = {
   orgId: string;
-  sessionId: string;
+  // ⚠️ external sessionId can exist but is not used for Convex anymore
+  sessionId?: string;
 };
 
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
+const ENSURE_SESSION_URL = "https://app.inboundless.co/api/tracker/ensure-session";
 
 // ---------- SAFETY / PERF ----------
 const MAX_EVENT_BYTES = 8_500;
 
-// flush + cursor: moins agressif
+// flush + cursor: less aggressive
 const FLUSH_EVERY_MS = 450;
 const CURSOR_THROTTLE_MS = 120;
 
-// caps mémoire
+// memory caps
 const MAX_SNAPSHOT_BUFFER_EVENTS = 420;
 const MAX_QUEUE_EVENTS = 260;
 
@@ -55,7 +61,7 @@ const SNAPSHOT_COOLDOWN_MS = 2500;
 let lastSnapshotTs = 0;
 
 // nav snapshot throttling
-const NAV_SNAPSHOT_THROTTLE_MS = 5000; // ✅ important: éviter snapshot à chaque micro-nav
+const NAV_SNAPSHOT_THROTTLE_MS = 5000;
 
 // circuit breaker
 const QUEUE_OVERFLOW_HARD_LIMIT = 900;
@@ -120,7 +126,6 @@ function cleanup() {
   snapshotBuffer = [];
   flushing = false;
 
-  // reset snapshot flags
   snapshotSentOnce = false;
   wantNewSnapshot = false;
 
@@ -128,11 +133,73 @@ function cleanup() {
   lastNavSnapshotRequestTs = 0;
   overflowStrikes = 0;
 
+  convexSessionIdRef = null;
+
   started = false;
 }
 
 export function destroyVisitorTracking() {
   cleanup();
+}
+
+/* ---------------- Convex ensure-session (CRITICAL) ---------------- */
+
+function buildInitialMetadata() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return {
+      currentUrl: window.location.href,
+      title: document.title,
+      userAgent: navigator.userAgent,
+      language: navigator.language,
+      languages: Array.isArray(navigator.languages) ? navigator.languages.join(",") : undefined,
+      platform: (navigator as any).platform,
+      vendor: (navigator as any).vendor,
+      screenResolution: `${window.screen?.width ?? 0}x${window.screen?.height ?? 0}`,
+      viewportSize: `${window.innerWidth ?? 0}x${window.innerHeight ?? 0}`,
+      timezone: tz,
+      timezoneOffset: new Date().getTimezoneOffset(),
+      cookieEnabled: navigator.cookieEnabled,
+      referrer: document.referrer || undefined,
+    };
+  } catch {
+    return {
+      currentUrl: typeof window !== "undefined" ? window.location.href : undefined,
+      title: typeof document !== "undefined" ? document.title : undefined,
+    };
+  }
+}
+
+async function ensureConvexSessionId(orgId: string) {
+  try {
+    // reuse if already ensured
+    if (convexSessionIdRef) return convexSessionIdRef;
+
+    const res = await fetch(ENSURE_SESSION_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organizationId: orgId,
+        // server creates a session if convexSessionId is missing
+        metadata: buildInitialMetadata(),
+      }),
+      keepalive: true,
+      mode: "cors",
+      credentials: "omit",
+    });
+
+    const json = await res.json().catch(() => ({} as any));
+    const id = json?.sessionId;
+
+    if (typeof id === "string" && id.length > 0) {
+      convexSessionIdRef = id;
+      return id;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /* ---------------- cursor ---------------- */
@@ -240,16 +307,15 @@ function installNavigationWatcher(onChange: (href: string) => void) {
 }
 
 function requestNavSnapshotSafely() {
-  // ✅ on ne spam pas
   const now = Date.now();
   if (now - lastNavSnapshotRequestTs < NAV_SNAPSHOT_THROTTLE_MS) return;
   lastNavSnapshotRequestTs = now;
 
-  // ✅ on prépare un nouveau snapshot sans couper le live
+  // ✅ prepare a new snapshot without stopping live
   wantNewSnapshot = true;
   snapshotBuffer = [];
 
-  // ✅ on tente un full snapshot mais en "idle" pour éviter freeze
+  // ✅ attempt a FullSnapshot, but only in idle to reduce freeze risk
   try {
     const take = (record as unknown as { takeFullSnapshot?: () => void }).takeFullSnapshot;
 
@@ -267,7 +333,6 @@ function requestNavSnapshotSafely() {
       if (typeof ric === "function") {
         ric(run, { timeout: 800 });
       } else {
-        // fallback soft
         window.setTimeout(run, 120);
       }
     }
@@ -276,7 +341,7 @@ function requestNavSnapshotSafely() {
 
 /* ---------------- main init ---------------- */
 
-export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
+export async function initVisitorTracking({ orgId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
@@ -286,6 +351,13 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   started = true;
   purgePusherTransportCache();
 
+  // ✅ CRITICAL: get a real Convex session id BEFORE pusher + snapshots
+  const convexSessionId = await ensureConvexSessionId(orgId);
+  if (!convexSessionId) {
+    cleanup();
+    return;
+  }
+
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
@@ -294,12 +366,14 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
+      // optional: pass ids so your auth route can set presence user_id
+      params: { orgId, sessionId: convexSessionId },
     },
   });
 
   pusherRef = pusher;
 
-  const channelName = `presence-org_${orgId}_session_${sessionId}`;
+  const channelName = `presence-org_${orgId}_session_${convexSessionId}`;
   const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
 
@@ -328,9 +402,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       const payload = { events: filtered };
       const json = JSON.stringify(payload);
 
-      if (safeBytes(json) > MAX_EVENT_BYTES) {
-        return; // drop batch
-      }
+      if (safeBytes(json) > MAX_EVENT_BYTES) return;
 
       channelRef.trigger("client-rrweb", payload);
     } catch {
@@ -347,7 +419,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   window.addEventListener("mousemove", onMouseMoveRef, { passive: true });
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // ✅ nav watcher: demande un snapshot "safe" (idle + throttle)
+    // ✅ nav watcher: request "safe" snapshot (idle + throttled)
     uninstallNav = installNavigationWatcher(() => requestNavSnapshotSafely());
 
     stopRecording = record({
@@ -367,17 +439,14 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
           if (!snapshotSentOnce) {
             snapshotBuffer.push(event);
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
-              snapshotBuffer.splice(
-                0,
-                snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS
-              );
+              snapshotBuffer.splice(0, snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS);
             }
 
             if (isFullSnapshot) {
               snapshotSentOnce = true;
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
-              void postSnapshot(orgId, sessionId, snapshotEvents);
+              void postSnapshot(orgId, convexSessionId, snapshotEvents);
               return; // never stream FullSnapshot
             }
 
@@ -388,20 +457,17 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
           if (wantNewSnapshot) {
             snapshotBuffer.push(event);
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
-              snapshotBuffer.splice(
-                0,
-                snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS
-              );
+              snapshotBuffer.splice(0, snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS);
             }
 
             if (isFullSnapshot) {
               wantNewSnapshot = false;
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
-              void postSnapshot(orgId, sessionId, snapshotEvents);
+              void postSnapshot(orgId, convexSessionId, snapshotEvents);
               return; // never stream FullSnapshot
             }
-            // continue streaming incrementals even while waiting
+            // keep streaming incrementals even while waiting
           }
 
           // ---- 3) normal live ----
