@@ -1,51 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Replayer } from "rrweb";
-import type { eventWithTime } from "@rrweb/types";
+import { useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
+import type { eventWithTime } from "@rrweb/types";
+import { Replayer } from "rrweb";
+import "rrweb/dist/rrweb.css";
+
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 
-function safeParseSnapshot(raw: unknown): eventWithTime[] | null {
-  if (!raw) return null;
+function computeScale(root: HTMLElement, content: HTMLElement) {
+  const rootRect = root.getBoundingClientRect();
+  const contentRect = content.getBoundingClientRect();
 
-  // Your DB stores it as string JSON (snapshot: v.string())
-  if (typeof raw === "string") {
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed as eventWithTime[];
+  if (!contentRect.width || !contentRect.height) return 1;
 
-      // fallback: { events: [...] }
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "events" in parsed &&
-        Array.isArray((parsed as any).events)
-      ) {
-        return (parsed as any).events as eventWithTime[];
-      }
-
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  // Future-proof if you ever change storage format
-  if (Array.isArray(raw)) return raw as eventWithTime[];
-
-  if (
-    typeof raw === "object" &&
-    raw !== null &&
-    "events" in raw &&
-    Array.isArray((raw as any).events)
-  ) {
-    return (raw as any).events as eventWithTime[];
-  }
-
-  return null;
+  return Math.min(
+    rootRect.width / contentRect.width,
+    rootRect.height / contentRect.height,
+    1,
+  );
 }
 
 export function LiveVisitorView({
@@ -57,101 +32,107 @@ export function LiveVisitorView({
   sessionId: Id<"contactSessions">;
   height?: number;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
-  const [ready, setReady] = useState(false);
-  const [initError, setInitError] = useState<string | null>(null);
-
-  // ✅ Convex expects Id<"contactSessions">, not string
+  // 1) Latest snapshot for this session
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
       sessionId,
       limit: 1,
     }) ?? [];
 
-  const snapshot = snaps[0];
+  const latest = snaps[0];
 
-  const baseEvents = useMemo(() => {
-    return safeParseSnapshot(snapshot?.snapshot);
-  }, [snapshot?.snapshot]);
-
-  // ✅ live stream (pusher)
-  const { rrwebEvents, cursor } = useVisitorStream({ orgId, sessionId });
-
-  // 1) Init replayer from latest snapshot
+  // 2) Init a STATIC Replayer whenever we have a snapshot
   useEffect(() => {
-    setInitError(null);
-    setReady(false);
-
     const root = containerRef.current;
     if (!root) return;
 
-    // Cleanup existing replayer
+    // cleanup previous
     try {
+      replayerRef.current?.pause();
       replayerRef.current?.destroy();
     } catch {}
     replayerRef.current = null;
 
-    // No snapshot yet
-    if (!baseEvents || baseEvents.length === 0) {
+    if (!latest?.snapshot) {
       root.innerHTML = "";
       return;
     }
 
     try {
+      const events = JSON.parse(latest.snapshot) as eventWithTime[];
+
+      // clear container
       root.innerHTML = "";
 
-      const rp = new Replayer(baseEvents, {
+      const replayer = new Replayer(events, {
         root,
-        liveMode: true,
-        speed: 1,
+        // IMPORTANT: keep it simple & permissive (like your working version)
+        // no liveMode here
       });
 
-      replayerRef.current = rp;
-      rp.play();
-      setReady(true);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to init rrweb replayer";
-      setInitError(msg);
-      setReady(false);
+      replayerRef.current = replayer;
+      replayer.play();
+
+      // ✅ Scale content to fit panel
+      const applyScale = () => {
+        const r = containerRef.current;
+        if (!r) return;
+
+        // rrweb injects its content inside root
+        const content = r.firstElementChild as HTMLElement | null;
+        if (!content) return;
+
+        const scale = computeScale(r, content);
+        content.style.transformOrigin = "top left";
+        content.style.transform = `scale(${scale})`;
+      };
+
+      // Apply scale after layout
+      requestAnimationFrame(() => {
+        applyScale();
+        // apply twice (rrweb can adjust size after first paint)
+        requestAnimationFrame(applyScale);
+      });
+
+      // Re-apply scale on resize
+      const ro = new ResizeObserver(() => applyScale());
+      ro.observe(root);
+
+      return () => {
+        try {
+          ro.disconnect();
+        } catch {}
+        try {
+          replayer.pause();
+          replayer.destroy();
+        } catch {}
+        replayerRef.current = null;
+      };
+    } catch (err) {
+      console.error("[live] failed to init Replayer from snapshot", err);
+      root.innerHTML = "";
     }
+  }, [latest?.snapshot]);
 
-    return () => {
-      try {
-        replayerRef.current?.destroy();
-      } catch {}
-      replayerRef.current = null;
-    };
-  }, [baseEvents]);
-
-  // 2) Feed live rrweb events into replayer
-  useEffect(() => {
-    if (!ready) return;
-    const rp = replayerRef.current;
-    if (!rp) return;
-    if (!rrwebEvents || rrwebEvents.length === 0) return;
-
-    try {
-      for (const ev of rrwebEvents) {
-        rp.addEvent(ev);
-      }
-    } catch {
-      // ignore (rrweb can be picky)
-    }
-  }, [ready, rrwebEvents]);
+  // 3) Live stream (cursor only)
+  const { cursor } = useVisitorStream({
+    orgId,
+    sessionId,
+  });
 
   return (
     <div
-      className="relative border rounded overflow-hidden bg-white"
+      className="relative rounded-xl border overflow-hidden bg-black/5"
       style={{ height }}
     >
-      <div ref={containerRef} className="absolute inset-0" />
+      <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
 
-      {/* Cursor overlay (only if we have normalized coords) */}
       {cursor && (
         <div
-          className="absolute w-3 h-3 bg-emerald-500 rounded-full z-50"
+          className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none z-50"
           style={{
             left: `${cursor.x * 100}%`,
             top: `${cursor.y * 100}%`,
@@ -160,15 +141,9 @@ export function LiveVisitorView({
         />
       )}
 
-      {!baseEvents && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">
+      {!latest?.snapshot && (
+        <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
           Waiting for first snapshot…
-        </div>
-      )}
-
-      {initError && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-red-600 bg-white/80">
-          {initError}
         </div>
       )}
     </div>
