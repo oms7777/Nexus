@@ -8,14 +8,12 @@ let started = false;
 
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
-
 let stopRecording: listenerHandler | undefined;
 
 let flushTimer: number | null = null;
 let uninstallNav: (() => void) | null = null;
 let onMouseMoveRef: ((e: MouseEvent) => void) | null = null;
 
-// ✅ Option A: the ONLY session id is the widget's Convex Id<"contactSessions">
 let activeSessionId: string | null = null;
 
 // snapshot state
@@ -36,7 +34,6 @@ const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 
-// ✅ your Next routes (anonymous + CORS allowed)
 const SET_CURRENT_URL = "https://app.inboundless.co/api/tracker/set-current-url";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
@@ -54,8 +51,10 @@ let lastSnapshotTs = 0;
 const NAV_URL_THROTTLE_MS = 650;
 let lastNavUrlTs = 0;
 
-const NAV_SNAPSHOT_THROTTLE_MS = 60_000; // 1 min
+const NAV_SNAPSHOT_THROTTLE_MS = 60_000;
 let lastNavSnapshotTs = 0;
+
+/* ---------------- utils ---------------- */
 
 function isHidden() {
   try {
@@ -179,7 +178,15 @@ async function postCurrentUrl(sessionId: string) {
   } catch {}
 }
 
-/* ---------------- snapshot posting ---------------- */
+/* ---------------- snapshot ---------------- */
+
+// ✅ IMPORTANT: bootstrap snapshot to the dashboard via Pusher
+function triggerSnapshotToApp(events: eventWithTime[]) {
+  if (!channelRef) return;
+  try {
+    channelRef.trigger("client-snapshot", { events });
+  } catch {}
+}
 
 async function postSnapshot(orgId: string, sessionId: string, events: eventWithTime[]) {
   if (!events.length) return;
@@ -282,10 +289,8 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
   started = true;
   purgePusherTransportCache();
 
-  // ✅ Option A: use ONLY the sessionId from the widget
   activeSessionId = sessionId;
 
-  // push current url immediately
   void postCurrentUrl(activeSessionId);
 
   const pusher = new Pusher(PUSHER_KEY, {
@@ -301,14 +306,13 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
 
   pusherRef = pusher;
 
-  // ✅ channel uses the SAME session id as the app UI
   const channelName = `presence-org_${orgId}_session_${activeSessionId}`;
   const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
 
   const flush = () => {
     if (!channelRef) return;
-    if (!snapshotSentOnce) return;
+    if (!snapshotSentOnce) return; // 🚨 important: wait until first full snapshot
     if (flushing) return;
     if (liveQueue.length === 0) return;
     if (isHidden()) return;
@@ -316,7 +320,7 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
     flushing = true;
     try {
       const chunk = liveQueue.splice(0, 70);
-      const filtered = chunk.filter((e) => e.type !== 2);
+      const filtered = chunk.filter((e) => e.type !== 2); // never stream FullSnapshot here
       if (!filtered.length) return;
 
       const payload = { events: filtered };
@@ -325,7 +329,6 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
 
       channelRef.trigger("client-rrweb", payload);
     } catch {
-      // ignore
     } finally {
       flushing = false;
     }
@@ -356,7 +359,7 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
 
           const isFullSnapshot = event.type === 2;
 
-          // 1) first snapshot ever
+          // 1) first snapshot ever (bootstrap)
           if (!snapshotSentOnce) {
             snapshotBuffer.push(event);
             if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
@@ -365,10 +368,17 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
 
             if (isFullSnapshot && activeSessionId) {
               snapshotSentOnce = true;
+
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
+
+              // ✅ MAJ: send to dashboard instantly
+              triggerSnapshotToApp(snapshotEvents);
+
+              // ✅ persist best-effort
               void postSnapshot(orgId, activeSessionId, snapshotEvents);
-              return; // never stream FullSnapshot
+
+              return; // never stream FullSnapshot in live batching
             }
             return;
           }
@@ -382,14 +392,19 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
 
             if (isFullSnapshot && activeSessionId) {
               wantNewSnapshot = false;
+
               const snapshotEvents = [...snapshotBuffer];
               snapshotBuffer = [];
+
+              // ✅ MAJ: refresh snapshot to dashboard
+              triggerSnapshotToApp(snapshotEvents);
+
               void postSnapshot(orgId, activeSessionId, snapshotEvents);
               return;
             }
           }
 
-          // 3) normal live
+          // 3) normal live (never send type=2)
           if (isFullSnapshot) return;
 
           liveQueue.push(event);
@@ -397,7 +412,6 @@ export async function initVisitorTracking({ orgId, sessionId }: VisitorTrackingO
             liveQueue.splice(0, liveQueue.length - MAX_QUEUE_EVENTS);
           }
         } catch {
-          // ignore
         }
       },
     });

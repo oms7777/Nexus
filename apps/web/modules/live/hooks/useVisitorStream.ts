@@ -1,3 +1,4 @@
+// apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -15,17 +16,18 @@ function extractCursorFromEvent(ev: unknown): Cursor | null {
   const data = e.data;
   if (!data) return null;
 
-  // rrweb mousemove incremental event
-  if (data.source === IncrementalSource.MouseMove && Array.isArray(data.positions) && data.positions.length) {
+  if (
+    data.source === IncrementalSource.MouseMove &&
+    Array.isArray(data.positions) &&
+    data.positions.length
+  ) {
     const last = data.positions[data.positions.length - 1];
     if (typeof last?.x !== "number" || typeof last?.y !== "number") return null;
 
-    // If already normalized (0..1), use it
     if (last.x >= 0 && last.x <= 1 && last.y >= 0 && last.y <= 1) {
       return { x: last.x, y: last.y };
     }
 
-    // Otherwise it's probably pixels (we can't normalize reliably without width/height)
     return null;
   }
 
@@ -41,6 +43,7 @@ export function useVisitorStream({
 }) {
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [rrwebEvents, setRrwebEvents] = useState<eventWithTime[]>([]);
+  const [snapshotEvents, setSnapshotEvents] = useState<eventWithTime[] | null>(null);
 
   const lastTsRef = useRef<number>(0);
 
@@ -57,6 +60,17 @@ export function useVisitorStream({
 
     const channelName = `presence-org_${orgId}_session_${sessionId}`;
     const channel = pusher.subscribe(channelName);
+
+    const onSnapshot = (payload: { events?: eventWithTime[] } | null | undefined) => {
+      const events = payload?.events;
+      if (!Array.isArray(events) || events.length === 0) return;
+
+      // must contain FullSnapshot
+      const hasFull = events.some((e: any) => e?.type === 2);
+      if (!hasFull) return;
+
+      setSnapshotEvents(events);
+    };
 
     const onRrweb = (payload: { events?: eventWithTime[] } | null | undefined) => {
       const events = payload?.events;
@@ -75,7 +89,6 @@ export function useVisitorStream({
 
       lastTsRef.current = (last as any).timestamp;
 
-      // Try to reconstruct cursor from rrweb mousemove
       for (let i = filtered.length - 1; i >= 0; i--) {
         const c = extractCursorFromEvent(filtered[i]);
         if (c) {
@@ -87,13 +100,13 @@ export function useVisitorStream({
       setRrwebEvents(filtered);
     };
 
+    channel.bind("client-snapshot", onSnapshot);
     channel.bind("client-rrweb", onRrweb);
-
-    // optional compat
     channel.bind("client-cursor", (c: Cursor) => setCursor(c));
 
     return () => {
       try {
+        channel.unbind("client-snapshot", onSnapshot);
         channel.unbind("client-rrweb", onRrweb);
         channel.unbind_all();
       } catch {}
@@ -101,5 +114,5 @@ export function useVisitorStream({
     };
   }, [orgId, sessionId]);
 
-  return { cursor, rrwebEvents };
+  return { cursor, rrwebEvents, snapshotEvents };
 }

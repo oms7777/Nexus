@@ -1,7 +1,7 @@
 // apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
@@ -23,17 +23,9 @@ function computeScale(root: HTMLElement, content: HTMLElement) {
   );
 }
 
-/**
- * ✅ anti-freeze + ✅ keep META (type 4) that rrweb needs for correct viewport
- * Strategy:
- * - If snapshot is small: keep as-is
- * - If huge: take from last FullSnapshot (type 2), but ALSO include the last Meta (type 4) right before it (if any)
- * - Keep a reasonable tail size to avoid Replayer freeze
- */
 function trimSnapshotEvents(events: eventWithTime[]) {
   if (!Array.isArray(events) || events.length <= 1400) return events;
 
-  // find last FullSnapshot (type 2)
   let lastFull = -1;
   for (let i = events.length - 1; i >= 0; i--) {
     if ((events[i] as any)?.type === 2) {
@@ -42,7 +34,6 @@ function trimSnapshotEvents(events: eventWithTime[]) {
     }
   }
 
-  // if we found a last FullSnapshot, also try to include the nearest Meta (type 4) just before it
   let from = lastFull >= 0 ? lastFull : Math.max(0, events.length - 1200);
 
   if (lastFull >= 0) {
@@ -52,7 +43,6 @@ function trimSnapshotEvents(events: eventWithTime[]) {
         lastMeta = i;
         break;
       }
-      // small early stop: meta is typically right before full snapshot
       if (lastFull - i > 50) break;
     }
     if (lastMeta >= 0) from = lastMeta;
@@ -83,18 +73,34 @@ export function LiveVisitorView({
 
   const latest = snaps[0];
 
+  const { cursor, snapshotEvents } = useVisitorStream({ orgId, sessionId });
+
+  const snapshotSource: eventWithTime[] | null = useMemo(() => {
+    // 1) Prefer Convex snapshot
+    if (latest?.snapshot) {
+      try {
+        const parsed = JSON.parse(latest.snapshot) as eventWithTime[];
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      } catch {}
+    }
+
+    // 2) Fallback to Pusher snapshot
+    if (Array.isArray(snapshotEvents) && snapshotEvents.length) return snapshotEvents;
+
+    return null;
+  }, [latest?.snapshot, snapshotEvents]);
+
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
 
-    // cleanup previous
     try {
       replayerRef.current?.pause();
       replayerRef.current?.destroy();
     } catch {}
     replayerRef.current = null;
 
-    if (!latest?.snapshot) {
+    if (!snapshotSource) {
       root.innerHTML = "";
       return;
     }
@@ -103,15 +109,9 @@ export function LiveVisitorView({
     let destroyed = false;
 
     try {
-      const parsed = JSON.parse(latest.snapshot) as eventWithTime[];
-
-      // ✅ ensure rrweb order is stable
-      const sorted = Array.isArray(parsed)
-        ? [...parsed].sort(
-            (a: any, b: any) =>
-              (a?.timestamp ?? 0) - (b?.timestamp ?? 0)
-          )
-        : [];
+      const sorted = [...snapshotSource].sort(
+        (a: any, b: any) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0)
+      );
 
       const events = trimSnapshotEvents(sorted);
 
@@ -131,8 +131,7 @@ export function LiveVisitorView({
           (r.firstElementChild as HTMLElement | null);
 
         if (!content) {
-          if (tries < 40)
-            requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
+          if (tries < 40) requestAnimationFrame(() => applyScaleWhenReady(tries + 1));
           return;
         }
 
@@ -147,7 +146,6 @@ export function LiveVisitorView({
         content.style.transform = `scale(${scale})`;
       };
 
-      // start from beginning
       try {
         (replayer as any).play?.(0);
       } catch {
@@ -171,7 +169,7 @@ export function LiveVisitorView({
         replayerRef.current = null;
       };
     } catch (err) {
-      console.error("[live] failed to init Replayer from snapshot", err);
+      console.error("[live] failed to init Replayer", err);
       root.innerHTML = "";
       return () => {
         destroyed = true;
@@ -180,15 +178,10 @@ export function LiveVisitorView({
         } catch {}
       };
     }
-  }, [latest?.snapshot]);
-
-  const { cursor } = useVisitorStream({ orgId, sessionId });
+  }, [snapshotSource]);
 
   return (
-    <div
-      className="relative rounded-xl border overflow-hidden bg-black/5"
-      style={{ height }}
-    >
+    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
       <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
 
       {cursor && (
@@ -202,7 +195,7 @@ export function LiveVisitorView({
         />
       )}
 
-      {!latest?.snapshot && (
+      {!snapshotSource && (
         <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
           Waiting for first snapshot…
         </div>
