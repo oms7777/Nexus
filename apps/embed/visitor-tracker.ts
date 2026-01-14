@@ -1,4 +1,3 @@
-// apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "@rrweb/types";
 import Pusher, { type Channel } from "pusher-js";
