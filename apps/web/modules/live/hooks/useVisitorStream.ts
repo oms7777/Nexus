@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Pusher from "pusher-js";
+import type { eventWithTime } from "@rrweb/types";
+import type { Id } from "@workspace/backend/_generated/dataModel";
 
 export function useVisitorStream({
   orgId,
   sessionId,
 }: {
   orgId: string;
-  sessionId: string;
+  sessionId: Id<"contactSessions">;
 }) {
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [snapshotEvents, setSnapshotEvents] = useState<eventWithTime[] | null>(null);
 
   useEffect(() => {
     if (!orgId || !sessionId) return;
@@ -28,11 +31,18 @@ export function useVisitorStream({
 
     channel.bind("client-cursor", setCursor);
 
+    // ✅ SNAPSHOT DIRECT VIA PUSHER (NE DEPEND PLUS DE CONVEX)
+    channel.bind("client-snapshot", (payload: { events?: eventWithTime[] }) => {
+      if (Array.isArray(payload?.events) && payload.events.length) {
+        setSnapshotEvents(payload.events);
+      }
+    });
+
     return () => {
       channel.unbind_all();
       pusher.disconnect();
     };
   }, [orgId, sessionId]);
 
-  return { cursor };
+  return { cursor, snapshotEvents };
 }

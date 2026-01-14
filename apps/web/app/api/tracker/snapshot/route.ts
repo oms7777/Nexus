@@ -63,7 +63,7 @@ export async function POST(req: Request) {
 
     // ✅ garde-fou taille (anti freeze / anti abuse)
     // (si tu veux plus strict, baisse)
-    if (events.length > 2500) {
+    if (events.length > 3500) {
       headers.set("Content-Type", "application/json");
       return new NextResponse(
         JSON.stringify({ ok: false, error: "Snapshot too large" }),

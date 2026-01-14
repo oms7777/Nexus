@@ -17,15 +17,23 @@ export function LiveVisitorView({ orgId, sessionId }: any) {
       limit: 1,
     }) ?? [];
 
-  const snapshot = snaps[0];
+  const convexSnapshot = snaps[0];
+
+  const { cursor, snapshotEvents } = useVisitorStream({ orgId, sessionId });
+
+  // ✅ SOURCE DES EVENTS : CONVEX SI DISPO, SINON PUSHER DIRECT
+  const eventsFromConvex: eventWithTime[] | null = convexSnapshot?.snapshot
+    ? (JSON.parse(convexSnapshot.snapshot) as eventWithTime[])
+    : null;
+
+  const events = eventsFromConvex ?? snapshotEvents;
 
   useEffect(() => {
-    if (!containerRef.current || !snapshot?.snapshot) return;
-
-    const events = JSON.parse(snapshot.snapshot) as eventWithTime[];
+    if (!containerRef.current || !events?.length) return;
 
     containerRef.current.innerHTML = "";
 
+    replayerRef.current?.destroy();
     replayerRef.current = new Replayer(events, {
       root: containerRef.current,
       liveMode: false,
@@ -37,9 +45,7 @@ export function LiveVisitorView({ orgId, sessionId }: any) {
       replayerRef.current?.destroy();
       replayerRef.current = null;
     };
-  }, [snapshot?.snapshot]);
-
-  const { cursor } = useVisitorStream({ orgId, sessionId });
+  }, [events]);
 
   return (
     <div className="relative h-[360px] border rounded overflow-hidden">
@@ -54,6 +60,12 @@ export function LiveVisitorView({ orgId, sessionId }: any) {
             transform: "translate(-50%,-50%)",
           }}
         />
+      )}
+
+      {!events?.length && (
+        <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+          Waiting for first snapshot…
+        </div>
       )}
     </div>
   );

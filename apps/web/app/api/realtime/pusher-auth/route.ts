@@ -41,7 +41,7 @@ export async function POST(req: Request) {
       return new NextResponse("Bad channel", { status: 400, headers });
     }
 
-    const presenceData = { user_id: "anon", user_info: {} };
+    const presenceData = { user_id: `anon_${socketId}`, user_info: {} };
     const auth = pusherServer.authorizeChannel(socketId, channelName, presenceData);
 
     headers.set("Content-Type", "application/json");
