@@ -1,6 +1,8 @@
-// packages/backend/convex/public/snapshots.ts
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
+
+// Pusher limit ~10KB
+const MAX_EVENT_BYTES = 9_000;
 
 /**
  * Sauvegarde un snapshot de page pour une session
@@ -21,6 +23,11 @@ export const save = mutation({
 
     if (!snapshot) {
       return { ok: false };
+    }
+
+    const snapshotSize = new TextEncoder().encode(snapshot).length;
+    if (snapshotSize > MAX_EVENT_BYTES) {
+      return { ok: false, error: "Snapshot too large" };
     }
 
     const id = await ctx.db.insert("sessionSnapshots", {

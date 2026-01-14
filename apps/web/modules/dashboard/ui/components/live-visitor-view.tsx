@@ -1,4 +1,3 @@
-// apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";

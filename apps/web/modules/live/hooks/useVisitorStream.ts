@@ -1,4 +1,3 @@
-// apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
 
 import { useEffect, useRef, useState } from "react";

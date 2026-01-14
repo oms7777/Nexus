@@ -1,4 +1,3 @@
-// packages/backend/convex/private/live.ts
 import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
 
@@ -30,7 +29,7 @@ export const getActiveVisitors = query({
     );
 
     // 2) dedup by stable visitor key
-    const bestByKey = new Map<string, (typeof active)[number]>();
+    const bestByKey = new Map<string, (typeof active)[number]>(); 
 
     for (const s of active) {
       const md = s.metadata ?? {};
