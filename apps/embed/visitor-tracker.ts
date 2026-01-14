@@ -1,3 +1,4 @@
+// ✅ apps/embed/visitor-tracker.ts  (PUSHER ONLY — no backend route)
 import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "@rrweb/types";
 import Pusher, { type Channel } from "pusher-js";
@@ -32,7 +33,6 @@ type VisitorTrackingOptions = {
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
-const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // Pusher limit ~10KB per client event -> keep margin
 const MAX_EVENT_BYTES = 9_000;
@@ -98,7 +98,6 @@ export function destroyVisitorTracking() {
 }
 
 function onMouseMove(e: MouseEvent) {
-  // normalize 0..1
   lastCursorX = Math.max(0, Math.min(1, e.clientX / window.innerWidth));
   lastCursorY = Math.max(0, Math.min(1, e.clientY / window.innerHeight));
 }
@@ -116,16 +115,12 @@ function attachCursor() {
     if (!channelRef) return;
 
     const now = Date.now();
-
-    // throttle ~12 fps
-    if (now - lastCursorSentAt < 80) return;
+    if (now - lastCursorSentAt < 80) return; // ~12fps
     lastCursorSentAt = now;
 
     try {
       channelRef.trigger("client-cursor", { x: lastCursorX, y: lastCursorY });
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
   cursorRaf = requestAnimationFrame(loop);
@@ -138,23 +133,20 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   // never track inside widget iframe
   if (window.self !== window.top) return;
 
-  // ✅ purge transport cache (évite freeze)
   try {
     localStorage.removeItem("pusherTransportTLS");
     localStorage.removeItem("pusherTransportNonTLS");
   } catch {}
 
+  if (!orgId || !sessionId) return;
   started = true;
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
     disableStats: true,
-
-    // ✅ WS only + disable SockJS/XHR
     enabledTransports: ["ws", "wss"],
     disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
-
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
@@ -164,7 +156,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   pusherRef = pusher;
 
   const channelName = `presence-org_${orgId}_session_${sessionId}`;
-  const channel = pusher.subscribe(channelName);
+  const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
 
   const flush = () => {
@@ -178,7 +170,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     try {
       const chunk = liveQueue.splice(0, 120);
 
-      // Never send FullSnapshot over Pusher
+      // never send FullSnapshot in live batches
       const filtered = chunk.filter((e) => e.type !== 2);
       if (filtered.length === 0) return;
 
@@ -186,20 +178,13 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       const json = JSON.stringify(payload);
       const bytes = safeBytes(json);
 
-      // If too big, split progressively
+      // too big -> requeue and let next ticks split
       if (bytes > MAX_EVENT_BYTES && filtered.length > 1) {
         liveQueue.unshift(...filtered);
-
-        const half = Math.ceil(filtered.length / 2);
-        const a = liveQueue.splice(0, half);
-        const b = liveQueue.splice(0, half);
-
-        liveQueue.unshift(...b);
-        liveQueue.unshift(...a);
         return;
       }
 
-      // If even one event too big → skip it
+      // if single event too big -> drop it
       if (bytes > MAX_EVENT_BYTES && filtered.length === 1) return;
 
       channelRef.trigger("client-rrweb", payload);
@@ -214,7 +199,6 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   stopFlushTimer = () => window.clearInterval(timer);
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // ✅ cursor live seulement quand subscription ok
     attachCursor();
 
     const stop: listenerHandler | undefined = record({
@@ -228,7 +212,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
         try {
           const isFullSnapshot = event.type === 2;
 
-          // Buffer early events until snapshot is sent
+          // buffer until first FullSnapshot
           if (!snapshotSent) {
             snapshotBuffer.push(event);
 
@@ -240,32 +224,21 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
             }
           }
 
-          // First FullSnapshot -> send snapshot to backend
+          // first FullSnapshot -> send snapshot via Pusher
           if (isFullSnapshot && !snapshotSent) {
             snapshotSent = true;
 
             const snapshotEvents = [...snapshotBuffer];
             snapshotBuffer = [];
 
-            fetch(SNAPSHOT_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                organizationId: orgId,
-                sessionId,
-                events: snapshotEvents,
-              }),
-            }).catch(() => {
-              // do not block UI
-            });
+            try {
+              channelRef?.trigger("client-snapshot", { events: snapshotEvents });
+            } catch {}
 
-            return; // do not enqueue FullSnapshot for live
+            return; // do not enqueue FullSnapshot in live
           }
 
-          // until snapshot sent, no live streaming
           if (!snapshotSent) return;
-
-          // never send FullSnapshot via pusher
           if (isFullSnapshot) return;
 
           liveQueue.push(event);
@@ -283,6 +256,10 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   });
 
   channel.bind("pusher:subscription_error", () => {
+    cleanup();
+  });
+
+  pusher.connection.bind("disconnected", () => {
     cleanup();
   });
 }

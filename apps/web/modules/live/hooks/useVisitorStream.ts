@@ -1,4 +1,4 @@
-// apps/web/modules/live/hooks/useVisitorStream.ts
+// ✅ apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -21,6 +21,7 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
+    // avoid pusher transport cache weirdness
     try {
       localStorage.removeItem("pusherTransportTLS");
       localStorage.removeItem("pusherTransportNonTLS");
@@ -43,7 +44,7 @@ export function useVisitorStream(opts: {
     chanRef.current = ch;
 
     ch.bind("pusher:subscription_succeeded", () => {
-      console.log("[stream] subscription_succeeded", chanName);
+      // console.log("[stream] subscription_succeeded", chanName);
     });
 
     ch.bind("pusher:subscription_error", (status: any) => {
@@ -52,16 +53,14 @@ export function useVisitorStream(opts: {
 
     ch.bind("client-cursor", (p: Cursor) => setCursor(p));
 
-    // ✅ live rrweb
-    ch.bind("client-rrweb", (payload: any) => {
-      const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length && onRrweb) onRrweb(events);
-    });
-
-    // ✅ first snapshot (full)
     ch.bind("client-snapshot", (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length && onSnapshot) onSnapshot(events);
+      if (events.length) onSnapshot?.(events);
+    });
+
+    ch.bind("client-rrweb", (payload: any) => {
+      const events = (payload?.events ?? []) as eventWithTime[];
+      if (events.length) onRrweb?.(events);
     });
 
     return () => {
