@@ -1,29 +1,14 @@
-// ✅ apps/embed/visitor-tracker.ts  (PUSHER ONLY — no backend route)
+// apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
-import type { eventWithTime, listenerHandler } from "@rrweb/types";
+import type { eventWithTime } from "@rrweb/types";
 import Pusher, { type Channel } from "pusher-js";
 
 let started = false;
-
-let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
-
 let snapshotSent = false;
+
+// Buffer de tous les events au début pour construire un snapshot complet
 let snapshotBuffer: eventWithTime[] = [];
-
-let stopRecording: (() => void) | null = null;
-let stopFlushTimer: (() => void) | null = null;
-
-// Live batching
-let liveQueue: eventWithTime[] = [];
-let flushing = false;
-
-// Cursor live
-let cursorRaf = 0;
-let cursorAttached = false;
-let lastCursorX = 0;
-let lastCursorY = 0;
-let lastCursorSentAt = 0;
 
 type VisitorTrackingOptions = {
   orgId: string;
@@ -33,233 +18,105 @@ type VisitorTrackingOptions = {
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
+const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
-// Pusher limit ~10KB per client event -> keep margin
+// Limite Pusher ≈ 10 Ko par event client → on reste un peu en dessous
 const MAX_EVENT_BYTES = 9_000;
-
-// Flush cadence (batch)
-const FLUSH_EVERY_MS = 250;
-
-// Safety caps
-const MAX_SNAPSHOT_BUFFER_EVENTS = 6_000;
-const MAX_QUEUE_EVENTS = 1_500;
-
-function safeBytes(str: string) {
-  return new TextEncoder().encode(str).length;
-}
-
-function detachCursor() {
-  if (!cursorAttached) return;
-  cursorAttached = false;
-
-  try {
-    if (cursorRaf) cancelAnimationFrame(cursorRaf);
-  } catch {}
-  cursorRaf = 0;
-
-  try {
-    document.removeEventListener("mousemove", onMouseMove as any);
-  } catch {}
-}
-
-function cleanup() {
-  detachCursor();
-
-  try {
-    stopRecording?.();
-  } catch {}
-  stopRecording = null;
-
-  try {
-    stopFlushTimer?.();
-  } catch {}
-  stopFlushTimer = null;
-
-  try {
-    channelRef?.unbind_all();
-  } catch {}
-  channelRef = null;
-
-  try {
-    pusherRef?.disconnect();
-  } catch {}
-  pusherRef = null;
-
-  liveQueue = [];
-  snapshotBuffer = [];
-  snapshotSent = false;
-  flushing = false;
-
-  started = false;
-}
-
-export function destroyVisitorTracking() {
-  cleanup();
-}
-
-function onMouseMove(e: MouseEvent) {
-  lastCursorX = Math.max(0, Math.min(1, e.clientX / window.innerWidth));
-  lastCursorY = Math.max(0, Math.min(1, e.clientY / window.innerHeight));
-}
-
-function attachCursor() {
-  if (cursorAttached) return;
-  cursorAttached = true;
-
-  document.addEventListener("mousemove", onMouseMove, { passive: true });
-
-  const loop = () => {
-    cursorRaf = requestAnimationFrame(loop);
-
-    if (!snapshotSent) return;
-    if (!channelRef) return;
-
-    const now = Date.now();
-    if (now - lastCursorSentAt < 80) return; // ~12fps
-    lastCursorSentAt = now;
-
-    try {
-      channelRef.trigger("client-cursor", { x: lastCursorX, y: lastCursorY });
-    } catch {}
-  };
-
-  cursorRaf = requestAnimationFrame(loop);
-}
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
-  // never track inside widget iframe
-  if (window.self !== window.top) return;
+  // Ne jamais tracker dans l’iframe du widget
+  if (window.self !== window.top) {
+    console.log("[tracker] iframe detected – skipping");
+    return;
+  }
 
-  try {
-    localStorage.removeItem("pusherTransportTLS");
-    localStorage.removeItem("pusherTransportNonTLS");
-  } catch {}
-
-  if (!orgId || !sessionId) return;
   started = true;
+  console.log("[tracker] START (host page)", { orgId, sessionId });
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
-    disableStats: true,
-    enabledTransports: ["ws", "wss"],
-    disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
     },
   });
 
-  pusherRef = pusher;
-
   const channelName = `presence-org_${orgId}_session_${sessionId}`;
-  const channel = pusher.subscribe(channelName) as Channel;
+  const channel = pusher.subscribe(channelName);
   channelRef = channel;
 
-  const flush = () => {
-    if (!channelRef) return;
-    if (!snapshotSent) return;
-    if (flushing) return;
-    if (liveQueue.length === 0) return;
-
-    flushing = true;
-
-    try {
-      const chunk = liveQueue.splice(0, 120);
-
-      // never send FullSnapshot in live batches
-      const filtered = chunk.filter((e) => e.type !== 2);
-      if (filtered.length === 0) return;
-
-      const payload = { events: filtered };
-      const json = JSON.stringify(payload);
-      const bytes = safeBytes(json);
-
-      // too big -> requeue and let next ticks split
-      if (bytes > MAX_EVENT_BYTES && filtered.length > 1) {
-        liveQueue.unshift(...filtered);
-        return;
-      }
-
-      // if single event too big -> drop it
-      if (bytes > MAX_EVENT_BYTES && filtered.length === 1) return;
-
-      channelRef.trigger("client-rrweb", payload);
-    } catch {
-      // ignore
-    } finally {
-      flushing = false;
-    }
-  };
-
-  const timer = window.setInterval(flush, FLUSH_EVERY_MS);
-  stopFlushTimer = () => window.clearInterval(timer);
-
   channel.bind("pusher:subscription_succeeded", () => {
-    attachCursor();
+    console.log("[tracker] subscribed:", channelName);
 
-    const stop: listenerHandler | undefined = record({
-      sampling: {
-        mousemove: 120,
-        mouseInteraction: true,
-        scroll: 150,
-        input: "last",
-      },
+    record({
       emit(event: eventWithTime) {
         try {
           const isFullSnapshot = event.type === 2;
 
-          // buffer until first FullSnapshot
-          if (!snapshotSent) {
-            snapshotBuffer.push(event);
+          // On empile tous les events (y compris le FullSnapshot)
+          snapshotBuffer.push(event);
 
-            if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
-              snapshotBuffer.splice(
-                0,
-                snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS,
-              );
-            }
-          }
-
-          // first FullSnapshot -> send snapshot via Pusher
+          // 1️⃣ Premier FullSnapshot → on envoie TOUT le buffer au backend
           if (isFullSnapshot && !snapshotSent) {
             snapshotSent = true;
 
             const snapshotEvents = [...snapshotBuffer];
-            snapshotBuffer = [];
 
-            try {
-              channelRef?.trigger("client-snapshot", { events: snapshotEvents });
-            } catch {}
+            console.log("[tracker] sending snapshot with", snapshotEvents.length, "events");
 
-            return; // do not enqueue FullSnapshot in live
+            fetch(SNAPSHOT_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                organizationId: orgId,
+                sessionId,
+                events: snapshotEvents,
+              }),
+            }).catch((err) =>
+              console.error("[tracker] snapshot send failed", err),
+            );
+
+            // On garde le buffer tel quel (sert à replayer, rien de grave)
+            snapshotBuffer = snapshotEvents;
           }
 
+          // Tant que le snapshot complet n’est pas persisté, on ne stream rien.
           if (!snapshotSent) return;
+
+          // On ne push JAMAIS les FullSnapshot dans Pusher (trop gros, pas utile)
           if (isFullSnapshot) return;
 
-          liveQueue.push(event);
+          // 2️⃣ Live events incrémentaux → Pusher
+          const payload = { events: [event] };
+          const size = JSON.stringify(payload).length;
 
-          if (liveQueue.length > MAX_QUEUE_EVENTS) {
-            liveQueue.splice(0, liveQueue.length - MAX_QUEUE_EVENTS);
+          if (size > MAX_EVENT_BYTES) {
+            // Ce warning concerne uniquement le stream live,
+            // le snapshot complet est DEJA envoyé au backend.
+            console.warn("[tracker] event too large skipped", {
+              size,
+              type: event.type,
+            });
+            return;
           }
-        } catch {
-          // ignore
+
+          channel.trigger("client-rrweb", payload);
+        } catch (err) {
+          console.error("[tracker] emit error", err);
         }
       },
     });
 
-    stopRecording = stop ? (() => stop()) : null;
-  });
-
-  channel.bind("pusher:subscription_error", () => {
-    cleanup();
-  });
-
-  pusher.connection.bind("disconnected", () => {
-    cleanup();
+    // Curseur live
+    document.addEventListener("mousemove", (e) => {
+      channel.trigger("client-cursor", {
+        x: e.clientX / window.innerWidth,
+        y: e.clientY / window.innerHeight,
+      });
+    });
   });
 }
