@@ -1,48 +1,82 @@
+// apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
 
-import { useEffect, useState } from "react";
-import Pusher from "pusher-js";
+import { useEffect, useRef, useState } from "react";
+import Pusher, { type Channel } from "pusher-js";
 import type { eventWithTime } from "@rrweb/types";
-import type { Id } from "@workspace/backend/_generated/dataModel";
 
-export function useVisitorStream({
-  orgId,
-  sessionId,
-}: {
+type Cursor = { x: number; y: number };
+
+export function useVisitorStream(opts: {
   orgId: string;
-  sessionId: Id<"contactSessions">;
+  sessionId: string;
+  onRrweb?: (events: eventWithTime[]) => void;
+  onSnapshot?: (events: eventWithTime[]) => void;
 }) {
-  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
-  const [snapshotEvents, setSnapshotEvents] = useState<eventWithTime[] | null>(null);
+  const { orgId, sessionId, onRrweb, onSnapshot } = opts;
+
+  const [cursor, setCursor] = useState<Cursor | null>(null);
+  const chanRef = useRef<Channel | null>(null);
 
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
+    try {
+      localStorage.removeItem("pusherTransportTLS");
+      localStorage.removeItem("pusherTransportNonTLS");
+    } catch {}
+
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
       forceTLS: true,
+      disableStats: true,
       enabledTransports: ["ws", "wss"],
       disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
-      authEndpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
+      channelAuthorization: {
+        endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
+        transport: "ajax",
+      },
     });
 
-    const channelName = `presence-org_${orgId}_session_${sessionId}`;
-    const channel = pusher.subscribe(channelName);
+    const chanName = `presence-org_${orgId}_session_${sessionId}`;
+    const ch = pusher.subscribe(chanName) as Channel;
+    chanRef.current = ch;
 
-    channel.bind("client-cursor", setCursor);
+    ch.bind("pusher:subscription_succeeded", () => {
+      console.log("[stream] subscription_succeeded", chanName);
+    });
 
-    // ✅ SNAPSHOT DIRECT VIA PUSHER (NE DEPEND PLUS DE CONVEX)
-    channel.bind("client-snapshot", (payload: { events?: eventWithTime[] }) => {
-      if (Array.isArray(payload?.events) && payload.events.length) {
-        setSnapshotEvents(payload.events);
-      }
+    ch.bind("pusher:subscription_error", (status: any) => {
+      console.warn("[stream] subscription_error", status);
+    });
+
+    ch.bind("client-cursor", (p: Cursor) => setCursor(p));
+
+    // ✅ live rrweb
+    ch.bind("client-rrweb", (payload: any) => {
+      const events = (payload?.events ?? []) as eventWithTime[];
+      if (events.length && onRrweb) onRrweb(events);
+    });
+
+    // ✅ first snapshot (full)
+    ch.bind("client-snapshot", (payload: any) => {
+      const events = (payload?.events ?? []) as eventWithTime[];
+      if (events.length && onSnapshot) onSnapshot(events);
     });
 
     return () => {
-      channel.unbind_all();
-      pusher.disconnect();
+      try {
+        ch.unbind_all();
+      } catch {}
+      try {
+        pusher.unsubscribe(chanName);
+      } catch {}
+      try {
+        pusher.disconnect();
+      } catch {}
+      chanRef.current = null;
     };
-  }, [orgId, sessionId]);
+  }, [orgId, sessionId, onRrweb, onSnapshot]);
 
-  return { cursor, snapshotEvents };
+  return { cursor };
 }

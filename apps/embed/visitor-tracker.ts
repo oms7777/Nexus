@@ -1,102 +1,79 @@
-// apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "@rrweb/types";
-import Pusher from "pusher-js";
-import type { Channel } from "pusher-js";
+import Pusher, { type Channel } from "pusher-js";
 
 let started = false;
 
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
-let stopRecording: listenerHandler | undefined;
 
-let flushTimer: number | null = null;
-
-// Snapshot bootstrap (sent once, via HTTP)
 let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 
-// Live incremental events (sent via Pusher)
+let stopRecording: (() => void) | null = null;
+let stopFlushTimer: (() => void) | null = null;
+
+// Live batching
 let liveQueue: eventWithTime[] = [];
 let flushing = false;
+
+// Cursor live
+let cursorRaf = 0;
+let cursorAttached = false;
+let lastCursorX = 0;
+let lastCursorY = 0;
+let lastCursorSentAt = 0;
+
+type VisitorTrackingOptions = {
+  orgId: string;
+  sessionId: string;
+};
 
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
-// ---- PERF / LIMITS ----
-// client-events Pusher limit ~10KB => keep very small
-const MAX_PUSHER_BYTES = 8_500;
-const FLUSH_EVERY_MS = 350;
-const MAX_QUEUE_EVENTS = 400;
+// Pusher limit ~10KB per client event -> keep margin
+const MAX_EVENT_BYTES = 9_000;
 
-// snapshot upload limit (avoid 413 + avoid rrweb replayer freeze)
-const MAX_SNAPSHOT_EVENTS = 2200;
+// Flush cadence (batch)
+const FLUSH_EVERY_MS = 250;
 
-function isHidden() {
-  try {
-    return document.visibilityState === "hidden";
-  } catch {
-    return false;
-  }
-}
+// Safety caps
+const MAX_SNAPSHOT_BUFFER_EVENTS = 6_000;
+const MAX_QUEUE_EVENTS = 1_500;
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
 }
 
-function normalizeCursor(e: MouseEvent) {
-  const w = window.innerWidth || 1;
-  const h = window.innerHeight || 1;
-  return {
-    x: Math.min(1, Math.max(0, e.clientX / w)),
-    y: Math.min(1, Math.max(0, e.clientY / h)),
-  };
-}
+function detachCursor() {
+  if (!cursorAttached) return;
+  cursorAttached = false;
 
-// ✅ Keep last Meta (type 4) + last FullSnapshot (type 2) + tail
-function trimSnapshotForUpload(events: eventWithTime[]) {
-  if (!Array.isArray(events) || events.length <= MAX_SNAPSHOT_EVENTS) return events;
+  try {
+    if (cursorRaf) cancelAnimationFrame(cursorRaf);
+  } catch {}
+  cursorRaf = 0;
 
-  let lastFull = -1;
-  for (let i = events.length - 1; i >= 0; i--) {
-    if ((events[i] as any)?.type === 2) {
-      lastFull = i;
-      break;
-    }
-  }
-
-  let from = Math.max(0, events.length - MAX_SNAPSHOT_EVENTS);
-
-  if (lastFull >= 0) {
-    // include a nearby Meta (type 4) before full snapshot
-    let lastMeta = -1;
-    for (let i = lastFull - 1; i >= 0 && lastFull - i < 80; i--) {
-      if ((events[i] as any)?.type === 4) {
-        lastMeta = i;
-        break;
-      }
-    }
-    from = lastMeta >= 0 ? lastMeta : lastFull;
-  }
-
-  const sliced = events.slice(from);
-  return sliced.length > MAX_SNAPSHOT_EVENTS ? sliced.slice(-MAX_SNAPSHOT_EVENTS) : sliced;
+  try {
+    document.removeEventListener("mousemove", onMouseMove as any);
+  } catch {}
 }
 
 function cleanup() {
+  detachCursor();
+
   try {
     stopRecording?.();
   } catch {}
-  stopRecording = undefined;
+  stopRecording = null;
 
-  if (flushTimer) {
-    try {
-      window.clearInterval(flushTimer);
-    } catch {}
-    flushTimer = null;
-  }
+  try {
+    stopFlushTimer?.();
+  } catch {}
+  stopFlushTimer = null;
 
   try {
     channelRef?.unbind_all();
@@ -108,10 +85,9 @@ function cleanup() {
   } catch {}
   pusherRef = null;
 
-  // reset state
-  snapshotSent = false;
-  snapshotBuffer = [];
   liveQueue = [];
+  snapshotBuffer = [];
+  snapshotSent = false;
   flushing = false;
 
   started = false;
@@ -121,25 +97,64 @@ export function destroyVisitorTracking() {
   cleanup();
 }
 
-export function initVisitorTracking({
-  orgId,
-  sessionId,
-}: {
-  orgId: string;
-  sessionId: string;
-}) {
+function onMouseMove(e: MouseEvent) {
+  // normalize 0..1
+  lastCursorX = Math.max(0, Math.min(1, e.clientX / window.innerWidth));
+  lastCursorY = Math.max(0, Math.min(1, e.clientY / window.innerHeight));
+}
+
+function attachCursor() {
+  if (cursorAttached) return;
+  cursorAttached = true;
+
+  document.addEventListener("mousemove", onMouseMove, { passive: true });
+
+  const loop = () => {
+    cursorRaf = requestAnimationFrame(loop);
+
+    if (!snapshotSent) return;
+    if (!channelRef) return;
+
+    const now = Date.now();
+
+    // throttle ~12 fps
+    if (now - lastCursorSentAt < 80) return;
+    lastCursorSentAt = now;
+
+    try {
+      channelRef.trigger("client-cursor", { x: lastCursorX, y: lastCursorY });
+    } catch {
+      // ignore
+    }
+  };
+
+  cursorRaf = requestAnimationFrame(loop);
+}
+
+export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
+
+  // never track inside widget iframe
   if (window.self !== window.top) return;
-  if (!orgId || !sessionId) return;
+
+  // ✅ purge transport cache (évite freeze)
+  try {
+    localStorage.removeItem("pusherTransportTLS");
+    localStorage.removeItem("pusherTransportNonTLS");
+  } catch {}
 
   started = true;
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
+    disableStats: true,
+
+    // ✅ WS only + disable SockJS/XHR
     enabledTransports: ["ws", "wss"],
     disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
+
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
@@ -149,42 +164,43 @@ export function initVisitorTracking({
   pusherRef = pusher;
 
   const channelName = `presence-org_${orgId}_session_${sessionId}`;
-  const channel = pusher.subscribe(channelName) as Channel;
+  const channel = pusher.subscribe(channelName);
   channelRef = channel;
 
-  // CURSOR (cheap, ok on Pusher)
-  const onMouseMove = (e: MouseEvent) => {
-    if (!channelRef) return;
-    if (isHidden()) return;
-    try {
-      channelRef.trigger("client-cursor", normalizeCursor(e));
-    } catch {}
-  };
-  window.addEventListener("mousemove", onMouseMove, { passive: true });
-
-  // LIVE FLUSH (incremental only, small payload)
   const flush = () => {
     if (!channelRef) return;
-    if (!snapshotSent) return; // don't stream before bootstrap exists
+    if (!snapshotSent) return;
     if (flushing) return;
-    if (!liveQueue.length) return;
-    if (isHidden()) return;
+    if (liveQueue.length === 0) return;
 
     flushing = true;
-    try {
-      const chunk = liveQueue.splice(0, 80);
 
-      // never send FullSnapshot
-      const filtered = chunk.filter((e) => (e as any)?.type !== 2);
-      if (!filtered.length) return;
+    try {
+      const chunk = liveQueue.splice(0, 120);
+
+      // Never send FullSnapshot over Pusher
+      const filtered = chunk.filter((e) => e.type !== 2);
+      if (filtered.length === 0) return;
 
       const payload = { events: filtered };
       const json = JSON.stringify(payload);
-      if (safeBytes(json) > MAX_PUSHER_BYTES) {
-        // if too big, put back and try smaller next tick
+      const bytes = safeBytes(json);
+
+      // If too big, split progressively
+      if (bytes > MAX_EVENT_BYTES && filtered.length > 1) {
         liveQueue.unshift(...filtered);
+
+        const half = Math.ceil(filtered.length / 2);
+        const a = liveQueue.splice(0, half);
+        const b = liveQueue.splice(0, half);
+
+        liveQueue.unshift(...b);
+        liveQueue.unshift(...a);
         return;
       }
+
+      // If even one event too big → skip it
+      if (bytes > MAX_EVENT_BYTES && filtered.length === 1) return;
 
       channelRef.trigger("client-rrweb", payload);
     } catch {
@@ -194,60 +210,66 @@ export function initVisitorTracking({
     }
   };
 
-  flushTimer = window.setInterval(flush, FLUSH_EVERY_MS);
+  const timer = window.setInterval(flush, FLUSH_EVERY_MS);
+  stopFlushTimer = () => window.clearInterval(timer);
 
   channel.bind("pusher:subscription_succeeded", () => {
-    stopRecording = record({
+    // ✅ cursor live seulement quand subscription ok
+    attachCursor();
+
+    const stop: listenerHandler | undefined = record({
       sampling: {
-        mousemove: 180,
-        scroll: 220,
-        input: "last",
+        mousemove: 120,
         mouseInteraction: true,
+        scroll: 150,
+        input: "last",
       },
       emit(event: eventWithTime) {
         try {
-          if (isHidden()) return;
+          const isFullSnapshot = event.type === 2;
 
-          const isFullSnapshot = (event as any)?.type === 2;
-
-          // 1) buffer until first FullSnapshot
+          // Buffer early events until snapshot is sent
           if (!snapshotSent) {
             snapshotBuffer.push(event);
 
-            // small safety cap while waiting
-            if (snapshotBuffer.length > MAX_SNAPSHOT_EVENTS + 200) {
-              snapshotBuffer.splice(0, snapshotBuffer.length - (MAX_SNAPSHOT_EVENTS + 200));
+            if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
+              snapshotBuffer.splice(
+                0,
+                snapshotBuffer.length - MAX_SNAPSHOT_BUFFER_EVENTS,
+              );
             }
-
-            if (isFullSnapshot) {
-              snapshotSent = true;
-
-              const eventsToSend = trimSnapshotForUpload(snapshotBuffer);
-              snapshotBuffer = [];
-
-              // ✅ BOOTSTRAP PAGE via HTTP -> Convex -> UI reads with useQuery
-              fetch(SNAPSHOT_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  organizationId: orgId,
-                  sessionId,
-                  events: eventsToSend,
-                }),
-                mode: "cors",
-                keepalive: true,
-              }).catch(() => {});
-
-              return; // don't stream FullSnapshot
-            }
-
-            return; // no live until snapshot sent
           }
 
-          // 2) after snapshot: only incremental events go to liveQueue
+          // First FullSnapshot -> send snapshot to backend
+          if (isFullSnapshot && !snapshotSent) {
+            snapshotSent = true;
+
+            const snapshotEvents = [...snapshotBuffer];
+            snapshotBuffer = [];
+
+            fetch(SNAPSHOT_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                organizationId: orgId,
+                sessionId,
+                events: snapshotEvents,
+              }),
+            }).catch(() => {
+              // do not block UI
+            });
+
+            return; // do not enqueue FullSnapshot for live
+          }
+
+          // until snapshot sent, no live streaming
+          if (!snapshotSent) return;
+
+          // never send FullSnapshot via pusher
           if (isFullSnapshot) return;
 
           liveQueue.push(event);
+
           if (liveQueue.length > MAX_QUEUE_EVENTS) {
             liveQueue.splice(0, liveQueue.length - MAX_QUEUE_EVENTS);
           }
@@ -256,15 +278,11 @@ export function initVisitorTracking({
         }
       },
     });
+
+    stopRecording = stop ? (() => stop()) : null;
   });
 
   channel.bind("pusher:subscription_error", () => {
-    window.removeEventListener("mousemove", onMouseMove);
-    cleanup();
-  });
-
-  pusher.connection.bind("disconnected", () => {
-    window.removeEventListener("mousemove", onMouseMove);
     cleanup();
   });
 }
