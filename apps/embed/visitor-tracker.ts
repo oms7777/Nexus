@@ -1,3 +1,4 @@
+// apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "@rrweb/types";
 import Pusher, { type Channel } from "pusher-js";
@@ -10,7 +11,7 @@ let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 let stopRecording: (() => void) | null = null;
 
-// ✅ keep last known Meta event so snapshots have href/width/height
+// keep last known Meta event so snapshots have href/width/height
 let lastMeta: eventWithTime | null = null;
 
 type VisitorTrackingOptions = {
@@ -22,22 +23,101 @@ const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 
-// ✅ DB snapshot endpoint (Next route)
+// DB snapshot endpoint (Next route)
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // Pusher limit ~10KB
 const MAX_EVENT_BYTES = 9_000;
 
+// ✅ batching to reduce CPU/GC + pusher triggers
+const BATCH_INTERVAL_MS = 200;
+const MAX_BATCH_EVENTS = 35;
+
+// ✅ reduce rrweb heavy work
+const CHECKOUT_EVERY_MS = 60_000; // was 15_000 (too aggressive)
+
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
 }
 
+let onMoveRef: ((e: MouseEvent) => void) | null = null;
+let rafCursor = 0;
+let lastCursor: { x: number; y: number } | null = null;
+
+// rrweb incremental batching
+let batch: eventWithTime[] = [];
+let batchTimer: any = null;
+
+function flushBatch() {
+  if (!channelRef || !snapshotSent) return;
+  if (!batch.length) return;
+
+  const payload = { events: batch.splice(0, batch.length) };
+  const json = JSON.stringify(payload);
+
+  // If too big, drop (best-effort)
+  if (safeBytes(json) > MAX_EVENT_BYTES) {
+    return;
+  }
+
+  try {
+    channelRef.trigger("client-rrweb", payload);
+  } catch {}
+}
+
+function scheduleFlush() {
+  if (batchTimer) return;
+  batchTimer = setTimeout(() => {
+    batchTimer = null;
+    flushBatch();
+  }, BATCH_INTERVAL_MS);
+}
+
+// snapshot persist with debounce + abort
+let snapshotDebounceTimer: any = null;
+let snapshotAbort: AbortController | null = null;
+
 function cleanup() {
+  // stop rrweb
   try {
     stopRecording?.();
   } catch {}
   stopRecording = null;
 
+  // ✅ remove cursor listener
+  if (onMoveRef) {
+    try {
+      document.removeEventListener("mousemove", onMoveRef);
+    } catch {}
+  }
+  onMoveRef = null;
+
+  // cancel raf cursor
+  try {
+    if (rafCursor) cancelAnimationFrame(rafCursor);
+  } catch {}
+  rafCursor = 0;
+  lastCursor = null;
+
+  // flush & clear batching
+  try {
+    if (batchTimer) clearTimeout(batchTimer);
+  } catch {}
+  batchTimer = null;
+  batch = [];
+
+  // cancel snapshot debounce + inflight
+  try {
+    if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
+  } catch {}
+  snapshotDebounceTimer = null;
+
+  try {
+    snapshotAbort?.abort();
+  } catch {}
+  snapshotAbort = null;
+
+  // pusher cleanup
   try {
     channelRef?.unbind_all();
   } catch {}
@@ -52,40 +132,44 @@ function cleanup() {
   snapshotBuffer = [];
   lastMeta = null;
   started = false;
-
-  // Ajout du nettoyage des données de transport Pusher
-  try {
-    localStorage.removeItem("pusherTransportTLS");
-    localStorage.removeItem("pusherTransportNonTLS");
-  } catch (err) {
-    console.error("Failed to remove Pusher transport data", err);
-  }
 }
 
 export function destroyVisitorTracking() {
   cleanup();
 }
 
-async function persistSnapshotToDb(opts: {
+function persistSnapshotToDbDebounced(opts: {
   orgId: string;
   sessionId: string;
   events: eventWithTime[];
 }) {
-  try {
-    await fetch(SNAPSHOT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // ✅ include org + session + rrweb events
-      body: JSON.stringify({
-        organizationId: opts.orgId,
-        sessionId: opts.sessionId,
-        events: opts.events,
-      }),
-    });
-  } catch (err) {
-    // best-effort, never break tracking
-    console.warn("[tracker] persistSnapshotToDb failed", err);
-  }
+  // debounce: keep only the latest snapshot in a short window
+  if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
+
+  snapshotDebounceTimer = setTimeout(async () => {
+    snapshotDebounceTimer = null;
+
+    // cancel previous inflight
+    try {
+      snapshotAbort?.abort();
+    } catch {}
+    snapshotAbort = new AbortController();
+
+    try {
+      await fetch(SNAPSHOT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: snapshotAbort.signal,
+        body: JSON.stringify({
+          organizationId: opts.orgId,
+          sessionId: opts.sessionId,
+          events: opts.events,
+        }),
+      });
+    } catch {
+      // best-effort only
+    }
+  }, 300);
 }
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
@@ -117,8 +201,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
   channel.bind("pusher:subscription_succeeded", () => {
     const stop: listenerHandler | undefined = record({
-      // ✅ periodic checkout => ensures new FullSnapshots even in SPA
-      checkoutEveryNms: 15_000,
+      checkoutEveryNms: CHECKOUT_EVERY_MS,
 
       sampling: {
         mousemove: 120,
@@ -128,47 +211,42 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       },
 
       emit(event: eventWithTime) {
+        // ✅ do nothing if tab hidden (avoid heavy work)
+        if (document.hidden) return;
         if (!channelRef) return;
 
-        // ✅ track Meta (type 4) to enrich snapshots
-        if ((event as any)?.type === 4) {
-          lastMeta = event;
-        }
+        // track Meta (type 4)
+        if ((event as any)?.type === 4) lastMeta = event;
 
         const isFullSnapshot = (event as any)?.type === 2;
 
-        // buffer at beginning to create the first full snapshot packet
+        // buffer at the very beginning for first snapshot
         if (!snapshotSent) snapshotBuffer.push(event);
 
-        // 1) first FullSnapshot => send full buffered snapshot to DB + (optional) Pusher
+        // 1) first FullSnapshot => persist to DB + reset dashboard
         if (isFullSnapshot && !snapshotSent) {
           snapshotSent = true;
 
-          // include lastMeta if buffer doesn't contain it
           const snap = [...snapshotBuffer];
           snapshotBuffer = [];
 
           const hasMeta = snap.some((e: any) => e?.type === 4);
-          const payloadEvents =
-            !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
+          const payloadEvents = !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
 
-          // ✅ persist to DB (this is what makes LiveVisitorView change page)
-          void persistSnapshotToDb({ orgId, sessionId, events: payloadEvents });
+          persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
-          // optional: also notify dashboard live reset
           try {
             channelRef.trigger("client-snapshot", { events: payloadEvents });
           } catch {}
 
-          return; // do not send this FullSnapshot as incremental
+          return; // don't send as incremental
         }
 
-        // 2) checkout FullSnapshot later => persist to DB + reset dashboard
+        // 2) later FullSnapshot (checkout) => persist + reset
         if (isFullSnapshot && snapshotSent) {
-          // rrweb sometimes sends Meta separately; ensure we include it
           const payloadEvents = lastMeta ? [lastMeta, event] : [event];
 
-          void persistSnapshotToDb({ orgId, sessionId, events: payloadEvents });
+          persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
           try {
             channelRef.trigger("client-snapshot", { events: payloadEvents });
@@ -177,42 +255,45 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
           return;
         }
 
-        // 3) incremental live events via Pusher (best effort)
+        // 3) incremental
         if (!snapshotSent) return;
 
-        const payload = { events: [event] };
-        const json = JSON.stringify(payload);
+        batch.push(event);
 
-        if (safeBytes(json) > MAX_EVENT_BYTES) {
-          // important for debugging
-          // (if you see this often, prefer streaming rrweb via HTTP log instead of Pusher)
-          console.warn("[tracker] rrweb event too large skipped", {
-            bytes: safeBytes(json),
-            type: (event as any)?.type,
-          });
+        // keep batch bounded
+        if (batch.length >= MAX_BATCH_EVENTS) {
+          flushBatch();
           return;
         }
 
-        try {
-          channelRef.trigger("client-rrweb", payload);
-        } catch {}
+        scheduleFlush();
       },
     });
 
     stopRecording = stop ? (() => stop()) : null;
 
-    // cursor live
-    const onMove = (e: MouseEvent) => {
+    // cursor live (throttled with rAF)
+    onMoveRef = (e: MouseEvent) => {
       if (!channelRef || !snapshotSent) return;
-      try {
-        channelRef.trigger("client-cursor", {
-          x: e.clientX / window.innerWidth,
-          y: e.clientY / window.innerHeight,
-        });
-      } catch {}
+      if (document.hidden) return;
+
+      const next = {
+        x: e.clientX / Math.max(1, window.innerWidth),
+        y: e.clientY / Math.max(1, window.innerHeight),
+      };
+      lastCursor = next;
+
+      if (rafCursor) return;
+      rafCursor = requestAnimationFrame(() => {
+        rafCursor = 0;
+        if (!lastCursor || !channelRef) return;
+        try {
+          channelRef.trigger("client-cursor", lastCursor);
+        } catch {}
+      });
     };
 
-    document.addEventListener("mousemove", onMove, { passive: true });
+    document.addEventListener("mousemove", onMoveRef, { passive: true });
   });
 
   channel.bind("pusher:subscription_error", () => cleanup());
