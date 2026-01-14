@@ -1,6 +1,6 @@
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
-import { initVisitorTracking, destroyVisitorTracking } from "./visitor-tracker";
+import { initVisitorTracking } from "./visitor-tracker";
 
 const NUDGE_ENABLED = true;
 
@@ -300,13 +300,6 @@ type SuggestionsPayload = {
         if (trackingStarted && trackingSessionId === sid) return;
 
         // different session -> restart clean
-        if (trackingStarted && trackingSessionId && trackingSessionId !== sid) {
-          try {
-            destroyVisitorTracking();
-          } catch {}
-          trackingStarted = false;
-          trackingSessionId = null;
-        }
 
         trackingStarted = true;
         trackingSessionId = sid;
@@ -1048,9 +1041,6 @@ type SuggestionsPayload = {
     window.removeEventListener("scroll", placeNudge);
     removeNudge();
 
-    try {
-      destroyVisitorTracking();
-    } catch {}
 
     if (container) {
       container.remove();
