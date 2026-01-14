@@ -7,6 +7,7 @@ import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
 import { Id } from "@workspace/backend/_generated/dataModel";
+import { SnapshotsStrip } from "../dashboard/ui/components/SnapshotsStrip";
 // import { SnapshotsStrip } from "@/modules/dashboard/ui/components/SnapshotsStrip"; // optionnel
 
 function matches(v: Visitor, q: string) {
@@ -123,8 +124,8 @@ export default function LiveMapView() {
             sessionId={selected.contactSessionId as Id<"contactSessions">}
           />
 
-          {/* Optionnel */}
-          {/* <SnapshotsStrip sessionId={selected.contactSessionId as any} limit={6} /> */}
+
+          <SnapshotsStrip sessionId={selected.contactSessionId as any} limit={6} />
         </aside>
       )}
     </div>

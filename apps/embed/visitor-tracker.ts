@@ -11,14 +11,20 @@ let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 let stopRecording: (() => void) | null = null;
 
+// ✅ keep last known Meta event so snapshots have href/width/height
+let lastMeta: eventWithTime | null = null;
+
 type VisitorTrackingOptions = {
   orgId: string;
-  sessionId: string;
+  sessionId: string; // Convex Id<"contactSessions"> cast to string
 };
 
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
+
+// ✅ DB snapshot endpoint (Next route)
+const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // Pusher limit ~10KB
 const MAX_EVENT_BYTES = 9_000;
@@ -45,6 +51,7 @@ function cleanup() {
 
   snapshotSent = false;
   snapshotBuffer = [];
+  lastMeta = null;
   started = false;
 }
 
@@ -52,10 +59,33 @@ export function destroyVisitorTracking() {
   cleanup();
 }
 
+async function persistSnapshotToDb(opts: {
+  orgId: string;
+  sessionId: string;
+  events: eventWithTime[];
+}) {
+  try {
+    await fetch(SNAPSHOT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // ✅ include org + session + rrweb events
+      body: JSON.stringify({
+        organizationId: opts.orgId,
+        sessionId: opts.sessionId,
+        events: opts.events,
+      }),
+    });
+  } catch (err) {
+    // best-effort, never break tracking
+    console.warn("[tracker] persistSnapshotToDb failed", err);
+  }
+}
+
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
+  // never track inside widget iframe
   if (window.self !== window.top) return;
 
   started = true;
@@ -79,10 +109,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   channelRef = channel;
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // ✅ important: force “checkout” réguliers => nouveaux FullSnapshots
     const stop: listenerHandler | undefined = record({
-      checkoutEveryNms: 15_000, // <-- force un snapshot périodique
-      // tu peux aussi utiliser checkoutEveryNth: 200,
+      // ✅ periodic checkout => ensures new FullSnapshots even in SPA
+      checkoutEveryNms: 15_000,
 
       sampling: {
         mousemove: 120,
@@ -94,40 +123,68 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
       emit(event: eventWithTime) {
         if (!channelRef) return;
 
-        const isFullSnapshot = event.type === 2;
+        // ✅ track Meta (type 4) to enrich snapshots
+        if ((event as any)?.type === 4) {
+          lastMeta = event;
+        }
 
-        // buffer au début pour faire un snapshot complet
+        const isFullSnapshot = (event as any)?.type === 2;
+
+        // buffer at beginning to create the first full snapshot packet
         if (!snapshotSent) snapshotBuffer.push(event);
 
-        // 1) premier fullsnapshot => envoyer un snapshot live (pour init/reinit)
+        // 1) first FullSnapshot => send full buffered snapshot to DB + (optional) Pusher
         if (isFullSnapshot && !snapshotSent) {
           snapshotSent = true;
 
+          // include lastMeta if buffer doesn't contain it
           const snap = [...snapshotBuffer];
           snapshotBuffer = [];
 
+          const hasMeta = snap.some((e: any) => e?.type === 4);
+          const payloadEvents =
+            !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
+
+          // ✅ persist to DB (this is what makes LiveVisitorView change page)
+          void persistSnapshotToDb({ orgId, sessionId, events: payloadEvents });
+
+          // optional: also notify dashboard live reset
           try {
-            channelRef.trigger("client-snapshot", { events: snap });
+            channelRef.trigger("client-snapshot", { events: payloadEvents });
           } catch {}
-          return; // pas de live incremental pour ce full snapshot
+
+          return; // do not send this FullSnapshot as incremental
         }
 
-        // 2) si un checkout snapshot arrive plus tard => reset live aussi
+        // 2) checkout FullSnapshot later => persist to DB + reset dashboard
         if (isFullSnapshot && snapshotSent) {
-          // on construit un mini buffer “autour” du full snapshot si besoin
-          // ici on envoie juste le full snapshot seul, souvent suffisant avec checkout
+          // rrweb sometimes sends Meta separately; ensure we include it
+          const payloadEvents = lastMeta ? [lastMeta, event] : [event];
+
+          void persistSnapshotToDb({ orgId, sessionId, events: payloadEvents });
+
           try {
-            channelRef.trigger("client-snapshot", { events: [event] });
+            channelRef.trigger("client-snapshot", { events: payloadEvents });
           } catch {}
+
           return;
         }
 
-        // 3) live incremental
+        // 3) incremental live events via Pusher (best effort)
         if (!snapshotSent) return;
 
         const payload = { events: [event] };
         const json = JSON.stringify(payload);
-        if (safeBytes(json) > MAX_EVENT_BYTES) return;
+
+        if (safeBytes(json) > MAX_EVENT_BYTES) {
+          // important for debugging
+          // (if you see this often, prefer streaming rrweb via HTTP log instead of Pusher)
+          console.warn("[tracker] rrweb event too large skipped", {
+            bytes: safeBytes(json),
+            type: (event as any)?.type,
+          });
+          return;
+        }
 
         try {
           channelRef.trigger("client-rrweb", payload);
@@ -147,6 +204,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
         });
       } catch {}
     };
+
     document.addEventListener("mousemove", onMove, { passive: true });
   });
 
