@@ -1,14 +1,15 @@
 // apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
-import type { eventWithTime } from "@rrweb/types";
+import type { eventWithTime, listenerHandler } from "@rrweb/types";
 import Pusher, { type Channel } from "pusher-js";
 
 let started = false;
+let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
-let snapshotSent = false;
 
-// Buffer de tous les events au début pour construire un snapshot complet
+let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
+let stopRecording: (() => void) | null = null;
 
 type VisitorTrackingOptions = {
   orgId: string;
@@ -18,105 +19,136 @@ type VisitorTrackingOptions = {
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
-const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
-// Limite Pusher ≈ 10 Ko par event client → on reste un peu en dessous
+// Pusher limit ~10KB
 const MAX_EVENT_BYTES = 9_000;
+
+function safeBytes(str: string) {
+  return new TextEncoder().encode(str).length;
+}
+
+function cleanup() {
+  try {
+    stopRecording?.();
+  } catch {}
+  stopRecording = null;
+
+  try {
+    channelRef?.unbind_all();
+  } catch {}
+  channelRef = null;
+
+  try {
+    pusherRef?.disconnect();
+  } catch {}
+  pusherRef = null;
+
+  snapshotSent = false;
+  snapshotBuffer = [];
+  started = false;
+}
+
+export function destroyVisitorTracking() {
+  cleanup();
+}
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
-  // Ne jamais tracker dans l’iframe du widget
-  if (window.self !== window.top) {
-    console.log("[tracker] iframe detected – skipping");
-    return;
-  }
+  if (window.self !== window.top) return;
 
   started = true;
-  console.log("[tracker] START (host page)", { orgId, sessionId });
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
+    disableStats: true,
+    enabledTransports: ["ws", "wss"],
+    disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
     },
   });
 
+  pusherRef = pusher;
+
   const channelName = `presence-org_${orgId}_session_${sessionId}`;
   const channel = pusher.subscribe(channelName);
   channelRef = channel;
 
   channel.bind("pusher:subscription_succeeded", () => {
-    console.log("[tracker] subscribed:", channelName);
+    // ✅ important: force “checkout” réguliers => nouveaux FullSnapshots
+    const stop: listenerHandler | undefined = record({
+      checkoutEveryNms: 15_000, // <-- force un snapshot périodique
+      // tu peux aussi utiliser checkoutEveryNth: 200,
 
-    record({
+      sampling: {
+        mousemove: 120,
+        mouseInteraction: true,
+        scroll: 150,
+        input: "last",
+      },
+
       emit(event: eventWithTime) {
-        try {
-          const isFullSnapshot = event.type === 2;
+        if (!channelRef) return;
 
-          // On empile tous les events (y compris le FullSnapshot)
-          snapshotBuffer.push(event);
+        const isFullSnapshot = event.type === 2;
 
-          // 1️⃣ Premier FullSnapshot → on envoie TOUT le buffer au backend
-          if (isFullSnapshot && !snapshotSent) {
-            snapshotSent = true;
+        // buffer au début pour faire un snapshot complet
+        if (!snapshotSent) snapshotBuffer.push(event);
 
-            const snapshotEvents = [...snapshotBuffer];
+        // 1) premier fullsnapshot => envoyer un snapshot live (pour init/reinit)
+        if (isFullSnapshot && !snapshotSent) {
+          snapshotSent = true;
 
-            console.log("[tracker] sending snapshot with", snapshotEvents.length, "events");
+          const snap = [...snapshotBuffer];
+          snapshotBuffer = [];
 
-            fetch(SNAPSHOT_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                organizationId: orgId,
-                sessionId,
-                events: snapshotEvents,
-              }),
-            }).catch((err) =>
-              console.error("[tracker] snapshot send failed", err),
-            );
-
-            // On garde le buffer tel quel (sert à replayer, rien de grave)
-            snapshotBuffer = snapshotEvents;
-          }
-
-          // Tant que le snapshot complet n’est pas persisté, on ne stream rien.
-          if (!snapshotSent) return;
-
-          // On ne push JAMAIS les FullSnapshot dans Pusher (trop gros, pas utile)
-          if (isFullSnapshot) return;
-
-          // 2️⃣ Live events incrémentaux → Pusher
-          const payload = { events: [event] };
-          const size = JSON.stringify(payload).length;
-
-          if (size > MAX_EVENT_BYTES) {
-            // Ce warning concerne uniquement le stream live,
-            // le snapshot complet est DEJA envoyé au backend.
-            console.warn("[tracker] event too large skipped", {
-              size,
-              type: event.type,
-            });
-            return;
-          }
-
-          channel.trigger("client-rrweb", payload);
-        } catch (err) {
-          console.error("[tracker] emit error", err);
+          try {
+            channelRef.trigger("client-snapshot", { events: snap });
+          } catch {}
+          return; // pas de live incremental pour ce full snapshot
         }
+
+        // 2) si un checkout snapshot arrive plus tard => reset live aussi
+        if (isFullSnapshot && snapshotSent) {
+          // on construit un mini buffer “autour” du full snapshot si besoin
+          // ici on envoie juste le full snapshot seul, souvent suffisant avec checkout
+          try {
+            channelRef.trigger("client-snapshot", { events: [event] });
+          } catch {}
+          return;
+        }
+
+        // 3) live incremental
+        if (!snapshotSent) return;
+
+        const payload = { events: [event] };
+        const json = JSON.stringify(payload);
+        if (safeBytes(json) > MAX_EVENT_BYTES) return;
+
+        try {
+          channelRef.trigger("client-rrweb", payload);
+        } catch {}
       },
     });
 
-    // Curseur live
-    document.addEventListener("mousemove", (e) => {
-      channel.trigger("client-cursor", {
-        x: e.clientX / window.innerWidth,
-        y: e.clientY / window.innerHeight,
-      });
-    });
+    stopRecording = stop ? (() => stop()) : null;
+
+    // cursor live
+    const onMove = (e: MouseEvent) => {
+      if (!channelRef || !snapshotSent) return;
+      try {
+        channelRef.trigger("client-cursor", {
+          x: e.clientX / window.innerWidth,
+          y: e.clientY / window.innerHeight,
+        });
+      } catch {}
+    };
+    document.addEventListener("mousemove", onMove, { passive: true });
   });
+
+  channel.bind("pusher:subscription_error", () => cleanup());
 }
