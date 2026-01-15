@@ -1,6 +1,3 @@
-// apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
-"use client";
-
 import { useRef, useEffect, useCallback } from "react";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
@@ -19,7 +16,6 @@ export function LiveVisitorView({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
-  const roRef = useRef<ResizeObserver | null>(null);
 
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
@@ -36,13 +32,15 @@ export function LiveVisitorView({
     const content = root.firstElementChild as HTMLElement | null;
     if (!content) return;
 
-    // ✅ natural size (unaffected by transform)
-    const naturalW = content.scrollWidth || content.offsetWidth;
-    const naturalH = content.scrollHeight || content.offsetHeight;
-    if (!naturalW || !naturalH) return;
-
     const rootRect = root.getBoundingClientRect();
-    const scale = Math.min(rootRect.width / naturalW, rootRect.height / naturalH, 1);
+    const contentRect = content.getBoundingClientRect();
+    if (!contentRect.width || !contentRect.height) return;
+
+    const scale = Math.min(
+      rootRect.width / contentRect.width,
+      rootRect.height / contentRect.height,
+      1,
+    );
 
     content.style.transformOrigin = "top left";
     content.style.transform = `scale(${scale})`;
@@ -52,18 +50,17 @@ export function LiveVisitorView({
     (events: eventWithTime[]) => {
       if (!containerRef.current) return;
 
+      // cleanup old replayer
       try {
         replayerRef.current?.pause();
         replayerRef.current?.destroy();
       } catch {}
       replayerRef.current = null;
 
+      // reset container
       containerRef.current.innerHTML = "";
 
-      const replayer = new Replayer(events, {
-        root: containerRef.current,
-        // You can add: UNSAFE_replayCanvas: false, if needed for perf
-      });
+      const replayer = new Replayer(events, { root: containerRef.current });
       replayerRef.current = replayer;
       replayer.play();
 
@@ -78,19 +75,12 @@ export function LiveVisitorView({
 
     try {
       const events = JSON.parse(latest.snapshot) as eventWithTime[];
+      console.log("[live] init from db snapshot", { count: events.length });
       bootFromEvents(events);
 
-      // ✅ resize observer (better than window resize only)
-      if (roRef.current) roRef.current.disconnect();
-      roRef.current = new ResizeObserver(() => applyScale());
-      if (containerRef.current) roRef.current.observe(containerRef.current);
-
-      return () => {
-        try {
-          roRef.current?.disconnect();
-        } catch {}
-        roRef.current = null;
-      };
+      const onResize = () => applyScale();
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
     } catch (err) {
       console.error("[live] failed to init snapshot", err);
     }
@@ -103,7 +93,8 @@ export function LiveVisitorView({
 
     try {
       for (const e of events) {
-        if ((e as any)?.type === 2) continue; // full snapshot handled by onSnapshot
+        // si un FullSnapshot arrive ici, ignore (on gère via onSnapshot)
+        if ((e as any)?.type === 2) continue;
         r.addEvent(e);
       }
     } catch (err) {
@@ -111,9 +102,10 @@ export function LiveVisitorView({
     }
   }, []);
 
-  // Full snapshot live => reset replayer
+  // Full snapshot live => reset replayer (ça te donne les “changements de page”)
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
+      console.log("[live] received snapshot via pusher", { count: events.length });
       bootFromEvents(events);
     },
     [bootFromEvents],
@@ -127,7 +119,10 @@ export function LiveVisitorView({
   });
 
   return (
-    <div className="relative rounded-xl border overflow-hidden bg-black/5 h-[360px]">
+    <div
+      className="relative rounded-xl border overflow-hidden bg-black/5"
+      style={{ height: 360 }}
+    >
       <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
 
       {cursor && (
