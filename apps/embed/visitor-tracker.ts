@@ -11,9 +11,7 @@ let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 let stopRecording: (() => void) | null = null;
 
-// keep last known Meta event so snapshots have href/width/height
 let lastMeta: eventWithTime | null = null;
-let lastHref: string | null = null;
 
 // cursor throttling
 let onMoveRef: ((e: MouseEvent) => void) | null = null;
@@ -28,8 +26,11 @@ let batchTimer: any = null;
 let snapshotDebounceTimer: any = null;
 let snapshotAbort: AbortController | null = null;
 
-// ✅ URL-change snapshot control
-let recorderReady = false;
+// URL-change hook
+let lastHref: string | null = null;
+let unpatchHistory: (() => void) | null = null;
+
+// protect against loops/spam
 let snapshotInFlight = false;
 let lastFullSnapshotAt = 0;
 
@@ -41,8 +42,6 @@ type VisitorTrackingOptions = {
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
-
-// DB snapshot endpoint (Next route)
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // Pusher limit ~10KB
@@ -52,8 +51,8 @@ const MAX_PAYLOAD_BYTES = 9_000;
 const BATCH_INTERVAL_MS = 200;
 const MAX_BATCH_EVENTS = 35;
 
-// ✅ protection anti-boucle / anti-spam
-const MIN_FULLSNAPSHOT_INTERVAL_MS = 2_500;
+// anti-spam fullsnapshot
+const MIN_FULLSNAPSHOT_INTERVAL_MS = 2500;
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
@@ -64,7 +63,13 @@ function cleanup() {
     stopRecording?.();
   } catch {}
   stopRecording = null;
-  recorderReady = false;
+
+  if (unpatchHistory) {
+    try {
+      unpatchHistory();
+    } catch {}
+  }
+  unpatchHistory = null;
 
   if (onMoveRef) {
     try {
@@ -108,8 +113,8 @@ function cleanup() {
   snapshotSent = false;
   snapshotBuffer = [];
   lastMeta = null;
-  lastHref = null;
 
+  lastHref = null;
   snapshotInFlight = false;
   lastFullSnapshotAt = 0;
 
@@ -128,8 +133,7 @@ function flushBatchNow() {
   const json = JSON.stringify(payload);
 
   if (safeBytes(json) > MAX_PAYLOAD_BYTES) {
-    // best-effort: drop if too big
-    return;
+    return; // drop best-effort
   }
 
   try {
@@ -177,41 +181,62 @@ function persistSnapshotToDbDebounced(opts: {
   }, 250);
 }
 
-function extractHrefFromMeta(ev: any): string | null {
-  const href = ev?.data?.href ?? ev?.data?.url ?? null;
-  return typeof href === "string" ? href : null;
-}
-
-/**
- * ✅ Trigger a TRUE rrweb FullSnapshot only when URL changes.
- * This relies on rrweb's record.takeFullSnapshot()
- */
-function triggerFullSnapshotOnUrlChange() {
-  if (!recorderReady) return;
+function triggerFullSnapshot(reason: string) {
   if (!snapshotSent) return;
   if (snapshotInFlight) return;
 
-  const now = Date.now();
-  if (now - lastFullSnapshotAt < MIN_FULLSNAPSHOT_INTERVAL_MS) return;
-
   const take = (record as any)?.takeFullSnapshot;
   if (typeof take !== "function") {
-    // fallback: nothing (avoid breaking)
-    console.warn(
-      "[tracker] rrweb record.takeFullSnapshot() not available — cannot snapshot on URL change"
-    );
+    console.warn("[tracker] takeFullSnapshot unavailable; cannot snapshot on URL change", reason);
     return;
   }
+
+  const now = Date.now();
+  if (now - lastFullSnapshotAt < MIN_FULLSNAPSHOT_INTERVAL_MS) return;
 
   snapshotInFlight = true;
   lastFullSnapshotAt = now;
 
   try {
-    // This will cause rrweb to emit a type=2 FullSnapshot soon after.
+    // Will cause rrweb to emit a type=2 FullSnapshot soon
     take();
-  } catch (e) {
+  } catch {
     snapshotInFlight = false;
   }
+}
+
+function patchHistoryForUrlChanges(onChange: () => void) {
+  const w = window as any;
+
+  const origPush = history.pushState;
+  const origReplace = history.replaceState;
+
+  const fire = () => {
+    // microtask: let router update first
+    Promise.resolve().then(onChange);
+  };
+
+  history.pushState = function (...args: any[]) {
+    const ret = origPush.apply(this, args as any);
+    fire();
+    return ret;
+  } as any;
+
+  history.replaceState = function (...args: any[]) {
+    const ret = origReplace.apply(this, args as any);
+    fire();
+    return ret;
+  } as any;
+
+  window.addEventListener("popstate", fire);
+  window.addEventListener("hashchange", fire);
+
+  return () => {
+    history.pushState = origPush;
+    history.replaceState = origReplace;
+    window.removeEventListener("popstate", fire);
+    window.removeEventListener("hashchange", fire);
+  };
 }
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
@@ -222,6 +247,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   if (window.self !== window.top) return;
 
   started = true;
+  lastHref = location.href;
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
@@ -242,12 +268,18 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   channelRef = channel;
 
   channel.bind("pusher:subscription_succeeded", () => {
-    recorderReady = true;
+    // ✅ URL change detector (SPA safe)
+    unpatchHistory = patchHistoryForUrlChanges(() => {
+      const href = location.href;
+      if (!href) return;
+      if (href === lastHref) return;
+
+      lastHref = href;
+      // trigger full snapshot ONLY on URL change
+      triggerFullSnapshot("url-change");
+    });
 
     const stop: listenerHandler | undefined = record({
-      // ✅ No periodic full snapshots (we do it only on URL change)
-      // rrweb will still emit initial FullSnapshot automatically at start.
-
       sampling: {
         mousemove: 120,
         mouseInteraction: true,
@@ -261,31 +293,17 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
         const type = (event as any)?.type;
 
-        // Meta (type 4) contains href; use it to detect SPA page change.
         if (type === 4) {
           lastMeta = event;
-
-          const href = extractHrefFromMeta(event as any);
-          if (href) {
-            // init lastHref at first sight
-            if (!lastHref) lastHref = href;
-
-            // ✅ URL changed => trigger FullSnapshot
-            if (snapshotSent && href !== lastHref) {
-              lastHref = href;
-              triggerFullSnapshotOnUrlChange();
-            }
-          }
         }
 
         const isFullSnapshot = type === 2;
 
-        // buffer until the first FullSnapshot is sent
+        // buffer until first full snapshot is persisted/sent
         if (!snapshotSent) snapshotBuffer.push(event);
 
-        // ✅ FullSnapshot => persist + notify dashboard
         if (isFullSnapshot) {
-          // first snapshot: send buffered
+          // first full snapshot
           if (!snapshotSent) {
             snapshotSent = true;
 
@@ -302,12 +320,11 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
               channelRef.trigger("client-snapshot", { events: payloadEvents });
             } catch {}
 
-            // ✅ mark inflight done (this FullSnapshot is the result of takeFullSnapshot or initial)
             snapshotInFlight = false;
             return;
           }
 
-          // later FullSnapshot (from URL change)
+          // later full snapshot (from URL change)
           const payloadEvents = lastMeta ? [lastMeta, event] : [event];
 
           persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
@@ -320,7 +337,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
           return;
         }
 
-        // incremental
+        // incremental events
         if (!snapshotSent) return;
 
         batch.push(event);
@@ -336,9 +353,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
     stopRecording = stop ? (() => stop()) : null;
 
-    // cursor (rAF throttled)
+    // ✅ cursor live (NOT gated by snapshotSent, sinon ça “disparaît” quand snapshot delay)
     onMoveRef = (e: MouseEvent) => {
-      if (!channelRef || !snapshotSent) return;
+      if (!channelRef) return;
       if (document.hidden) return;
 
       lastCursor = {
