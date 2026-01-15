@@ -442,7 +442,9 @@ export default defineSchema({
     snapshot: v.string(),
   })
     .index("by_session", ["sessionId"])
+    .index("by_session_ts", ["sessionId", "ts"])
     .index("by_org_ts", ["organizationId", "ts"]),
+
 
   /* ---------- Promos contextuelles ---------- */
   promos: defineTable({
