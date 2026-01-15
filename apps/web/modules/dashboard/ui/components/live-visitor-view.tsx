@@ -1,24 +1,14 @@
+// apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
-import { useRef, useEffect, useCallback, useMemo, useState } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
 import type { eventWithTime } from "rrweb/typings/types";
 import { Replayer } from "rrweb";
-
-type MetaInfo = { width?: number; height?: number };
-
-function extractMeta(events: eventWithTime[]): MetaInfo {
-  // rrweb Meta event type = 4
-  const meta = events.find((e: any) => e?.type === 4) as any;
-  const d = meta?.data ?? {};
-  return {
-    width: typeof d?.width === "number" ? d.width : undefined,
-    height: typeof d?.height === "number" ? d.height : undefined,
-  };
-}
+import "rrweb-player/dist/style.css";
 
 export function LiveVisitorView({
   orgId,
@@ -27,13 +17,9 @@ export function LiveVisitorView({
   orgId: string;
   sessionId: string;
 }) {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
-  const [meta, setMeta] = useState<MetaInfo>({});
-
-  // queue processing (anti-freeze)
   const queueRef = useRef<eventWithTime[]>([]);
   const rafRef = useRef<number>(0);
   const processingRef = useRef(false);
@@ -49,21 +35,46 @@ export function LiveVisitorView({
 
   const latest = snaps[0];
 
-  const computeScale = useCallback(() => {
-    const root = rootRef.current;
-    const stage = stageRef.current;
-    if (!root || !stage) return;
+  const applyScale = useCallback(() => {
+    const root = containerRef.current;
+    if (!root) return false;
+
+    // rrweb-player root structure: first child exists, but sometimes size is 0 for a tick
+    const content = root.firstElementChild as HTMLElement | null;
+    if (!content) return false;
 
     const rootRect = root.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
 
-    const baseW = meta.width || stage.scrollWidth || stage.offsetWidth || 1;
-    const baseH = meta.height || stage.scrollHeight || stage.offsetHeight || 1;
+    if (!rootRect.width || !rootRect.height) return false;
+    if (!contentRect.width || !contentRect.height) return false;
 
-    const scale = Math.min(rootRect.width / baseW, rootRect.height / baseH, 1);
+    const scale = Math.min(
+      rootRect.width / contentRect.width,
+      rootRect.height / contentRect.height,
+      1,
+    );
 
-    stage.style.transformOrigin = "top left";
-    stage.style.transform = `scale(${scale})`;
-  }, [meta.width, meta.height]);
+    content.style.transformOrigin = "top left";
+    content.style.transform = `scale(${scale})`;
+
+    return true;
+  }, []);
+
+  // ✅ retry scale a few times until rrweb has layout
+  const ensureScaled = useCallback(() => {
+    let tries = 0;
+    const maxTries = 20;
+
+    const tick = () => {
+      tries++;
+      const ok = applyScale();
+      if (ok) return;
+      if (tries < maxTries) requestAnimationFrame(tick);
+    };
+
+    requestAnimationFrame(tick);
+  }, [applyScale]);
 
   const destroyReplayer = useCallback(() => {
     try {
@@ -79,36 +90,33 @@ export function LiveVisitorView({
     } catch {}
     rafRef.current = 0;
 
-    if (stageRef.current) stageRef.current.innerHTML = "";
+    if (containerRef.current) containerRef.current.innerHTML = "";
   }, []);
 
   const bootFromEvents = useCallback(
     (events: eventWithTime[]) => {
-      if (!stageRef.current) return;
+      if (!containerRef.current) return;
 
       destroyReplayer();
-
-      // meta for scale
-      const m = extractMeta(events);
-      setMeta(m);
-
-      // reset stage
-      stageRef.current.innerHTML = "";
+      containerRef.current.innerHTML = "";
 
       try {
-        const replayer = new Replayer(events, { root: stageRef.current });
+        const replayer = new Replayer(events, {
+          root: containerRef.current,
+          // ⚠️ IMPORTANT: rrweb-player needs to control sizing; we scale after
+        });
         replayerRef.current = replayer;
         replayer.play();
       } catch {
         replayerRef.current = null;
       }
 
-      requestAnimationFrame(() => computeScale());
+      // ✅ scale after layout stabilizes
+      ensureScaled();
     },
-    [computeScale, destroyReplayer],
+    [destroyReplayer, ensureScaled],
   );
 
-  // Init depuis snapshot DB
   useEffect(() => {
     if (!latest?.snapshot) return;
 
@@ -116,13 +124,13 @@ export function LiveVisitorView({
       const events = JSON.parse(latest.snapshot) as eventWithTime[];
       bootFromEvents(events);
 
-      const onResize = () => computeScale();
+      const onResize = () => ensureScaled();
       window.addEventListener("resize", onResize);
       return () => window.removeEventListener("resize", onResize);
     } catch (err) {
       console.error("[live] failed to init snapshot", err);
     }
-  }, [latest?.snapshot, bootFromEvents, computeScale]);
+  }, [latest?.snapshot, bootFromEvents, ensureScaled]);
 
   const processQueue = useCallback(() => {
     if (processingRef.current) return;
@@ -141,8 +149,7 @@ export function LiveVisitorView({
       while (queueRef.current.length && count < MAX_PER_FRAME) {
         const e = queueRef.current.shift()!;
         try {
-          // ignore full snapshot in incremental stream
-          if ((e as any)?.type === 2) continue;
+          if ((e as any)?.type === 2) continue; // ignore full snapshot here
           r.addEvent(e);
         } catch {}
         count++;
@@ -163,18 +170,23 @@ export function LiveVisitorView({
       if (!replayerRef.current) return;
 
       if (queueRef.current.length > MAX_QUEUE) {
-        queueRef.current.splice(0, queueRef.current.length - Math.floor(MAX_QUEUE / 2));
+        queueRef.current.splice(
+          0,
+          queueRef.current.length - Math.floor(MAX_QUEUE / 2),
+        );
       }
 
       queueRef.current.push(...events);
       processQueue();
+
+      // ✅ keep scale correct in case DOM grows
+      ensureScaled();
     },
-    [processQueue],
+    [processQueue, ensureScaled],
   );
 
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
-      // meta-only: ignore
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
       bootFromEvents(events);
     },
@@ -188,32 +200,19 @@ export function LiveVisitorView({
     onSnapshot,
   });
 
-  const baseW = useMemo(() => meta.width || 1200, [meta.width]);
-  const baseH = useMemo(() => meta.height || 800, [meta.height]);
-
   return (
     <div
-      ref={rootRef}
       className="relative rounded-xl border overflow-hidden bg-black/5"
       style={{ height: 360 }}
     >
-      {/* ✅ stage : tout ce qui doit scaler (replayer + cursor) */}
-      <div
-        ref={stageRef}
-        className="absolute left-0 top-0"
-        style={{
-          width: baseW,
-          height: baseH,
-        }}
-      />
+      <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
 
-      {/* ✅ cursor rendu dans la même “stage” => toujours aligné */}
       {cursor && (
         <div
           className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none"
           style={{
-            left: `${cursor.x * baseW}px`,
-            top: `${cursor.y * baseH}px`,
+            left: `${cursor.x * 100}%`,
+            top: `${cursor.y * 100}%`,
             transform: "translate(-50%,-50%)",
           }}
         />

@@ -1,3 +1,4 @@
+// apps/web/modules/live/LiveMapView.tsx (ou ton chemin exact)
 "use client";
 
 import { useMemo, useState } from "react";
@@ -8,7 +9,6 @@ import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
 import { Id } from "@workspace/backend/_generated/dataModel";
 import { SnapshotsStrip } from "../dashboard/ui/components/SnapshotsStrip";
-// import { SnapshotsStrip } from "@/modules/dashboard/ui/components/SnapshotsStrip"; // optionnel
 
 function matches(v: Visitor, q: string) {
   if (!q) return true;
@@ -50,17 +50,34 @@ export default function LiveMapView() {
 
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | undefined>();
+
   const visitors = useQuery(api.private.live.getActiveVisitors, {}) ?? [];
 
   const filtered = useMemo(
     () => visitors.filter((v) => matches(v as Visitor, query)),
-    [visitors, query]
+    [visitors, query],
   );
 
   const selected = useMemo(
     () => filtered.find((v) => v._id === selectedId),
-    [filtered, selectedId]
+    [filtered, selectedId],
   );
+
+  // ✅ IMPORTANT: currentUrl doit venir du dernier snapshot (source of truth)
+  const selectedSessionId = selected?.contactSessionId
+    ? (selected.contactSessionId as Id<"contactSessions">)
+    : null;
+
+  const latestSnap =
+    useQuery(
+      api.public.snapshots.listRecent,
+      selectedSessionId ? { sessionId: selectedSessionId, limit: 1 } : "skip",
+    ) ?? [];
+
+  const currentUrlFromSnap = latestSnap[0]?.pageUrl;
+
+  const headerUrl =
+    (currentUrlFromSnap ?? selected?.currentUrl ?? "").split("?")[0] || "—";
 
   return (
     <div className="flex h-full w-full">
@@ -108,24 +125,20 @@ export default function LiveMapView() {
       </div>
 
       {/* Right panel (live stream) */}
-      {selected && (
+      {selected && selectedSessionId && (
         <aside className="w-[420px] border-l bg-background p-3 hidden xl:block">
           <div className="mb-2">
             <div className="text-sm font-medium">{selected.name || "Visitor"}</div>
             <div className="text-xs text-muted-foreground">
               {selected.city ?? "—"}
               {selected.countryCode ? `, ${selected.countryCode}` : ""} ·{" "}
-              {selected.currentUrl?.split("?")[0] ?? "—"}
+              {headerUrl}
             </div>
           </div>
 
-          <LiveVisitorView
-            orgId={orgId}
-            sessionId={selected.contactSessionId as Id<"contactSessions">}
-          />
+          <LiveVisitorView orgId={orgId} sessionId={selectedSessionId} />
 
-
-          <SnapshotsStrip sessionId={selected.contactSessionId as any} limit={6} />
+          <SnapshotsStrip sessionId={selectedSessionId} limit={6} />
         </aside>
       )}
     </div>
