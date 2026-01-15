@@ -12,6 +12,39 @@ async function requireOrgId(ctx: any): Promise<string> {
   return orgId;
 }
 
+async function upsertUserProfileBestEffort(
+  ctx: any,
+  organizationId: string,
+  externalId: string,
+  profile?: { email?: string; name?: string; avatarUrl?: string; title?: string },
+) {
+  if (!profile) return;
+
+  const existing = await ctx.db
+    .query("users")
+    .withIndex("by_org_external", (q: any) =>
+      q.eq("organizationId", organizationId).eq("externalId", externalId),
+    )
+    .unique();
+
+  const payload: any = {
+    organizationId,
+    externalId,
+    email: profile.email || undefined,
+    name: profile.name || undefined,
+    avatarUrl: profile.avatarUrl || undefined,
+    title: profile.title || undefined,
+    updatedAt: Date.now(),
+  };
+
+  if (existing) {
+    await ctx.db.patch(existing._id, payload);
+    return;
+  }
+
+  await ctx.db.insert("users", payload);
+}
+
 /* ---------------- PRIVATE (dashboard) ---------------- */
 
 export const listRepsForOrg = query({
@@ -21,7 +54,7 @@ export const listRepsForOrg = query({
 
     return await ctx.db
       .query("repsPresence")
-      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
       .collect();
   },
 });
@@ -33,12 +66,60 @@ export const getRepForOrgUser = query({
 
     return await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
+      .withIndex("by_org_user", (q: any) =>
+        q.eq("organizationId", organizationId).eq("userId", userId),
+      )
       .unique();
   },
 });
 
-/* ---------------- ✅ PUBLIC SAFE (widget booking) ---------------- */
+/* ---------------- ✅ NEW: ensure presence for current user ---------------- */
+/**
+ * But: quand un membre connecte Slack depuis /me/profile, il faut être sûr
+ * qu'il existe une ligne repsPresence stable, sinon les notifs DM peuvent
+ * tomber à côté (ou ne pas trouver slackDmChannel).
+ */
+export const ensureRepPresenceForMe = mutation({
+  args: {
+    role: v.optional(v.union(v.literal("sales"), v.literal("support"))),
+    available: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { role, available }) => {
+    const organizationId = await requireOrgId(ctx);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    const userId = identity.subject as string;
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query("repsPresence")
+      .withIndex("by_org_user", (q: any) =>
+        q.eq("organizationId", organizationId).eq("userId", userId),
+      )
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        role: role ?? existing.role,
+        available: available ?? existing.available,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("repsPresence", {
+      organizationId,
+      userId,
+      role: role ?? "sales",
+      regions: [],
+      available: available ?? true,
+      updatedAt: now,
+    });
+  },
+});
+
+/* ---------------- PUBLIC SAFE (widget booking) ---------------- */
 
 export const getRepForVisitor = query({
   args: {
@@ -49,19 +130,17 @@ export const getRepForVisitor = query({
   handler: async (ctx, { organizationId, contactSessionId, userId }) => {
     const session = await ctx.db.get(contactSessionId);
 
-    if (!session) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
-    }
-    if (session.organizationId !== organizationId) {
+    if (!session) throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
+    if (session.organizationId !== organizationId)
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid org" });
-    }
-    if (session.expiresAt < Date.now()) {
+    if (session.expiresAt < Date.now())
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Session expired" });
-    }
 
     return await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
+      .withIndex("by_org_user", (q: any) =>
+        q.eq("organizationId", organizationId).eq("userId", userId),
+      )
       .unique();
   },
 });
@@ -76,14 +155,28 @@ export const upsertRepPresence = mutation({
     available: v.boolean(),
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
+
+    // ✅ profile sync (best effort)
+    profile: v.optional(
+      v.object({
+        email: v.optional(v.string()),
+        name: v.optional(v.string()),
+        avatarUrl: v.optional(v.string()),
+        title: v.optional(v.string()),
+      }),
+    ),
   },
-  handler: async (ctx, { userId, role, regions, available, slackUserId, slackDmChannel }) => {
+  handler: async (ctx, { userId, role, regions, available, slackUserId, slackDmChannel, profile }) => {
     const organizationId = await requireOrgId(ctx);
     if (!userId) throw new ConvexError({ code: "BAD_REQUEST", message: "userId is required" });
 
+    await upsertUserProfileBestEffort(ctx, organizationId, userId, profile);
+
     const existing = await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
+      .withIndex("by_org_user", (q: any) =>
+        q.eq("organizationId", organizationId).eq("userId", userId),
+      )
       .unique();
 
     const now = Date.now();
@@ -121,7 +214,9 @@ export const connectRepSlack = mutation({
 
     const existing = await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
+      .withIndex("by_org_user", (q: any) =>
+        q.eq("organizationId", organizationId).eq("userId", userId),
+      )
       .unique();
 
     if (existing) {

@@ -7,12 +7,7 @@ import { api } from "@workspace/backend/_generated/api";
 import { useOrganization, useUser } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
@@ -33,6 +28,9 @@ export default function ProfilePage() {
   const me = useQuery(api.private.users.meGet, {});
   const setAvatar = useMutation(api.private.users.meSetAvatar);
 
+  // ✅ NEW: ensure presence exists
+  const ensurePresence = useMutation(api.team.ensureRepPresenceForMe);
+
   // Reps / Slack
   const reps = useQuery(
     api.team.listRepsForOrg,
@@ -50,6 +48,12 @@ export default function ProfilePage() {
         updatedAt: number;
       }[]
     | undefined;
+
+  // ✅ Ensure presence doc exists for current user so Slack DM can be used reliably
+  useEffect(() => {
+    if (!organization || !user) return;
+    ensurePresence({ role: "sales", available: true }).catch(() => {});
+  }, [organization, user, ensurePresence]);
 
   const slackInfo = useMemo(() => {
     if (!user || !reps) return null;
@@ -71,8 +75,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
 
   // ✅ Source unique d’affichage : Clerk d’abord, sinon Convex
-  const displayAvatar =
-    (userLoaded ? user?.imageUrl : undefined) || (me as any)?.avatarUrl || "";
+  const displayAvatar = (userLoaded ? user?.imageUrl : undefined) || (me as any)?.avatarUrl || "";
 
   useEffect(() => {
     const m = me as any;
@@ -88,7 +91,6 @@ export default function ProfilePage() {
       setSaving(true);
       await setAvatar({
         title: jobTitle.trim() || undefined,
-        // avatarUrl: on ne force pas ici, c’est géré par upload
       });
       toast.success("Profile saved");
     } catch (e) {
@@ -105,13 +107,9 @@ export default function ProfilePage() {
     try {
       setSaving(true);
 
-      // ✅ 1) Upload dans Clerk => UserButton va matcher
       if (!user) throw new Error("User not loaded");
-      // Clerk: met à jour la photo du user (même fichier)
       await user.setProfileImage({ file });
 
-      // ✅ 2) On enregistre la référence dans Convex (pour ton app/widgets)
-      // On prend l’URL Clerk (source de vérité)
       const clerkUrl = user.imageUrl;
 
       await setAvatar({
@@ -141,8 +139,7 @@ export default function ProfilePage() {
         <CardContent className="space-y-5">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <UserRoundIcon className="h-4 w-4" />
-            Your profile image and job title may be shown in on-site nudges and
-            booking confirmations.
+            Your profile image and job title may be shown in on-site nudges and booking confirmations.
           </div>
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-end">
@@ -180,9 +177,7 @@ export default function ProfilePage() {
                 accept="image/*"
                 onChange={(e) => onSelectFile(e.target.files?.[0])}
               />
-              <p className="text-xs text-muted-foreground">
-                JPG/PNG recommended.
-              </p>
+              <p className="text-xs text-muted-foreground">JPG/PNG recommended.</p>
             </div>
 
             <Button
@@ -226,8 +221,7 @@ export default function ProfilePage() {
 
             {!slackConnected && (
               <p className="text-xs text-muted-foreground">
-                Connect Slack to receive DM notifications when a new meeting is
-                booked.
+                Connect Slack to receive DM notifications when a new meeting is booked.
               </p>
             )}
           </div>

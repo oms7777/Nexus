@@ -332,20 +332,32 @@ export const bookSlot = action({
         meetingUrl ? `• Link: ${meetingUrl}` : null,
       ].filter(Boolean);
 
-      // ✅ FIX: public-safe lookup (no Clerk auth)
+      // ✅ Lookup rep presence in a public-safe way (no Clerk auth)
       const rep = await ctx.runQuery(api.team.getRepForVisitor, {
         organizationId,
         contactSessionId,
         userId: acct.userId,
       });
 
-      const channelOverride = rep?.slackDmChannel;
+      // ✅ NEW BEHAVIOR:
+      // - If rep has a DM channel -> send DM
+      // - Else -> fallback to org default channel
+      const dmChannelId = rep?.slackDmChannel;
 
       await ctx.runAction(api.integrations.sendSlackMessage, {
         organizationId,
         text: lines.join("\n"),
-        channelOverride: channelOverride ?? undefined,
+        dmChannelId: dmChannelId ?? undefined,
       });
+
+      // OPTIONAL: if you want a global log in the org channel too, uncomment:
+      /*
+      await ctx.runAction(api.integrations.sendSlackMessage, {
+        organizationId,
+        text: lines.join("\n"),
+        // no dmChannelId => org channel
+      });
+      */
     } catch (e) {
       console.log("Slack sendSlackMessage failed:", e);
     }

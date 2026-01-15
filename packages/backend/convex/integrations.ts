@@ -74,14 +74,12 @@ export const _getSalesforceAppConfigByOrg = query({
    ============================================================ */
 
 async function getSubscriptionByOrgSafe(ctx: any, organizationId: string) {
-  // ✅ If query/mutation: ctx.db exists
   if (ctx.db) {
     return await ctx.db
       .query("subscriptions")
       .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
       .unique();
   }
-  // ✅ If action: use ctx.runQuery
   return await ctx.runQuery(api.integrations._getSubscriptionByOrg, { organizationId });
 }
 
@@ -90,7 +88,6 @@ async function requireSlackEntitled(ctx: any, organizationId: string) {
   const plan: Plan = (sub?.plan ?? "starter") as Plan;
   const status = sub?.status ?? "paused";
 
-  // Slack = inclus Growth+ uniquement, et seulement si actif/trial
   if (!isActiveStatus(status) || !(plan === "growth" || plan === "enterprise")) {
     throw new ConvexError({
       code: "FORBIDDEN",
@@ -106,7 +103,6 @@ async function requireSalesforceEntitled(ctx: any, organizationId: string) {
   const status = sub?.status ?? "paused";
   const addons = sub?.addons ?? {};
 
-  // Salesforce = add-on uniquement, et JAMAIS en starter, et seulement si actif/trial
   if (!isActiveStatus(status) || plan === "starter" || addons.salesforce !== true) {
     throw new ConvexError({
       code: "FORBIDDEN",
@@ -191,23 +187,39 @@ export const disconnectSlackIntegration = mutation({
 
 /* ============================================================
    SLACK WORKER (called from booking/calendar; keeps orgId)
-   ✅ FIX: no ctx.db in action
+   ✅ MAJ: support DM via dmChannelId
    ============================================================ */
 
 export const sendSlackMessage = action({
   args: {
     organizationId: v.string(),
     text: v.string(),
-    channelOverride: v.optional(v.string()),
+    dmChannelId: v.optional(v.string()),      // ✅ au lieu de channelOverride
+    channelOverride: v.optional(v.string()),  // ✅ optionnel si tu veux garder compat
   },
-  handler: async (ctx, { organizationId, text, channelOverride }) => {
+  handler: async (ctx, { organizationId, text, dmChannelId, channelOverride }) => {
     await requireSlackEntitled(ctx, organizationId);
 
-    const integration = await ctx.runQuery(api.integrations._getSlackIntegrationByOrg, {
-      organizationId,
-    });
+    const integration = await ctx.runQuery(api.integrations._getSlackIntegrationByOrg, { organizationId });
     if (!integration) return;
 
+    // ✅ si DM fourni : on poste direct sur l’ID (Dxxxx)
+    if (dmChannelId) {
+      const res = await fetch("https://slack.com/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${integration.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ channel: dmChannelId, text }),
+      });
+
+      const json: any = await res.json().catch(() => ({}));
+      if (!json.ok) console.log("Slack DM chat.postMessage error:", json.error);
+      return;
+    }
+
+    // ✅ sinon fallback channel org
     const rawChannel = channelOverride ?? integration.defaultChannel ?? "general";
     const channel = rawChannel.startsWith("#") ? rawChannel.slice(1) : rawChannel;
 
@@ -221,16 +233,17 @@ export const sendSlackMessage = action({
     });
 
     const json: any = await res.json().catch(() => ({}));
-    if (!json.ok) {
-      console.log("Slack chat.postMessage error:", json.error);
-    }
+    if (!json.ok) console.log("Slack chat.postMessage error:", json.error);
   },
 });
 
+
 /* ============================================================
    SALESFORCE: APP CONFIG (dashboard/private)
+   (UNCHANGED below)
    ============================================================ */
 
+// ---- keep your existing Salesforce code exactly as-is ----
 export const getSalesforceAppConfig = query({
   args: {},
   handler: async (ctx) => {
@@ -280,10 +293,6 @@ export const upsertSalesforceAppConfig = mutation({
     });
   },
 });
-
-/* ============================================================
-   SALESFORCE: INTEGRATION TOKENS (dashboard/private)
-   ============================================================ */
 
 export const getSalesforceIntegration = query({
   args: {},
@@ -350,6 +359,7 @@ export const disconnectSalesforceIntegration = mutation({
     await ctx.db.delete(existing._id);
   },
 });
+
 
 /* ============================================================
    SALESFORCE: AUTO REFRESH (worker; keeps orgId)

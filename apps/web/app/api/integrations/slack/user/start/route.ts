@@ -8,16 +8,18 @@ const SLACK_SCOPE = "chat:write im:write users:read";
 
 export async function GET(req: Request) {
   const { userId, orgId } = await auth();
-  if (!userId || !orgId)
-    return new NextResponse("Unauthorized", { status: 401 });
+  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
 
-  const origin = new URL(req.url).origin;
+  const url = new URL(req.url);
+  const origin = url.origin;
+
+  const redirectParam = url.searchParams.get("redirect") || "/me/profile";
   const redirectUri = `${origin}/api/integrations/slack/user/callback`;
 
   const statePayload = {
     orgId,
     userId,
-    redirect: "/me/profile",
+    redirect: redirectParam,
     userConnect: true,
   };
 
@@ -30,7 +32,5 @@ export async function GET(req: Request) {
     state,
   });
 
-  return NextResponse.redirect(
-    `https://slack.com/oauth/v2/authorize?${params.toString()}`
-  );
+  return NextResponse.redirect(`https://slack.com/oauth/v2/authorize?${params.toString()}`);
 }
