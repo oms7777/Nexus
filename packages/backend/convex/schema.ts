@@ -439,7 +439,7 @@ export default defineSchema({
     title: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
-    snapshot: v.optional(v.any()),
+    snapshot: v.string(),
   })
     .index("by_session", ["sessionId"])
     .index("by_org_ts", ["organizationId", "ts"]),
