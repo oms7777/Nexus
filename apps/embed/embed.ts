@@ -1,7 +1,7 @@
 // apps/embed/embed.ts
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
-import { initVisitorTracking } from "./visitor-tracker";
+import { initVisitorTracking, destroyVisitorTracking } from "./visitor-tracker";
 
 const NUDGE_ENABLED = true;
 
@@ -1034,10 +1034,11 @@ type SuggestionsPayload = {
   /* ---------------- Lifecycle ---------------- */
 
   function destroy() {
+    try { destroyVisitorTracking(); } catch {}
     window.removeEventListener("message", handleMessage);
     window.removeEventListener("resize", placeNudge);
     window.removeEventListener("scroll", placeNudge);
-    removeNudge();
+
 
     if (unpatchHistory) {
       try {
