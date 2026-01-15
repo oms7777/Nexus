@@ -3,7 +3,6 @@ import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "rrweb/typings/types";
 import Pusher, { type Channel } from "pusher-js";
 
-
 type VisitorTrackingOptions = {
   orgId: string;
   sessionId: string;
@@ -14,16 +13,16 @@ const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
-// Pusher limit ~10KB
+// Pusher client events payload limit ~10KB
 const MAX_PAYLOAD_BYTES = 9_000;
 
-// batching incremental
+// incremental batching
 const BATCH_INTERVAL_MS = 200;
 const MAX_BATCH_EVENTS = 35;
 
-// anti-spam / anti loop
-const URL_CHANGE_DEBOUNCE_MS = 250;      // évite double triggers SPA
-const MIN_RESTART_INTERVAL_MS = 1200;    // évite restart en boucle
+// URL change protection
+const URL_CHANGE_DEBOUNCE_MS = 250;
+const MIN_RESTART_INTERVAL_MS = 1200;
 
 let started = false;
 let pusherRef: Pusher | null = null;
@@ -40,19 +39,23 @@ let onMoveRef: ((e: MouseEvent) => void) | null = null;
 let rafCursor = 0;
 let lastCursor: { x: number; y: number } | null = null;
 
-// batching
+// incremental batching
 let batch: eventWithTime[] = [];
-let batchTimer: any = null;
+let batchTimer: ReturnType<typeof setTimeout> | null = null;
 
 // snapshot persist debounce + abort
-let snapshotDebounceTimer: any = null;
+let snapshotDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let snapshotAbort: AbortController | null = null;
 
 // url change detection
 let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
-let urlDebounceTimer: any = null;
+let urlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastRestartAt = 0;
+
+// extra listeners to cleanup
+let onVisibilityChange: (() => void) | null = null;
+let onBeforeUnload: (() => void) | null = null;
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
@@ -65,14 +68,11 @@ function flushBatchNow() {
   const payload = { events: batch.splice(0, batch.length) };
   const json = JSON.stringify(payload);
 
-  // best-effort: drop if too big
   if (safeBytes(json) > MAX_PAYLOAD_BYTES) return;
 
   try {
     channelRef.trigger("client-rrweb", payload);
-  } catch {
-    // ignore best-effort
-  }
+  } catch {}
 }
 
 function scheduleFlush() {
@@ -83,11 +83,7 @@ function scheduleFlush() {
   }, BATCH_INTERVAL_MS);
 }
 
-function persistSnapshotToDbDebounced(opts: {
-  orgId: string;
-  sessionId: string;
-  events: eventWithTime[];
-}) {
+function persistSnapshotToDbDebounced(opts: { orgId: string; sessionId: string; events: eventWithTime[] }) {
   if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
 
   snapshotDebounceTimer = setTimeout(async () => {
@@ -110,30 +106,27 @@ function persistSnapshotToDbDebounced(opts: {
         }),
       });
     } catch {
-      // best-effort only
+      // best effort
     }
   }, 250);
 }
 
-/**
- * IMPORTANT : au lieu de takeFullSnapshot (pas toujours dispo),
- * on redémarre rrweb sur URL change => rrweb génère un FullSnapshot (type=2).
- */
 function resetRecorderStateForNewPage() {
   snapshotSent = false;
   snapshotBuffer = [];
   lastMeta = null;
 
-  // clear incremental batch
   batch = [];
-  try {
-    if (batchTimer) clearTimeout(batchTimer);
-  } catch {}
+  if (batchTimer) {
+    try {
+      clearTimeout(batchTimer);
+    } catch {}
+  }
   batchTimer = null;
 }
 
 function startRecorder(orgId: string, sessionId: string) {
-  // stop previous if any
+  // stop previous
   try {
     stopRecording?.();
   } catch {}
@@ -155,7 +148,6 @@ function startRecorder(orgId: string, sessionId: string) {
 
       const type = (event as any)?.type;
 
-      // keep Meta
       if (type === 4) lastMeta = event;
 
       const isFullSnapshot = type === 2;
@@ -164,7 +156,6 @@ function startRecorder(orgId: string, sessionId: string) {
       if (!snapshotSent) snapshotBuffer.push(event);
 
       if (isFullSnapshot) {
-        // first full snapshot for this page
         if (!snapshotSent) {
           snapshotSent = true;
 
@@ -174,18 +165,17 @@ function startRecorder(orgId: string, sessionId: string) {
           const hasMeta = snap.some((e: any) => e?.type === 4);
           const payloadEvents = !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
 
-          // persist + send to live
+          // persist + live snapshot
           persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
           try {
             channelRef.trigger("client-snapshot", { events: payloadEvents });
           } catch {}
 
-          return; // don't send as incremental
+          return;
         }
 
-        // in theory, more full snapshots can happen: ignore or treat as "reset"
-        // (we keep it simple: treat as a reset snapshot)
+        // any extra full snapshot -> treat as refresh snapshot
         const payloadEvents = lastMeta ? [lastMeta, event] : [event];
         persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
@@ -205,7 +195,6 @@ function startRecorder(orgId: string, sessionId: string) {
         flushBatchNow();
         return;
       }
-
       scheduleFlush();
     },
   });
@@ -217,10 +206,7 @@ function patchHistoryForUrlChanges(onChange: () => void) {
   const origPush = history.pushState;
   const origReplace = history.replaceState;
 
-  const fire = () => {
-    // microtask: laisse le router finir
-    Promise.resolve().then(onChange);
-  };
+  const fire = () => Promise.resolve().then(onChange);
 
   history.pushState = function (this: History, ...args: any[]) {
     const ret = origPush.apply(this, args as any);
@@ -246,7 +232,6 @@ function patchHistoryForUrlChanges(onChange: () => void) {
 }
 
 function setupCursor() {
-  // remove old
   if (onMoveRef) {
     try {
       document.removeEventListener("mousemove", onMoveRef);
@@ -269,9 +254,7 @@ function setupCursor() {
       if (!lastCursor || !channelRef) return;
       try {
         channelRef.trigger("client-cursor", lastCursor);
-      } catch {
-        // ignore
-      }
+      } catch {}
     });
   };
 
@@ -279,13 +262,11 @@ function setupCursor() {
 }
 
 function cleanup() {
-  // stop rrweb
   try {
     stopRecording?.();
   } catch {}
   stopRecording = null;
 
-  // url patch
   if (unpatchHistory) {
     try {
       unpatchHistory();
@@ -293,12 +274,13 @@ function cleanup() {
   }
   unpatchHistory = null;
 
-  try {
-    if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
-  } catch {}
+  if (urlDebounceTimer) {
+    try {
+      clearTimeout(urlDebounceTimer);
+    } catch {}
+  }
   urlDebounceTimer = null;
 
-  // cursor
   if (onMoveRef) {
     try {
       document.removeEventListener("mousemove", onMoveRef);
@@ -312,17 +294,19 @@ function cleanup() {
   rafCursor = 0;
   lastCursor = null;
 
-  // batching
-  try {
-    if (batchTimer) clearTimeout(batchTimer);
-  } catch {}
+  if (batchTimer) {
+    try {
+      clearTimeout(batchTimer);
+    } catch {}
+  }
   batchTimer = null;
   batch = [];
 
-  // snapshot persist
-  try {
-    if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
-  } catch {}
+  if (snapshotDebounceTimer) {
+    try {
+      clearTimeout(snapshotDebounceTimer);
+    } catch {}
+  }
   snapshotDebounceTimer = null;
 
   try {
@@ -330,7 +314,20 @@ function cleanup() {
   } catch {}
   snapshotAbort = null;
 
-  // pusher
+  if (onVisibilityChange) {
+    try {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    } catch {}
+  }
+  onVisibilityChange = null;
+
+  if (onBeforeUnload) {
+    try {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    } catch {}
+  }
+  onBeforeUnload = null;
+
   try {
     channelRef?.unbind_all();
   } catch {}
@@ -384,21 +381,19 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   channelRef = channel;
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // start rrweb for the first page
+    // start rrweb for initial page
     startRecorder(orgId, sessionId);
 
     // cursor always on
     setupCursor();
 
-    // SPA URL change -> restart recorder (=> new FullSnapshot)
+    // SPA URL change => restart recorder (=> FullSnapshot automatically)
     unpatchHistory = patchHistoryForUrlChanges(() => {
       const href = location.href;
-      if (!href) return;
-      if (href === lastHref) return;
+      if (!href || href === lastHref) return;
 
       lastHref = href;
 
-      // debounce url changes
       if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
       urlDebounceTimer = setTimeout(() => {
         urlDebounceTimer = null;
@@ -407,24 +402,20 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
         if (now - lastRestartAt < MIN_RESTART_INTERVAL_MS) return;
         lastRestartAt = now;
 
-        // IMPORTANT: restart rrweb => full snapshot for new page
         startRecorder(orgId, sessionId);
       }, URL_CHANGE_DEBOUNCE_MS);
     });
 
     // flush on background/unload
-    const onVis = () => {
+    onVisibilityChange = () => {
       if (document.hidden) flushBatchNow();
     };
-    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
-    const onBeforeUnload = () => {
+    onBeforeUnload = () => {
       flushBatchNow();
     };
     window.addEventListener("beforeunload", onBeforeUnload);
-
-    // cleanup listeners on disconnect
-    channel.bind("pusher:subscription_error", () => cleanup());
   });
 
   channel.bind("pusher:subscription_error", () => cleanup());
