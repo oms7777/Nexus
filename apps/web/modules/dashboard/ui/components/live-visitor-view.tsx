@@ -1,3 +1,5 @@
+"use client";
+
 import { useRef, useEffect, useCallback } from "react";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
@@ -16,6 +18,15 @@ export function LiveVisitorView({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
+
+  // queue processing (anti-freeze)
+  const queueRef = useRef<eventWithTime[]>([]);
+  const rafRef = useRef<number>(0);
+  const processingRef = useRef(false);
+
+  // safety bounds
+  const MAX_QUEUE = 5_000; // si ça dépasse, on drop
+  const MAX_PER_FRAME = 120; // events traités par frame max
 
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
@@ -46,27 +57,45 @@ export function LiveVisitorView({
     content.style.transform = `scale(${scale})`;
   }, []);
 
+  const destroyReplayer = useCallback(() => {
+    try {
+      replayerRef.current?.pause();
+      replayerRef.current?.destroy();
+    } catch {}
+    replayerRef.current = null;
+
+    // reset queue
+    queueRef.current = [];
+    processingRef.current = false;
+
+    try {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    } catch {}
+    rafRef.current = 0;
+  }, []);
+
   const bootFromEvents = useCallback(
     (events: eventWithTime[]) => {
       if (!containerRef.current) return;
 
-      // cleanup old replayer
-      try {
-        replayerRef.current?.pause();
-        replayerRef.current?.destroy();
-      } catch {}
-      replayerRef.current = null;
+      destroyReplayer();
 
       // reset container
       containerRef.current.innerHTML = "";
 
-      const replayer = new Replayer(events, { root: containerRef.current });
-      replayerRef.current = replayer;
-      replayer.play();
+      // IMPORTANT: rrweb peut throw si snapshot meta-only => on try/catch
+      try {
+        const replayer = new Replayer(events, { root: containerRef.current });
+        replayerRef.current = replayer;
+        replayer.play();
+      } catch (e) {
+        // si c’est un “snapshot meta-only”, on ignore
+        replayerRef.current = null;
+      }
 
       requestAnimationFrame(() => applyScale());
     },
-    [applyScale],
+    [applyScale, destroyReplayer],
   );
 
   // Init depuis snapshot DB
@@ -75,7 +104,6 @@ export function LiveVisitorView({
 
     try {
       const events = JSON.parse(latest.snapshot) as eventWithTime[];
-      console.log("[live] init from db snapshot", { count: events.length });
       bootFromEvents(events);
 
       const onResize = () => applyScale();
@@ -86,26 +114,64 @@ export function LiveVisitorView({
     }
   }, [latest?.snapshot, bootFromEvents, applyScale]);
 
-  // Live incremental
-  const onRrweb = useCallback((events: eventWithTime[]) => {
-    const r = replayerRef.current;
-    if (!r) return;
+  const processQueue = useCallback(() => {
+    if (processingRef.current) return;
+    processingRef.current = true;
 
-    try {
-      for (const e of events) {
-        // si un FullSnapshot arrive ici, ignore (on gère via onSnapshot)
-        if ((e as any)?.type === 2) continue;
-        r.addEvent(e);
+    const tick = () => {
+      rafRef.current = 0;
+      const r = replayerRef.current;
+      if (!r) {
+        processingRef.current = false;
+        queueRef.current = [];
+        return;
       }
-    } catch (err) {
-      console.warn("[live] addEvent failed", err);
-    }
+
+      let count = 0;
+      while (queueRef.current.length && count < MAX_PER_FRAME) {
+        const e = queueRef.current.shift()!;
+        try {
+          // ignore full snapshot in incremental stream
+          if ((e as any)?.type === 2) continue;
+          r.addEvent(e);
+        } catch {
+          // best effort
+        }
+        count++;
+      }
+
+      // continue next frame if still backlog
+      if (queueRef.current.length) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        processingRef.current = false;
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
   }, []);
 
-  // Full snapshot live => reset replayer (ça te donne les “changements de page”)
+  // Live incremental (push in queue)
+  const onRrweb = useCallback(
+    (events: eventWithTime[]) => {
+      if (!replayerRef.current) return;
+
+      // drop strategy
+      if (queueRef.current.length > MAX_QUEUE) {
+        queueRef.current.splice(0, queueRef.current.length - Math.floor(MAX_QUEUE / 2));
+      }
+
+      queueRef.current.push(...events);
+      processQueue();
+    },
+    [processQueue],
+  );
+
+  // Snapshot live => reboot
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
-      console.log("[live] received snapshot via pusher", { count: events.length });
+      // si c’est meta-only (1 event type 4), on ne reboot pas le replayer
+      if (events.length === 1 && (events[0] as any)?.type === 4) return;
       bootFromEvents(events);
     },
     [bootFromEvents],
@@ -119,10 +185,7 @@ export function LiveVisitorView({
   });
 
   return (
-    <div
-      className="relative rounded-xl border overflow-hidden bg-black/5"
-      style={{ height: 360 }}
-    >
+    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height: 360 }}>
       <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
 
       {cursor && (
