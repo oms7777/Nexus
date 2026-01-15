@@ -7,12 +7,13 @@ let started = false;
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 
-let stopRecording: (() => void) | null = null;
-
-// rrweb snapshot lifecycle
 let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
+let stopRecording: (() => void) | null = null;
+
+// keep last known Meta event so snapshots have href/width/height
 let lastMeta: eventWithTime | null = null;
+let lastHref: string | null = null;
 
 // cursor throttling
 let onMoveRef: ((e: MouseEvent) => void) | null = null;
@@ -21,17 +22,14 @@ let lastCursor: { x: number; y: number } | null = null;
 
 // incremental batching
 let batch: eventWithTime[] = [];
-let batchTimer: ReturnType<typeof setTimeout> | null = null;
+let batchTimer: any = null;
 
 // snapshot persist debounce + abort
-let snapshotDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let snapshotDebounceTimer: any = null;
 let snapshotAbort: AbortController | null = null;
 
-// URL-change hook
-let lastHref: string | null = null;
-let unpatchHistory: (() => void) | null = null;
-
-// protect against snapshot loops/spam
+// ✅ URL-change snapshot control
+let recorderReady = false;
 let snapshotInFlight = false;
 let lastFullSnapshotAt = 0;
 
@@ -43,17 +41,19 @@ type VisitorTrackingOptions = {
 const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
+
+// DB snapshot endpoint (Next route)
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
-// Pusher limit ~10KB for payloads (client events)
+// Pusher limit ~10KB
 const MAX_PAYLOAD_BYTES = 9_000;
 
 // batching
 const BATCH_INTERVAL_MS = 200;
 const MAX_BATCH_EVENTS = 35;
 
-// anti-spam snapshot
-const MIN_FULLSNAPSHOT_INTERVAL_MS = 2500;
+// ✅ protection anti-boucle / anti-spam
+const MIN_FULLSNAPSHOT_INTERVAL_MS = 2_500;
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
@@ -64,13 +64,7 @@ function cleanup() {
     stopRecording?.();
   } catch {}
   stopRecording = null;
-
-  if (unpatchHistory) {
-    try {
-      unpatchHistory();
-    } catch {}
-  }
-  unpatchHistory = null;
+  recorderReady = false;
 
   if (onMoveRef) {
     try {
@@ -114,8 +108,8 @@ function cleanup() {
   snapshotSent = false;
   snapshotBuffer = [];
   lastMeta = null;
-
   lastHref = null;
+
   snapshotInFlight = false;
   lastFullSnapshotAt = 0;
 
@@ -133,7 +127,10 @@ function flushBatchNow() {
   const payload = { events: batch.splice(0, batch.length) };
   const json = JSON.stringify(payload);
 
-  if (safeBytes(json) > MAX_PAYLOAD_BYTES) return; // drop best-effort
+  if (safeBytes(json) > MAX_PAYLOAD_BYTES) {
+    // best-effort: drop if too big
+    return;
+  }
 
   try {
     channelRef.trigger("client-rrweb", payload);
@@ -180,66 +177,41 @@ function persistSnapshotToDbDebounced(opts: {
   }, 250);
 }
 
+function extractHrefFromMeta(ev: any): string | null {
+  const href = ev?.data?.href ?? ev?.data?.url ?? null;
+  return typeof href === "string" ? href : null;
+}
+
 /**
- * ✅ rrweb@1.1.3: pas de takeFullSnapshot stable exporté
- * => on “force” un nouveau full snapshot en redémarrant record()
- * rrweb émettra automatiquement un event type=2 après restart.
+ * ✅ Trigger a TRUE rrweb FullSnapshot only when URL changes.
+ * This relies on rrweb's record.takeFullSnapshot()
  */
-function restartRecordingForNewFullSnapshot(startRecord: () => void) {
+function triggerFullSnapshotOnUrlChange() {
+  if (!recorderReady) return;
+  if (!snapshotSent) return;
   if (snapshotInFlight) return;
 
   const now = Date.now();
   if (now - lastFullSnapshotAt < MIN_FULLSNAPSHOT_INTERVAL_MS) return;
 
+  const take = (record as any)?.takeFullSnapshot;
+  if (typeof take !== "function") {
+    // fallback: nothing (avoid breaking)
+    console.warn(
+      "[tracker] rrweb record.takeFullSnapshot() not available — cannot snapshot on URL change"
+    );
+    return;
+  }
+
   snapshotInFlight = true;
   lastFullSnapshotAt = now;
 
-  // on va re-buffer jusqu’au prochain full snapshot
-  snapshotSent = false;
-  snapshotBuffer = [];
-  batch = [];
-
   try {
-    stopRecording?.();
-  } catch {}
-
-  stopRecording = null;
-
-  // microtask -> laisse la SPA finir son render
-  Promise.resolve().then(() => {
-    startRecord();
-  });
-}
-
-function patchHistoryForUrlChanges(onChange: () => void) {
-  const origPush = history.pushState;
-  const origReplace = history.replaceState;
-
-  const fire = () => {
-    Promise.resolve().then(onChange);
-  };
-
-  history.pushState = function (this: History, ...args: any[]) {
-    const ret = origPush.apply(this, args as any);
-    fire();
-    return ret;
-  };
-
-  history.replaceState = function (this: History, ...args: any[]) {
-    const ret = origReplace.apply(this, args as any);
-    fire();
-    return ret;
-  };
-
-  window.addEventListener("popstate", fire);
-  window.addEventListener("hashchange", fire);
-
-  return () => {
-    history.pushState = origPush;
-    history.replaceState = origReplace;
-    window.removeEventListener("popstate", fire);
-    window.removeEventListener("hashchange", fire);
-  };
+    // This will cause rrweb to emit a type=2 FullSnapshot soon after.
+    take();
+  } catch (e) {
+    snapshotInFlight = false;
+  }
 }
 
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
@@ -250,7 +222,6 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   if (window.self !== window.top) return;
 
   started = true;
-  lastHref = location.href;
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
@@ -270,8 +241,13 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   const channel = pusher.subscribe(channelName);
   channelRef = channel;
 
-  const startRecord = () => {
+  channel.bind("pusher:subscription_succeeded", () => {
+    recorderReady = true;
+
     const stop: listenerHandler | undefined = record({
+      // ✅ No periodic full snapshots (we do it only on URL change)
+      // rrweb will still emit initial FullSnapshot automatically at start.
+
       sampling: {
         mousemove: 120,
         mouseInteraction: true,
@@ -284,22 +260,55 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
         if (!channelRef) return;
 
         const type = (event as any)?.type;
-        if (type === 4) lastMeta = event;
+
+        // Meta (type 4) contains href; use it to detect SPA page change.
+        if (type === 4) {
+          lastMeta = event;
+
+          const href = extractHrefFromMeta(event as any);
+          if (href) {
+            // init lastHref at first sight
+            if (!lastHref) lastHref = href;
+
+            // ✅ URL changed => trigger FullSnapshot
+            if (snapshotSent && href !== lastHref) {
+              lastHref = href;
+              triggerFullSnapshotOnUrlChange();
+            }
+          }
+        }
 
         const isFullSnapshot = type === 2;
 
-        // buffer until next full snapshot is sent
+        // buffer until the first FullSnapshot is sent
         if (!snapshotSent) snapshotBuffer.push(event);
 
+        // ✅ FullSnapshot => persist + notify dashboard
         if (isFullSnapshot) {
-          // first full snapshot after (re)start
-          snapshotSent = true;
+          // first snapshot: send buffered
+          if (!snapshotSent) {
+            snapshotSent = true;
 
-          const snap = [...snapshotBuffer];
-          snapshotBuffer = [];
+            const snap = [...snapshotBuffer];
+            snapshotBuffer = [];
 
-          const hasMeta = snap.some((e: any) => e?.type === 4);
-          const payloadEvents = !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
+            const hasMeta = snap.some((e: any) => e?.type === 4);
+            const payloadEvents =
+              !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
+
+            persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
+
+            try {
+              channelRef.trigger("client-snapshot", { events: payloadEvents });
+            } catch {}
+
+            // ✅ mark inflight done (this FullSnapshot is the result of takeFullSnapshot or initial)
+            snapshotInFlight = false;
+            return;
+          }
+
+          // later FullSnapshot (from URL change)
+          const payloadEvents = lastMeta ? [lastMeta, event] : [event];
 
           persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
@@ -311,7 +320,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
           return;
         }
 
-        // incremental events
+        // incremental
         if (!snapshotSent) return;
 
         batch.push(event);
@@ -326,24 +335,10 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     });
 
     stopRecording = stop ? (() => stop()) : null;
-  };
 
-  channel.bind("pusher:subscription_succeeded", () => {
-    // ✅ SPA URL changes -> restart record to force new full snapshot
-    unpatchHistory = patchHistoryForUrlChanges(() => {
-      const href = location.href;
-      if (!href || href === lastHref) return;
-      lastHref = href;
-
-      restartRecordingForNewFullSnapshot(startRecord);
-    });
-
-    // start recording once at init
-    startRecord();
-
-    // ✅ cursor live (independent)
+    // cursor (rAF throttled)
     onMoveRef = (e: MouseEvent) => {
-      if (!channelRef) return;
+      if (!channelRef || !snapshotSent) return;
       if (document.hidden) return;
 
       lastCursor = {
