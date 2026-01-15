@@ -7,7 +7,7 @@ import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
 import type { eventWithTime } from "rrweb/typings/types";
 import { Replayer } from "rrweb";
-import "rrweb/dist/rrweb.css";
+
 
 export function LiveVisitorView({
   orgId,
