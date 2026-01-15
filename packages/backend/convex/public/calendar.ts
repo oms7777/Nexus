@@ -224,6 +224,7 @@ export const bookSlot = action({
       attendeeDescription,
     },
   ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
+    // 0) routing (if user not forced)
     let effectiveUserId = userId;
 
     if (!effectiveUserId) {
@@ -238,6 +239,7 @@ export const bookSlot = action({
       }
     }
 
+    // 1) choose google account
     const acct = await ctx.runQuery(api.public.calendar.getAccount, {
       organizationId,
       userId: effectiveUserId,
@@ -256,6 +258,8 @@ export const bookSlot = action({
       attendeeRole ? `Role: ${attendeeRole}` : null,
     ].filter(Boolean);
 
+    // 2) create Google calendar event
+    // ✅ FIX: do NOT add organizer as an attendee
     const event: any = await ctx.runAction(api.private.calendar.createEventForOrgUser, {
       organizationId,
       userId: acct.userId,
@@ -263,14 +267,12 @@ export const bookSlot = action({
       description: descriptionLines.join("\n"),
       startIso: new Date(start).toISOString(),
       endIso: new Date(end).toISOString(),
-      attendees: [
-        { email: attendeeEmail, displayName: attendeeName },
-        { email: acct.email || "", displayName: "Organizer" },
-      ],
+      attendees: [{ email: attendeeEmail, displayName: attendeeName }],
     });
 
     const meetingUrl: string | undefined = event?.hangoutLink ?? event?.htmlLink ?? undefined;
 
+    // 3) save booking in DB
     const bookingId = await ctx.runMutation(api.public.booking.create, {
       organizationId,
       contactSessionId,
@@ -332,32 +334,17 @@ export const bookSlot = action({
         meetingUrl ? `• Link: ${meetingUrl}` : null,
       ].filter(Boolean);
 
-      // ✅ Lookup rep presence in a public-safe way (no Clerk auth)
       const rep = await ctx.runQuery(api.team.getRepForVisitor, {
         organizationId,
         contactSessionId,
         userId: acct.userId,
       });
 
-      // ✅ NEW BEHAVIOR:
-      // - If rep has a DM channel -> send DM
-      // - Else -> fallback to org default channel
-      const dmChannelId = rep?.slackDmChannel;
-
       await ctx.runAction(api.integrations.sendSlackMessage, {
         organizationId,
         text: lines.join("\n"),
-        dmChannelId: dmChannelId ?? undefined,
+        dmChannelId: rep?.slackDmChannel ?? undefined,
       });
-
-      // OPTIONAL: if you want a global log in the org channel too, uncomment:
-      /*
-      await ctx.runAction(api.integrations.sendSlackMessage, {
-        organizationId,
-        text: lines.join("\n"),
-        // no dmChannelId => org channel
-      });
-      */
     } catch (e) {
       console.log("Slack sendSlackMessage failed:", e);
     }
@@ -377,7 +364,6 @@ export const bookSlot = action({
           meetingUrl,
           organizationId,
           bookingId: String(bookingId),
-
           attendeePhone,
           attendeeDescription: useCase || undefined,
         } as any);
