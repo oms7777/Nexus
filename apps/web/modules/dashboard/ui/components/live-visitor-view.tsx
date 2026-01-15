@@ -5,7 +5,7 @@ import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
-import type { eventWithTime } from "@rrweb/types";
+import type { eventWithTime } from "rrweb/typings/types";
 import { Replayer } from "rrweb";
 import "rrweb/dist/rrweb.css";
 
@@ -60,7 +60,8 @@ export function LiveVisitorView({
   const destroyReplayer = useCallback(() => {
     try {
       replayerRef.current?.pause();
-      replayerRef.current?.destroy();
+      // rrweb v1.1.3: pas toujours de destroy()
+      // on force juste le detach visuel
     } catch {}
     replayerRef.current = null;
 
@@ -72,7 +73,11 @@ export function LiveVisitorView({
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     } catch {}
     rafRef.current = 0;
+
+    // clean DOM root (le plus important)
+    if (containerRef.current) containerRef.current.innerHTML = "";
   }, []);
+
 
   const bootFromEvents = useCallback(
     (events: eventWithTime[]) => {

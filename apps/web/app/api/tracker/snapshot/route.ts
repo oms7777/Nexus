@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { api } from "@workspace/backend/_generated/api";
 import { fetchMutation } from "convex/nextjs";
 import type { Id } from "@workspace/backend/_generated/dataModel";
-import type { eventWithTime } from "@rrweb/types";
+import type { eventWithTime } from "rrweb/typings/types";
 
 export const runtime = "nodejs";
 

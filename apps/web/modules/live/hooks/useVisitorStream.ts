@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Pusher, { type Channel } from "pusher-js";
-import type { eventWithTime } from "@rrweb/types";
+import type { eventWithTime } from "rrweb/typings/types";
 
 type Cursor = { x: number; y: number };
 

@@ -16,11 +16,10 @@
         "vite": "^5.0.8"
     },
     "dependencies": {
-        "@rrweb/types": "2.0.0-alpha.18",
         "@workspace/backend": "workspace:*",
         "convex": "^1.14.0",
         "html2canvas": "^1.4.1",
         "pusher-js": "^8.4.0",
-        "rrweb": "2.0.0-alpha.4"
+        "rrweb": "1.1.3"
     }
 }
