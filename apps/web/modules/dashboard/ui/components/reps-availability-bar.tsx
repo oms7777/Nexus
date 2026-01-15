@@ -1,4 +1,3 @@
-// apps/web/modules/dashboard/ui/components/reps-availability-bar.tsx
 "use client";
 
 import React, { useMemo } from "react";

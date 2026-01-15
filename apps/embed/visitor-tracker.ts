@@ -1,4 +1,3 @@
-// apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "rrweb/typings/types";
 import Pusher, { type Channel } from "pusher-js";
@@ -45,7 +44,6 @@ const MAX_LONGTASKS_PER_WINDOW = 8;
 // State
 // =======================
 let started = false;
-
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 

@@ -46,7 +46,7 @@ export default function ProfilePage() {
         slackUserId?: string;
         slackDmChannel?: string;
         updatedAt: number;
-      }[]
+      }[] 
     | undefined;
 
   // ✅ Ensure presence doc exists for current user so Slack DM can be used reliably
