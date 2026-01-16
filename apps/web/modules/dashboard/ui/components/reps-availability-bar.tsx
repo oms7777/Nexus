@@ -1,3 +1,4 @@
+// apps/web/modules/dashboard/ui/components/reps-availability-bar.tsx
 "use client";
 
 import React, { useMemo } from "react";
@@ -17,9 +18,11 @@ type RepRow = {
 
 type MyPresence = { available: boolean } | null;
 
-const MAX_AVATARS = 10;
-
-export function RepsAvailabilityBar({ organizationId }: { organizationId?: string }) {
+export function RepsAvailabilityBar({
+  organizationId,
+}: {
+  organizationId?: string;
+}) {
   const { organization } = useOrganization();
   const { user, isLoaded } = useUser();
   const orgId = organizationId ?? organization?.id;
@@ -34,53 +37,63 @@ export function RepsAvailabilityBar({ organizationId }: { organizationId?: strin
     orgId ? { organizationId: orgId } : "skip",
   ) as MyPresence | undefined;
 
-  const setMyAvailability = useMutation(api.private.repsPresence.setMyAvailability);
+  const setMyAvailability = useMutation(
+    api.private.repsPresence.setMyAvailability,
+  );
 
   const myAvailable = !!mePresence?.available;
 
   const myId = isLoaded ? user?.id : undefined;
+  const myName = isLoaded ? user?.fullName ?? user?.username ?? "Me" : "Me";
+  const myAvatar = isLoaded ? user?.imageUrl : undefined;
 
-  const { shown, remainingCount, onlineCount } = useMemo(() => {
+  const shownOthers = useMemo(() => {
     const list = Array.isArray(reps) ? reps : [];
-
-    // listAvailableForOrg est déjà "available only", mais on sécurise
-    const availableOnly = list.filter((r) => !!r.available);
-
-    // on enlève "me" de la liste des avatars, car Clerk affiche déjà ton avatar à droite
-    const others = myId ? availableOnly.filter((r) => r.userId !== myId) : availableOnly;
-
-    const shownAvatars = others.slice(0, MAX_AVATARS);
-    const remaining = Math.max(0, others.length - shownAvatars.length);
-
-    // count total online = others + me si dispo
-    const totalOnline = others.length + (myAvailable ? 1 : 0);
-
-    return {
-      shown: shownAvatars,
-      remainingCount: remaining,
-      onlineCount: totalOnline,
-    };
-  }, [reps, myId, myAvailable]);
+    // On évite de dupliquer "me" si tu es dans la liste available
+    const filtered = myId ? list.filter((r) => r.userId !== myId) : list;
+    return filtered.slice(0, 5);
+  }, [reps, myId]);
 
   if (!orgId) return null;
 
   return (
     <div className="flex items-center gap-3">
-      {/* Availability toggle */}
+      {/* Me */}
       <div className="flex items-center gap-2">
-        <span className="hidden sm:block text-xs text-muted-foreground">Available</span>
-        <Switch
-          checked={myAvailable}
-          onCheckedChange={(checked) => {
-            setMyAvailability({ organizationId: orgId, available: !!checked }).catch(() => {});
-          }}
-        />
+        <div
+          className="rounded-full ring-2 ring-background bg-muted"
+          title={`${myName}${myAvailable ? " • Available" : " • Away"}`}
+        >
+          <DicebearAvatar
+            imageUrl={myAvatar}
+            seed={myId ?? "me"}
+            size={28}
+          />
+        </div>
+
+        <div className="hidden sm:flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Available</span>
+          <Switch
+            checked={myAvailable}
+            onCheckedChange={(checked) => {
+              setMyAvailability({
+                organizationId: orgId,
+                available: !!checked,
+              }).catch(() => {});
+            }}
+          />
+        </div>
       </div>
 
-      {/* Online avatars */}
-      <div className="flex items-center gap-2">
-        <div className="flex items-center -space-x-2 flex-shrink-0">
-          {shown.map((r) => (
+      {/* Separator */}
+      <div className="h-6 w-px bg-border" />
+
+      {/* Other reps */}
+      <div className="flex items-center -space-x-2">
+        {shownOthers.length === 0 ? (
+          <div className="text-xs text-muted-foreground">No reps available</div>
+        ) : (
+          shownOthers.map((r) => (
             <div
               key={r.userId}
               className="rounded-full ring-2 ring-background bg-muted"
@@ -88,22 +101,19 @@ export function RepsAvailabilityBar({ organizationId }: { organizationId?: strin
             >
               <DicebearAvatar imageUrl={r.avatarUrl} seed={r.userId} size={28} />
             </div>
-          ))}
+          ))
+        )}
+      </div>
 
-          {remainingCount > 0 ? (
-            <div
-              className="h-7 min-w-7 px-2 rounded-full ring-2 ring-background bg-muted flex items-center justify-center text-[11px] font-medium text-muted-foreground"
-              title={`${remainingCount} more rep(s) online`}
-            >
-              +{remainingCount}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Count (what you already have, but kept consistent) */}
-        <div className="text-xs text-muted-foreground whitespace-nowrap">
-          {Math.max(0, onlineCount)} online
-        </div>
+      {/* Mobile switch (si tu veux le switch visible sur mobile aussi) */}
+      <div className="sm:hidden flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">Available</span>
+        <Switch
+          checked={myAvailable}
+          onCheckedChange={(checked) => {
+            setMyAvailability({ organizationId: orgId, available: !!checked }).catch(() => {});
+          }}
+        />
       </div>
     </div>
   );
