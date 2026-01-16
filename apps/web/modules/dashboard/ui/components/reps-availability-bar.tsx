@@ -1,4 +1,3 @@
-// apps/web/modules/dashboard/ui/components/reps-availability-bar.tsx
 "use client";
 
 import React, { useMemo } from "react";
@@ -49,7 +48,6 @@ export function RepsAvailabilityBar({
 
   const shownOthers = useMemo(() => {
     const list = Array.isArray(reps) ? reps : [];
-    // On évite de dupliquer "me" si tu es dans la liste available
     const filtered = myId ? list.filter((r) => r.userId !== myId) : list;
     return filtered.slice(0, 5);
   }, [reps, myId]);
@@ -105,7 +103,7 @@ export function RepsAvailabilityBar({
         )}
       </div>
 
-      {/* Mobile switch (si tu veux le switch visible sur mobile aussi) */}
+      {/* Mobile switch */}
       <div className="sm:hidden flex items-center gap-2">
         <span className="text-xs text-muted-foreground">Available</span>
         <Switch

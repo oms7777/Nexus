@@ -238,6 +238,7 @@ function RepPicker({
 }) {
   if (!reps.length) return null;
 
+
   return (
     <div className="p-3">
       <div className="mb-2 text-sm text-muted-foreground">
@@ -289,6 +290,7 @@ function RepPicker({
     </div>
   );
 }
+
 
 /* -------------------------------------------------------------------------- */
 /*           NEW LAYOUT : SIDEBAR SALES (LEFT) + CALENDAR (RIGHT)             */
@@ -420,7 +422,18 @@ export const WidgetChatScreen = () => {
 
   const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
   const [selectedRep, setSelectedRep] = useState<PublicRep | null>(null);
+  const [slots, setSlots] = useState<Slot[] | null>(null);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [localThreadId, setLocalThreadId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (routingReps && routingReps.length > 0) {
+      setRepChoices(routingReps);  // Mise à jour de repChoices avec les reps récupérés
+    }
+  }, [routingReps]);
+
+
+
 
   // Conversation + messages
   const conversation = useQuery(
@@ -535,8 +548,6 @@ export const WidgetChatScreen = () => {
   const [localMsgs, setLocalMsgs] = useState<
     Array<{ role: "assistant" | "user"; text: string }>
   >([]);
-  const [slots, setSlots] = useState<Slot[] | null>(null);
-  const [loadingSlots, setLoadingSlots] = useState(false);
 
   // calendar (fallback / compat)
   const calendarAccount = useQuery(
@@ -544,6 +555,37 @@ export const WidgetChatScreen = () => {
     organizationId ? { organizationId } : "skip"
   );
   const listSlots = useAction(api.public.calendar.listSlots);
+  const loadSlotsForRep = async (rep: PublicRep) => {
+    if (!organizationId || !contactSessionId) return;
+
+    setSelectedRep(rep);
+    setAssignedRep({
+      userId: rep.userId,
+      name: rep.name,
+      avatarUrl: rep.avatarUrl,
+      regions: rep.regions ?? [],
+    });
+
+    setStep("picking");
+    setLoadingSlots(true);
+
+    try {
+      const s = await listSlots({
+        organizationId,
+        userId: rep.userId,
+        days: 21,
+        contactSessionId: contactSessionId ?? undefined,
+      });
+      setSlots(s);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
+  const handleRepPick = (rep: PublicRep) => {
+    loadSlotsForRep(rep);
+  };
+
   const bookSlot = useAction(api.public.calendar.bookSlot);
 
   // analytics & conversation bootstrap
@@ -654,32 +696,6 @@ export const WidgetChatScreen = () => {
     conversation,
   ]);
 
-  /* -------- helper : charger les slots pour UN rep -------- */
-  const loadSlotsForRep = async (rep?: PublicRep) => {
-    if (!organizationId || !rep) return;
-
-    setSelectedRep(rep);
-    setAssignedRep({
-      userId: rep.userId,
-      name: rep.name,
-      avatarUrl: rep.avatarUrl,
-      regions: rep.regions ?? [],
-    });
-    setStep("picking");
-    setLoadingSlots(true);
-
-    try {
-      const s = await listSlots({
-        organizationId,
-        userId: rep.userId, // slots spécifiques à ce sales
-        days: 21,
-        contactSessionId: contactSessionId ?? undefined,
-      });
-      setSlots(s);
-    } finally {
-      setLoadingSlots(false);
-    }
-  };
 
   /* -------- Qualif flow -------- */
   const startPickingAfterQualify = async (lead: {
@@ -769,14 +785,20 @@ export const WidgetChatScreen = () => {
 
     // VISITOR_CHOICE
     if (reps.length === 1) {
-      await loadSlotsForRep(reps[0]);
+      const only = reps[0];
+      if (!only) {
+        setRepChoices(reps);
+        setStep("pick_rep");
+        return;
+      }
+      await loadSlotsForRep(only);
       return;
     }
 
+    // plusieurs reps -> on laisse le visiteur choisir
     setRepChoices(reps);
     setStep("pick_rep");
   };
-
   /* -------- Send message (thread bootstrap + retry) -------- */
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     const text = values.message.trim();
@@ -1145,83 +1167,73 @@ export const WidgetChatScreen = () => {
             {step === "pick_rep" && repChoices.length > 0 && (
               <RepPicker
                 reps={repChoices}
-                onPick={async (rep) => {
-                  await loadSlotsForRep(rep);
+                onPick={handleRepPick}  // Passer la fonction handleRepPick comme prop onPick
+              />
+            )}
+
+
+            {/* NEW picking flow : Sidebar rep + Calendar à droite */}
+            {step === "picking" && selectedRep && (
+              <BookingSplitLayout
+                rep={selectedRep}  // Passer le rep sélectionné
+                slots={slots}  // Passer les créneaux récupérés
+                loading={loadingSlots}  // Afficher un indicateur de chargement si nécessaire
+                onPick={async (slot) => {
+                  // Gérer la sélection d'un créneau
+                  if (!organizationId || !contactSessionId || !qdata.name || !qdata.email) return;
+
+                  const res = await bookSlot({
+                    organizationId,
+                    userId: selectedRep?.userId,
+                    contactSessionId,
+                    attendeeName: qdata.name,
+                    attendeeEmail: qdata.email,
+                    attendeePhone: (qdata as any).phone,
+                    attendeeCompany: qdata.company,
+                    attendeeRole: qdata.role,
+                    attendeeDescription: (qdata as any).description,
+                    start: slot.start,
+                    end: slot.end,
+                  });
+
+                  const repDisplayName = selectedRep?.name || selectedRep?.title || "our team";
+                  const subtitle = [
+                    selectedRep?.title,
+                    selectedRep?.regions?.join(", "),
+                  ]
+                    .filter(Boolean)
+                    .join(" • ");
+
+                  const msgLines: string[] = [
+                    `✅ You’re booked with ${repDisplayName}`,
+                  ];
+
+                  if (subtitle) msgLines.push(subtitle);
+                  msgLines.push("");
+                  if (res?.meetingUrl) {
+                    msgLines.push(`Join with this link: ${res.meetingUrl}`);
+                  } else {
+                    msgLines.push("Check your inbox for the invite.");
+                  }
+
+                  const msgText = msgLines.join("\n");
+
+                  setLocalMsgs((m) => [
+                    ...m,
+                    {
+                      role: "assistant",
+                      text: msgText,
+                    },
+                  ]);
+                  setSlots(null);  // Réinitialiser les créneaux
+                  setStep("done");  // Passer à l'étape finale
+                }}
+                onBack={() => {
+                  setStep("pick_rep");
                 }}
               />
             )}
 
-            {/* NEW picking flow : Sidebar rep + Calendar à droite */}
-            {step === "picking" && (
-              <div className="p-0 m-0 w-full">
-                <BookingSplitLayout
-                  rep={selectedRep}
-                  slots={slots}
-                  loading={loadingSlots}
-                  onPick={async (s) => {
-                    if (
-                      !organizationId ||
-                      !contactSessionId ||
-                      !qdata.name ||
-                      !qdata.email ||
-                      !(qdata as any).description
-                    )
-                      return;
-
-                    const res = await bookSlot({
-                      organizationId,
-                      userId: selectedRep?.userId,
-                      contactSessionId,
-                      attendeeName: qdata.name,
-                      attendeeEmail: qdata.email,
-                      attendeePhone: (qdata as any).phone,
-                      attendeeCompany: qdata.company,
-                      attendeeRole: qdata.role,
-                      attendeeDescription: (qdata as any).description,
-                      start: s.start,
-                      end: s.end,
-                    });
-
-
-                    const repDisplayName =
-                      selectedRep?.name || selectedRep?.title || "our team";
-
-                    const subtitle = [
-                      selectedRep?.title,
-                      selectedRep?.regions?.join(", "),
-                    ]
-                      .filter(Boolean)
-                      .join(" • ");
-
-                    const msgLines: string[] = [
-                      `✅ You’re booked with ${repDisplayName}`,
-                    ];
-                    if (subtitle) msgLines.push(subtitle);
-                    msgLines.push("");
-                    if (res?.meetingUrl) {
-                      msgLines.push(`Join with this link: ${res.meetingUrl}`);
-                    } else {
-                      msgLines.push("Check your inbox for the invite.");
-                    }
-
-                    const msgText = msgLines.join("\n");
-
-                    setLocalMsgs((m) => [
-                      ...m,
-                      {
-                        role: "assistant",
-                        text: msgText,
-                      },
-                    ]);
-                    setSlots(null);
-                    setStep("done");
-                  }}
-                  onBack={() => {
-                    setStep("pick_rep");
-                  }}
-                />
-              </div>
-            )}
 
             {/* Card de confirmation avec avatar du rep */}
             {step === "done" && selectedRep && (
@@ -1353,4 +1365,4 @@ export const WidgetChatScreen = () => {
       </Form>
     </div>
   );
-};
+}

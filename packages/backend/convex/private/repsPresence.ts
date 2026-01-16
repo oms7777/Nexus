@@ -63,34 +63,32 @@ export const setMyAvailability = mutation({
 export const listAvailableForOrg = query({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
-    // 1) available reps
-    const reps = (await ctx.db
-      .query("repsPresence")
+    // 1) Récupérer les reps disponibles
+    const reps = await ctx.db.query("repsPresence")
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
-      .collect()) as Doc<"repsPresence">[];
+      .collect();
 
-    const available = reps.filter((r) => r.available);
+    const availableReps = reps.filter((r) => r.available);
 
-    if (!available.length) return [];
+    if (!availableReps.length) return [];
 
-    // 2) profiles map (users table)
-    const users = await ctx.db
-      .query("users")
+    // 2) Récupérer les utilisateurs avec leurs avatars
+    const users = await ctx.db.query("users")
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
       .collect();
 
     const byExternalId = new Map<string, any>();
     for (const u of users) byExternalId.set(u.externalId, u);
 
-    // 3) enrich
-    return available.map((r) => {
+    // 3) Enrichir les reps avec les données utilisateurs
+    return availableReps.map((r) => {
       const u = byExternalId.get(r.userId);
       return {
         userId: r.userId,
         available: r.available,
-        name: u?.name ?? undefined,
-        avatarUrl: u?.avatarUrl ?? undefined,
-        title: u?.title ?? undefined,
+        name: u?.name ?? "Rep",               // Assurer le fallback du nom
+        avatarUrl: u?.avatarUrl ?? "",        // Récupérer l'avatar
+        title: u?.title ?? "",                // Récupérer le titre
       };
     });
   },
