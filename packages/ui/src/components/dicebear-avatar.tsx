@@ -1,76 +1,83 @@
 "use client";
 
-import { glass } from "@dicebear/collection"
+import { glass } from "@dicebear/collection";
 import { createAvatar } from "@dicebear/core";
-import { useMemo } from "react";
-import { Avatar, AvatarImage } from "@workspace/ui/components/avatar"
-import { cn } from "@workspace/ui/lib/utils"
-
+import { useMemo, useState } from "react";
+import { cn } from "@workspace/ui/lib/utils";
 
 interface DicebearAvatarProps {
-    seed: string;
-    size?: number;
-    className?: string;
-    badgeClassName?: string;
-    imageUrl?: string;
-    badgeImageUrl?: string;
-};
+  seed: string;
+  size?: number;
+  className?: string;
+  badgeClassName?: string;
+  imageUrl?: string | null;
+  badgeImageUrl?: string | null;
+}
 
 export const DicebearAvatar = ({
-    seed,
-    size = 32,
-    className,
-    imageUrl,
-    badgeClassName,
-    badgeImageUrl,
-} : DicebearAvatarProps) => {
-    const avatarSrc = useMemo(() => {
-        if (imageUrl) {
-            return imageUrl;
-        }
+  seed,
+  size = 32,
+  className,
+  imageUrl,
+  badgeClassName,
+  badgeImageUrl,
+}: DicebearAvatarProps) => {
+  const [imgError, setImgError] = useState(false);
 
-        const avatar = createAvatar(glass, {
-            seed: seed.toLowerCase().trim(),
-            size,
-        });
+  const fallbackSrc = useMemo(() => {
+    const avatar = createAvatar(glass, {
+      seed: seed.toLowerCase().trim(),
+      size,
+    });
+    return avatar.toDataUri();
+  }, [seed, size]);
 
-        return avatar.toDataUri();
-    }, [seed, size, imageUrl]);
+  const shouldUsePhoto = Boolean(imageUrl && !imgError);
+  const src = shouldUsePhoto ? (imageUrl as string) : fallbackSrc;
 
-    const badgeSize = Math.round(size * 0.5);
+  const badgeSize = Math.round(size * 0.5);
 
-    return (
+  return (
+    <div
+      className={cn("relative inline-block", className)}
+      style={{ width: size, height: size }}
+    >
+      {/* ✅ IMPORTANT: <img> natif (plus fiable que AvatarImage) */}
+      <img
+        src={src}
+        alt="Avatar"
+        width={size}
+        height={size}
+        className="h-full w-full rounded-full border object-cover bg-muted"
+        referrerPolicy="no-referrer"
+        onError={() => {
+          // si la photo échoue → fallback dicebear
+          setImgError(true);
+        }}
+      />
+
+      {badgeImageUrl && (
         <div
-            className="relative inline-block"
-            style={{ width: size, height: size }}
+          className={cn(
+            "absolute right-0 bottom-0 flex items-center justify-center overflow-hidden rounded-full border-2 border-background bg-background",
+            badgeClassName,
+          )}
+          style={{
+            width: badgeSize,
+            height: badgeSize,
+            transform: "translate(15%, 15%)",
+          }}
         >
-            <Avatar
-                className={cn("border", className)}
-                style={{ width: size, height: size }}
-            >
-                <AvatarImage alt="Avatar" src={avatarSrc}/>
-            </Avatar>
-            {badgeImageUrl && (
-                <div
-                    className={cn(
-                        "absolute right-0 bottom-0 flex items-center justify-center overflow-hidden rounded-full border-2 border-background bg-background",
-                        badgeClassName
-                    )}
-                    style={{
-                        width: badgeSize,
-                        height: badgeSize,
-                        transform: "translate(15%, 15%)",
-                    }}
-                >
-                    <img 
-                        alt="Badge"
-                        className="h-full w-full object-cover"
-                        height={badgeSize}
-                        src={badgeImageUrl}
-                        width={badgeSize}
-                    />
-                </div>
-            )}
+          <img
+            alt="Badge"
+            className="h-full w-full object-cover"
+            height={badgeSize}
+            src={badgeImageUrl as string}
+            width={badgeSize}
+            referrerPolicy="no-referrer"
+          />
         </div>
-    )
-}
+      )}
+    </div>
+  );
+};

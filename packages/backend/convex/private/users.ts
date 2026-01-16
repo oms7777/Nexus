@@ -2,12 +2,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 
-/**
- * meGet → Récupère le profil d’un user (avatar, name, title)
- * Corrigé pour supporter :
- *   - Nouveau schéma : externalId = subject (Clerk userId)
- *   - Ancien schéma : externalId = tokenIdentifier
- */
 export const meGet = query({
   args: {},
   handler: async (ctx) => {
@@ -15,42 +9,35 @@ export const meGet = query({
     if (!id?.orgId) return null;
 
     const orgId = id.orgId as string;
-    const subject = id.subject;              // Clerk userId
-    const token = id.tokenIdentifier;        // ancien externalId
+    const subject = id.subject;
+    const token = id.tokenIdentifier;
 
-    let userDoc = null;
-
-    // 1️⃣ Nouveau schéma = externalId === subject
+    // 1) new schema: externalId = subject
     if (subject) {
-      userDoc = await ctx.db
+      const doc = await ctx.db
         .query("users")
-        .withIndex("by_org_external", q =>
-          q.eq("organizationId", orgId).eq("externalId", subject)
+        .withIndex("by_org_external", (q) =>
+          q.eq("organizationId", orgId).eq("externalId", subject),
         )
         .unique();
+      if (doc) return doc;
     }
 
-    // 2️⃣ Ancien schéma = externalId === tokenIdentifier
-    if (!userDoc && token) {
-      userDoc = await ctx.db
+    // 2) old schema: externalId = tokenIdentifier
+    if (token) {
+      const doc = await ctx.db
         .query("users")
-        .withIndex("by_org_external", q =>
-          q.eq("organizationId", orgId).eq("externalId", token)
+        .withIndex("by_org_external", (q) =>
+          q.eq("organizationId", orgId).eq("externalId", token),
         )
         .unique();
+      if (doc) return doc;
     }
 
-    return userDoc;
+    return null;
   },
 });
 
-
-/**
- * meSetAvatar → met à jour name + avatar + title
- * ⚠️ corrige MAJEURE :
- *   externalId = id.subject (Clerk userId)
- *   et migration automatique depuis l'ancien schéma.
- */
 export const meSetAvatar = mutation({
   args: {
     avatarUrl: v.optional(v.string()),
@@ -61,44 +48,54 @@ export const meSetAvatar = mutation({
     if (!id?.orgId) throw new Error("UNAUTHORIZED");
 
     const orgId = id.orgId as string;
-    const subject = id.subject;              // Nouveau schéma
-    const token = id.tokenIdentifier;        // Ancien schéma
+    const subject = id.subject;
+    const token = id.tokenIdentifier;
 
     if (!subject) throw new Error("Missing Clerk subject");
 
-    let existing = null;
-
-    // 1️⃣ Chercher un doc avec le nouveau schéma
-    existing = await ctx.db
-      .query("users")
-      .withIndex("by_org_external", q =>
-        q.eq("organizationId", orgId).eq("externalId", subject)
-      )
-      .unique();
-
-    // 2️⃣ fallback ancien schéma
-    if (!existing && token) {
-      existing = await ctx.db
+    // find existing (new first)
+    let existing =
+      (await ctx.db
         .query("users")
-        .withIndex("by_org_external", q =>
-          q.eq("organizationId", orgId).eq("externalId", token)
+        .withIndex("by_org_external", (q) =>
+          q.eq("organizationId", orgId).eq("externalId", subject),
         )
-        .unique();
+        .unique()) ?? null;
+
+    // fallback old schema
+    if (!existing && token) {
+      existing =
+        (await ctx.db
+          .query("users")
+          .withIndex("by_org_external", (q) =>
+            q.eq("organizationId", orgId).eq("externalId", token),
+          )
+          .unique()) ?? null;
     }
 
-    const doc = {
+    const now = Date.now();
+
+    // patch payload (partial)
+    const patch: any = {
       organizationId: orgId,
-      externalId: subject,          // ✔️ Correction définitive
-      name: id.name ?? undefined,   // récupéré depuis Clerk automatiquement
-      avatarUrl: avatarUrl ?? undefined,
-      title: title ?? undefined,
+      externalId: subject, // ✅ always bind to subject
+      name: id.name ?? undefined,
+      updatedAt: now,
     };
 
+    if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl || undefined;
+    if (title !== undefined) patch.title = title || undefined;
+
     if (existing) {
-      await ctx.db.patch(existing._id, doc);
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
 
-    return ctx.db.insert("users", doc);
+    return await ctx.db.insert("users", {
+      ...patch,
+      avatarUrl: avatarUrl ?? undefined,
+      title: title ?? undefined,
+      createdAt: now,
+    });
   },
 });
