@@ -1,8 +1,6 @@
-"use client";
-
-import { glass } from "@dicebear/collection";
+import { useEffect, useState, useMemo } from "react";
 import { createAvatar } from "@dicebear/core";
-import { useMemo, useState } from "react";
+import { glass } from "@dicebear/collection";
 import { cn } from "@workspace/ui/lib/utils";
 
 interface DicebearAvatarProps {
@@ -42,7 +40,6 @@ export const DicebearAvatar = ({
       className={cn("relative inline-block", className)}
       style={{ width: size, height: size }}
     >
-      {/* ✅ IMPORTANT: <img> natif (plus fiable que AvatarImage) */}
       <img
         src={src}
         alt="Avatar"
@@ -51,7 +48,6 @@ export const DicebearAvatar = ({
         className="h-full w-full rounded-full border object-cover bg-muted"
         referrerPolicy="no-referrer"
         onError={() => {
-          // si la photo échoue → fallback dicebear
           setImgError(true);
         }}
       />
@@ -60,7 +56,7 @@ export const DicebearAvatar = ({
         <div
           className={cn(
             "absolute right-0 bottom-0 flex items-center justify-center overflow-hidden rounded-full border-2 border-background bg-background",
-            badgeClassName,
+            badgeClassName
           )}
           style={{
             width: badgeSize,

@@ -53,49 +53,38 @@ export const meSetAvatar = mutation({
 
     if (!subject) throw new Error("Missing Clerk subject");
 
-    // find existing (new first)
-    let existing =
-      (await ctx.db
-        .query("users")
-        .withIndex("by_org_external", (q) =>
-          q.eq("organizationId", orgId).eq("externalId", subject),
-        )
-        .unique()) ?? null;
+    let existing = null;
 
-    // fallback old schema
+    // Check user document
+    existing = await ctx.db
+      .query("users")
+      .withIndex("by_org_external", q =>
+        q.eq("organizationId", orgId).eq("externalId", subject)
+      )
+      .unique();
+
     if (!existing && token) {
-      existing =
-        (await ctx.db
-          .query("users")
-          .withIndex("by_org_external", (q) =>
-            q.eq("organizationId", orgId).eq("externalId", token),
-          )
-          .unique()) ?? null;
+      existing = await ctx.db
+        .query("users")
+        .withIndex("by_org_external", q =>
+          q.eq("organizationId", orgId).eq("externalId", token)
+        )
+        .unique();
     }
 
-    const now = Date.now();
-
-    // patch payload (partial)
-    const patch: any = {
+    const doc = {
       organizationId: orgId,
-      externalId: subject, // ✅ always bind to subject
+      externalId: subject,
       name: id.name ?? undefined,
-      updatedAt: now,
+      avatarUrl: avatarUrl ?? undefined,
+      title: title ?? undefined,
     };
 
-    if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl || undefined;
-    if (title !== undefined) patch.title = title || undefined;
-
     if (existing) {
-      await ctx.db.patch(existing._id, patch);
+      await ctx.db.patch(existing._id, doc);
       return existing._id;
     }
 
-    return await ctx.db.insert("users", {
-      ...patch,
-      avatarUrl: avatarUrl ?? undefined,
-      title: title ?? undefined,
-      createdAt: now,
-    });
+    return ctx.db.insert("users", doc);
   },
 });

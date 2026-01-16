@@ -1,7 +1,7 @@
-// packages/backend/convex/public/users.ts
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 
+// Récupère les avatars des utilisateurs d'une organisation, avec un maximum spécifié.
 export const listOrgAvatars = query({
   args: { organizationId: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, { organizationId, limit }) => {
@@ -12,17 +12,19 @@ export const listOrgAvatars = query({
 
     const urls: string[] = [];
     for (const u of users) {
-      const a = u.avatarUrl?.trim();
-      if (a) urls.push(a);
+      const avatar = u.avatarUrl?.trim();
+      if (avatar) urls.push(avatar);  // Ajouter l'URL de l'avatar
     }
 
+    // Mélanger les avatars de manière aléatoire
     for (let i = urls.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = urls[i]!;      // non-null assertion
-    urls[i] = urls[j]!;
-    urls[j] = tmp;
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = urls[i]!;      // assertion non-nulle
+      urls[i] = urls[j]!;
+      urls[j] = tmp;
     }
 
+    // Limiter le nombre de résultats retournés
     const cap = Math.max(1, Math.min(limit ?? 3, 3));
     return urls.slice(0, cap);
   },
