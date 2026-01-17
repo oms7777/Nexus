@@ -16,7 +16,7 @@ async function upsertUserProfileBestEffort(
   ctx: any,
   organizationId: string,
   externalId: string,
-  profile?: { email?: string; name?: string; avatarUrl?: string; title?: string },
+  profile?: { name?: string; avatarUrl?: string; title?: string },
 ) {
   if (!profile) return;
 
@@ -27,14 +27,11 @@ async function upsertUserProfileBestEffort(
     )
     .unique();
 
-  // ✅ IMPORTANT: patch uniquement les champs fournis (pas d’écrasement par undefined)
   const payload: any = {
     organizationId,
     externalId,
-    updatedAt: Date.now(),
   };
 
-  if (profile.email !== undefined) payload.email = profile.email || undefined;
   if (profile.name !== undefined) payload.name = profile.name || undefined;
   if (profile.avatarUrl !== undefined) payload.avatarUrl = profile.avatarUrl || undefined;
   if (profile.title !== undefined) payload.title = profile.title || undefined;
@@ -153,7 +150,6 @@ export const upsertRepPresence = mutation({
     slackDmChannel: v.optional(v.string()),
     profile: v.optional(
       v.object({
-        email: v.optional(v.string()),
         name: v.optional(v.string()),
         avatarUrl: v.optional(v.string()),
         title: v.optional(v.string()),
@@ -164,7 +160,7 @@ export const upsertRepPresence = mutation({
     const organizationId = await requireOrgId(ctx);
     if (!userId) throw new ConvexError({ code: "BAD_REQUEST", message: "userId is required" });
 
-    await upsertUserProfileBestEffort(ctx, organizationId, userId, profile);
+    await upsertUserProfileBestEffort(ctx, organizationId, userId, profile as any);
 
     const existing = await ctx.db
       .query("repsPresence")

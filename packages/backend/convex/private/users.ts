@@ -1,5 +1,5 @@
 // packages/backend/convex/private/users.ts
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { mutation, query } from "../_generated/server";
 
 export const meGet = query({
@@ -12,7 +12,6 @@ export const meGet = query({
     const subject = id.subject;
     const token = id.tokenIdentifier;
 
-    // 1) new schema: externalId = subject
     if (subject) {
       const doc = await ctx.db
         .query("users")
@@ -23,7 +22,6 @@ export const meGet = query({
       if (doc) return doc;
     }
 
-    // 2) old schema: externalId = tokenIdentifier
     if (token) {
       const doc = await ctx.db
         .query("users")
@@ -46,15 +44,15 @@ export const meSetAvatar = mutation({
   },
   handler: async (ctx, { avatarUrl, title, name }) => {
     const id = await ctx.auth.getUserIdentity();
-    if (!id?.orgId) throw new Error("UNAUTHORIZED");
+    if (!id?.orgId) throw new ConvexError({ code: "UNAUTHORIZED", message: "UNAUTHORIZED" });
 
     const orgId = id.orgId as string;
     const subject = id.subject;
     const token = id.tokenIdentifier;
 
-    if (!subject) throw new Error("Missing Clerk subject");
+    if (!subject) throw new ConvexError({ code: "UNAUTHORIZED", message: "Missing Clerk subject" });
 
-    // Find existing (subject first)
+    // 1) chercher sur subject
     let existing =
       (await ctx.db
         .query("users")
@@ -63,25 +61,27 @@ export const meSetAvatar = mutation({
         )
         .unique()) ?? null;
 
-    // fallback old schema (tokenIdentifier)
-    if (!existing && token) {
-      existing =
-        (await ctx.db
-          .query("users")
-          .withIndex("by_org_external", (q) =>
-            q.eq("organizationId", orgId).eq("externalId", token),
-          )
-          .unique()) ?? null;
+    // 2) fallback tokenIdentifier (legacy)
+    const legacy =
+      !existing && token
+        ? (await ctx.db
+            .query("users")
+            .withIndex("by_org_external", (q) =>
+              q.eq("organizationId", orgId).eq("externalId", token),
+            )
+            .unique()) ?? null
+        : null;
+
+    // ✅ MIGRATION: si doc legacy existe, on "migre" vers subject
+    if (!existing && legacy) {
+      await ctx.db.patch(legacy._id, {
+        externalId: subject, // <- clé stable désormais
+      });
+      existing = legacy;
     }
 
-    const baseDoc: any = {
-      organizationId: orgId,
-      externalId: subject,
-      updatedAt: Date.now(),
-    };
-
-    // ✅ IMPORTANT: patch only provided fields (do NOT overwrite with undefined)
-    const patch: any = { ...baseDoc };
+    // patch uniquement champs fournis
+    const patch: any = {};
     if (typeof avatarUrl === "string") patch.avatarUrl = avatarUrl || undefined;
     if (typeof title === "string") patch.title = title || undefined;
     if (typeof name === "string") patch.name = name || undefined;
@@ -91,9 +91,10 @@ export const meSetAvatar = mutation({
       return existing._id;
     }
 
-    // Insert: include known fields
+    // insert
     const insertDoc: any = {
-      ...baseDoc,
+      organizationId: orgId,
+      externalId: subject,
       name: typeof name === "string" ? name || undefined : id.name ?? undefined,
       avatarUrl: typeof avatarUrl === "string" ? avatarUrl || undefined : undefined,
       title: typeof title === "string" ? title || undefined : undefined,

@@ -395,8 +395,10 @@ export default defineSchema({
     organizationId: v.string(),
     externalId: v.string(),
     name: v.optional(v.string()),
+    email: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
-    title: v.optional(v.string()), // 👈 nouveau : job title (Solutions Engineer EMEA)
+    title: v.optional(v.string()),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_org_external", ["organizationId", "externalId"])
     .index("by_org", ["organizationId"]),

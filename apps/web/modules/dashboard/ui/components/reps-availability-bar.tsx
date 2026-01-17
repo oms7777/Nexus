@@ -1,3 +1,4 @@
+// apps/web/modules/dashboard/ui/components/reps-availability-bar.tsx
 "use client";
 
 import React, { useMemo } from "react";
@@ -48,7 +49,15 @@ function AvatarCircle({
 export function RepsAvailabilityBar({ organizationId }: { organizationId?: string }) {
   const { organization } = useOrganization();
   const { user, isLoaded } = useUser();
+
   const orgId = organizationId ?? organization?.id;
+  if (!orgId) return null;
+
+  // ✅ Convex "me" (source de vérité app)
+  const me = useQuery(api.private.users.meGet, {}) as
+    | { name?: string; avatarUrl?: string; title?: string }
+    | null
+    | undefined;
 
   const reps = useQuery(
     api.private.repsPresence.listAvailableForOrg,
@@ -65,16 +74,22 @@ export function RepsAvailabilityBar({ organizationId }: { organizationId?: strin
   const myAvailable = !!mePresence?.available;
 
   const myId = isLoaded ? user?.id : undefined;
-  const myName = isLoaded ? user?.fullName ?? user?.username ?? "Me" : "Me";
-  const myAvatar = isLoaded ? user?.imageUrl : undefined;
+
+  // ✅ Affichage : Convex d’abord, Clerk fallback
+  const myName =
+    me?.name ||
+    (isLoaded ? user?.fullName ?? user?.username : undefined) ||
+    "Me";
+
+  const myAvatar =
+    (typeof me?.avatarUrl === "string" && me.avatarUrl.trim() ? me.avatarUrl.trim() : undefined) ||
+    (isLoaded ? user?.imageUrl : undefined);
 
   const shownOthers = useMemo(() => {
     const list = Array.isArray(reps) ? reps : [];
     const filtered = myId ? list.filter((r) => r.userId !== myId) : list;
     return filtered.slice(0, 5);
   }, [reps, myId]);
-
-  if (!orgId) return null;
 
   return (
     <div className="flex items-center gap-3">
@@ -105,15 +120,21 @@ export function RepsAvailabilityBar({ organizationId }: { organizationId?: strin
         {shownOthers.length === 0 ? (
           <div className="text-xs text-muted-foreground">No reps available</div>
         ) : (
-          shownOthers.map((r) => (
-            <AvatarCircle
-              key={r.userId}
-              src={typeof r.avatarUrl === "string" && r.avatarUrl.trim() ? r.avatarUrl.trim() : undefined}
-              alt={`${r.name ?? "Rep"}${r.title ? ` • ${r.title}` : ""}`}
-              fallbackLetter={((r.name ?? "R")[0] ?? "R").toUpperCase()}
-              size={28}
-            />
-          ))
+          shownOthers.map((r) => {
+            const avatar =
+              typeof r.avatarUrl === "string" && r.avatarUrl.trim() ? r.avatarUrl.trim() : undefined;
+            const fallback = ((r.name ?? "R")[0] ?? "R").toUpperCase();
+
+            return (
+              <AvatarCircle
+                key={r.userId}
+                src={avatar}
+                alt={`${r.name ?? "Rep"}${r.title ? ` • ${r.title}` : ""}`}
+                fallbackLetter={fallback}
+                size={28}
+              />
+            );
+          })
         )}
       </div>
 

@@ -29,6 +29,8 @@ export const setMyAvailability = mutation({
     const id = await requireIdentity(ctx);
     const userId = id.subject as string;
 
+    const now = Date.now();
+
     const existing = await ctx.db
       .query("repsPresence")
       .withIndex("by_org_user", (q: any) =>
@@ -36,13 +38,12 @@ export const setMyAvailability = mutation({
       )
       .unique();
 
-    const now = Date.now();
-
     if (existing) {
       await ctx.db.patch(existing._id, { available, updatedAt: now });
       return existing._id;
     }
 
+    // ✅ dernier recours: create (mais normalement ensureRepPresenceForMe le fait déjà)
     return await ctx.db.insert("repsPresence", {
       organizationId,
       userId,
@@ -65,9 +66,10 @@ export const listAvailableForOrg = query({
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
       .collect();
 
-    const availableReps = reps.filter((r) => r.available === true);
-    if (!availableReps.length) return [];
+    const available = reps.filter((r) => r.available === true);
+    if (!available.length) return [];
 
+    // users in org
     const users = await ctx.db
       .query("users")
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
@@ -76,14 +78,14 @@ export const listAvailableForOrg = query({
     const byExternalId = new Map<string, any>();
     for (const u of users) byExternalId.set(u.externalId, u);
 
-    return availableReps.map((r) => {
+    return available.map((r) => {
       const u = byExternalId.get(r.userId);
       return {
         userId: r.userId,
         available: r.available,
         name: (u?.name as string | undefined) ?? "Rep",
-        avatarUrl: (u?.avatarUrl as string | undefined) ?? undefined, // ✅ PAS ""
-        title: (u?.title as string | undefined) ?? undefined,         // ✅ PAS ""
+        avatarUrl: (u?.avatarUrl as string | undefined) ?? undefined,
+        title: (u?.title as string | undefined) ?? undefined,
       };
     });
   },

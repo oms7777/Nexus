@@ -16,12 +16,14 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
   const ensurePresence = useMutation(api.team.ensureRepPresenceForMe);
   const { organization, isLoaded } = useOrganization();
 
-  useEffect(() => {
-    // présence du rep dès connexion
-    ensurePresence({ role: "sales", available: true }).catch(() => {});
-  }, [ensurePresence]);
-
   const orgId = organization?.id;
+
+  useEffect(() => {
+    if (!isLoaded || !orgId) return;
+
+    // présence du rep dès connexion (une fois org chargé)
+    ensurePresence({ role: "sales", available: true }).catch(() => {});
+  }, [ensurePresence, isLoaded, orgId]);
 
   return (
     <AuthGuard>
@@ -32,16 +34,11 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
             <div className="flex min-h-screen flex-1 flex-col bg-background">
               <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
                 <div className="flex h-14 w-full items-center justify-between px-4 md:px-6">
-                  {/* Right: reps + ME */}
-                  {isLoaded && orgId ? (
-                    <RepsAvailabilityBar organizationId={orgId} />
-                  ) : null}
+                  {isLoaded && orgId ? <RepsAvailabilityBar organizationId={orgId} /> : null}
                 </div>
               </header>
 
-              <main className="flex-1 w-full px-4 py-6 md:px-6">
-                {children}
-              </main>
+              <main className="flex-1 w-full px-4 py-6 md:px-6">{children}</main>
             </div>
           </SidebarProvider>
         </Provider>
