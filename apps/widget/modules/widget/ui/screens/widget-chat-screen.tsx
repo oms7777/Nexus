@@ -420,6 +420,13 @@ export const WidgetChatScreen = () => {
       : "skip"
   ) as PublicRep[] | undefined;
 
+  const pickedRep = useQuery(
+    api.public.routing.pickRepForVisitor,
+    organizationId && contactSessionId
+      ? { organizationId, contactSessionId }
+      : "skip"
+  ) as PublicRep | null | undefined;
+
   const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
   const [selectedRep, setSelectedRep] = useState<PublicRep | null>(null);
   const [slots, setSlots] = useState<Slot[] | null>(null);
@@ -428,11 +435,9 @@ export const WidgetChatScreen = () => {
 
   useEffect(() => {
     if (routingReps && routingReps.length > 0) {
-      setRepChoices(routingReps);  // Mise à jour de repChoices avec les reps récupérés
+      setRepChoices(routingReps);
     }
   }, [routingReps]);
-
-
 
 
   // Conversation + messages
@@ -761,44 +766,64 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // routingMode
     const routingMode =
       ((widgetSettings as any)?.routingMode as
         | "auto_assign"
         | "visitor_choice"
         | undefined) ?? "auto_assign";
 
-    // AUTO-ASSIGN → direct
+    // ---------------- AUTO ASSIGN ----------------
     if (routingMode === "auto_assign") {
-      const idx = Math.floor(Math.random() * reps.length);
-      const chosen = reps[idx];
+      const chosen = (pickedRep ?? null) as PublicRep | null;
 
-      if (!chosen) {
-        setRepChoices(reps);
-        setStep("pick_rep");
+      if (chosen) {
+        await loadSlotsForRep(chosen);
         return;
       }
 
-      await loadSlotsForRep(chosen);
+      // fallback ancien comportement si aucun rep pické
+      if (!calendarAccount) {
+        setLocalMsgs((m) => [
+          ...m,
+          { role: "assistant", text: "No teammate is available right now. Please try again later." },
+        ]);
+        setStep("done");
+        return;
+      }
+
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "Our team will assign the right person. Pick any time below 👇" },
+      ]);
+
+      setStep("picking");
+      setLoadingSlots(true);
+      try {
+        const s = await listSlots({
+          organizationId,
+          userId: calendarAccount.userId,
+          days: 21,
+          contactSessionId: contactSessionId ?? undefined,
+        });
+        setSlots(s);
+      } finally {
+        setLoadingSlots(false);
+      }
       return;
     }
 
-    // VISITOR_CHOICE
+    // ---------------- VISITOR CHOICE ----------------
+    // si un seul rep → direct
     if (reps.length === 1) {
-      const only = reps[0];
-      if (!only) {
-        setRepChoices(reps);
-        setStep("pick_rep");
-        return;
-      }
-      await loadSlotsForRep(only);
+      await loadSlotsForRep(reps[0]!);
       return;
     }
 
-    // plusieurs reps -> on laisse le visiteur choisir
+    // plusieurs reps -> choix visiteur
     setRepChoices(reps);
     setStep("pick_rep");
   };
+
   /* -------- Send message (thread bootstrap + retry) -------- */
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     const text = values.message.trim();
