@@ -10,14 +10,18 @@ import { Provider } from "jotai";
 import { RepsAvailabilityBar } from "@/modules/dashboard/ui/components/reps-availability-bar";
 import { useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
+import { useOrganization } from "@clerk/nextjs";
 
 export const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const ensurePresence = useMutation(api.team.ensureRepPresenceForMe);
+  const { organization, isLoaded } = useOrganization();
 
   useEffect(() => {
-    // Assurer que la présence du rep est bien présente dès que l'utilisateur se connecte
+    // présence du rep dès connexion
     ensurePresence({ role: "sales", available: true }).catch(() => {});
   }, [ensurePresence]);
+
+  const orgId = organization?.id;
 
   return (
     <AuthGuard>
@@ -29,7 +33,9 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
               <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
                 <div className="flex h-14 w-full items-center justify-between px-4 md:px-6">
                   {/* Right: reps + ME */}
-                  <RepsAvailabilityBar organizationId="your-organization-id" />
+                  {isLoaded && orgId ? (
+                    <RepsAvailabilityBar organizationId={orgId} />
+                  ) : null}
                 </div>
               </header>
 

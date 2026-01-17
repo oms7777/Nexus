@@ -42,8 +42,9 @@ export const meSetAvatar = mutation({
   args: {
     avatarUrl: v.optional(v.string()),
     title: v.optional(v.string()),
+    name: v.optional(v.string()),
   },
-  handler: async (ctx, { avatarUrl, title }) => {
+  handler: async (ctx, { avatarUrl, title, name }) => {
     const id = await ctx.auth.getUserIdentity();
     if (!id?.orgId) throw new Error("UNAUTHORIZED");
 
@@ -53,38 +54,51 @@ export const meSetAvatar = mutation({
 
     if (!subject) throw new Error("Missing Clerk subject");
 
-    let existing = null;
-
-    // Check user document
-    existing = await ctx.db
-      .query("users")
-      .withIndex("by_org_external", q =>
-        q.eq("organizationId", orgId).eq("externalId", subject)
-      )
-      .unique();
-
-    if (!existing && token) {
-      existing = await ctx.db
+    // Find existing (subject first)
+    let existing =
+      (await ctx.db
         .query("users")
-        .withIndex("by_org_external", q =>
-          q.eq("organizationId", orgId).eq("externalId", token)
+        .withIndex("by_org_external", (q) =>
+          q.eq("organizationId", orgId).eq("externalId", subject),
         )
-        .unique();
+        .unique()) ?? null;
+
+    // fallback old schema (tokenIdentifier)
+    if (!existing && token) {
+      existing =
+        (await ctx.db
+          .query("users")
+          .withIndex("by_org_external", (q) =>
+            q.eq("organizationId", orgId).eq("externalId", token),
+          )
+          .unique()) ?? null;
     }
 
-    const doc = {
+    const baseDoc: any = {
       organizationId: orgId,
       externalId: subject,
-      name: id.name ?? undefined,
-      avatarUrl: avatarUrl ?? undefined,
-      title: title ?? undefined,
+      updatedAt: Date.now(),
     };
 
+    // ✅ IMPORTANT: patch only provided fields (do NOT overwrite with undefined)
+    const patch: any = { ...baseDoc };
+    if (typeof avatarUrl === "string") patch.avatarUrl = avatarUrl || undefined;
+    if (typeof title === "string") patch.title = title || undefined;
+    if (typeof name === "string") patch.name = name || undefined;
+
     if (existing) {
-      await ctx.db.patch(existing._id, doc);
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
 
-    return ctx.db.insert("users", doc);
+    // Insert: include known fields
+    const insertDoc: any = {
+      ...baseDoc,
+      name: typeof name === "string" ? name || undefined : id.name ?? undefined,
+      avatarUrl: typeof avatarUrl === "string" ? avatarUrl || undefined : undefined,
+      title: typeof title === "string" ? title || undefined : undefined,
+    };
+
+    return ctx.db.insert("users", insertDoc);
   },
 });

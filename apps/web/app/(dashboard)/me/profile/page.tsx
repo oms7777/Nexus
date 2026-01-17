@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
-
 import { useOrganization, useUser } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 
@@ -12,7 +11,6 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 import { Badge } from "@workspace/ui/components/badge";
-
 import { MailIcon, UserRoundIcon, Upload, Slack } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,35 +19,17 @@ export default function ProfilePage() {
   const { user, isLoaded: userLoaded } = useUser();
   const searchParams = useSearchParams();
 
-  // Gmail connection (Convex)
   const account = useQuery(api.private.calendar.meConnection, {});
-
-  // User profile (Convex)
   const me = useQuery(api.private.users.meGet, {});
-  const setAvatar = useMutation(api.private.users.meSetAvatar);
+  const setMe = useMutation(api.private.users.meSetAvatar);
 
-  // ✅ NEW: ensure presence exists
   const ensurePresence = useMutation(api.team.ensureRepPresenceForMe);
 
-  // Reps / Slack
   const reps = useQuery(
     api.team.listRepsForOrg,
     organization ? {} : ("skip" as any),
-  ) as
-    | {
-        _id: string;
-        organizationId: string;
-        userId: string;
-        role: "sales" | "support";
-        regions?: string[];
-        available: boolean;
-        slackUserId?: string;
-        slackDmChannel?: string;
-        updatedAt: number;
-      }[] 
-    | undefined;
+  ) as any[] | undefined;
 
-  // ✅ Ensure presence doc exists for current user so Slack DM can be used reliably
   useEffect(() => {
     if (!organization || !user) return;
     ensurePresence({ role: "sales", available: true }).catch(() => {});
@@ -62,10 +42,6 @@ export default function ProfilePage() {
 
   const slackConnected = Boolean(slackInfo?.slackUserId);
 
-  const connectSlackUser = () => {
-    window.location.href = "/api/integrations/slack/user/start";
-  };
-
   useEffect(() => {
     const flag = searchParams.get("slack_user_connected");
     if (flag === "1") toast.success("Slack connected successfully");
@@ -74,24 +50,44 @@ export default function ProfilePage() {
   const [jobTitle, setJobTitle] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // ✅ Source unique d’affichage : Clerk d’abord, sinon Convex
-  const displayAvatar = (userLoaded ? user?.imageUrl : undefined) || (me as any)?.avatarUrl || "";
+  // ✅ Display: Clerk first, then Convex fallback
+  const displayAvatar =
+    (userLoaded ? user?.imageUrl : undefined) || (me as any)?.avatarUrl || "";
 
   useEffect(() => {
     const m = me as any;
     setJobTitle(m?.title ?? "");
   }, [me]);
 
+  const connectSlackUser = () => {
+    window.location.href = "/api/integrations/slack/user/start";
+  };
+
   const connectGmail = () => {
     window.location.href = "/api/integrations/google/start";
+  };
+
+  // ✅ Always sync name + avatar from Clerk when saving (so Convex is reliable for widget/header)
+  const syncClerkToConvex = async () => {
+    if (!user) return;
+    await user.reload(); // ✅ ensure imageUrl updated
+    const fullName =
+      user.fullName ||
+      [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+      user.username ||
+      "Rep";
+
+    await setMe({
+      name: fullName,
+      avatarUrl: user.imageUrl || undefined,
+      title: jobTitle.trim() || undefined,
+    });
   };
 
   const saveProfile = async () => {
     try {
       setSaving(true);
-      await setAvatar({
-        title: jobTitle.trim() || undefined,
-      });
+      await syncClerkToConvex();
       toast.success("Profile saved");
     } catch (e) {
       console.error(e);
@@ -106,17 +102,12 @@ export default function ProfilePage() {
 
     try {
       setSaving(true);
-
       if (!user) throw new Error("User not loaded");
+
       await user.setProfileImage({ file });
+      await user.reload(); // ✅ critical
 
-      const clerkUrl = user.imageUrl;
-
-      await setAvatar({
-        avatarUrl: clerkUrl || undefined,
-        title: jobTitle.trim() || undefined,
-      });
-
+      await syncClerkToConvex();
       toast.success("Avatar updated");
     } catch (e) {
       console.error(e);
@@ -130,7 +121,6 @@ export default function ProfilePage() {
     <div className="max-w-5xl p-8">
       <h1 className="mb-6 text-2xl md:text-4xl">My Profile</h1>
 
-      {/* ACCOUNT */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Account</CardTitle>
@@ -162,6 +152,7 @@ export default function ProfilePage() {
                   className="h-14 w-14 rounded-full border object-cover"
                 />
               ) : null}
+
               <Button onClick={saveProfile} disabled={saving}>
                 {saving ? "Saving…" : "Save"}
               </Button>
@@ -193,7 +184,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* SLACK USER */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -211,14 +201,6 @@ export default function ProfilePage() {
                 <Badge variant="outline">Not Connected</Badge>
               )}
             </div>
-
-            {slackConnected && slackInfo?.slackDmChannel && (
-              <p className="text-xs text-muted-foreground">
-                DMs will be sent to your Slack account (channel{" "}
-                <span className="font-mono">{slackInfo.slackDmChannel}</span>).
-              </p>
-            )}
-
             {!slackConnected && (
               <p className="text-xs text-muted-foreground">
                 Connect Slack to receive DM notifications when a new meeting is booked.
@@ -232,7 +214,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* GMAIL */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
