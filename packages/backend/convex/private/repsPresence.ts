@@ -1,7 +1,6 @@
 // packages/backend/convex/private/repsPresence.ts
 import { query, mutation } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
 
 async function requireIdentity(ctx: any) {
   const id = await ctx.auth.getUserIdentity();
@@ -44,7 +43,6 @@ export const setMyAvailability = mutation({
       return existing._id;
     }
 
-    // create if missing
     return await ctx.db.insert("repsPresence", {
       organizationId,
       userId,
@@ -58,37 +56,37 @@ export const setMyAvailability = mutation({
 
 /**
  * ✅ Returns AVAILABLE reps enriched with users profile (name/avatar/title)
- * This is what your top bar expects.
  */
 export const listAvailableForOrg = query({
   args: { organizationId: v.string() },
   handler: async (ctx, { organizationId }) => {
-    // 1) Récupérer les reps disponibles
-    const reps = await ctx.db.query("repsPresence")
+    const reps = await ctx.db
+      .query("repsPresence")
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
       .collect();
 
-    const availableReps = reps.filter((r) => r.available);
-
+    const availableReps = reps.filter((r: any) => r.available);
     if (!availableReps.length) return [];
 
-    // 2) Récupérer les utilisateurs avec leurs avatars
-    const users = await ctx.db.query("users")
+    // batch users for org
+    const users = await ctx.db
+      .query("users")
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
       .collect();
 
     const byExternalId = new Map<string, any>();
     for (const u of users) byExternalId.set(u.externalId, u);
 
-    // 3) Enrichir les reps avec les données utilisateurs
-    return availableReps.map((r) => {
+    return availableReps.map((r: any) => {
       const u = byExternalId.get(r.userId);
+      const avatar = typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
+
       return {
         userId: r.userId,
         available: r.available,
-        name: u?.name ?? "Rep",               // Assurer le fallback du nom
-        avatarUrl: u?.avatarUrl ?? "",        // Récupérer l'avatar
-        title: u?.title ?? "",                // Récupérer le titre
+        name: (u?.name as string | undefined) ?? "Rep",
+        avatarUrl: avatar,
+        title: (u?.title as string | undefined) ?? undefined,
       };
     });
   },

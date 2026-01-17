@@ -4,7 +4,6 @@ import React, { useMemo } from "react";
 import { api } from "@workspace/backend/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 import { Switch } from "@workspace/ui/components/switch";
-import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
 import { useOrganization, useUser } from "@clerk/nextjs";
 
 type RepRow = {
@@ -17,11 +16,36 @@ type RepRow = {
 
 type MyPresence = { available: boolean } | null;
 
-export function RepsAvailabilityBar({
-  organizationId,
+function AvatarCircle({
+  src,
+  alt,
+  fallbackLetter,
+  size = 28,
 }: {
-  organizationId?: string;
+  src?: string;
+  alt: string;
+  fallbackLetter: string;
+  size?: number;
 }) {
+  const s = `${size}px`;
+
+  return (
+    <div
+      className="rounded-full ring-2 ring-background bg-muted overflow-hidden flex items-center justify-center"
+      style={{ width: s, height: s }}
+      title={alt}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={alt} style={{ width: s, height: s }} className="object-cover" />
+      ) : (
+        <span className="text-xs font-medium">{fallbackLetter}</span>
+      )}
+    </div>
+  );
+}
+
+export function RepsAvailabilityBar({ organizationId }: { organizationId?: string }) {
   const { organization } = useOrganization();
   const { user, isLoaded } = useUser();
   const orgId = organizationId ?? organization?.id;
@@ -36,9 +60,7 @@ export function RepsAvailabilityBar({
     orgId ? { organizationId: orgId } : "skip",
   ) as MyPresence | undefined;
 
-  const setMyAvailability = useMutation(
-    api.private.repsPresence.setMyAvailability,
-  );
+  const setMyAvailability = useMutation(api.private.repsPresence.setMyAvailability);
 
   const myAvailable = !!mePresence?.available;
 
@@ -58,32 +80,24 @@ export function RepsAvailabilityBar({
     <div className="flex items-center gap-3">
       {/* Me */}
       <div className="flex items-center gap-2">
-        <div
-          className="rounded-full ring-2 ring-background bg-muted"
-          title={`${myName}${myAvailable ? " • Available" : " • Away"}`}
-        >
-          <DicebearAvatar
-            imageUrl={myAvatar}
-            seed={myId ?? "me"}
-            size={28}
-          />
-        </div>
+        <AvatarCircle
+          src={myAvatar}
+          alt={`${myName}${myAvailable ? " • Available" : " • Away"}`}
+          fallbackLetter={(myName?.[0] ?? "M").toUpperCase()}
+          size={28}
+        />
 
         <div className="hidden sm:flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Available</span>
           <Switch
             checked={myAvailable}
             onCheckedChange={(checked) => {
-              setMyAvailability({
-                organizationId: orgId,
-                available: !!checked,
-              }).catch(() => {});
+              setMyAvailability({ organizationId: orgId, available: !!checked }).catch(() => {});
             }}
           />
         </div>
       </div>
 
-      {/* Separator */}
       <div className="h-6 w-px bg-border" />
 
       {/* Other reps */}
@@ -92,17 +106,13 @@ export function RepsAvailabilityBar({
           <div className="text-xs text-muted-foreground">No reps available</div>
         ) : (
           shownOthers.map((r) => (
-            <div
+            <AvatarCircle
               key={r.userId}
-              className="rounded-full ring-2 ring-background bg-muted"
-              title={`${r.name ?? "Rep"}${r.title ? ` • ${r.title}` : ""}`}
-            >
-              <DicebearAvatar
-                imageUrl={r.avatarUrl}
-                seed={r.userId}
-                size={28}
-              />
-            </div>
+              src={typeof r.avatarUrl === "string" && r.avatarUrl.trim() ? r.avatarUrl.trim() : undefined}
+              alt={`${r.name ?? "Rep"}${r.title ? ` • ${r.title}` : ""}`}
+              fallbackLetter={((r.name ?? "R")[0] ?? "R").toUpperCase()}
+              size={28}
+            />
           ))
         )}
       </div>

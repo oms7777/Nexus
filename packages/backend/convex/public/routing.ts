@@ -1,3 +1,4 @@
+// packages/backend/convex/public/routing.ts
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
@@ -61,7 +62,7 @@ export const listRepsForVisitor = query({
       const availableReps = rawReps.filter((r) => r.available);
       if (!availableReps.length) return [] as PublicRep[];
 
-      // territories for visitor country
+      // territories
       let visitorTerritoryKeys: string[] = [];
       if (visitorCountry) {
         const cc = visitorCountry.toUpperCase();
@@ -75,7 +76,6 @@ export const listRepsForVisitor = query({
           .map((t) => t.key);
       }
 
-      // routing rules priority
       const rules = await ctx.db
         .query("routingRules")
         .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
@@ -100,7 +100,6 @@ export const listRepsForVisitor = query({
         if (matchUtmSourceArr && matchUtmSourceArr.length) {
           if (!visitorUtmSource || !matchUtmSourceArr.includes(visitorUtmSource)) return false;
         }
-
         return true;
       };
 
@@ -137,26 +136,26 @@ export const listRepsForVisitor = query({
         if (geoFiltered.length > 0) matchedReps = geoFiltered;
       }
 
-      // ✅ Enrich profiles per rep (small N)
-      const profileByUserId = new Map<string, any>();
-      for (const rep of matchedReps) {
-        const u = await ctx.db
-          .query("users")
-          .withIndex("by_org_external", (q: any) =>
-            q.eq("organizationId", organizationId).eq("externalId", rep.userId),
-          )
-          .unique();
+      // ✅ Batch join profiles (users by org)
+      const users = await ctx.db
+        .query("users")
+        .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
+        .collect();
 
-        if (u) profileByUserId.set(rep.userId, u);
-      }
+      const byExternalId = new Map<string, any>();
+      for (const u of users) byExternalId.set(u.externalId, u);
 
-      // Retourner les reps avec avatars
       return matchedReps.map((rep) => {
-        const u = profileByUserId.get(rep.userId);
+        const u = byExternalId.get(rep.userId);
+        const avatar =
+          typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
+            ? u.avatarUrl.trim()
+            : undefined;
+
         return {
           userId: rep.userId,
           name: (u?.name as string | undefined) ?? undefined,
-          avatarUrl: (u?.avatarUrl as string | undefined) ?? undefined,
+          avatarUrl: avatar,
           title: (u?.title as string | undefined) ?? undefined,
           role: rep.role,
           regions: rep.regions ?? [],
