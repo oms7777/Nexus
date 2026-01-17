@@ -55,7 +55,7 @@ export const setMyAvailability = mutation({
 });
 
 /**
- * ✅ Returns AVAILABLE reps enriched with users profile (name/avatar/title)
+ * Returns AVAILABLE reps enriched with user profile (name/avatar/title)
  */
 export const listAvailableForOrg = query({
   args: { organizationId: v.string() },
@@ -65,10 +65,9 @@ export const listAvailableForOrg = query({
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
       .collect();
 
-    const availableReps = reps.filter((r: any) => r.available);
+    const availableReps = reps.filter((r) => r.available === true);
     if (!availableReps.length) return [];
 
-    // batch users for org
     const users = await ctx.db
       .query("users")
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
@@ -77,16 +76,14 @@ export const listAvailableForOrg = query({
     const byExternalId = new Map<string, any>();
     for (const u of users) byExternalId.set(u.externalId, u);
 
-    return availableReps.map((r: any) => {
+    return availableReps.map((r) => {
       const u = byExternalId.get(r.userId);
-      const avatar = typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
-
       return {
         userId: r.userId,
         available: r.available,
         name: (u?.name as string | undefined) ?? "Rep",
-        avatarUrl: avatar,
-        title: (u?.title as string | undefined) ?? undefined,
+        avatarUrl: (u?.avatarUrl as string | undefined) ?? undefined, // ✅ PAS ""
+        title: (u?.title as string | undefined) ?? undefined,         // ✅ PAS ""
       };
     });
   },

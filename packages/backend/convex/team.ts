@@ -27,15 +27,17 @@ async function upsertUserProfileBestEffort(
     )
     .unique();
 
+  // ✅ IMPORTANT: patch uniquement les champs fournis (pas d’écrasement par undefined)
   const payload: any = {
     organizationId,
     externalId,
-    email: profile.email || undefined,
-    name: profile.name || undefined,
-    avatarUrl: profile.avatarUrl || undefined,
-    title: profile.title || undefined,
     updatedAt: Date.now(),
   };
+
+  if (profile.email !== undefined) payload.email = profile.email || undefined;
+  if (profile.name !== undefined) payload.name = profile.name || undefined;
+  if (profile.avatarUrl !== undefined) payload.avatarUrl = profile.avatarUrl || undefined;
+  if (profile.title !== undefined) payload.title = profile.title || undefined;
 
   if (existing) {
     await ctx.db.patch(existing._id, payload);
@@ -73,12 +75,6 @@ export const getRepForOrgUser = query({
   },
 });
 
-/* ---------------- ✅ NEW: ensure presence for current user ---------------- */
-/**
- * But: quand un membre connecte Slack depuis /me/profile, il faut être sûr
- * qu'il existe une ligne repsPresence stable, sinon les notifs DM peuvent
- * tomber à côté (ou ne pas trouver slackDmChannel).
- */
 export const ensureRepPresenceForMe = mutation({
   args: {
     role: v.optional(v.union(v.literal("sales"), v.literal("support"))),
@@ -155,8 +151,6 @@ export const upsertRepPresence = mutation({
     available: v.boolean(),
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
-
-    // ✅ profile sync (best effort)
     profile: v.optional(
       v.object({
         email: v.optional(v.string()),
@@ -197,8 +191,7 @@ export const upsertRepPresence = mutation({
       return existing._id;
     }
 
-    const id = await ctx.db.insert("repsPresence", payload);
-    return id;
+    return await ctx.db.insert("repsPresence", payload);
   },
 });
 
@@ -224,8 +217,7 @@ export const connectRepSlack = mutation({
       return existing._id;
     }
 
-    // compat: create if missing
-    const id = await ctx.db.insert("repsPresence", {
+    return await ctx.db.insert("repsPresence", {
       organizationId,
       userId,
       role: "sales",
@@ -235,7 +227,5 @@ export const connectRepSlack = mutation({
       slackDmChannel,
       updatedAt: now,
     });
-
-    return id;
   },
 });
