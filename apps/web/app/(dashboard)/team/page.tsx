@@ -299,14 +299,16 @@ export default function TeamPage() {
     }
   };
 
+  // Fonction de basculement entre les modes de routage
   const handleToggleRouting = async (checked: boolean) => {
-    // Starter: pas autorisé (policy)
+    // Si c'est un plan "starter", on ne permet pas le changement de mode de routage
     if (isStarter) return;
 
     const nextAuto = Boolean(checked);
     setAutoRouting(nextAuto);
 
     try {
+      // Enregistrer la modification dans les paramètres de routage
       await setRoutingMode({
         routingMode: nextAuto ? "auto_assign" : "visitor_choice",
       } as any);
@@ -314,9 +316,17 @@ export default function TeamPage() {
     } catch (e) {
       console.error(e);
       toast.error("Failed to update routing mode");
-      setAutoRouting(!nextAuto);
+      setAutoRouting(!nextAuto); // Revert to previous state on error
     }
   };
+
+  // Changement de l'état de l'auto-routing selon le mode actuel
+  useEffect(() => {
+    if (!widgetSettings) return;
+    const mode: RoutingMode = widgetSettings.routingMode ?? "auto_assign";
+    setAutoRouting(mode === "auto_assign");  // Si mode est auto_assign, on active le mode automatique
+  }, [widgetSettings]);
+
 
   // 🔹 Territories form state
   const [territoryLabel, setTerritoryLabel] = useState("");
