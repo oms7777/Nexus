@@ -238,7 +238,6 @@ function RepPicker({
 }) {
   if (!reps.length) return null;
 
-
   return (
     <div className="p-3">
       <div className="mb-2 text-sm text-muted-foreground">
@@ -250,7 +249,6 @@ function RepPicker({
 
           const subtitleParts: string[] = [];
 
-          // On n’ajoute le title que s’il est différent du nom affiché
           if (rep.title && rep.title !== primary) {
             subtitleParts.push(rep.title);
           }
@@ -563,6 +561,11 @@ export const WidgetChatScreen = () => {
   const loadSlotsForRep = async (rep: PublicRep) => {
     if (!organizationId || !contactSessionId) return;
 
+    if (!calendarAccount) {
+      console.error("Calendar account is not available.");
+      return;
+    }
+
     setSelectedRep(rep);
     setAssignedRep({
       userId: rep.userId,
@@ -581,11 +584,14 @@ export const WidgetChatScreen = () => {
         days: 21,
         contactSessionId: contactSessionId ?? undefined,
       });
-      setSlots(s);
+      setSlots(s); // Mettre à jour les créneaux
     } finally {
       setLoadingSlots(false);
     }
   };
+
+
+
 
   const handleRepPick = (rep: PublicRep) => {
     loadSlotsForRep(rep);
@@ -777,27 +783,29 @@ export const WidgetChatScreen = () => {
       const chosen = (pickedRep ?? null) as PublicRep | null;
 
       if (chosen) {
-        await loadSlotsForRep(chosen);
+        await loadSlotsForRep(chosen);  // Charger les créneaux pour le rep sélectionné
         return;
       }
 
-      // fallback ancien comportement si aucun rep pické
-      if (!calendarAccount) {
-        setLocalMsgs((m) => [
-          ...m,
-          { role: "assistant", text: "No teammate is available right now. Please try again later." },
-        ]);
-        setStep("done");
-        return;
-      }
-
+      // Si aucun rep choisi, utiliser le fallback "ancien comportement"
+      // En cas d'absence de rep, afficher les créneaux par défaut
       setLocalMsgs((m) => [
         ...m,
         { role: "assistant", text: "Our team will assign the right person. Pick any time below 👇" },
       ]);
-
       setStep("picking");
       setLoadingSlots(true);
+
+      // Vérification de calendarAccount avant de l'utiliser
+      if (!calendarAccount) {
+        setLocalMsgs((m) => [
+          ...m,
+          { role: "assistant", text: "No calendar account found. Please try again later." },
+        ]);
+        setLoadingSlots(false);
+        return;
+      }
+
       try {
         const s = await listSlots({
           organizationId,
@@ -805,12 +813,14 @@ export const WidgetChatScreen = () => {
           days: 21,
           contactSessionId: contactSessionId ?? undefined,
         });
-        setSlots(s);
+        setSlots(s); // Mettre à jour les créneaux
       } finally {
         setLoadingSlots(false);
       }
       return;
     }
+
+
 
     // ---------------- VISITOR CHOICE ----------------
     // si un seul rep → direct
@@ -1200,11 +1210,10 @@ export const WidgetChatScreen = () => {
             {/* NEW picking flow : Sidebar rep + Calendar à droite */}
             {step === "picking" && selectedRep && (
               <BookingSplitLayout
-                rep={selectedRep}  // Passer le rep sélectionné
-                slots={slots}  // Passer les créneaux récupérés
-                loading={loadingSlots}  // Afficher un indicateur de chargement si nécessaire
+                rep={selectedRep}
+                slots={slots}
+                loading={loadingSlots}
                 onPick={async (slot) => {
-                  // Gérer la sélection d'un créneau
                   if (!organizationId || !contactSessionId || !qdata.name || !qdata.email) return;
 
                   const res = await bookSlot({
@@ -1221,42 +1230,21 @@ export const WidgetChatScreen = () => {
                     end: slot.end,
                   });
 
-                  const repDisplayName = selectedRep?.name || selectedRep?.title || "our team";
-                  const subtitle = [
-                    selectedRep?.title,
-                    selectedRep?.regions?.join(", "),
-                  ]
-                    .filter(Boolean)
-                    .join(" • ");
-
-                  const msgLines: string[] = [
-                    `✅ You’re booked with ${repDisplayName}`,
-                  ];
-
-                  if (subtitle) msgLines.push(subtitle);
-                  msgLines.push("");
-                  if (res?.meetingUrl) {
-                    msgLines.push(`Join with this link: ${res.meetingUrl}`);
-                  } else {
-                    msgLines.push("Check your inbox for the invite.");
-                  }
-
-                  const msgText = msgLines.join("\n");
-
                   setLocalMsgs((m) => [
                     ...m,
                     {
                       role: "assistant",
-                      text: msgText,
+                      text: `✅ You’re booked with ${selectedRep?.name || 'our team'}\n` +
+                            `Join with this link: ${res?.meetingUrl || 'Check your inbox for the invite.'}`,
                     },
                   ]);
-                  setSlots(null);  // Réinitialiser les créneaux
+
+                  setSlots(null);  // Réinitialiser les créneaux après la réservation
                   setStep("done");  // Passer à l'étape finale
                 }}
-                onBack={() => {
-                  setStep("pick_rep");
-                }}
+                onBack={() => setStep("pick_rep")}
               />
+
             )}
 
 
