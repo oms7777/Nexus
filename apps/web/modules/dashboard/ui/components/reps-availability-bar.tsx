@@ -97,7 +97,11 @@ export function RepsAvailabilityBar({
               className="rounded-full ring-2 ring-background bg-muted"
               title={`${r.name ?? "Rep"}${r.title ? ` • ${r.title}` : ""}`}
             >
-              <DicebearAvatar imageUrl={r.avatarUrl} seed={r.userId} size={28} />
+              <DicebearAvatar
+                imageUrl={r.avatarUrl}
+                seed={r.userId}
+                size={28}
+              />
             </div>
           ))
         )}

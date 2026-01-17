@@ -29,7 +29,7 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
               <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
                 <div className="flex h-14 w-full items-center justify-between px-4 md:px-6">
                   {/* Right: reps + ME */}
-                  <RepsAvailabilityBar />
+                  <RepsAvailabilityBar organizationId="your-organization-id" />
                 </div>
               </header>
 

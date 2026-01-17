@@ -150,6 +150,7 @@ export const listRepsForVisitor = query({
         if (u) profileByUserId.set(rep.userId, u);
       }
 
+      // Retourner les reps avec avatars
       return matchedReps.map((rep) => {
         const u = profileByUserId.get(rep.userId);
         return {

@@ -278,7 +278,6 @@ function RepPicker({
                     {(rep.name || rep.title || "S")[0]?.toUpperCase()}
                   </span>
                 )}
-
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-medium">{primary}</span>
