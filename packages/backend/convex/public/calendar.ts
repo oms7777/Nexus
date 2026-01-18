@@ -4,6 +4,25 @@ import { v } from "convex/values";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 
+type Slot = { start: number; end: number };
+
+// Le shape minimal dont on a besoin ici (vient de routing.listRepsForVisitor)
+type PublicRep = {
+  userId: string;
+  role: "sales" | "support";
+  available: boolean;
+  regions: string[];
+  name?: string;
+  avatarUrl?: string;
+  title?: string;
+};
+
+type PickBestRepAndListSlotsResult = {
+  rep: PublicRep | null;
+  slots: Slot[];
+};
+
+
 /* -------------------------------------------------------------
  * Compte Google connecté pour une org + user (multi-reps)
  * ----------------------------------------------------------- */
@@ -26,13 +45,10 @@ export const getAccount = query({
       if (byUser) {
         acct = byUser;
       } else {
-        const byOrg = await ctx.db
-          .query("calendarAccounts")
-          .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-          .first();
-
-        if (byOrg) acct = byOrg;
+        // ✅ IMPORTANT: if userId is specified, do NOT fallback to org-level
+        return null;
       }
+
     } else {
       const byOrg = await ctx.db
         .query("calendarAccounts")
@@ -110,6 +126,7 @@ export const listSlots = action({
         { day: 4, start: "09:00", end: "17:00" },
         { day: 5, start: "09:00", end: "17:00" },
       ];
+
 
     const durationMin = settings?.durationMin ?? slotMinutes ?? 30;
     const bufferMin = settings?.bufferMin ?? 0;
@@ -190,6 +207,57 @@ export const listSlots = action({
     return slots;
   },
 });
+export const pickBestRepAndListSlots = action({
+  args: {
+    organizationId: v.string(),
+    contactSessionId: v.optional(v.id("contactSessions")),
+    days: v.number(),
+    slotMinutes: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    { organizationId, contactSessionId, days, slotMinutes }
+  ): Promise<PickBestRepAndListSlotsResult> => {
+    if (!contactSessionId) return { rep: null, slots: [] };
+
+    // 1) candidats (déjà filtrés territoire / routage côté routing.listRepsForVisitor)
+    const reps = (await ctx.runQuery(api.public.routing.listRepsForVisitor, {
+      organizationId,
+      contactSessionId,
+    })) as PublicRep[];
+
+    if (!reps?.length) return { rep: null, slots: [] };
+
+    // 2) essaye reps dans l’ordre (propre + fallback)
+    for (const rep of reps) {
+      if (rep.role !== "sales") continue;
+      if (rep.available === false) continue;
+
+      // must have a calendar connected for THIS user
+      const acct = await ctx.runQuery(api.public.calendar.getAccount, {
+        organizationId,
+        userId: rep.userId,
+      });
+      if (!acct) continue;
+
+      // slots for this rep
+      const slots = (await ctx.runAction(api.public.calendar.listSlots, {
+        organizationId,
+        userId: rep.userId,
+        days,
+        slotMinutes,
+        contactSessionId,
+      })) as Slot[];
+
+      if (slots?.length) {
+        return { rep, slots };
+      }
+    }
+
+    return { rep: null, slots: [] };
+  },
+});
+
 
 /* -------------------------------------------------------------
  * Book: Google event + booking + Slack + email + Salesforce

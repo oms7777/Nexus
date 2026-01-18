@@ -338,12 +338,11 @@ function BookingSplitLayout({
           }).format(new Date())}
         </div>
 
-        <button
-          onClick={onBack}
-          className="mt-6 px-3 py-1 text-sm rounded-md border bg-white hover:bg-accent transition"
-        >
-          ← Change sales rep
-        </button>
+        {onBack && (
+          <button onClick={onBack} className="mt-6 px-3 py-1 text-sm rounded-md border bg-white hover:bg-accent transition">
+            ← Change sales rep
+          </button>
+        )}
       </div>
 
       {/* RIGHT PANEL : CALENDAR */}
@@ -420,15 +419,6 @@ export const WidgetChatScreen = () => {
       ? { organizationId, contactSessionId }
       : "skip"
   ) as PublicRep[] | undefined;
-
-  const pickedRep = useQuery(
-    api.public.routing.pickRepForVisitor,
-    routingMode === "auto_assign" && organizationId && contactSessionId
-      ? { organizationId, contactSessionId }
-      : "skip"
-  ) as PublicRep | null | undefined;
-
-
 
 
 
@@ -565,13 +555,24 @@ export const WidgetChatScreen = () => {
     organizationId ? { organizationId } : "skip"
   );
   const listSlots = useAction(api.public.calendar.listSlots);
+  type PickBestSlotsResult = { rep: PublicRep | null; slots: Slot[] };
+
+  type PickBestSlotsArgs = {
+    organizationId: string;
+    contactSessionId?: any; // ou Id<"contactSessions"> si tu l’importes
+    days: number;
+    slotMinutes?: number;
+  };
+
+  const pickBestRepAndListSlots =
+    useAction(api.public.calendar.pickBestRepAndListSlots) as (
+      args: PickBestSlotsArgs
+    ) => Promise<PickBestSlotsResult>;
+
   const loadSlotsForRep = async (rep: PublicRep) => {
     if (!organizationId || !contactSessionId) return;
 
-    if (!calendarAccount) {
-      console.error("Calendar account is not available.");
-      return;
-    }
+
 
     setSelectedRep(rep);
     setAssignedRep({
@@ -596,63 +597,6 @@ export const WidgetChatScreen = () => {
       setLoadingSlots(false);
     }
   };
-
-  useEffect(() => {
-    if (routingMode !== "auto_assign") return;
-    if (step !== "auto_assign_wait") return;
-
-    // pickedRep === undefined => encore en train de charger
-    if (pickedRep === undefined) return;
-
-    // si on a un rep => go calendar rep
-    if (pickedRep) {
-      loadSlotsForRep(pickedRep).catch(() => {});
-      return;
-    }
-
-    // sinon fallback calendarAccount
-    if (!calendarAccount || !organizationId || !contactSessionId) {
-      setLocalMsgs((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text: "No teammate is available right now. Please try again later.",
-        },
-      ]);
-      setStep("done");
-      return;
-    }
-
-    setLocalMsgs((m) => [
-      ...m,
-      { role: "assistant", text: "Our team will assign the right person. Pick any time below 👇" },
-    ]);
-
-    setStep("picking");
-    setLoadingSlots(true);
-
-    listSlots({
-      organizationId,
-      userId: calendarAccount.userId,
-      days: 21,
-      contactSessionId: contactSessionId ?? undefined,
-    })
-      .then(setSlots)
-      .finally(() => setLoadingSlots(false));
-  }, [
-    routingMode,
-    step,
-    pickedRep,
-    calendarAccount,
-    organizationId,
-    contactSessionId,
-    listSlots,
-    loadSlotsForRep,
-    setLocalMsgs,
-    setStep,
-  ]);
-
-
 
 
 
@@ -854,12 +798,46 @@ export const WidgetChatScreen = () => {
     // Important: pickedRep peut être undefined (loading). On attend via useEffect.
     setLocalMsgs((m) => [
       ...m,
-      { role: "assistant", text: "Perfect — assigning the best person for you 👇" },
+      { role: "assistant", text: "Perfect — finding the best available time for you 👇" },
     ]);
 
     setStep("auto_assign_wait");
+    setLoadingSlots(true);
+
+    try {
+      const res = await pickBestRepAndListSlots({
+        organizationId,
+        contactSessionId,
+        days: 21,
+      });
+
+      if (res?.rep && res?.slots?.length) {
+        // ✅ on a rep + slots
+        setSelectedRep(res.rep);
+        setAssignedRep({
+          userId: res.rep.userId,
+          name: res.rep.name,
+          avatarUrl: res.rep.avatarUrl,
+          regions: res.rep.regions ?? [],
+        });
+
+        setSlots(res.slots);
+        setStep("picking");
+        return;
+      }
+
+      // aucun rep dispo
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "No availability found right now. Please try again later." },
+      ]);
+      setStep("done");
+    } finally {
+      setLoadingSlots(false);
+    }
     return;
-    };
+
+  };
 
 
   /* -------- Send message (thread bootstrap + retry) -------- */
@@ -1277,9 +1255,11 @@ export const WidgetChatScreen = () => {
                   setSlots(null);  // Réinitialiser les créneaux après la réservation
                   setStep("done");  // Passer à l'étape finale
                 }}
-                onBack={() => setStep("pick_rep")}
+                onBack={() => {
+                  if (routingMode === "visitor_choice") setStep("pick_rep");
+                  else setStep("ask_name"); // ou "auto_assign_wait" selon ton UX
+                }}
               />
-
             )}
 
 
