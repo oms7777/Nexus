@@ -1,6 +1,6 @@
 // apps/widget/modules/widget/atoms/qualify-atoms.ts
 "use client";
-import { atom } from "jotai";
+
 import { atomWithStorage } from "jotai/utils";
 
 export type QualifyStep =
@@ -11,6 +11,7 @@ export type QualifyStep =
   | "ask_company"
   | "ask_role"
   | "pick_rep"
+  | "auto_assign_wait" // ✅ NEW
   | "picking"
   | "done";
 
@@ -21,7 +22,7 @@ export type QualifyData = {
   company?: string;
   role?: string;
 
-  // ✅ NEW: qualification description / use case
+  // ✅ qualification description / use case
   description?: string;
 
   region?: "EMEA" | "NA" | "LATAM" | "APAC";

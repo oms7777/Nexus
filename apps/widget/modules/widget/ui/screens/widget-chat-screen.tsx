@@ -429,6 +429,9 @@ export const WidgetChatScreen = () => {
   ) as PublicRep | null | undefined;
 
 
+
+
+
   const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
   const [selectedRep, setSelectedRep] = useState<PublicRep | null>(null);
   const [slots, setSlots] = useState<Slot[] | null>(null);
@@ -593,6 +596,62 @@ export const WidgetChatScreen = () => {
       setLoadingSlots(false);
     }
   };
+
+  useEffect(() => {
+    if (routingMode !== "auto_assign") return;
+    if (step !== "auto_assign_wait") return;
+
+    // pickedRep === undefined => encore en train de charger
+    if (pickedRep === undefined) return;
+
+    // si on a un rep => go calendar rep
+    if (pickedRep) {
+      loadSlotsForRep(pickedRep).catch(() => {});
+      return;
+    }
+
+    // sinon fallback calendarAccount
+    if (!calendarAccount || !organizationId || !contactSessionId) {
+      setLocalMsgs((m) => [
+        ...m,
+        {
+          role: "assistant",
+          text: "No teammate is available right now. Please try again later.",
+        },
+      ]);
+      setStep("done");
+      return;
+    }
+
+    setLocalMsgs((m) => [
+      ...m,
+      { role: "assistant", text: "Our team will assign the right person. Pick any time below 👇" },
+    ]);
+
+    setStep("picking");
+    setLoadingSlots(true);
+
+    listSlots({
+      organizationId,
+      userId: calendarAccount.userId,
+      days: 21,
+      contactSessionId: contactSessionId ?? undefined,
+    })
+      .then(setSlots)
+      .finally(() => setLoadingSlots(false));
+  }, [
+    routingMode,
+    step,
+    pickedRep,
+    calendarAccount,
+    organizationId,
+    contactSessionId,
+    listSlots,
+    loadSlotsForRep,
+    setLocalMsgs,
+    setStep,
+  ]);
+
 
 
 
@@ -776,76 +835,32 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    // ✅ use routingMode computed above
+    // ✅ visitor_choice
     if (routingMode === "visitor_choice") {
-      // reset any auto-picked state
       setSelectedRep(null);
       setSlots(null);
 
-      // 1 rep only -> go straight to calendar for that rep
       if (reps.length === 1) {
         await loadSlotsForRep(reps[0]!);
         return;
       }
 
-      // multiple reps -> show picker
       setRepChoices(reps);
       setStep("pick_rep");
       return;
     }
 
-    // ---------------- AUTO ASSIGN ----------------
-    const chosen = (pickedRep ?? null) as PublicRep | null;
-
-    if (chosen) {
-      await loadSlotsForRep(chosen);
-      return;
-    }
-
-    // fallback: calendarAccount
-    if (!calendarAccount) {
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "assistant", text: "No teammate is available right now. Please try again later." },
-      ]);
-      setStep("done");
-      return;
-    }
-
+    // ✅ auto_assign
+    // Important: pickedRep peut être undefined (loading). On attend via useEffect.
     setLocalMsgs((m) => [
       ...m,
-      { role: "assistant", text: "Our team will assign the right person. Pick any time below 👇" },
+      { role: "assistant", text: "Perfect — assigning the best person for you 👇" },
     ]);
 
-    setStep("picking");
-    setLoadingSlots(true);
-    try {
-      const s = await listSlots({
-        organizationId,
-        userId: calendarAccount.userId,
-        days: 21,
-        contactSessionId: contactSessionId ?? undefined,
-      });
-      setSlots(s);
-    } finally {
-      setLoadingSlots(false);
-    }
+    setStep("auto_assign_wait");
     return;
+    };
 
-
-
-
-    // ---------------- VISITOR CHOICE ----------------
-    // si un seul rep → direct
-    if (reps.length === 1) {
-      await loadSlotsForRep(reps[0]!);
-      return;
-    }
-
-    // plusieurs reps -> choix visiteur
-    setRepChoices(reps);
-    setStep("pick_rep");
-  };
 
   /* -------- Send message (thread bootstrap + retry) -------- */
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
@@ -1052,6 +1067,13 @@ export const WidgetChatScreen = () => {
                   </Button>
                 </div>
               )}
+
+              {step === "auto_assign_wait" && (
+                <div className="p-3 text-sm text-muted-foreground">
+                  Assigning the best rep…
+                </div>
+              )}
+
 
             {/* consent card */}
             {step === "consent" && mustAcceptConsent && consentCfg && consentCfg.enabled !== false && (
