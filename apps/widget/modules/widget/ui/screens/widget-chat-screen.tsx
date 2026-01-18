@@ -362,6 +362,9 @@ function BookingSplitLayout({
 
 export const WidgetChatScreen = () => {
   const widgetSettings = useAtomValue(widgetSettingsAtom);
+  const routingMode =
+    ((widgetSettings as any)?.routingMode as "auto_assign" | "visitor_choice" | undefined) ??
+    "auto_assign";
   const themePrimary =
     (widgetSettings as any)?.theme?.primaryColor ??
     (widgetSettings as any)?.branding?.primaryColor ??
@@ -420,10 +423,11 @@ export const WidgetChatScreen = () => {
 
   const pickedRep = useQuery(
     api.public.routing.pickRepForVisitor,
-    organizationId && contactSessionId
+    routingMode === "auto_assign" && organizationId && contactSessionId
       ? { organizationId, contactSessionId }
       : "skip"
   ) as PublicRep | null | undefined;
+
 
   const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
   const [selectedRep, setSelectedRep] = useState<PublicRep | null>(null);
@@ -772,53 +776,62 @@ export const WidgetChatScreen = () => {
       return;
     }
 
-    const routingMode =
-      ((widgetSettings as any)?.routingMode as
-        | "auto_assign"
-        | "visitor_choice"
-        | undefined) ?? "auto_assign";
+    // ✅ use routingMode computed above
+    if (routingMode === "visitor_choice") {
+      // reset any auto-picked state
+      setSelectedRep(null);
+      setSlots(null);
 
-    // ---------------- AUTO ASSIGN ----------------
-    if (routingMode === "auto_assign") {
-      const chosen = (pickedRep ?? null) as PublicRep | null;
-
-      if (chosen) {
-        await loadSlotsForRep(chosen);  // Charger les créneaux pour le rep sélectionné
+      // 1 rep only -> go straight to calendar for that rep
+      if (reps.length === 1) {
+        await loadSlotsForRep(reps[0]!);
         return;
       }
 
-      // Si aucun rep choisi, utiliser le fallback "ancien comportement"
-      // En cas d'absence de rep, afficher les créneaux par défaut
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "assistant", text: "Our team will assign the right person. Pick any time below 👇" },
-      ]);
-      setStep("picking");
-      setLoadingSlots(true);
-
-      // Vérification de calendarAccount avant de l'utiliser
-      if (!calendarAccount) {
-        setLocalMsgs((m) => [
-          ...m,
-          { role: "assistant", text: "No calendar account found. Please try again later." },
-        ]);
-        setLoadingSlots(false);
-        return;
-      }
-
-      try {
-        const s = await listSlots({
-          organizationId,
-          userId: calendarAccount.userId,
-          days: 21,
-          contactSessionId: contactSessionId ?? undefined,
-        });
-        setSlots(s); // Mettre à jour les créneaux
-      } finally {
-        setLoadingSlots(false);
-      }
+      // multiple reps -> show picker
+      setRepChoices(reps);
+      setStep("pick_rep");
       return;
     }
+
+    // ---------------- AUTO ASSIGN ----------------
+    const chosen = (pickedRep ?? null) as PublicRep | null;
+
+    if (chosen) {
+      await loadSlotsForRep(chosen);
+      return;
+    }
+
+    // fallback: calendarAccount
+    if (!calendarAccount) {
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "No teammate is available right now. Please try again later." },
+      ]);
+      setStep("done");
+      return;
+    }
+
+    setLocalMsgs((m) => [
+      ...m,
+      { role: "assistant", text: "Our team will assign the right person. Pick any time below 👇" },
+    ]);
+
+    setStep("picking");
+    setLoadingSlots(true);
+    try {
+      const s = await listSlots({
+        organizationId,
+        userId: calendarAccount.userId,
+        days: 21,
+        contactSessionId: contactSessionId ?? undefined,
+      });
+      setSlots(s);
+    } finally {
+      setLoadingSlots(false);
+    }
+    return;
+
 
 
 
