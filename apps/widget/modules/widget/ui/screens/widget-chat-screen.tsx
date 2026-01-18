@@ -763,7 +763,7 @@ export const WidgetChatScreen = () => {
         },
       ]);
 
-      setStep("picking");
+      setStep("done");
       setLoadingSlots(true);
       try {
         const s = await listSlots({
@@ -784,10 +784,6 @@ export const WidgetChatScreen = () => {
       setSelectedRep(null);
       setSlots(null);
 
-      if (reps.length === 1) {
-        await loadSlotsForRep(reps[0]!);
-        return;
-      }
 
       setRepChoices(reps);
       setStep("pick_rep");

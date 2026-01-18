@@ -221,7 +221,7 @@ export const pickBestRepAndListSlots = action({
     if (!contactSessionId) return { rep: null, slots: [] };
 
     // 1) candidats (déjà filtrés territoire / routage côté routing.listRepsForVisitor)
-    const reps = (await ctx.runQuery(api.public.routing.listRepsForVisitor, {
+    const reps = (await ctx.runQuery(api.public.routing.listCandidatesForAutoAssign, {
       organizationId,
       contactSessionId,
     })) as PublicRep[];
