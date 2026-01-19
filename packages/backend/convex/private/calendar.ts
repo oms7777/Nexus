@@ -273,12 +273,23 @@ async function accessTokenFromRefresh(refreshToken: string): Promise<string> {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });
+
   const json: any = await r.json();
+
+  // 🔥 IMPORTANT: Google renvoie souvent { error: "invalid_grant" }
   if (!r.ok || !json.access_token) {
-    throw new ConvexError(json.error || json.error_description || "TOKEN_EXCHANGE_FAILED");
+    const err = String(json?.error || "").toLowerCase();
+    const desc = String(json?.error_description || "");
+    if (err === "invalid_grant") {
+      // standardise le message pour que tout le code catch facilement
+      throw new ConvexError("invalid_grant");
+    }
+    throw new ConvexError(desc || json.error || "TOKEN_EXCHANGE_FAILED");
   }
+
   return String(json.access_token);
 }
+
 
 /** NO-AUTH: freeBusy par organizationId + userId (utilisé par public/calendar.listSlots) */
 export const freeBusyForOrgUser = action({
@@ -298,14 +309,27 @@ export const freeBusyForOrgUser = action({
     });
     if (!acct) throw new ConvexError("NO_CONNECTION");
 
-    const accessToken = await accessTokenFromRefresh(acct.refreshToken);
+    let accessToken: string;
+    try {
+      accessToken = await accessTokenFromRefresh(acct.refreshToken);
+    } catch (e) {
+      // ✅ KEY: si token cassé => rep non bookable => pas de crash
+      const msg = String((e as any)?.message ?? e ?? "").toLowerCase();
+      if (msg.includes("invalid_grant")) {
+        console.log(
+          `[calendar.freeBusyForOrgUser] invalid_grant for org=${organizationId} user=${userId} -> returning []`
+        );
+        return [];
+      }
+      throw e;
+    }
 
-    // ✅ bon endpoint freeBusy (pas events.insert)
     const res = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ timeMin: timeMinIso, timeMax: timeMaxIso, items: [{ id: "primary" }] }),
     });
+
     const json: any = await res.json();
     if (!res.ok) throw new ConvexError(json?.error?.message || "FREEBUSY_FAILED");
 
@@ -316,6 +340,7 @@ export const freeBusyForOrgUser = action({
     }));
   },
 });
+
 
 /** NO-AUTH: createEvent par organizationId + userId (utilisé par public/calendar.bookSlot) */
 export const createEventForOrgUser = action({
@@ -337,7 +362,17 @@ export const createEventForOrgUser = action({
     });
     if (!acct) throw new ConvexError("NO_CONNECTION");
 
-    const accessToken = await accessTokenFromRefresh(acct.refreshToken);
+    let accessToken: string;
+    try {
+      accessToken = await accessTokenFromRefresh(acct.refreshToken);
+    } catch (e) {
+      const msg = String((e as any)?.message ?? e ?? "").toLowerCase();
+      if (msg.includes("invalid_grant")) {
+        // ✅ ici on bloque : sinon tu “book” sur un rep sans calendrier valide
+        throw new ConvexError("CALENDAR_RECONNECT_REQUIRED");
+      }
+      throw e;
+    }
 
     const event = {
       summary: args.summary,
@@ -346,7 +381,6 @@ export const createEventForOrgUser = action({
       end: { dateTime: args.endIso },
       attendees: args.attendees ?? [],
       reminders: { useDefault: true },
-      // Meet auto aussi côté NO-AUTH
       conferenceData: { createRequest: { requestId: crypto.randomUUID() } },
     };
 
@@ -358,8 +392,10 @@ export const createEventForOrgUser = action({
         body: JSON.stringify(event),
       }
     );
+
     const json: any = await res.json();
     if (!res.ok) throw new ConvexError(json?.error?.message || "CREATE_EVENT_FAILED");
     return json;
   },
 });
+

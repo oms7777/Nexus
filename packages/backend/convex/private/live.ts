@@ -87,7 +87,7 @@ export const getActiveVisitors = query({
       const title = snapTitle || (md.title as string | undefined) || undefined;
 
       // lastSeen should be a real timestamp, not expiresAt (future)
-      const lastSeen = snapTs || now;
+      const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
 
       results.push({
         _id: s._id,

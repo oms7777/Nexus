@@ -30,10 +30,8 @@ export function useEnsureContactSession(organizationId: string | null) {
       const lsKey = `nx_contact_session_${organizationId}`;
       const visitorId = getOrCreateVisitorId();
 
-      // 1) tenter l’ID local
-      let sid = localStorage.getItem(lsKey);
+      let sid: string | null = localStorage.getItem(lsKey);
 
-      // 2) si on a un id local, vérifier
       if (sid) {
         try {
           const res = await validate({ contactSessionId: sid as any });
@@ -43,9 +41,8 @@ export function useEnsureContactSession(organizationId: string | null) {
         }
       }
 
-      // 3) ensure si pas d’ID valide
       if (!sid) {
-        sid = await ensure({
+        sid = (await ensure({
           organizationId,
           metadata: {
             visitorId,
@@ -55,12 +52,20 @@ export function useEnsureContactSession(organizationId: string | null) {
             currentUrl: window.location.href,
             referrer: document.referrer || undefined,
           },
-        }) as unknown as string;
+        })) as unknown as string;
+
         localStorage.setItem(lsKey, sid);
       }
 
-      // 4) pousser dans l’atom
       setContactSessionId(sid as any);
+
+      // ✅ IMPORTANT: postMessage UNIQUEMENT quand sid est dispo
+      try {
+        window.parent?.postMessage(
+          { type: "nexus:session-ready", payload: { contactSessionId: sid } },
+          "*"
+        );
+      } catch {}
     })();
   }, [organizationId, ensure, validate, setContactSessionId]);
 }
