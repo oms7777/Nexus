@@ -22,6 +22,17 @@ type PickBestRepAndListSlotsResult = {
   slots: Slot[];
 };
 
+function toErrString(e: unknown) {
+  if (!e) return "";
+  if (typeof e === "string") return e;
+  const anyE = e as any;
+  return anyE?.message ?? anyE?.toString?.() ?? "";
+}
+
+function isInvalidGrant(e: unknown) {
+  const s = toErrString(e).toLowerCase();
+  return s.includes("invalid_grant");
+}
 
 /* -------------------------------------------------------------
  * Compte Google connecté pour une org + user (multi-reps)
@@ -38,7 +49,7 @@ export const getAccount = query({
       const byUser = await ctx.db
         .query("calendarAccounts")
         .withIndex("by_org_user", (q) =>
-          q.eq("organizationId", organizationId).eq("userId", userId),
+          q.eq("organizationId", organizationId).eq("userId", userId)
         )
         .unique();
 
@@ -48,7 +59,6 @@ export const getAccount = query({
         // ✅ IMPORTANT: if userId is specified, do NOT fallback to org-level
         return null;
       }
-
     } else {
       const byOrg = await ctx.db
         .query("calendarAccounts")
@@ -86,7 +96,7 @@ export const getSettingsForOrg = query({
     const settings = await ctx.db
       .query("calendarSettings")
       .withIndex("by_org_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", effectiveUserId!),
+        q.eq("organizationId", organizationId).eq("userId", effectiveUserId!)
       )
       .unique();
 
@@ -96,6 +106,8 @@ export const getSettingsForOrg = query({
 
 /* -------------------------------------------------------------
  * Liste des créneaux
+ *  ✅ PATCH: ne jamais throw si Google token invalid_grant
+ *  => on retourne [] (rep "non bookable") au lieu de crash.
  * ----------------------------------------------------------- */
 export const listSlots = action({
   args: {
@@ -127,7 +139,6 @@ export const listSlots = action({
         { day: 5, start: "09:00", end: "17:00" },
       ];
 
-
     const durationMin = settings?.durationMin ?? slotMinutes ?? 30;
     const bufferMin = settings?.bufferMin ?? 0;
 
@@ -138,15 +149,35 @@ export const listSlots = action({
     const now = Date.now();
     const rangeEnd = now + days * 24 * 60 * 60 * 1000;
 
-    const busy = await ctx.runAction(api.private.calendar.freeBusyForOrgUser, {
-      organizationId,
-      userId: acct.userId,
-      timeMinIso: new Date(now).toISOString(),
-      timeMaxIso: new Date(rangeEnd).toISOString(),
-    });
+    let busy: Array<{ start: number; end: number }> = [];
+    try {
+      busy = await ctx.runAction(api.private.calendar.freeBusyForOrgUser, {
+        organizationId,
+        userId: acct.userId,
+        timeMinIso: new Date(now).toISOString(),
+        timeMaxIso: new Date(rangeEnd).toISOString(),
+      });
+    } catch (e) {
+      // ✅ KEY FIX: invalid_grant => on ne crashe pas l’assign
+      if (isInvalidGrant(e)) {
+        console.log(
+          `[calendar.listSlots] invalid_grant for userId=${acct.userId} org=${organizationId} -> returning empty slots`
+        );
+        return [];
+      }
+      console.log(
+        `[calendar.listSlots] freeBusy failed for userId=${acct.userId} org=${organizationId}:`,
+        e
+      );
+      return [];
+    }
 
-    const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
-      aStart < bEnd && aEnd > bStart;
+    const overlaps = (
+      aStart: number,
+      aEnd: number,
+      bStart: number,
+      bEnd: number
+    ) => aStart < bEnd && aEnd > bStart;
 
     const slots: Array<{ start: number; end: number }> = [];
 
@@ -184,7 +215,9 @@ export const listSlots = action({
         const paddedStart = start - bufferMs;
         const paddedEnd = end + bufferMs;
 
-        const isBusy = busy.some((b) => overlaps(paddedStart, paddedEnd, b.start, b.end));
+        const isBusy = busy.some((b) =>
+          overlaps(paddedStart, paddedEnd, b.start, b.end)
+        );
         if (!isBusy) slots.push({ start, end });
       }
     }
@@ -207,6 +240,11 @@ export const listSlots = action({
     return slots;
   },
 });
+
+/* -------------------------------------------------------------
+ * Auto-assign: choisir le meilleur rep + slots
+ * ✅ PATCH: si un rep crashe (invalid_grant), skip et continue
+ * ----------------------------------------------------------- */
 export const pickBestRepAndListSlots = action({
   args: {
     organizationId: v.string(),
@@ -220,15 +258,16 @@ export const pickBestRepAndListSlots = action({
   ): Promise<PickBestRepAndListSlotsResult> => {
     if (!contactSessionId) return { rep: null, slots: [] };
 
-    // 1) candidats (déjà filtrés territoire / routage côté routing.listRepsForVisitor)
-    const reps = (await ctx.runQuery(api.public.routing.listCandidatesForAutoAssign, {
-      organizationId,
-      contactSessionId,
-    })) as PublicRep[];
+    const reps = (await ctx.runQuery(
+      api.public.routing.listCandidatesForAutoAssign,
+      {
+        organizationId,
+        contactSessionId,
+      }
+    )) as PublicRep[];
 
     if (!reps?.length) return { rep: null, slots: [] };
 
-    // 2) essaye reps dans l’ordre (propre + fallback)
     for (const rep of reps) {
       if (rep.role !== "sales") continue;
       if (rep.available === false) continue;
@@ -240,24 +279,37 @@ export const pickBestRepAndListSlots = action({
       });
       if (!acct) continue;
 
-      // slots for this rep
-      const slots = (await ctx.runAction(api.public.calendar.listSlots, {
-        organizationId,
-        userId: rep.userId,
-        days,
-        slotMinutes,
-        contactSessionId,
-      })) as Slot[];
+      try {
+        const slots = (await ctx.runAction(api.public.calendar.listSlots, {
+          organizationId,
+          userId: rep.userId,
+          days,
+          slotMinutes,
+          contactSessionId,
+        })) as Slot[];
 
-      if (slots?.length) {
-        return { rep, slots };
+        if (slots?.length) {
+          return { rep, slots };
+        }
+      } catch (e) {
+        // ✅ NE JAMAIS casser l’assign global
+        if (isInvalidGrant(e)) {
+          console.log(
+            `[calendar.pickBestRepAndListSlots] invalid_grant for rep=${rep.userId} -> skipping`
+          );
+          continue;
+        }
+        console.log(
+          `[calendar.pickBestRepAndListSlots] slots failed for rep=${rep.userId} -> skipping`,
+          e
+        );
+        continue;
       }
     }
 
     return { rep: null, slots: [] };
   },
 });
-
 
 /* -------------------------------------------------------------
  * Book: Google event + booking + Slack + email + Salesforce
@@ -290,7 +342,7 @@ export const bookSlot = action({
       attendeeCompany,
       attendeeRole,
       attendeeDescription,
-    },
+    }
   ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
     // 0) routing (if user not forced)
     let effectiveUserId = userId;
@@ -303,7 +355,10 @@ export const bookSlot = action({
         });
         if (routedUserId) effectiveUserId = routedUserId;
       } catch (e) {
-        console.log("pickRepForSession failed, fallback to org-level account:", e);
+        console.log(
+          "pickRepForSession failed, fallback to org-level account:",
+          e
+        );
       }
     }
 
@@ -312,7 +367,8 @@ export const bookSlot = action({
       organizationId,
       userId: effectiveUserId,
     });
-    if (!acct) throw new Error("No connected calendar for this organization / user");
+    if (!acct)
+      throw new Error("No connected calendar for this organization / user");
 
     const useCase = (attendeeDescription ?? "").trim();
 
@@ -328,17 +384,21 @@ export const bookSlot = action({
 
     // 2) create Google calendar event
     // ✅ FIX: do NOT add organizer as an attendee
-    const event: any = await ctx.runAction(api.private.calendar.createEventForOrgUser, {
-      organizationId,
-      userId: acct.userId,
-      summary: `Demo with ${attendeeName}`,
-      description: descriptionLines.join("\n"),
-      startIso: new Date(start).toISOString(),
-      endIso: new Date(end).toISOString(),
-      attendees: [{ email: attendeeEmail, displayName: attendeeName }],
-    });
+    const event: any = await ctx.runAction(
+      api.private.calendar.createEventForOrgUser,
+      {
+        organizationId,
+        userId: acct.userId,
+        summary: `Demo with ${attendeeName}`,
+        description: descriptionLines.join("\n"),
+        startIso: new Date(start).toISOString(),
+        endIso: new Date(end).toISOString(),
+        attendees: [{ email: attendeeEmail, displayName: attendeeName }],
+      }
+    );
 
-    const meetingUrl: string | undefined = event?.hangoutLink ?? event?.htmlLink ?? undefined;
+    const meetingUrl: string | undefined =
+      event?.hangoutLink ?? event?.htmlLink ?? undefined;
 
     // 3) save booking in DB
     const bookingId = await ctx.runMutation(api.public.booking.create, {

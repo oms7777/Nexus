@@ -201,6 +201,9 @@ export default defineSchema({
     // ✅ NEW: stable external id coming from embed (uuid/string)
     externalSessionId: v.optional(v.string()),
 
+    // ✅ NEW: stable visitor id (dedupe / "one visitor online")
+    visitorId: v.optional(v.string()),
+
     expiresAt: v.number(),
     isAnonymous: v.optional(v.boolean()),
     identifiedAt: v.optional(v.number()),
@@ -248,8 +251,11 @@ export default defineSchema({
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_expires_at", ["expiresAt"])
-    // ✅ NEW: find session by (org + externalSessionId)
-    .index("by_org_external_session", ["organizationId", "externalSessionId"]),
+    // ✅ find session by (org + externalSessionId)
+    .index("by_org_external_session", ["organizationId", "externalSessionId"])
+    // ✅ find session by (org + visitorId)  => dedupe visitors online
+    .index("by_org_visitor_id", ["organizationId", "visitorId"]),
+
 
 
   /* ---------- Cache IP -> geo ---------- */

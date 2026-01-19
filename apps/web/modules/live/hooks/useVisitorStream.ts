@@ -20,6 +20,14 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
+    // ✅ Tell server to start rrweb for this session (watching ON)
+    // (best-effort; if it fails, cursor still works)
+    fetch("/api/realtime/rrweb", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgId, sessionId, action: "start" }),
+    }).catch(() => {});
+
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
       forceTLS: true,
@@ -53,6 +61,13 @@ export function useVisitorStream(opts: {
     ch.bind("client-snapshot", onSnap);
 
     return () => {
+      // ✅ Tell server to stop rrweb for this session (watching OFF)
+      fetch("/api/realtime/rrweb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, sessionId, action: "stop" }),
+      }).catch(() => {});
+
       try {
         ch.unbind("client-cursor", onCursor);
         ch.unbind("client-rrweb", onInc);
