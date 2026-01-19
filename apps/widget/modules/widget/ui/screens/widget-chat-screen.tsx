@@ -412,15 +412,13 @@ export const WidgetChatScreen = () => {
   );
 
   const canUseVoice = !!publicPlan?.canUseVoice;
-  // Reps via routing
+  // ✅ Only query reps when visitor_choice is actually enabled (prevents false empty array + wrong flow)
   const routingReps = useQuery(
     api.public.routing.listRepsForVisitor,
-    organizationId && contactSessionId
+    routingMode === "visitor_choice" && organizationId && contactSessionId
       ? { organizationId, contactSessionId }
       : "skip"
   ) as PublicRep[] | undefined;
-
-
 
   const [repChoices, setRepChoices] = useState<PublicRep[]>([]);
   const [selectedRep, setSelectedRep] = useState<PublicRep | null>(null);
@@ -429,12 +427,12 @@ export const WidgetChatScreen = () => {
   const [localThreadId, setLocalThreadId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (routingReps && routingReps.length > 0) {
-      setRepChoices(routingReps);
+    if (routingMode === "visitor_choice") {
+      setRepChoices(routingReps ?? []);
     }
-  }, [routingReps]);
+  }, [routingReps, routingMode]);
 
-
+  const routingReady = routingMode === "auto_assign" || routingMode === "visitor_choice";
   // Conversation + messages
   const conversation = useQuery(
     api.public.conversations.getOne,
@@ -738,11 +736,18 @@ export const WidgetChatScreen = () => {
       setStep("done");
       return;
     }
+    if (!routingReady) {
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "One sec — loading availability…" },
+      ]);
+      return;
+    }
+    const reps = routingMode === "visitor_choice" ? ((routingReps ?? []) as PublicRep[]) : [];
 
-    const reps = (routingReps ?? []) as PublicRep[];
 
     // aucun rep → fallback "ancien comportement"
-    if (!reps.length) {
+    if (routingMode === "visitor_choice" && !reps.length) {
       if (!calendarAccount) {
         setLocalMsgs((m) => [
           ...m,
@@ -1251,10 +1256,48 @@ export const WidgetChatScreen = () => {
                   setSlots(null);  // Réinitialiser les créneaux après la réservation
                   setStep("done");  // Passer à l'étape finale
                 }}
-                onBack={() => {
-                  if (routingMode === "visitor_choice") setStep("pick_rep");
-                  else setStep("ask_name"); // ou "auto_assign_wait" selon ton UX
+                onBack={async () => {
+                  if (routingMode === "visitor_choice") {
+                    setStep("pick_rep");
+                    return;
+                  }
+
+                  // auto_assign => relancer l'assign
+                  setSelectedRep(null);
+                  setSlots(null);
+                  setStep("auto_assign_wait");
+                  setLoadingSlots(true);
+
+                  try {
+                    const res = await pickBestRepAndListSlots({
+                      organizationId: organizationId!,
+                      contactSessionId,
+                      days: 21,
+                    });
+
+                    if (res?.rep && res?.slots?.length) {
+                      setSelectedRep(res.rep);
+                      setAssignedRep({
+                        userId: res.rep.userId,
+                        name: res.rep.name,
+                        avatarUrl: res.rep.avatarUrl,
+                        regions: res.rep.regions ?? [],
+                      });
+                      setSlots(res.slots);
+                      setStep("picking");
+                      return;
+                    }
+
+                    setLocalMsgs((m) => [
+                      ...m,
+                      { role: "assistant", text: "No availability found right now. Please try again later." },
+                    ]);
+                    setStep("done");
+                  } finally {
+                    setLoadingSlots(false);
+                  }
                 }}
+
               />
             )}
 
