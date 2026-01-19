@@ -389,7 +389,7 @@ function setupCursor() {
     if (document.hidden) return;
 
     // ✅ only stream when an agent is present (presence>1) or rrweb is ON
-    if (!hasViewer()) return;
+
 
     // ✅ throttle
     const t = now();
