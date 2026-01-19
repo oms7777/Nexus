@@ -324,17 +324,31 @@ export function LiveVisitorView({
 
   // compute overlay cursor position in pixels (scale + offset aware)
   let cursorPx: { left: number; top: number } | null = null;
-  const src = sourceRef.current;
-  if (cursor && src?.width && src?.height) {
-    const { scale, ox, oy } = layoutRef.current;
+
+  if (cursor) {
     const cx = clamp01((cursor as Cursor).x);
     const cy = clamp01((cursor as Cursor).y);
 
-    cursorPx = {
-      left: ox + cx * src.width * scale,
-      top: oy + cy * src.height * scale,
-    };
+    const outer = outerRef.current;
+
+    // ✅ If we don't have rrweb source size yet, fallback to viewport pixels
+    if (!sourceRef.current || !outer) {
+      if (outer) {
+        cursorPx = {
+          left: cx * outer.clientWidth,
+          top: cy * outer.clientHeight,
+        };
+      }
+    } else {
+      const src = sourceRef.current;
+      const { scale, ox, oy } = layoutRef.current;
+      cursorPx = {
+        left: ox + cx * src.width * scale,
+        top: oy + cy * src.height * scale,
+      };
+    }
   }
+
 
   return (
     <div
