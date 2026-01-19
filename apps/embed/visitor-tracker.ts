@@ -7,6 +7,7 @@ type VisitorTrackingOptions = {
   contactSessionId: string;
 };
 
+
 // =======================
 // Config
 // =======================
@@ -15,29 +16,28 @@ const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
-// Pusher client events payload limit ~10KB (keep margin)
+// Pusher client events payload limit ~10KB
 const MAX_PAYLOAD_BYTES = 9_000;
 
-// batching incremental rrweb
+// batching
 const BATCH_INTERVAL_MS = 250;
 const MAX_BATCH_EVENTS = 25;
 
 // snapshot persist debounce
-const SNAPSHOT_DEBOUNCE_MS = 400;
+const SNAPSHOT_DEBOUNCE_MS = 300;
 
 // URL-change -> restart recorder (reliable full snapshot)
 const URL_CHANGE_DEBOUNCE_MS = 250;
-const MIN_RESTART_INTERVAL_MS = 3_000;
+const MIN_RESTART_INTERVAL_MS = 3000;
 
 // activity / idle control
 const IDLE_PAUSE_MS = 60_000;
 
 // safety limits
-const MAX_SESSION_MS = 8 * 60 * 1000; // keep tighter: 8min (reduce risk of heavy sessions)
-const MAX_TOTAL_EVENTS = 18_000;
-const MAX_SNAPSHOT_BUFFER_EVENTS = 2_000;
+const MAX_SESSION_MS = 12 * 60 * 1000; // 12 minutes max rrweb running when enabled
+const MAX_TOTAL_EVENTS = 25_000;
 
-// perf watchdog
+// perf watchdog (stop rrweb if host is too slow)
 const WATCHDOG_INTERVAL_MS = 30_000;
 const MAX_LONGTASKS_PER_WINDOW = 8;
 
@@ -45,7 +45,6 @@ const MAX_LONGTASKS_PER_WINDOW = 8;
 // State
 // =======================
 let started = false;
-
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 
@@ -84,20 +83,17 @@ let longTaskObserver: PerformanceObserver | null = null;
 let longTaskCount = 0;
 let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
-// rrweb stop timer (only when rrweb ON)
+// session stop timer
 let sessionStopTimer: ReturnType<typeof setInterval> | null = null;
 
 // activity
 let lastActivityAt = Date.now();
 let totalEvents = 0;
 
-// unload handlers
+// unload handlers (we REMOVE them on destroy)
 let onBeforeUnload: (() => void) | null = null;
 let onPageHide: (() => void) | null = null;
 
-// =======================
-// Utils
-// =======================
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
 }
@@ -124,7 +120,6 @@ function flushBatchNow() {
   const payload = { events: batch.splice(0, batch.length) };
   const json = JSON.stringify(payload);
 
-  // If too big, drop this batch (better than freezing / retry storms)
   if (safeBytes(json) > MAX_PAYLOAD_BYTES) return;
 
   try {
@@ -142,7 +137,7 @@ function scheduleFlush() {
 
 function persistSnapshotToDbDebounced(opts: {
   orgId: string;
-  contactSessionId: string;
+  sessionId: string;
   events: eventWithTime[];
 }) {
   if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
@@ -150,7 +145,6 @@ function persistSnapshotToDbDebounced(opts: {
   snapshotDebounceTimer = setTimeout(async () => {
     snapshotDebounceTimer = null;
 
-    // cancel previous inflight snapshot write
     try {
       snapshotAbort?.abort();
     } catch {}
@@ -163,10 +157,9 @@ function persistSnapshotToDbDebounced(opts: {
         signal: snapshotAbort.signal,
         body: JSON.stringify({
           organizationId: opts.orgId,
-          sessionId: opts.contactSessionId, // DB expects sessionId
+          sessionId: opts.sessionId,
           events: opts.events,
         }),
-        keepalive: true,
       });
     } catch {
       // best effort
@@ -198,25 +191,24 @@ function stopRrwebOnly() {
   stopRecording = null;
   recordStopFn = undefined;
 
+  // drop buffered work
   resetRecorderStateForNewPage();
 }
 
-function startRrwebRecorder(orgId: string, contactSessionId: string) {
+function startRrwebRecorder(orgId: string, sessionId: string) {
+  // stop previous rrweb only (keep pusher/channel)
   stopRrwebOnly();
 
   totalEvents = 0;
   lastActivityAt = now();
 
   const stop: listenerHandler | undefined = record({
-    // PERF: mousemove handled separately via "client-cursor"
     sampling: {
       mousemove: false as any,
       mouseInteraction: true,
       scroll: 200,
       input: "last",
     },
-
-    // reduce DOM payload
     slimDOMOptions: {
       script: true,
       comment: true,
@@ -227,22 +219,15 @@ function startRrwebRecorder(orgId: string, contactSessionId: string) {
     } as any,
 
     emit(event: eventWithTime) {
-      // never do work in background tab
       if (document.hidden) return;
-      // rrweb stopped => drop
       if (!stopRecording) return;
-      // rrweb only when watching
-      if (!rrwebWatching) return;
 
       totalEvents++;
       if (totalEvents > MAX_TOTAL_EVENTS) {
-        // hard stop (protect host)
-        rrwebWatching = false;
         stopRrwebOnly();
         return;
       }
 
-      // idle => keep only meta/full snapshots
       if (shouldPauseHeavy()) {
         const t = (event as any)?.type;
         if (t !== 4 && t !== 2) return;
@@ -255,15 +240,9 @@ function startRrwebRecorder(orgId: string, contactSessionId: string) {
 
       const isFullSnapshot = type === 2;
 
-      if (!snapshotSent) {
-        snapshotBuffer.push(event);
-        if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
-          snapshotBuffer = snapshotBuffer.slice(-MAX_SNAPSHOT_BUFFER_EVENTS);
-        }
-      }
+      if (!snapshotSent) snapshotBuffer.push(event);
 
       if (isFullSnapshot) {
-        // first full snapshot
         if (!snapshotSent) {
           snapshotSent = true;
 
@@ -273,11 +252,7 @@ function startRrwebRecorder(orgId: string, contactSessionId: string) {
           const hasMeta = snap.some((e: any) => e?.type === 4);
           const payloadEvents = !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
 
-          persistSnapshotToDbDebounced({
-            orgId,
-            contactSessionId,
-            events: payloadEvents,
-          });
+          persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
           try {
             channelRef?.trigger("client-snapshot", { events: payloadEvents });
@@ -286,14 +261,8 @@ function startRrwebRecorder(orgId: string, contactSessionId: string) {
           return;
         }
 
-        // extra full snapshot
         const payloadEvents = lastMeta ? [lastMeta, event] : [event];
-
-        persistSnapshotToDbDebounced({
-          orgId,
-          contactSessionId,
-          events: payloadEvents,
-        });
+        persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
         try {
           channelRef?.trigger("client-snapshot", { events: payloadEvents });
@@ -302,7 +271,6 @@ function startRrwebRecorder(orgId: string, contactSessionId: string) {
         return;
       }
 
-      // incremental
       if (!snapshotSent) return;
       if (!channelRef) return;
 
@@ -320,10 +288,9 @@ function startRrwebRecorder(orgId: string, contactSessionId: string) {
   recordStopFn = stop;
   stopRecording = stop ? (() => stop()) : null;
 
-  // best effort: force a full snapshot soon (but only if rrweb still ON)
+  // best-effort snapshot quickly
   const doSnapshot = () => {
     if (!stopRecording) return;
-    if (!rrwebWatching) return;
     try {
       (record as any).takeFullSnapshot?.();
     } catch {}
@@ -333,14 +300,15 @@ function startRrwebRecorder(orgId: string, contactSessionId: string) {
     // @ts-ignore
     (window as any).requestIdleCallback(doSnapshot, { timeout: 2000 });
   } else {
-    setTimeout(doSnapshot, 1200);
+    setTimeout(doSnapshot, 1500);
   }
+
 }
 
-function restartRrwebRecorderDebounced(orgId: string, contactSessionId: string) {
+function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
   if (!channelRef) return;
   if (!rrwebWatching) return;
-  if (!stopRecording) return;
+  if (!stopRecording) return; // rrweb currently off
 
   if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
   urlDebounceTimer = setTimeout(() => {
@@ -350,7 +318,7 @@ function restartRrwebRecorderDebounced(orgId: string, contactSessionId: string) 
     if (t - lastRestartAt < MIN_RESTART_INTERVAL_MS) return;
     lastRestartAt = t;
 
-    startRrwebRecorder(orgId, contactSessionId);
+    startRrwebRecorder(orgId, sessionId);
   }, URL_CHANGE_DEBOUNCE_MS);
 }
 
@@ -387,7 +355,7 @@ function patchHistoryForUrlChanges(onChange: () => void) {
 }
 
 // =======================
-// Cursor (always ON)
+// Cursor
 // =======================
 function setupCursor() {
   if (onMoveRef) {
@@ -444,9 +412,8 @@ function startPerfWatchdog() {
     if (document.hidden) return;
 
     if (longTaskCount >= MAX_LONGTASKS_PER_WINDOW) {
-      // stop rrweb only, keep cursor
+      stopRrwebOnly(); // cursor-only fallback
       rrwebWatching = false;
-      stopRrwebOnly();
     }
 
     longTaskCount = 0;
@@ -464,7 +431,6 @@ function attachUnloadHandlers() {
       flushBatchNow();
     } catch {}
     try {
-      rrwebWatching = false;
       stopRrwebOnly();
     } catch {}
     try {
@@ -477,7 +443,6 @@ function attachUnloadHandlers() {
       flushBatchNow();
     } catch {}
     try {
-      rrwebWatching = false;
       stopRrwebOnly();
     } catch {}
     try {
@@ -505,10 +470,9 @@ function detachUnloadHandlers() {
 }
 
 // =======================
-// Full cleanup
+// Full cleanup (embed destroyed / session ends)
 // =======================
 function cleanup() {
-  rrwebWatching = false;
   stopRrwebOnly();
 
   if (unpatchHistory) {
@@ -592,6 +556,8 @@ function cleanup() {
   totalEvents = 0;
   lastActivityAt = now();
 
+  rrwebWatching = false;
+
   started = false;
 }
 
@@ -608,8 +574,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
 
   // never track inside widget iframe
   if (window.self !== window.top) return;
-
-  if (!orgId || !contactSessionId) return;
 
   started = true;
   lastHref = location.href;
@@ -636,46 +600,41 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   channelRef = channel;
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // perf watchdog (may stop rrweb if host is slow)
+    // watchdog
     startPerfWatchdog();
 
-    // cursor always on (light)
+    // cursor always on
     setupCursor();
 
-    // rrweb starts ONLY when agent requests it
+    // ✅ rrweb NOT started by default anymore
+    // it will start only on server-start-rrweb
+
+    // listen server commands
     channel.bind("server-start-rrweb", () => {
       if (rrwebWatching) return;
       rrwebWatching = true;
       startRrwebRecorder(orgId, contactSessionId);
-
-      // stop rrweb after MAX_SESSION_MS (only when rrweb is ON)
-      const startedAt = now();
-      if (sessionStopTimer) {
-        clearInterval(sessionStopTimer);
-        sessionStopTimer = null;
-      }
-      sessionStopTimer = setInterval(() => {
-        if (!started) return;
-        if (!rrwebWatching) return;
-        if (now() - startedAt > MAX_SESSION_MS) {
-          rrwebWatching = false;
-          stopRrwebOnly();
-          if (sessionStopTimer) {
-            clearInterval(sessionStopTimer);
-            sessionStopTimer = null;
-          }
-        }
-      }, 10_000);
     });
 
     channel.bind("server-stop-rrweb", () => {
       rrwebWatching = false;
       stopRrwebOnly();
-      if (sessionStopTimer) {
-        clearInterval(sessionStopTimer);
-        sessionStopTimer = null;
-      }
     });
+
+    // stop rrweb after MAX_SESSION_MS (only when rrweb is ON)
+    const startedAt = now();
+    sessionStopTimer = setInterval(() => {
+      if (!started) return;
+      if (!rrwebWatching) return;
+      if (now() - startedAt > MAX_SESSION_MS) {
+        rrwebWatching = false;
+        stopRrwebOnly();
+        if (sessionStopTimer) {
+          clearInterval(sessionStopTimer);
+          sessionStopTimer = null;
+        }
+      }
+    }, 10_000);
 
     // SPA URL changes => restart rrweb only when rrweb is ON
     unpatchHistory = patchHistoryForUrlChanges(() => {
