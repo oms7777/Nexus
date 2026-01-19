@@ -4,9 +4,8 @@ import Pusher, { type Channel } from "pusher-js";
 
 type VisitorTrackingOptions = {
   orgId: string;
-  contactSessionId: string;
+  sessionId: string;
 };
-
 
 // =======================
 // Config
@@ -289,20 +288,12 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
   stopRecording = stop ? (() => stop()) : null;
 
   // best-effort snapshot quickly
-  const doSnapshot = () => {
+  setTimeout(() => {
     if (!stopRecording) return;
     try {
       (record as any).takeFullSnapshot?.();
     } catch {}
-  };
-
-  if ("requestIdleCallback" in window) {
-    // @ts-ignore
-    (window as any).requestIdleCallback(doSnapshot, { timeout: 2000 });
-  } else {
-    setTimeout(doSnapshot, 1500);
-  }
-
+  }, 600);
 }
 
 function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
@@ -568,7 +559,7 @@ export function destroyVisitorTracking() {
 // =======================
 // Init
 // =======================
-export function initVisitorTracking({ orgId, contactSessionId }: VisitorTrackingOptions) {
+export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
@@ -595,7 +586,7 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
 
   pusherRef = pusher;
 
-  const channelName = `presence-org_${orgId}_session_${contactSessionId}`;
+  const channelName = `presence-org_${orgId}_session_${sessionId}`;
   const channel = pusher.subscribe(channelName);
   channelRef = channel;
 
@@ -613,7 +604,7 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
     channel.bind("server-start-rrweb", () => {
       if (rrwebWatching) return;
       rrwebWatching = true;
-      startRrwebRecorder(orgId, contactSessionId);
+      startRrwebRecorder(orgId, sessionId);
     });
 
     channel.bind("server-stop-rrweb", () => {
@@ -645,7 +636,7 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
       markActivity();
 
       if (!rrwebWatching) return;
-      restartRrwebRecorderDebounced(orgId, contactSessionId);
+      restartRrwebRecorderDebounced(orgId, sessionId);
     });
 
     attachUnloadHandlers();
