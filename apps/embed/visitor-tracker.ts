@@ -7,6 +7,7 @@ type VisitorTrackingOptions = {
   contactSessionId: string;
 };
 
+
 // =======================
 // Config
 // =======================
@@ -28,12 +29,6 @@ const SNAPSHOT_DEBOUNCE_MS = 300;
 // URL-change -> restart recorder (reliable full snapshot)
 const URL_CHANGE_DEBOUNCE_MS = 250;
 const MIN_RESTART_INTERVAL_MS = 3000;
-
-// safety cap (anti-OOM)
-const MAX_SNAPSHOT_BUFFER_EVENTS = 2000;
-
-// cursor throttle (ms)
-const CURSOR_THROTTLE_MS = 120;
 
 // activity / idle control
 const IDLE_PAUSE_MS = 60_000;
@@ -68,7 +63,6 @@ let rrwebWatching = false;
 let onMoveRef: ((e: MouseEvent) => void) | null = null;
 let rafCursor = 0;
 let lastCursor: { x: number; y: number } | null = null;
-let lastCursorSentAt = 0;
 
 // incremental batching
 let batch: eventWithTime[] = [];
@@ -114,17 +108,6 @@ function markActivity() {
 
 function shouldPauseHeavy() {
   return now() - lastActivityAt > IDLE_PAUSE_MS;
-}
-
-/**
- * ✅ Viewer detection:
- * - rrwebWatching ON => always stream cursor
- * - else: presence members.count > 1 means an agent is connected too
- */
-function hasViewer() {
-  if (rrwebWatching) return true;
-  const membersCount = (channelRef as any)?.members?.count;
-  return typeof membersCount === "number" ? membersCount > 1 : false;
 }
 
 // =======================
@@ -208,10 +191,12 @@ function stopRrwebOnly() {
   stopRecording = null;
   recordStopFn = undefined;
 
+  // drop buffered work
   resetRecorderStateForNewPage();
 }
 
 function startRrwebRecorder(orgId: string, sessionId: string) {
+  // stop previous rrweb only (keep pusher/channel)
   stopRrwebOnly();
 
   totalEvents = 0;
@@ -255,12 +240,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       const isFullSnapshot = type === 2;
 
-      if (!snapshotSent) {
-        snapshotBuffer.push(event);
-        if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
-          snapshotBuffer = snapshotBuffer.slice(-MAX_SNAPSHOT_BUFFER_EVENTS);
-        }
-      }
+      if (!snapshotSent) snapshotBuffer.push(event);
 
       if (isFullSnapshot) {
         if (!snapshotSent) {
@@ -308,7 +288,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
   recordStopFn = stop;
   stopRecording = stop ? (() => stop()) : null;
 
-  // best-effort snapshot quickly (idle)
+  // best-effort snapshot quickly
   const doSnapshot = () => {
     if (!stopRecording) return;
     try {
@@ -322,12 +302,13 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
   } else {
     setTimeout(doSnapshot, 1500);
   }
+
 }
 
 function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
   if (!channelRef) return;
   if (!rrwebWatching) return;
-  if (!stopRecording) return;
+  if (!stopRecording) return; // rrweb currently off
 
   if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
   urlDebounceTimer = setTimeout(() => {
@@ -388,14 +369,6 @@ function setupCursor() {
     if (!channelRef) return;
     if (document.hidden) return;
 
-    // ✅ only stream when an agent is present (presence>1) or rrweb is ON
-
-
-    // ✅ throttle
-    const t = now();
-    if (t - lastCursorSentAt < CURSOR_THROTTLE_MS) return;
-    lastCursorSentAt = t;
-
     markActivity();
 
     lastCursor = {
@@ -439,7 +412,7 @@ function startPerfWatchdog() {
     if (document.hidden) return;
 
     if (longTaskCount >= MAX_LONGTASKS_PER_WINDOW) {
-      stopRrwebOnly();
+      stopRrwebOnly(); // cursor-only fallback
       rrwebWatching = false;
     }
 
@@ -497,7 +470,7 @@ function detachUnloadHandlers() {
 }
 
 // =======================
-// Full cleanup
+// Full cleanup (embed destroyed / session ends)
 // =======================
 function cleanup() {
   stopRrwebOnly();
@@ -627,12 +600,16 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   channelRef = channel;
 
   channel.bind("pusher:subscription_succeeded", () => {
+    // watchdog
     startPerfWatchdog();
 
-    // cursor listener is installed, but it only streams when hasViewer() === true
+    // cursor always on
     setupCursor();
 
-    // rrweb starts only on command
+    // ✅ rrweb NOT started by default anymore
+    // it will start only on server-start-rrweb
+
+    // listen server commands
     channel.bind("server-start-rrweb", () => {
       if (rrwebWatching) return;
       rrwebWatching = true;
