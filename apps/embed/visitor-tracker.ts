@@ -29,6 +29,8 @@ const SNAPSHOT_DEBOUNCE_MS = 300;
 // URL-change -> restart recorder (reliable full snapshot)
 const URL_CHANGE_DEBOUNCE_MS = 250;
 const MIN_RESTART_INTERVAL_MS = 3000;
+const MAX_SNAPSHOT_BUFFER_EVENTS = 2000; // safety cap
+
 
 // activity / idle control
 const IDLE_PAUSE_MS = 60_000;
@@ -240,7 +242,14 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       const isFullSnapshot = type === 2;
 
-      if (!snapshotSent) snapshotBuffer.push(event);
+      if (!snapshotSent) {
+        snapshotBuffer.push(event);
+        if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
+          // keep last events only (avoid OOM)
+          snapshotBuffer = snapshotBuffer.slice(-MAX_SNAPSHOT_BUFFER_EVENTS);
+        }
+      }
+
 
       if (isFullSnapshot) {
         if (!snapshotSent) {
@@ -368,6 +377,7 @@ function setupCursor() {
   onMoveRef = (e: MouseEvent) => {
     if (!channelRef) return;
     if (document.hidden) return;
+    if (!rrwebWatching) return;
 
     markActivity();
 

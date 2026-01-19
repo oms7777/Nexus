@@ -46,6 +46,15 @@ type SuggestionsPayload = {
 };
 
 (function () {
+  try {
+    if (window.self !== window.top) return;
+  } catch {
+    return;
+  }
+
+  // ✅ 2) singleton lock: avoid double init if script is injected twice
+  if ((window as any).__NX_WIDGET_EMBED_LOADED__) return;
+  (window as any).__NX_WIDGET_EMBED_LOADED__ = true;
   // DOM
   let iframe: HTMLIFrameElement | null = null;
   let container: HTMLDivElement | null = null;
@@ -301,7 +310,7 @@ type SuggestionsPayload = {
       case "nexus:session-ready": {
         if (!organizationId) return;
 
-        const sid = payload?.sessionId;
+        const sid = payload?.contactSessionId; // ✅
         if (typeof sid !== "string" || sid.trim().length === 0) return;
 
         if (trackingStarted && trackingSessionId === sid) return;
@@ -311,11 +320,12 @@ type SuggestionsPayload = {
 
         initVisitorTracking({
           orgId: organizationId,
-          sessionId: sid,
+          contactSessionId: sid, // ✅
         });
 
         break;
       }
+
 
       default:
         break;
