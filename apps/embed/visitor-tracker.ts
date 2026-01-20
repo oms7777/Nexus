@@ -3,13 +3,13 @@
 
 type VisitorTrackingOptions = {
   orgId: string;
-  contactSessionId: string; // Convex Id<"contactSessions"> as string
+  contactSessionId: string; // Convex Id<"contactSessions"> as string (ou external id)
 };
 
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // debounce URL changes
-const DEBOUNCE_MS = 200;
+const DEBOUNCE_MS = 250;
 // safety spam guard
 const MIN_INTERVAL_MS = 800;
 
@@ -20,6 +20,19 @@ let unpatchHistory: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let lastSentAt = 0;
 let abort: AbortController | null = null;
+
+function isWidgetUrl(href: string) {
+  try {
+    const u = new URL(href);
+    // évite de stocker le widget url dans tes snapshots
+    return (
+      u.hostname === "widget.inboundless.co" ||
+      u.hostname === "app.inboundless.co" // optionnel si tu ne veux jamais tracker ton app
+    );
+  } catch {
+    return false;
+  }
+}
 
 function patchHistoryForUrlChanges(onChange: () => void) {
   const origPush = history.pushState;
@@ -70,6 +83,7 @@ async function postSnapshot(payload: {
       signal: abort.signal,
       body: JSON.stringify(payload),
       keepalive: true,
+      mode: "cors",
     });
   } catch {
     // best effort
@@ -87,6 +101,8 @@ function scheduleSend(opts: { orgId: string; sessionId: string }) {
     lastSentAt = t;
 
     const pageUrl = location.href;
+    if (!pageUrl || isWidgetUrl(pageUrl)) return;
+
     const title = document.title || undefined;
 
     postSnapshot({
@@ -132,7 +148,6 @@ export function destroyVisitorTracking() {
 export function initVisitorTracking({ orgId, contactSessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
-  if (window.self !== window.top) return; // never track inside widget iframe
 
   started = true;
   lastHref = location.href;
@@ -145,17 +160,27 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
     const href = location.href;
     if (!href || href === lastHref) return;
     lastHref = href;
-
     scheduleSend({ orgId, sessionId: contactSessionId });
   });
+
+  // Certains frameworks mettent à jour le title après navigation
+  const onVisible = () => {
+    if (document.visibilityState === "visible") {
+      scheduleSend({ orgId, sessionId: contactSessionId });
+    }
+  };
+  document.addEventListener("visibilitychange", onVisible);
 
   // pagehide best effort
   const onPageHide = () => {
     try {
+      const pageUrl = location.href;
+      if (!pageUrl || isWidgetUrl(pageUrl)) return;
+
       postSnapshot({
         organizationId: orgId,
         sessionId: contactSessionId,
-        pageUrl: location.href,
+        pageUrl,
         title: document.title || undefined,
         width: window.innerWidth,
         height: window.innerHeight,
@@ -169,6 +194,7 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   (destroyVisitorTracking as any) = () => {
     try {
       window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisible);
     } catch {}
     originalDestroy();
   };
