@@ -37,6 +37,7 @@ export function LiveVisitorView({
   sessionId,
   height = 360,
 }: {
+  orgId?: string;
   sessionId: string;
   height?: number;
 }) {
