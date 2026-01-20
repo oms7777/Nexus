@@ -28,25 +28,36 @@ export function LiveVisitorView({
   const latest = snaps[0];
   const meta = useMemo(() => safeJson(latest?.snapshot), [latest?.snapshot]);
 
-  const pageUrl: string | undefined = latest?.pageUrl ?? meta?.pageUrl;
-  const title: string | undefined = latest?.title ?? meta?.title;
+  const pageUrl: string | undefined =
+    latest?.pageUrl ?? meta?.pageUrl ?? meta?.href; // (au cas où)
+  const title: string | undefined =
+    latest?.title ?? meta?.title ?? meta?.pageTitle;
 
-  // ✅ thumbnail simple (V1) — pas besoin de stocker d'image côté backend
+  const hasAny = !!latest?.snapshot || !!latest?.pageUrl || !!meta?.pageUrl || !!meta?.href;
+
+  // Thumbnail simple V1 via thum.io
   const thumbUrl = pageUrl
     ? `https://image.thum.io/get/width/1200/${encodeURIComponent(pageUrl)}`
     : null;
 
   return (
-    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
-      {!pageUrl ? (
+    <div
+      className="relative overflow-hidden rounded-xl border bg-black/5"
+      style={{ height }}
+    >
+      {!hasAny ? (
         <div className="absolute inset-0 grid place-items-center text-xs text-muted-foreground">
           No page yet
         </div>
       ) : (
         <div className="absolute inset-0 flex flex-col">
-          <div className="px-3 py-2 border-b bg-background/80 backdrop-blur">
-            <div className="text-sm font-medium truncate">{title || "Current page"}</div>
-            <div className="text-xs text-muted-foreground truncate">{pageUrl}</div>
+          <div className="border-b bg-background/80 px-3 py-2 backdrop-blur">
+            <div className="truncate text-sm font-medium">
+              {title || "Current page"}
+            </div>
+            <div className="truncate text-xs text-muted-foreground">
+              {pageUrl || "—"}
+            </div>
           </div>
 
           <div className="relative flex-1 bg-muted">
