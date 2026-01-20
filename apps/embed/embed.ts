@@ -259,6 +259,10 @@ type SuggestionsPayload = {
 
     if (iframeLoaded && TARGET_ORIGIN && event.origin !== TARGET_ORIGIN) return;
     if (!type) return;
+  
+    if (type !== "nexus:session-ready") {
+      if (iframeLoaded && TARGET_ORIGIN && event.origin !== TARGET_ORIGIN) return;
+    }
 
     switch (type) {
       case "close":
