@@ -1,4 +1,3 @@
-// apps/embed/visitor-tracker.ts
 "use client";
 
 type VisitorTrackingOptions = {
@@ -24,11 +23,7 @@ let abort: AbortController | null = null;
 function isWidgetUrl(href: string) {
   try {
     const u = new URL(href);
-    // évite de stocker le widget url dans tes snapshots
-    return (
-      u.hostname === "widget.inboundless.co" ||
-      u.hostname === "app.inboundless.co" // optionnel si tu ne veux jamais tracker ton app
-    );
+    return u.hostname === "widget.inboundless.co" || u.hostname === "app.inboundless.co";
   } catch {
     return false;
   }
@@ -63,6 +58,32 @@ function patchHistoryForUrlChanges(onChange: () => void) {
   };
 }
 
+function sendPixel(payload: {
+  organizationId: string;
+  sessionId: string;
+  pageUrl: string;
+  title?: string;
+  width?: number;
+  height?: number;
+}) {
+  try {
+    const u = new URL(SNAPSHOT_URL);
+    u.searchParams.set("organizationId", payload.organizationId);
+    u.searchParams.set("sessionId", payload.sessionId);
+    u.searchParams.set("pageUrl", payload.pageUrl);
+    if (payload.title) u.searchParams.set("title", payload.title);
+    if (typeof payload.width === "number") u.searchParams.set("width", String(payload.width));
+    if (typeof payload.height === "number") u.searchParams.set("height", String(payload.height));
+    u.searchParams.set("_t", String(Date.now())); // anti-cache
+
+    const img = new Image();
+    img.referrerPolicy = "no-referrer";
+    img.src = u.toString();
+  } catch {
+    // best effort
+  }
+}
+
 async function postSnapshot(payload: {
   organizationId: string;
   sessionId: string;
@@ -76,6 +97,7 @@ async function postSnapshot(payload: {
   } catch {}
   abort = new AbortController();
 
+  // 1) try fetch POST
   try {
     await fetch(SNAPSHOT_URL, {
       method: "POST",
@@ -85,8 +107,10 @@ async function postSnapshot(payload: {
       keepalive: true,
       mode: "cors",
     });
+    return;
   } catch {
-    // best effort
+    // 2) fallback pixel GET (CSP-proof)
+    sendPixel(payload);
   }
 }
 
@@ -163,7 +187,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
     scheduleSend({ orgId, sessionId: contactSessionId });
   });
 
-  // Certains frameworks mettent à jour le title après navigation
   const onVisible = () => {
     if (document.visibilityState === "visible") {
       scheduleSend({ orgId, sessionId: contactSessionId });
@@ -171,7 +194,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   };
   document.addEventListener("visibilitychange", onVisible);
 
-  // pagehide best effort
   const onPageHide = () => {
     try {
       const pageUrl = location.href;
