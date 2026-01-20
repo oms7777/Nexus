@@ -1,15 +1,11 @@
-// usePresence.ts
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useAtomValue } from "jotai";
-import {
-  contactSessionIdAtomFamily,
-  organizationIdAtom,
-} from "../atoms/widget-atoms";
+import { contactSessionIdAtomFamily, organizationIdAtom } from "../atoms/widget-atoms";
 
 const HEARTBEAT_MS = 60_000;
-const URL_THROTTLE_MS = 800;
+const URL_PUSH_THROTTLE_MS = 800;
 
 function getTimezone(): string | undefined {
   try {
@@ -18,18 +14,15 @@ function getTimezone(): string | undefined {
     return undefined;
   }
 }
-
 function getViewport(): string | undefined {
   if (typeof window === "undefined") return undefined;
   return `${window.innerWidth}x${window.innerHeight}`;
 }
-
 function getScreen(): string | undefined {
   if (typeof window === "undefined" || !window.screen) return undefined;
   return `${window.screen.width}x${window.screen.height}`;
 }
 
-// ---- fetch public IP une seule fois (2s timeout) ----
 let cachedIp: string | null = null;
 async function getPublicIp(): Promise<string | null> {
   if (cachedIp) return cachedIp;
@@ -53,9 +46,7 @@ async function getPublicIp(): Promise<string | null> {
 async function postHeartbeat(payload: Record<string, unknown>) {
   const base = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!base) return;
-
   const url = `${base.replace(/\/$/, "")}/http/live/heartbeat`;
-
   await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -67,94 +58,67 @@ async function postHeartbeat(payload: Record<string, unknown>) {
 
 export function usePresence() {
   const organizationId = useAtomValue(organizationIdAtom);
-  const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(organizationId || ""),
-  );
+  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(organizationId || ""));
 
-  // stocke l’URL la plus récente reçue depuis l’embed (SPA-safe)
   const parentUrlRef = useRef<string | undefined>(undefined);
+  const lastPushAtRef = useRef<number>(0);
 
-  // throttle anti-spam en cas de routeur qui spam
-  const lastUrlPushAtRef = useRef<number>(0);
+  const send = useCallback(async () => {
+    if (!organizationId || !contactSessionId) return;
+
+    const clientIp = await getPublicIp();
+
+    const currentUrl =
+      parentUrlRef.current ??
+      (typeof window !== "undefined" ? window.location.href : undefined);
+
+    const payload = {
+      organizationId,
+      contactSessionId,
+
+      currentUrl,
+      referrer: typeof document !== "undefined" ? document.referrer : undefined,
+      language: typeof navigator !== "undefined" ? navigator.language : undefined,
+      timezone: getTimezone(),
+      viewportSize: getViewport(),
+      screenResolution: getScreen(),
+      clientIp: clientIp ?? undefined,
+      title: typeof document !== "undefined" ? document.title : undefined,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+      cookieEnabled: typeof navigator !== "undefined" ? navigator.cookieEnabled : undefined,
+      timezoneOffset: typeof Date !== "undefined" ? new Date().getTimezoneOffset() : undefined,
+    };
+
+    postHeartbeat(payload);
+  }, [organizationId, contactSessionId]);
 
   useEffect(() => {
     if (!organizationId || !contactSessionId) return;
 
-    let cancelled = false;
-
-    const buildPayload = async () => {
-      const clientIp = await getPublicIp();
-
-      return {
-        organizationId,
-        contactSessionId,
-
-        // ✅ priorité au parentUrl
-        currentUrl:
-          parentUrlRef.current ??
-          (typeof window !== "undefined" ? window.location.href : undefined),
-
-        referrer: typeof document !== "undefined" ? document.referrer : undefined,
-        language: typeof navigator !== "undefined" ? navigator.language : undefined,
-        timezone: getTimezone(),
-        viewportSize: getViewport(),
-        screenResolution: getScreen(),
-        clientIp: clientIp ?? undefined,
-        title: typeof document !== "undefined" ? document.title : undefined,
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
-        cookieEnabled:
-          typeof navigator !== "undefined" ? navigator.cookieEnabled : undefined,
-        timezoneOffset:
-          typeof Date !== "undefined" ? new Date().getTimezoneOffset() : undefined,
-      };
-    };
-
-    const send = async () => {
-      try {
-        const payload = await buildPayload();
-        if (cancelled) return;
-        postHeartbeat(payload);
-      } catch {
-        // noop
-      }
-    };
-
-    // ✅ Listener message: met à jour l’URL immédiatement quand l’host change de page
+    // 1) LISTEN PARENT LOCATION (SPA)
     const onMessage = (e: MessageEvent) => {
-      const d: any = e?.data;
-      if (!d || d.type !== "nexus:parent-location") return;
+      const d = e?.data;
+      if (!d || d.type !== "nexus:parent-location" || typeof d.href !== "string") return;
 
-      // ✅ compat: ancien format { type, href } + nouveau { type, payload: { href } }
-      const href =
-        (typeof d?.payload?.href === "string" && d.payload.href) ||
-        (typeof d?.href === "string" && d.href) ||
-        undefined;
+      parentUrlRef.current = d.href;
 
-      if (!href) return;
-
-      // évite d’écrire si ça n’a pas changé
-      if (parentUrlRef.current === href) return;
-      parentUrlRef.current = href;
-
-      // throttle
+      // push instantly (throttled)
       const now = Date.now();
-      if (now - lastUrlPushAtRef.current < URL_THROTTLE_MS) return;
-      lastUrlPushAtRef.current = now;
+      if (now - lastPushAtRef.current < URL_PUSH_THROTTLE_MS) return;
+      lastPushAtRef.current = now;
 
-      // ✅ push immediate (sinon tu attends 60s)
       send();
     };
 
     window.addEventListener("message", onMessage);
 
-    // tick initial + interval
+    // 2) initial tick + interval
     send();
     const id = setInterval(send, HEARTBEAT_MS);
 
     return () => {
-      cancelled = true;
-      clearInterval(id);
       window.removeEventListener("message", onMessage);
+      clearInterval(id);
     };
-  }, [organizationId, contactSessionId]);
+  }, [organizationId, contactSessionId, send]);
 }

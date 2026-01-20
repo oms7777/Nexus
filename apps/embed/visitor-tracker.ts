@@ -6,29 +6,20 @@ type VisitorTrackingOptions = {
   contactSessionId: string; // Convex Id<"contactSessions"> as string
 };
 
-// =======================
-// Config
-// =======================
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
-const SNAPSHOT_DEBOUNCE_MS = 400;
-const MIN_SNAPSHOT_INTERVAL_MS = 1500;
 
-// =======================
-// State
-// =======================
+// debounce URL changes
+const DEBOUNCE_MS = 200;
+// safety spam guard
+const MIN_INTERVAL_MS = 800;
+
 let started = false;
-
 let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
 
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
 let lastSentAt = 0;
-
 let abort: AbortController | null = null;
-
-function now() {
-  return Date.now();
-}
 
 function patchHistoryForUrlChanges(onChange: () => void) {
   const origPush = history.pushState;
@@ -59,7 +50,7 @@ function patchHistoryForUrlChanges(onChange: () => void) {
   };
 }
 
-async function sendSnapshot(payload: {
+async function postSnapshot(payload: {
   organizationId: string;
   sessionId: string;
   pageUrl: string;
@@ -81,24 +72,24 @@ async function sendSnapshot(payload: {
       keepalive: true,
     });
   } catch {
-    // best-effort
+    // best effort
   }
 }
 
-function scheduleSnapshot(opts: { orgId: string; sessionId: string }) {
-  if (debounceTimer) clearTimeout(debounceTimer);
+function scheduleSend(opts: { orgId: string; sessionId: string }) {
+  if (timer) clearTimeout(timer);
 
-  debounceTimer = setTimeout(() => {
-    debounceTimer = null;
+  timer = setTimeout(() => {
+    timer = null;
 
-    const t = now();
-    if (t - lastSentAt < MIN_SNAPSHOT_INTERVAL_MS) return;
+    const t = Date.now();
+    if (t - lastSentAt < MIN_INTERVAL_MS) return;
     lastSentAt = t;
 
     const pageUrl = location.href;
     const title = document.title || undefined;
 
-    sendSnapshot({
+    postSnapshot({
       organizationId: opts.orgId,
       sessionId: opts.sessionId,
       pageUrl,
@@ -106,7 +97,7 @@ function scheduleSnapshot(opts: { orgId: string; sessionId: string }) {
       width: window.innerWidth,
       height: window.innerHeight,
     });
-  }, SNAPSHOT_DEBOUNCE_MS);
+  }, DEBOUNCE_MS);
 }
 
 function cleanup() {
@@ -117,12 +108,12 @@ function cleanup() {
   }
   unpatchHistory = null;
 
-  if (debounceTimer) {
+  if (timer) {
     try {
-      clearTimeout(debounceTimer);
+      clearTimeout(timer);
     } catch {}
   }
-  debounceTimer = null;
+  timer = null;
 
   try {
     abort?.abort();
@@ -141,33 +132,30 @@ export function destroyVisitorTracking() {
 export function initVisitorTracking({ orgId, contactSessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
-
-  // never track inside widget iframe
-  if (window.self !== window.top) return;
+  if (window.self !== window.top) return; // never track inside widget iframe
 
   started = true;
   lastHref = location.href;
 
-  // 1) send initial snapshot (page actuelle)
-  scheduleSnapshot({ orgId, sessionId: contactSessionId });
+  // initial send
+  scheduleSend({ orgId, sessionId: contactSessionId });
 
-  // 2) listen SPA navigations
+  // SPA nav
   unpatchHistory = patchHistoryForUrlChanges(() => {
     const href = location.href;
     if (!href || href === lastHref) return;
     lastHref = href;
 
-    scheduleSnapshot({ orgId, sessionId: contactSessionId });
+    scheduleSend({ orgId, sessionId: contactSessionId });
   });
 
-  // 3) also send on visibility/pagehide (best effort)
+  // pagehide best effort
   const onPageHide = () => {
     try {
-      const pageUrl = location.href;
-      sendSnapshot({
+      postSnapshot({
         organizationId: orgId,
         sessionId: contactSessionId,
-        pageUrl,
+        pageUrl: location.href,
         title: document.title || undefined,
         width: window.innerWidth,
         height: window.innerHeight,
@@ -177,7 +165,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
 
   window.addEventListener("pagehide", onPageHide);
 
-  // attach cleanup hook
   const originalDestroy = destroyVisitorTracking;
   (destroyVisitorTracking as any) = () => {
     try {
