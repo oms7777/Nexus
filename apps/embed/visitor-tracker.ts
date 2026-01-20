@@ -1,10 +1,11 @@
+// apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "rrweb/typings/types";
 import Pusher, { type Channel } from "pusher-js";
 
 type VisitorTrackingOptions = {
   orgId: string;
-  contactSessionId: string;
+  contactSessionId: string; // IMPORTANT: must be Convex Id<"contactSessions"> as string
 };
 
 // =======================
@@ -28,18 +29,20 @@ const SNAPSHOT_DEBOUNCE_MS = 300;
 // URL-change -> restart recorder (reliable full snapshot)
 const URL_CHANGE_DEBOUNCE_MS = 250;
 const MIN_RESTART_INTERVAL_MS = 3000;
-const MAX_SNAPSHOT_BUFFER_EVENTS = 2000;
 
 // activity / idle control
 const IDLE_PAUSE_MS = 60_000;
 
 // safety limits
-const MAX_SESSION_MS = 12 * 60 * 1000; // rrweb max time ON
+const MAX_SESSION_MS = 12 * 60 * 1000; // max rrweb watching time
 const MAX_TOTAL_EVENTS = 25_000;
 
 // perf watchdog (stop rrweb if host is too slow)
 const WATCHDOG_INTERVAL_MS = 30_000;
 const MAX_LONGTASKS_PER_WINDOW = 8;
+
+// starter snapshot (small warmup so LiveView has something)
+const STARTER_SNAPSHOT_TIMEOUT_MS = 2500;
 
 // =======================
 // State
@@ -55,6 +58,10 @@ let recordStopFn: listenerHandler | undefined;
 let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 let lastMeta: eventWithTime | null = null;
+
+// rrweb mode
+let rrwebWatching = false; // TRUE only when admin is watching
+let allowIncrementals = false; // stream incrementals only when watching
 
 // cursor
 let onMoveRef: ((e: MouseEvent) => void) | null = null;
@@ -80,9 +87,8 @@ let longTaskObserver: PerformanceObserver | null = null;
 let longTaskCount = 0;
 let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
-// rrweb ON duration cap
-let rrwebStartedAt = 0;
-let rrwebStopTimer: ReturnType<typeof setInterval> | null = null;
+// session stop timer
+let sessionStopTimer: ReturnType<typeof setInterval> | null = null;
 
 // activity
 let lastActivityAt = Date.now();
@@ -114,6 +120,10 @@ function shouldPauseHeavy() {
 function flushBatchNow() {
   if (!channelRef || !snapshotSent) return;
   if (!batch.length) return;
+  if (!allowIncrementals) {
+    batch.splice(0, batch.length);
+    return;
+  }
 
   const payload = { events: batch.splice(0, batch.length) };
   const json = JSON.stringify(payload);
@@ -155,7 +165,7 @@ function persistSnapshotToDbDebounced(opts: {
         signal: snapshotAbort.signal,
         body: JSON.stringify({
           organizationId: opts.orgId,
-          sessionId: opts.sessionId,
+          sessionId: opts.sessionId, // MUST be Convex Id string
           events: opts.events,
         }),
       });
@@ -188,16 +198,7 @@ function stopRrwebOnly() {
   } catch {}
   stopRecording = null;
   recordStopFn = undefined;
-
   resetRecorderStateForNewPage();
-
-  rrwebStartedAt = 0;
-  if (rrwebStopTimer) {
-    try {
-      clearInterval(rrwebStopTimer);
-    } catch {}
-  }
-  rrwebStopTimer = null;
 }
 
 function startRrwebRecorder(orgId: string, sessionId: string) {
@@ -205,7 +206,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
   totalEvents = 0;
   lastActivityAt = now();
-  rrwebStartedAt = now();
 
   const stop: listenerHandler | undefined = record({
     sampling: {
@@ -230,6 +230,8 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
       totalEvents++;
       if (totalEvents > MAX_TOTAL_EVENTS) {
         stopRrwebOnly();
+        rrwebWatching = false;
+        allowIncrementals = false;
         return;
       }
 
@@ -245,14 +247,10 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       const isFullSnapshot = type === 2;
 
-      if (!snapshotSent) {
-        snapshotBuffer.push(event);
-        if (snapshotBuffer.length > MAX_SNAPSHOT_BUFFER_EVENTS) {
-          snapshotBuffer = snapshotBuffer.slice(-MAX_SNAPSHOT_BUFFER_EVENTS);
-        }
-      }
+      if (!snapshotSent) snapshotBuffer.push(event);
 
       if (isFullSnapshot) {
+        // First full snapshot => push to DB + to channel
         if (!snapshotSent) {
           snapshotSent = true;
 
@@ -271,6 +269,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
           return;
         }
 
+        // Later full snapshots (rare) => treat as refresh snapshot
         const payloadEvents = lastMeta ? [lastMeta, event] : [event];
         persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
@@ -281,8 +280,10 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         return;
       }
 
+      // Incrementals only when watching
       if (!snapshotSent) return;
       if (!channelRef) return;
+      if (!allowIncrementals) return;
 
       batch.push(event);
 
@@ -298,7 +299,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
   recordStopFn = stop;
   stopRecording = stop ? (() => stop()) : null;
 
-  // force a first snapshot quickly
+  // Best-effort take snapshot quickly
   const doSnapshot = () => {
     if (!stopRecording) return;
     try {
@@ -308,23 +309,15 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
   if ("requestIdleCallback" in window) {
     // @ts-ignore
-    (window as any).requestIdleCallback(doSnapshot, { timeout: 1500 });
+    (window as any).requestIdleCallback(doSnapshot, { timeout: 2000 });
   } else {
-    setTimeout(doSnapshot, 800);
+    setTimeout(doSnapshot, 1200);
   }
-
-  // hard cap rrweb ON time
-  rrwebStopTimer = setInterval(() => {
-    if (!started) return;
-    if (!stopRecording) return;
-    if (rrwebStartedAt && now() - rrwebStartedAt > MAX_SESSION_MS) {
-      stopRrwebOnly();
-    }
-  }, 10_000);
 }
 
 function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
   if (!channelRef) return;
+  if (!rrwebWatching) return;
   if (!stopRecording) return;
 
   if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
@@ -429,8 +422,10 @@ function startPerfWatchdog() {
     if (document.hidden) return;
 
     if (longTaskCount >= MAX_LONGTASKS_PER_WINDOW) {
-      // protect host: stop rrweb, keep cursor
+      // Stop rrweb completely to protect host
       stopRrwebOnly();
+      rrwebWatching = false;
+      allowIncrementals = false;
     }
 
     longTaskCount = 0;
@@ -487,30 +482,7 @@ function detachUnloadHandlers() {
 }
 
 // =======================
-// Watcher detection (presence)
-// =======================
-function hasWatcher(ch: any) {
-  // presence channels expose members.count
-  const c = Number(ch?.members?.count ?? 0);
-  return c >= 2;
-}
-
-function updateWatchingState(orgId: string, sessionId: string) {
-  const ch: any = channelRef;
-  if (!ch) return;
-
-  const watching = hasWatcher(ch);
-
-  // rrweb ON only if someone is watching
-  if (watching) {
-    if (!stopRecording) startRrwebRecorder(orgId, sessionId);
-  } else {
-    if (stopRecording) stopRrwebOnly();
-  }
-}
-
-// =======================
-// Full cleanup
+// Cleanup
 // =======================
 function cleanup() {
   stopRrwebOnly();
@@ -567,6 +539,13 @@ function cleanup() {
   }
   watchdogTimer = null;
 
+  if (sessionStopTimer) {
+    try {
+      clearInterval(sessionStopTimer);
+    } catch {}
+  }
+  sessionStopTimer = null;
+
   detachUnloadHandlers();
 
   try {
@@ -588,6 +567,9 @@ function cleanup() {
 
   totalEvents = 0;
   lastActivityAt = now();
+
+  rrwebWatching = false;
+  allowIncrementals = false;
 
   started = false;
 }
@@ -611,6 +593,9 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   lastActivityAt = now();
   totalEvents = 0;
 
+  rrwebWatching = false;
+  allowIncrementals = false;
+
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
     forceTLS: true,
@@ -632,20 +617,50 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   channel.bind("pusher:subscription_succeeded", () => {
     startPerfWatchdog();
     setupCursor();
-    attachUnloadHandlers();
 
-    // ✅ Presence-driven rrweb (NO server-start-rrweb needed)
-    updateWatchingState(orgId, contactSessionId);
+    // ✅ STARTER SNAPSHOT (no incrementals): gives LiveView something to render, but won’t freeze
+    allowIncrementals = false;
+    startRrwebRecorder(orgId, contactSessionId);
 
-    channel.bind("pusher:member_added", () => {
-      updateWatchingState(orgId, contactSessionId);
+    // stop rrweb soon after starter snapshot window
+    setTimeout(() => {
+      if (!rrwebWatching) {
+        stopRrwebOnly();
+      }
+    }, STARTER_SNAPSHOT_TIMEOUT_MS);
+
+    // ✅ WATCHING MODE controlled by dashboard
+    channel.bind("server-start-rrweb", () => {
+      if (rrwebWatching) return;
+      rrwebWatching = true;
+      allowIncrementals = true;
+      startRrwebRecorder(orgId, contactSessionId);
     });
 
-    channel.bind("pusher:member_removed", () => {
-      updateWatchingState(orgId, contactSessionId);
+    channel.bind("server-stop-rrweb", () => {
+      rrwebWatching = false;
+      allowIncrementals = false;
+      stopRrwebOnly();
     });
 
-    // SPA URL changes => restart rrweb only when rrweb is ON
+    // stop rrweb after MAX_SESSION_MS (only when watching)
+    const startedAt = now();
+    sessionStopTimer = setInterval(() => {
+      if (!started) return;
+      if (!rrwebWatching) return;
+
+      if (now() - startedAt > MAX_SESSION_MS) {
+        rrwebWatching = false;
+        allowIncrementals = false;
+        stopRrwebOnly();
+        if (sessionStopTimer) {
+          clearInterval(sessionStopTimer);
+          sessionStopTimer = null;
+        }
+      }
+    }, 10_000);
+
+    // SPA URL changes => restart rrweb only when watching
     unpatchHistory = patchHistoryForUrlChanges(() => {
       const href = location.href;
       if (!href || href === lastHref) return;
@@ -653,9 +668,11 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
       lastHref = href;
       markActivity();
 
-      if (!stopRecording) return;
+      if (!rrwebWatching) return;
       restartRrwebRecorderDebounced(orgId, contactSessionId);
     });
+
+    attachUnloadHandlers();
   });
 
   channel.bind("pusher:subscription_error", () => cleanup());
