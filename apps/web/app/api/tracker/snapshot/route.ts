@@ -32,7 +32,7 @@ export async function OPTIONS(req: Request) {
 
 // Heuristique simple: si ça ressemble à un external id / uuid / token long => mapping
 function looksLikeExternalId(s: string) {
-  return s.includes("-") || s.length > 40;
+  return s.includes("-");
 }
 
 export async function POST(req: Request) {
