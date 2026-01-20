@@ -8,7 +8,6 @@ import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
 import { Id } from "@workspace/backend/_generated/dataModel";
-import { SnapshotsStrip } from "../dashboard/ui/components/SnapshotsStrip";
 
 function matches(v: Visitor, q: string) {
   if (!q) return true;
@@ -63,21 +62,13 @@ export default function LiveMapView() {
     [filtered, selectedId],
   );
 
-  // ✅ IMPORTANT: currentUrl doit venir du dernier snapshot (source of truth)
   const selectedSessionId = selected?.contactSessionId
     ? (selected.contactSessionId as Id<"contactSessions">)
     : null;
 
-  const latestSnap =
-    useQuery(
-      api.public.snapshots.listRecent,
-      selectedSessionId ? { sessionId: selectedSessionId, limit: 1 } : "skip",
-    ) ?? [];
-
-  const currentUrlFromSnap = latestSnap[0]?.pageUrl;
-
-  const headerUrl =
-    (currentUrlFromSnap ?? selected?.currentUrl ?? "").split("?")[0] || "—";
+  const pages: string[] = Array.isArray((selected as any)?.pages)
+    ? ((selected as any).pages as string[])
+    : [];
 
   return (
     <div className="flex h-full w-full">
@@ -124,21 +115,45 @@ export default function LiveMapView() {
         <LiveMap visitors={filtered as Visitor[]} selectedId={selectedId} />
       </div>
 
-      {/* Right panel (live stream) */}
+      {/* Right panel (V1 snapshot + pages visited) */}
       {selected && selectedSessionId && (
         <aside className="w-[420px] border-l bg-background p-3 hidden xl:block">
           <div className="mb-2">
             <div className="text-sm font-medium">{selected.name || "Visitor"}</div>
             <div className="text-xs text-muted-foreground">
               {selected.city ?? "—"}
-              {selected.countryCode ? `, ${selected.countryCode}` : ""} ·{" "}
-              {headerUrl}
+              {selected.countryCode ? `, ${selected.countryCode}` : ""}
             </div>
           </div>
 
-          <LiveVisitorView orgId={orgId} sessionId={selectedSessionId} />
+          {/* ✅ V1: static “snapshot” (iframe preview) */}
+          <LiveVisitorView sessionId={selectedSessionId} />
 
-          <SnapshotsStrip sessionId={selectedSessionId} limit={6} />
+          {/* ✅ Pages visited (from contactSessions.metadata.pages) */}
+          <div className="mt-3">
+            <div className="text-xs font-medium text-muted-foreground mb-2">
+              Pages visited
+            </div>
+
+            {pages.length ? (
+              <div className="space-y-2">
+                {pages.slice(0, 10).map((url, idx) => (
+                  <a
+                    key={`${url}_${idx}`}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
+                    title={url}
+                  >
+                    <div className="truncate">{url}</div>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">No pages yet</div>
+            )}
+          </div>
         </aside>
       )}
     </div>

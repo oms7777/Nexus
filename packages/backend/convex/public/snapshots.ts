@@ -1,21 +1,21 @@
+// packages/backend/convex/public/snapshots.ts
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 
-// Guard simple (Convex runtime: éviter TextEncoder)
-const MAX_SNAPSHOT_CHARS = 2_000_000; // ~2MB-ish worst case (ajuste si besoin)
-const KEEP_LAST = 25;
+const MAX_SNAPSHOT_CHARS = 50_000; // V1: tiny payload only
+const KEEP_LAST = 50;
 
 export const save = mutation({
   args: {
     organizationId: v.string(),
     sessionId: v.id("contactSessions"),
 
-    // ✅ compat: optionnels (au cas où ton API route les envoie encore)
     pageUrl: v.optional(v.string()),
     title: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
 
+    // V1: keep as string (compat) but it’s not rrweb anymore
     snapshot: v.string(),
   },
   handler: async (ctx, args) => {
@@ -23,7 +23,6 @@ export const save = mutation({
 
     if (!snapshot) return { ok: false };
 
-    // ✅ guard simple (pas de TextEncoder ici)
     if (snapshot.length > MAX_SNAPSHOT_CHARS) {
       return { ok: false, error: "Snapshot too large" };
     }
@@ -36,10 +35,9 @@ export const save = mutation({
       title,
       width,
       height,
-      snapshot,
+      snapshot, // "v1" or small json
     });
 
-    // ✅ prune: garde uniquement les derniers KEEP_LAST
     const existing = await ctx.db
       .query("sessionSnapshots")
       .withIndex("by_session", (q) => q.eq("sessionId", sessionId))

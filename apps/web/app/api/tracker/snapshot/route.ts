@@ -1,16 +1,15 @@
-// apps/app/src/app/api/tracker/snapshot/route.ts (ou ton chemin exact)
+// apps/app/src/app/api/tracker/snapshot/route.ts
 import { NextResponse } from "next/server";
 import { api } from "@workspace/backend/_generated/api";
 import { fetchMutation } from "convex/nextjs";
 import type { Id } from "@workspace/backend/_generated/dataModel";
-import type { eventWithTime } from "rrweb/typings/types";
 
 export const runtime = "nodejs";
 
 /**
- * ⚠️ CORS:
- * - si tu utilises credentials, il faut une allowlist stricte.
- * - ici on garde ton comportement actuel (origin reflect) mais on évite "*".
+ * CORS:
+ * - origin reflect (pas de "*")
+ * - compatible iframe/embed
  */
 function makeCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") || "";
@@ -18,15 +17,12 @@ function makeCorsHeaders(req: Request) {
     req.headers.get("access-control-request-headers") ?? "content-type";
 
   const headers = new Headers();
-
-  // si pas d'origin (server-to-server), on n'invente pas "*"
   if (origin) headers.set("Access-Control-Allow-Origin", origin);
 
   headers.set("Access-Control-Allow-Credentials", "true");
   headers.set("Access-Control-Allow-Methods", "POST,OPTIONS");
   headers.set("Access-Control-Allow-Headers", requestHeaders);
   headers.set("Vary", "Origin, Access-Control-Request-Headers");
-
   return headers;
 }
 
@@ -34,25 +30,8 @@ export async function OPTIONS(req: Request) {
   return new NextResponse(null, { status: 204, headers: makeCorsHeaders(req) });
 }
 
-function pickMetaFromEvents(events: eventWithTime[]) {
-  const meta = events.find((e: any) => e?.type === 4) as any; // Meta
-  const full = events.find((e: any) => e?.type === 2) as any; // FullSnapshot
-  const first = events[0] as any;
-
-  const src = meta?.data ?? full?.data ?? first?.data ?? {};
-
-  return {
-    pageUrl: (src?.href as string | undefined) ?? undefined,
-    title: (src?.title as string | undefined) ?? undefined,
-    width: (src?.width as number | undefined) ?? undefined,
-    height: (src?.height as number | undefined) ?? undefined,
-  };
-}
-
-// Heuristique simple: Convex Id ressemble souvent à un token non-uuid, sans tirets.
-// On ne peut pas valider parfaitement sans appeler Convex, donc on supporte fallback.
+// Heuristique simple: si ça ressemble à un external id / uuid / token long => mapping
 function looksLikeExternalId(s: string) {
-  // uuid v4 / ids avec tirets
   return s.includes("-") || s.length > 40;
 }
 
@@ -64,44 +43,49 @@ export async function POST(req: Request) {
 
     const organizationId = body?.organizationId as string | undefined;
     const sessionIdRaw = body?.sessionId as string | undefined;
-    const events = body?.events as eventWithTime[] | undefined;
 
-    if (!organizationId || !sessionIdRaw || !Array.isArray(events) || events.length === 0) {
+    const pageUrl = body?.pageUrl as string | undefined;
+    const title = body?.title as string | undefined;
+    const width =
+      typeof body?.width === "number" ? (body.width as number) : undefined;
+    const height =
+      typeof body?.height === "number" ? (body.height as number) : undefined;
+
+    if (!organizationId || !sessionIdRaw || !pageUrl) {
       headers.set("Content-Type", "application/json");
       return new NextResponse(
         JSON.stringify({ ok: false, error: "Invalid payload" }),
-        { status: 400, headers }
+        { status: 400, headers },
       );
     }
 
-    // ✅ limite taille JSON (bien plus fiable que events.length)
-    const snapshotStr = JSON.stringify(events);
-
-    // Ajuste selon ton budget: 1.5–2MB en string max côté API
-    // (Convex garde aussi une limite)
-    if (snapshotStr.length > 2_000_000) {
-      headers.set("Content-Type", "application/json");
-      return new NextResponse(
-        JSON.stringify({ ok: false, error: "Snapshot too large" }),
-        { status: 413, headers }
-      );
-    }
-
-    // ✅ obtenir un vrai Id<contactSessions>
+    // ✅ obtenir un vrai Id<"contactSessions">
     let contactSessionId: Id<"contactSessions">;
 
     if (looksLikeExternalId(sessionIdRaw)) {
       // Mode B: external session id → map vers Convex Id
-      contactSessionId = await fetchMutation(api.public.contactSessions.ensureByExternalId, {
-        organizationId,
-        externalSessionId: sessionIdRaw,
-      });
+      contactSessionId = await fetchMutation(
+        api.public.contactSessions.ensureByExternalId,
+        {
+          organizationId,
+          externalSessionId: sessionIdRaw,
+        },
+      );
     } else {
-      // Mode A: on tente direct
+      // Mode A: déjà un Convex Id
       contactSessionId = sessionIdRaw as Id<"contactSessions">;
     }
 
-    const { pageUrl, title, width, height } = pickMetaFromEvents(events);
+    // ✅ V1: snapshot ultra léger (pas rrweb)
+    // On garde un champ snapshot string pour compat schema.
+    const snapshotStr = JSON.stringify({
+      v: 1,
+      pageUrl,
+      title,
+      width,
+      height,
+      ts: Date.now(),
+    });
 
     await fetchMutation(api.public.snapshots.save, {
       organizationId,
@@ -116,7 +100,6 @@ export async function POST(req: Request) {
     headers.set("Content-Type", "application/json");
     return new NextResponse(JSON.stringify({ ok: true }), { status: 200, headers });
   } catch (err: any) {
-    // ✅ renvoie un message utile
     console.error("[snapshot] POST error", err);
 
     headers.set("Content-Type", "application/json");
@@ -126,7 +109,7 @@ export async function POST(req: Request) {
         error: "Internal error",
         detail: typeof err?.message === "string" ? err.message : undefined,
       }),
-      { status: 500, headers }
+      { status: 500, headers },
     );
   }
 }

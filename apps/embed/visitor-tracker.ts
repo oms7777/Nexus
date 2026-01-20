@@ -1,340 +1,35 @@
 // apps/embed/visitor-tracker.ts
-import { record } from "rrweb";
-import type { eventWithTime, listenerHandler } from "rrweb/typings/types";
-import Pusher, { type Channel } from "pusher-js";
+"use client";
 
 type VisitorTrackingOptions = {
   orgId: string;
-  contactSessionId: string; // IMPORTANT: must be Convex Id<"contactSessions"> as string
+  contactSessionId: string; // Convex Id<"contactSessions"> as string
 };
 
 // =======================
 // Config
 // =======================
-const PUSHER_KEY = "913d0c824be3b5eb38bc";
-const PUSHER_CLUSTER = "eu";
-const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
-
-// Pusher client events payload limit ~10KB
-const MAX_PAYLOAD_BYTES = 9_000;
-
-// batching
-const BATCH_INTERVAL_MS = 250;
-const MAX_BATCH_EVENTS = 25;
-
-// snapshot persist debounce
-const SNAPSHOT_DEBOUNCE_MS = 300;
-
-// URL-change -> restart recorder (reliable full snapshot)
-const URL_CHANGE_DEBOUNCE_MS = 250;
-const MIN_RESTART_INTERVAL_MS = 3000;
-
-// activity / idle control
-const IDLE_PAUSE_MS = 60_000;
-
-// safety limits
-const MAX_SESSION_MS = 12 * 60 * 1000; // max rrweb watching time
-const MAX_TOTAL_EVENTS = 25_000;
-
-// perf watchdog (stop rrweb if host is too slow)
-const WATCHDOG_INTERVAL_MS = 30_000;
-const MAX_LONGTASKS_PER_WINDOW = 8;
-
-// starter snapshot (small warmup so LiveView has something)
-const STARTER_SNAPSHOT_TIMEOUT_MS = 2500;
+const SNAPSHOT_DEBOUNCE_MS = 400;
+const MIN_SNAPSHOT_INTERVAL_MS = 1500;
 
 // =======================
 // State
 // =======================
 let started = false;
-let pusherRef: Pusher | null = null;
-let channelRef: Channel | null = null;
 
-// rrweb
-let stopRecording: (() => void) | null = null;
-let recordStopFn: listenerHandler | undefined;
-
-let snapshotSent = false;
-let snapshotBuffer: eventWithTime[] = [];
-let lastMeta: eventWithTime | null = null;
-
-// rrweb mode
-let rrwebWatching = false; // TRUE only when admin is watching
-let allowIncrementals = false; // stream incrementals only when watching
-
-// cursor
-let onMoveRef: ((e: MouseEvent) => void) | null = null;
-let rafCursor = 0;
-let lastCursor: { x: number; y: number } | null = null;
-
-// incremental batching
-let batch: eventWithTime[] = [];
-let batchTimer: ReturnType<typeof setTimeout> | null = null;
-
-// snapshot persist debounce + abort
-let snapshotDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-let snapshotAbort: AbortController | null = null;
-
-// URL-change hook
 let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
-let urlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-let lastRestartAt = 0;
 
-// perf watchdog
-let longTaskObserver: PerformanceObserver | null = null;
-let longTaskCount = 0;
-let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSentAt = 0;
 
-// session stop timer
-let sessionStopTimer: ReturnType<typeof setInterval> | null = null;
-
-// activity
-let lastActivityAt = Date.now();
-let totalEvents = 0;
-
-// unload handlers
-let onBeforeUnload: (() => void) | null = null;
-let onPageHide: (() => void) | null = null;
-
-function safeBytes(str: string) {
-  return new TextEncoder().encode(str).length;
-}
+let abort: AbortController | null = null;
 
 function now() {
   return Date.now();
 }
 
-function markActivity() {
-  lastActivityAt = now();
-}
-
-function shouldPauseHeavy() {
-  return now() - lastActivityAt > IDLE_PAUSE_MS;
-}
-
-// =======================
-// Networking
-// =======================
-function flushBatchNow() {
-  if (!channelRef || !snapshotSent) return;
-  if (!batch.length) return;
-  if (!allowIncrementals) {
-    batch.splice(0, batch.length);
-    return;
-  }
-
-  const payload = { events: batch.splice(0, batch.length) };
-  const json = JSON.stringify(payload);
-
-  if (safeBytes(json) > MAX_PAYLOAD_BYTES) return;
-
-  try {
-    channelRef.trigger("client-rrweb", payload);
-  } catch {}
-}
-
-function scheduleFlush() {
-  if (batchTimer) return;
-  batchTimer = setTimeout(() => {
-    batchTimer = null;
-    flushBatchNow();
-  }, BATCH_INTERVAL_MS);
-}
-
-function persistSnapshotToDbDebounced(opts: {
-  orgId: string;
-  sessionId: string;
-  events: eventWithTime[];
-}) {
-  if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
-
-  snapshotDebounceTimer = setTimeout(async () => {
-    snapshotDebounceTimer = null;
-
-    try {
-      snapshotAbort?.abort();
-    } catch {}
-    snapshotAbort = new AbortController();
-
-    try {
-      await fetch(SNAPSHOT_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: snapshotAbort.signal,
-        body: JSON.stringify({
-          organizationId: opts.orgId,
-          sessionId: opts.sessionId, // MUST be Convex Id string
-          events: opts.events,
-        }),
-      });
-    } catch {
-      // best effort
-    }
-  }, SNAPSHOT_DEBOUNCE_MS);
-}
-
-// =======================
-// Recorder lifecycle
-// =======================
-function resetRecorderStateForNewPage() {
-  snapshotSent = false;
-  snapshotBuffer = [];
-  lastMeta = null;
-
-  batch = [];
-  if (batchTimer) {
-    try {
-      clearTimeout(batchTimer);
-    } catch {}
-  }
-  batchTimer = null;
-}
-
-function stopRrwebOnly() {
-  try {
-    stopRecording?.();
-  } catch {}
-  stopRecording = null;
-  recordStopFn = undefined;
-  resetRecorderStateForNewPage();
-}
-
-function startRrwebRecorder(orgId: string, sessionId: string) {
-  stopRrwebOnly();
-
-  totalEvents = 0;
-  lastActivityAt = now();
-
-  const stop: listenerHandler | undefined = record({
-    sampling: {
-      mousemove: false as any, // cursor streamed separately
-      mouseInteraction: true,
-      scroll: 200,
-      input: "last",
-    },
-    slimDOMOptions: {
-      script: true,
-      comment: true,
-      headFavicon: true,
-      headMetaDescKeywords: true,
-      headMetaSocial: true,
-      headMetaRobots: true,
-    } as any,
-
-    emit(event: eventWithTime) {
-      if (document.hidden) return;
-      if (!stopRecording) return;
-
-      totalEvents++;
-      if (totalEvents > MAX_TOTAL_EVENTS) {
-        stopRrwebOnly();
-        rrwebWatching = false;
-        allowIncrementals = false;
-        return;
-      }
-
-      if (shouldPauseHeavy()) {
-        const t = (event as any)?.type;
-        if (t !== 4 && t !== 2) return;
-      }
-
-      markActivity();
-
-      const type = (event as any)?.type;
-      if (type === 4) lastMeta = event;
-
-      const isFullSnapshot = type === 2;
-
-      if (!snapshotSent) snapshotBuffer.push(event);
-
-      if (isFullSnapshot) {
-        // First full snapshot => push to DB + to channel
-        if (!snapshotSent) {
-          snapshotSent = true;
-
-          const snap = [...snapshotBuffer];
-          snapshotBuffer = [];
-
-          const hasMeta = snap.some((e: any) => e?.type === 4);
-          const payloadEvents = !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
-
-          persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
-
-          try {
-            channelRef?.trigger("client-snapshot", { events: payloadEvents });
-          } catch {}
-
-          return;
-        }
-
-        // Later full snapshots (rare) => treat as refresh snapshot
-        const payloadEvents = lastMeta ? [lastMeta, event] : [event];
-        persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
-
-        try {
-          channelRef?.trigger("client-snapshot", { events: payloadEvents });
-        } catch {}
-
-        return;
-      }
-
-      // Incrementals only when watching
-      if (!snapshotSent) return;
-      if (!channelRef) return;
-      if (!allowIncrementals) return;
-
-      batch.push(event);
-
-      if (batch.length >= MAX_BATCH_EVENTS) {
-        flushBatchNow();
-        return;
-      }
-
-      scheduleFlush();
-    },
-  });
-
-  recordStopFn = stop;
-  stopRecording = stop ? (() => stop()) : null;
-
-  // Best-effort take snapshot quickly
-  const doSnapshot = () => {
-    if (!stopRecording) return;
-    try {
-      (record as any).takeFullSnapshot?.();
-    } catch {}
-  };
-
-  if ("requestIdleCallback" in window) {
-    // @ts-ignore
-    (window as any).requestIdleCallback(doSnapshot, { timeout: 2000 });
-  } else {
-    setTimeout(doSnapshot, 1200);
-  }
-}
-
-function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
-  if (!channelRef) return;
-  if (!rrwebWatching) return;
-  if (!stopRecording) return;
-
-  if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
-  urlDebounceTimer = setTimeout(() => {
-    urlDebounceTimer = null;
-
-    const t = now();
-    if (t - lastRestartAt < MIN_RESTART_INTERVAL_MS) return;
-    lastRestartAt = t;
-
-    startRrwebRecorder(orgId, sessionId);
-  }, URL_CHANGE_DEBOUNCE_MS);
-}
-
-// =======================
-// History patch
-// =======================
 function patchHistoryForUrlChanges(onChange: () => void) {
   const origPush = history.pushState;
   const origReplace = history.replaceState;
@@ -364,129 +59,57 @@ function patchHistoryForUrlChanges(onChange: () => void) {
   };
 }
 
-// =======================
-// Cursor
-// =======================
-function setupCursor() {
-  if (onMoveRef) {
-    try {
-      document.removeEventListener("mousemove", onMoveRef);
-    } catch {}
-  }
-  onMoveRef = null;
+async function sendSnapshot(payload: {
+  organizationId: string;
+  sessionId: string;
+  pageUrl: string;
+  title?: string;
+  width?: number;
+  height?: number;
+}) {
+  try {
+    abort?.abort();
+  } catch {}
+  abort = new AbortController();
 
-  onMoveRef = (e: MouseEvent) => {
-    if (!channelRef) return;
-    if (document.hidden) return;
-
-    markActivity();
-
-    lastCursor = {
-      x: e.clientX / Math.max(1, window.innerWidth),
-      y: e.clientY / Math.max(1, window.innerHeight),
-    };
-
-    if (rafCursor) return;
-    rafCursor = requestAnimationFrame(() => {
-      rafCursor = 0;
-      if (!lastCursor || !channelRef) return;
-      try {
-        channelRef.trigger("client-cursor", lastCursor);
-      } catch {}
+  try {
+    await fetch(SNAPSHOT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: abort.signal,
+      body: JSON.stringify(payload),
+      keepalive: true,
     });
-  };
-
-  document.addEventListener("mousemove", onMoveRef, { passive: true });
-}
-
-// =======================
-// Perf watchdog
-// =======================
-function startPerfWatchdog() {
-  longTaskCount = 0;
-
-  if (typeof PerformanceObserver !== "undefined") {
-    try {
-      longTaskObserver = new PerformanceObserver((list) => {
-        const entries = list.getEntries();
-        if (entries?.length) longTaskCount += entries.length;
-      });
-      // @ts-ignore
-      longTaskObserver.observe({ entryTypes: ["longtask"] });
-    } catch {
-      longTaskObserver = null;
-    }
+  } catch {
+    // best-effort
   }
-
-  watchdogTimer = setInterval(() => {
-    if (document.hidden) return;
-
-    if (longTaskCount >= MAX_LONGTASKS_PER_WINDOW) {
-      // Stop rrweb completely to protect host
-      stopRrwebOnly();
-      rrwebWatching = false;
-      allowIncrementals = false;
-    }
-
-    longTaskCount = 0;
-  }, WATCHDOG_INTERVAL_MS);
 }
 
-// =======================
-// Unload handling
-// =======================
-function attachUnloadHandlers() {
-  detachUnloadHandlers();
+function scheduleSnapshot(opts: { orgId: string; sessionId: string }) {
+  if (debounceTimer) clearTimeout(debounceTimer);
 
-  onBeforeUnload = () => {
-    try {
-      flushBatchNow();
-    } catch {}
-    try {
-      stopRrwebOnly();
-    } catch {}
-    try {
-      snapshotAbort?.abort();
-    } catch {}
-  };
+  debounceTimer = setTimeout(() => {
+    debounceTimer = null;
 
-  onPageHide = () => {
-    try {
-      flushBatchNow();
-    } catch {}
-    try {
-      stopRrwebOnly();
-    } catch {}
-    try {
-      snapshotAbort?.abort();
-    } catch {}
-  };
+    const t = now();
+    if (t - lastSentAt < MIN_SNAPSHOT_INTERVAL_MS) return;
+    lastSentAt = t;
 
-  window.addEventListener("beforeunload", onBeforeUnload);
-  window.addEventListener("pagehide", onPageHide);
+    const pageUrl = location.href;
+    const title = document.title || undefined;
+
+    sendSnapshot({
+      organizationId: opts.orgId,
+      sessionId: opts.sessionId,
+      pageUrl,
+      title,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
+  }, SNAPSHOT_DEBOUNCE_MS);
 }
 
-function detachUnloadHandlers() {
-  if (onBeforeUnload) {
-    try {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-    } catch {}
-  }
-  if (onPageHide) {
-    try {
-      window.removeEventListener("pagehide", onPageHide);
-    } catch {}
-  }
-  onBeforeUnload = null;
-  onPageHide = null;
-}
-
-// =======================
-// Cleanup
-// =======================
 function cleanup() {
-  stopRrwebOnly();
-
   if (unpatchHistory) {
     try {
       unpatchHistory();
@@ -494,83 +117,20 @@ function cleanup() {
   }
   unpatchHistory = null;
 
-  if (urlDebounceTimer) {
+  if (debounceTimer) {
     try {
-      clearTimeout(urlDebounceTimer);
+      clearTimeout(debounceTimer);
     } catch {}
   }
-  urlDebounceTimer = null;
-
-  if (onMoveRef) {
-    try {
-      document.removeEventListener("mousemove", onMoveRef);
-    } catch {}
-  }
-  onMoveRef = null;
+  debounceTimer = null;
 
   try {
-    if (rafCursor) cancelAnimationFrame(rafCursor);
+    abort?.abort();
   } catch {}
-  rafCursor = 0;
-  lastCursor = null;
-
-  if (snapshotDebounceTimer) {
-    try {
-      clearTimeout(snapshotDebounceTimer);
-    } catch {}
-  }
-  snapshotDebounceTimer = null;
-
-  try {
-    snapshotAbort?.abort();
-  } catch {}
-  snapshotAbort = null;
-
-  try {
-    longTaskObserver?.disconnect();
-  } catch {}
-  longTaskObserver = null;
-  longTaskCount = 0;
-
-  if (watchdogTimer) {
-    try {
-      clearInterval(watchdogTimer);
-    } catch {}
-  }
-  watchdogTimer = null;
-
-  if (sessionStopTimer) {
-    try {
-      clearInterval(sessionStopTimer);
-    } catch {}
-  }
-  sessionStopTimer = null;
-
-  detachUnloadHandlers();
-
-  try {
-    channelRef?.unbind_all();
-  } catch {}
-  channelRef = null;
-
-  try {
-    pusherRef?.disconnect();
-  } catch {}
-  pusherRef = null;
-
-  snapshotSent = false;
-  snapshotBuffer = [];
-  lastMeta = null;
+  abort = null;
 
   lastHref = null;
-  lastRestartAt = 0;
-
-  totalEvents = 0;
-  lastActivityAt = now();
-
-  rrwebWatching = false;
-  allowIncrementals = false;
-
+  lastSentAt = 0;
   started = false;
 }
 
@@ -578,9 +138,6 @@ export function destroyVisitorTracking() {
   cleanup();
 }
 
-// =======================
-// Init
-// =======================
 export function initVisitorTracking({ orgId, contactSessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
@@ -590,90 +147,42 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
 
   started = true;
   lastHref = location.href;
-  lastActivityAt = now();
-  totalEvents = 0;
 
-  rrwebWatching = false;
-  allowIncrementals = false;
+  // 1) send initial snapshot (page actuelle)
+  scheduleSnapshot({ orgId, sessionId: contactSessionId });
 
-  const pusher = new Pusher(PUSHER_KEY, {
-    cluster: PUSHER_CLUSTER,
-    forceTLS: true,
-    disableStats: true,
-    enabledTransports: ["ws", "wss"],
-    disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
-    channelAuthorization: {
-      endpoint: PUSHER_AUTH_URL,
-      transport: "ajax",
-    },
+  // 2) listen SPA navigations
+  unpatchHistory = patchHistoryForUrlChanges(() => {
+    const href = location.href;
+    if (!href || href === lastHref) return;
+    lastHref = href;
+
+    scheduleSnapshot({ orgId, sessionId: contactSessionId });
   });
 
-  pusherRef = pusher;
+  // 3) also send on visibility/pagehide (best effort)
+  const onPageHide = () => {
+    try {
+      const pageUrl = location.href;
+      sendSnapshot({
+        organizationId: orgId,
+        sessionId: contactSessionId,
+        pageUrl,
+        title: document.title || undefined,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    } catch {}
+  };
 
-  const channelName = `presence-org_${orgId}_session_${contactSessionId}`;
-  const channel = pusher.subscribe(channelName);
-  channelRef = channel;
+  window.addEventListener("pagehide", onPageHide);
 
-  channel.bind("pusher:subscription_succeeded", () => {
-    startPerfWatchdog();
-    setupCursor();
-
-    // ✅ STARTER SNAPSHOT (no incrementals): gives LiveView something to render, but won’t freeze
-    allowIncrementals = false;
-    startRrwebRecorder(orgId, contactSessionId);
-
-    // stop rrweb soon after starter snapshot window
-    setTimeout(() => {
-      if (!rrwebWatching) {
-        stopRrwebOnly();
-      }
-    }, STARTER_SNAPSHOT_TIMEOUT_MS);
-
-    // ✅ WATCHING MODE controlled by dashboard
-    channel.bind("server-start-rrweb", () => {
-      if (rrwebWatching) return;
-      rrwebWatching = true;
-      allowIncrementals = true;
-      startRrwebRecorder(orgId, contactSessionId);
-    });
-
-    channel.bind("server-stop-rrweb", () => {
-      rrwebWatching = false;
-      allowIncrementals = false;
-      stopRrwebOnly();
-    });
-
-    // stop rrweb after MAX_SESSION_MS (only when watching)
-    const startedAt = now();
-    sessionStopTimer = setInterval(() => {
-      if (!started) return;
-      if (!rrwebWatching) return;
-
-      if (now() - startedAt > MAX_SESSION_MS) {
-        rrwebWatching = false;
-        allowIncrementals = false;
-        stopRrwebOnly();
-        if (sessionStopTimer) {
-          clearInterval(sessionStopTimer);
-          sessionStopTimer = null;
-        }
-      }
-    }, 10_000);
-
-    // SPA URL changes => restart rrweb only when watching
-    unpatchHistory = patchHistoryForUrlChanges(() => {
-      const href = location.href;
-      if (!href || href === lastHref) return;
-
-      lastHref = href;
-      markActivity();
-
-      if (!rrwebWatching) return;
-      restartRrwebRecorderDebounced(orgId, contactSessionId);
-    });
-
-    attachUnloadHandlers();
-  });
-
-  channel.bind("pusher:subscription_error", () => cleanup());
+  // attach cleanup hook
+  const originalDestroy = destroyVisitorTracking;
+  (destroyVisitorTracking as any) = () => {
+    try {
+      window.removeEventListener("pagehide", onPageHide);
+    } catch {}
+    originalDestroy();
+  };
 }
