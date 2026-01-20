@@ -257,7 +257,10 @@ type SuggestionsPayload = {
     const type = (data as any)?.type;
     const payload = (data as any)?.payload;
 
-    if (iframeLoaded && TARGET_ORIGIN && event.origin !== TARGET_ORIGIN) return;
+    if (iframeLoaded && TARGET_ORIGIN && event.origin !== TARGET_ORIGIN) {
+      if (type !== "nexus:session-ready") return;
+    }
+
     if (!type) return;
   
     if (type !== "nexus:session-ready") {
@@ -270,9 +273,7 @@ type SuggestionsPayload = {
         break;
 
       case "resize":
-        if (payload?.height && container) {
-          container.style.height = `${payload.height}px`;
-        }
+        if (payload?.height && container) container.style.height = `${payload.height}px`;
         break;
 
       case "nexus:theme": {
