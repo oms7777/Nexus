@@ -417,7 +417,6 @@ export const ContactPanel = () => {
             </span>
           </div>
 
-          <LiveVisitorView sessionId={contactSession._id} height={360} />
 
           <SnapshotsStrip sessionId={contactSession._id} limit={8} />
         </div>
