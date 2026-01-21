@@ -41,30 +41,32 @@ async function resolveSessionId(input: {
   const { organizationId, sessionIdRaw } = input;
 
   if (looksLikeExternalId(sessionIdRaw)) {
-    // Mode B: external session id → map vers Convex Id
+    // external session id → map vers Convex Id
     return await fetchMutation(api.public.contactSessions.ensureByExternalId, {
       organizationId,
       externalSessionId: sessionIdRaw,
     });
   }
 
-  // Mode A: déjà un Convex Id
+  // déjà un Convex Id
   return sessionIdRaw as Id<"contactSessions">;
 }
 
-async function saveSnapshot(input: {
+async function saveSnapshotAndUrl(input: {
   organizationId: string;
   sessionIdRaw: string;
   pageUrl: string;
   title?: string;
   width?: number;
   height?: number;
+  referrer?: string;
 }) {
-  const { organizationId, sessionIdRaw, pageUrl, title, width, height } = input;
+  const { organizationId, sessionIdRaw, pageUrl, title, width, height, referrer } =
+    input;
 
   const contactSessionId = await resolveSessionId({ organizationId, sessionIdRaw });
 
-  // ✅ V1: snapshot ultra léger (pas rrweb)
+  // ✅ 1) snapshot ultra léger (pas rrweb)
   const snapshotStr = JSON.stringify({
     v: 1,
     pageUrl,
@@ -83,6 +85,14 @@ async function saveSnapshot(input: {
     height,
     snapshot: snapshotStr,
   });
+
+  // ✅ 2) update pages/currentUrl/title (+ lastSeenAt via mutation)
+  await fetchMutation(api.public.contactSessions.setCurrentUrl, {
+    sessionId: contactSessionId,
+    url: pageUrl,
+    title,
+    referrer,
+  });
 }
 
 export async function POST(req: Request) {
@@ -96,8 +106,15 @@ export async function POST(req: Request) {
 
     const pageUrl = body?.pageUrl as string | undefined;
     const title = body?.title as string | undefined;
-    const width = typeof body?.width === "number" ? (body.width as number) : undefined;
-    const height = typeof body?.height === "number" ? (body.height as number) : undefined;
+    const width =
+      typeof body?.width === "number" ? (body.width as number) : undefined;
+    const height =
+      typeof body?.height === "number" ? (body.height as number) : undefined;
+
+    const referrer =
+      (body?.referrer as string | undefined) ||
+      req.headers.get("referer") ||
+      undefined;
 
     if (!organizationId || !sessionIdRaw || !pageUrl) {
       headers.set("Content-Type", "application/json");
@@ -107,7 +124,15 @@ export async function POST(req: Request) {
       });
     }
 
-    await saveSnapshot({ organizationId, sessionIdRaw, pageUrl, title, width, height });
+    await saveSnapshotAndUrl({
+      organizationId,
+      sessionIdRaw,
+      pageUrl,
+      title,
+      width,
+      height,
+      referrer,
+    });
 
     headers.set("Content-Type", "application/json");
     return new NextResponse(JSON.stringify({ ok: true }), { status: 200, headers });
@@ -146,20 +171,22 @@ export async function GET(req: Request) {
     const width = widthStr ? Number(widthStr) : undefined;
     const height = heightStr ? Number(heightStr) : undefined;
 
+    const referrer = req.headers.get("referer") || undefined;
+
     if (!organizationId || !sessionIdRaw || !pageUrl) {
       return new NextResponse("", { status: 204, headers });
     }
 
-    await saveSnapshot({
+    await saveSnapshotAndUrl({
       organizationId,
       sessionIdRaw,
       pageUrl,
       title: title || undefined,
       width: typeof width === "number" && !Number.isNaN(width) ? width : undefined,
       height: typeof height === "number" && !Number.isNaN(height) ? height : undefined,
+      referrer,
     });
 
-    // pixel response
     return new NextResponse("", { status: 204, headers });
   } catch (err: any) {
     console.error("[snapshot] GET error", err);

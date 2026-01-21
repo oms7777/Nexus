@@ -33,6 +33,7 @@ const MetadataSchema = v.object({
   // tracking
   visitorId: v.optional(v.string()),
   clientIp: v.optional(v.string()),
+  lastSeenAt: v.optional(v.number()),
 
   // visitor_choice
   preferredRepUserId: v.optional(v.string()),
@@ -62,6 +63,7 @@ type Metadata = {
 
   visitorId?: string;
   clientIp?: string;
+  lastSeenAt?: number;
 
   preferredRepUserId?: string;
 };
@@ -96,16 +98,34 @@ function isPlainObject(x: unknown): x is Record<string, any> {
   return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
+function mergePagesPreserveOrder(a: string[], b: string[], cap = 20) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (u: string) => {
+    if (!u) return;
+    if (seen.has(u)) return;
+    seen.add(u);
+    out.push(u);
+  };
+
+  for (const u of a) push(u);
+  for (const u of b) push(u);
+
+  // cap keep last
+  if (out.length > cap) return out.slice(out.length - cap);
+  return out;
+}
+
 function mergeMetadata(oldMd: Metadata, incoming?: Metadata) {
   if (!incoming) return { ...(oldMd ?? {}) };
 
   const merged: Metadata = { ...(oldMd ?? {}), ...incoming };
 
-  // pages: de-dupe
   const a = Array.isArray(oldMd?.pages) ? oldMd.pages : [];
   const b = Array.isArray(incoming.pages) ? incoming.pages : [];
   if (a.length || b.length) {
-    merged.pages = Array.from(new Set<string>([...a, ...b]));
+    merged.pages = mergePagesPreserveOrder(a, b, 20);
   }
 
   return merged;
@@ -116,12 +136,7 @@ async function ensureSessionStartedLogged(
   opts: {
     organizationId: string;
     contactSessionId: any;
-    source:
-      | "create"
-      | "ensure_new"
-      | "ensure_existing"
-      | "touch"
-      | "setCurrentUrl";
+    source: "create" | "ensure_new" | "ensure_existing" | "touch" | "setCurrentUrl";
   },
 ) {
   const existing = await ctx.db
@@ -170,6 +185,9 @@ export const create = mutation({
       : undefined;
 
     const visitorId = pickVisitorId(safeIncoming);
+
+    // set lastSeenAt on create
+    if (safeIncoming) safeIncoming.lastSeenAt = Date.now();
 
     const id = await ctx.db.insert("contactSessions", {
       name: args.name,
@@ -221,6 +239,7 @@ export const ensure = mutation({
       if (existingByVisitor) {
         const oldMd = (existingByVisitor.metadata ?? {}) as Metadata;
         const newMd = mergeMetadata(oldMd, safeIncoming);
+        newMd.lastSeenAt = Date.now();
 
         await ctx.db.patch(existingByVisitor._id, {
           expiresAt,
@@ -244,6 +263,7 @@ export const ensure = mutation({
       if (cur && cur.organizationId === organizationId) {
         const oldMd = (cur.metadata ?? {}) as Metadata;
         const newMd = mergeMetadata(oldMd, safeIncoming);
+        newMd.lastSeenAt = Date.now();
 
         await ctx.db.patch(sessionId, {
           expiresAt,
@@ -262,6 +282,8 @@ export const ensure = mutation({
     }
 
     // ✅ 3) Create new anonymous
+    if (safeIncoming) safeIncoming.lastSeenAt = Date.now();
+
     const id = await ctx.db.insert("contactSessions", {
       name: "Visitor",
       email: "",
@@ -304,6 +326,7 @@ export const touch = mutation({
     if (safeIncoming) {
       const oldMd = (cur.metadata ?? {}) as Metadata;
       const newMd = mergeMetadata(oldMd, safeIncoming);
+      newMd.lastSeenAt = Date.now();
 
       await ctx.db.patch(sessionId, {
         expiresAt,
@@ -311,7 +334,14 @@ export const touch = mutation({
         visitorId: visitorId ?? cur.visitorId,
       });
     } else {
-      await ctx.db.patch(sessionId, { expiresAt });
+      // even if no incoming metadata, keep lastSeenAt moving
+      const oldMd = (cur.metadata ?? {}) as Metadata;
+      const newMd = { ...oldMd, lastSeenAt: Date.now() };
+
+      await ctx.db.patch(sessionId, {
+        expiresAt,
+        metadata: newMd,
+      });
     }
 
     await ensureSessionStartedLogged(ctx, {
@@ -339,8 +369,16 @@ export const setCurrentUrl = mutation({
     if (!cur) return { ok: false };
 
     const md = (cur.metadata ?? {}) as Metadata;
+
     const pages = Array.isArray(md.pages) ? md.pages.slice() : [];
-    if (pages[pages.length - 1] !== url) pages.push(url);
+
+    // move-to-end dedupe
+    const idx = pages.indexOf(url);
+    if (idx >= 0) pages.splice(idx, 1);
+    pages.push(url);
+
+    // cap keep last 20
+    const capped = pages.length > 20 ? pages.slice(pages.length - 20) : pages;
 
     await ctx.db.patch(sessionId, {
       metadata: {
@@ -348,10 +386,10 @@ export const setCurrentUrl = mutation({
         currentUrl: url,
         title: title ?? md.title,
         referrer: typeof referrer === "string" ? referrer : md.referrer,
-        pages,
+        pages: capped,
+        lastSeenAt: Date.now(),
       },
       expiresAt: Date.now() + SESSION_DURATION_MS,
-      // keep visitorId top-level if already set
       visitorId: cur.visitorId,
     });
 
@@ -400,15 +438,14 @@ export const ensureByExternalId = mutation({
     const existing = await ctx.db
       .query("contactSessions")
       .withIndex("by_org_external_session", (q: any) =>
-        q
-          .eq("organizationId", organizationId)
-          .eq("externalSessionId", externalSessionId),
+        q.eq("organizationId", organizationId).eq("externalSessionId", externalSessionId),
       )
       .first();
 
     if (existing) {
       const oldMd = (existing.metadata ?? {}) as Metadata;
       const newMd = mergeMetadata(oldMd, safeIncoming);
+      newMd.lastSeenAt = Date.now();
 
       await ctx.db.patch(existing._id, {
         expiresAt,
@@ -424,6 +461,8 @@ export const ensureByExternalId = mutation({
 
       return existing._id;
     }
+
+    if (safeIncoming) safeIncoming.lastSeenAt = Date.now();
 
     const id = await ctx.db.insert("contactSessions", {
       name: "Visitor",

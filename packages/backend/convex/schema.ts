@@ -235,6 +235,7 @@ export default defineSchema({
         // NEW: for anonymous tracking via widget
         visitorId: v.optional(v.string()),
         clientIp: v.optional(v.string()),
+        lastSeenAt: v.optional(v.number()),
 
         // NEW: rep choisi côté widget (visitor_choice)
         preferredRepUserId: v.optional(v.string()),

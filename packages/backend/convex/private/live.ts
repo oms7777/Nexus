@@ -58,7 +58,11 @@ export const getActiveVisitors = query({
 
     for (const s of deduped) {
       const md = s.metadata ?? {};
-      const pages = Array.isArray(md.pages) ? (md.pages as string[]) : [];
+
+      // ✅ pages visited (source: metadata.pages)
+      const pages = Array.isArray((md as any).pages)
+        ? ((md as any).pages as string[]).filter(Boolean)
+        : [];
 
       // latest snapshot by (sessionId, ts)
       let snapUrl: string | undefined;
@@ -101,11 +105,15 @@ export const getActiveVisitors = query({
 
         currentUrl,
         title,
+
         userAgent: md.userAgent as string | undefined,
         cookieEnabled: md.cookieEnabled as boolean | undefined,
         timezoneOffset: md.timezoneOffset as number | undefined,
 
+        // ✅ pages visited returned to UI
+        pages,
         pageCount: pages.length,
+
         timeOnSiteMs: now - s._creationTime,
 
         contactSessionId: s._id,

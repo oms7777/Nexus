@@ -44,7 +44,7 @@ function matches(v: Visitor, q: string) {
 
 export default function LiveMapView() {
   const { organization } = useOrganization();
-  const orgId = organization?.id ?? ""; // important: may be "" until loaded
+  const orgId = organization?.id ?? "";
 
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | undefined>();
@@ -66,8 +66,9 @@ export default function LiveMapView() {
       ? (selected.contactSessionId as Id<"contactSessions">)
       : null;
 
+  // ✅ NOW IT WORKS: pages is returned by query
   const pages: string[] = Array.isArray((selected as any)?.pages)
-    ? (((selected as any).pages as string[]) ?? [])
+    ? (((selected as any).pages as string[]) ?? []).filter(Boolean)
     : [];
 
   const canShowRightPanel = Boolean(selected && selectedSessionId && orgId);
@@ -134,10 +135,11 @@ export default function LiveMapView() {
             </div>
           </div>
 
-          {/* ✅ Snapshot view */}
+          {/* ✅ Snapshot view (clickable) */}
           <LiveVisitorView
             orgId={orgId}
             sessionId={String(selectedSessionId)}
+            clickUrl={selected?.currentUrl || undefined}
           />
 
           {/* ✅ Pages visited */}

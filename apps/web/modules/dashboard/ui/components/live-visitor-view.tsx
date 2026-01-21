@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useMemo } from "react";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
@@ -10,7 +10,20 @@ import { Replayer } from "rrweb";
 
 type Cursor = { x: number; y: number };
 
-function extractMeta(events: eventWithTime[]) {
+function clamp01(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
+}
+
+function safeJsonParse(s: string): any | null {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+function extractMetaFromRrweb(events: eventWithTime[]) {
   const meta = events.find((e: any) => e?.type === 4) as any;
   const full = events.find((e: any) => e?.type === 2) as any;
   const src = meta?.data ?? full?.data ?? {};
@@ -21,17 +34,14 @@ function extractMeta(events: eventWithTime[]) {
   return { width, height };
 }
 
-function clamp01(n: number) {
-  if (!Number.isFinite(n)) return 0;
-  return Math.min(1, Math.max(0, n));
-}
-
 export function LiveVisitorView({
   orgId,
   sessionId,
+  clickUrl,
 }: {
   orgId: string;
   sessionId: string;
+  clickUrl?: string;
 }) {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -61,6 +71,24 @@ export function LiveVisitorView({
     }) ?? [];
 
   const latest = snaps[0];
+
+  const latestParsed = useMemo(() => {
+    const raw = latest?.snapshot;
+    if (!raw) return null;
+    return safeJsonParse(raw);
+  }, [latest?.snapshot]);
+
+  const isRrweb = useMemo(() => Array.isArray(latestParsed), [latestParsed]);
+
+  const isV1Meta = useMemo(() => {
+    if (!latestParsed || Array.isArray(latestParsed)) return false;
+    return latestParsed?.v === 1 && (latestParsed?.kind === "meta" || !latestParsed?.kind);
+  }, [latestParsed]);
+
+  const isV2Image = useMemo(() => {
+    if (!latestParsed || Array.isArray(latestParsed)) return false;
+    return latestParsed?.v === 2 && latestParsed?.kind === "image";
+  }, [latestParsed]);
 
   const ensureStage = useCallback(() => {
     const outer = outerRef.current;
@@ -160,7 +188,7 @@ export function LiveVisitorView({
 
       destroyReplayer();
 
-      const meta = extractMeta(events);
+      const meta = extractMetaFromRrweb(events);
 
       const width =
         meta.width ??
@@ -194,19 +222,20 @@ export function LiveVisitorView({
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
   );
 
+  // Init from latest snapshot (rrweb only)
   useEffect(() => {
     if (!latest?.snapshot) return;
+    if (!isRrweb) return;
 
     ensureStage();
 
-    try {
-      const events = JSON.parse(latest.snapshot) as eventWithTime[];
-      bootFromEvents(events);
-    } catch (err) {
-      console.error("[live] failed to init snapshot", err);
-    }
-  }, [latest?.snapshot, bootFromEvents, ensureStage]);
+    const parsed = safeJsonParse(latest.snapshot);
+    if (!Array.isArray(parsed)) return;
 
+    bootFromEvents(parsed as eventWithTime[]);
+  }, [latest?.snapshot, isRrweb, bootFromEvents, ensureStage]);
+
+  // Handle resize
   useEffect(() => {
     const outer = outerRef.current;
     if (!outer) return;
@@ -320,16 +349,78 @@ export function LiveVisitorView({
     }
   }
 
+  const resolvedClickUrl =
+    clickUrl ||
+    (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined) ||
+    (typeof latestParsed?.pageUrl === "string" ? latestParsed.pageUrl : undefined);
+
+  const click = () => {
+    if (!resolvedClickUrl) return;
+    try {
+      window.open(resolvedClickUrl, "_blank", "noopener,noreferrer");
+    } catch {}
+  };
+
   return (
-    <div
-      className="relative rounded-xl border overflow-hidden bg-black/5"
-      style={{ height: 360 }}
-    >
+    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height: 360 }}>
+      {/* Click overlay */}
+      <button
+        type="button"
+        onClick={click}
+        className="absolute inset-0 z-10 cursor-pointer"
+        style={{ background: "transparent" }}
+        title={resolvedClickUrl ? `Open: ${resolvedClickUrl}` : "No URL"}
+      />
+
+      {/* Stage */}
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
+
+      {/* If we DON'T have rrweb, show a clean meta preview */}
+      {!isRrweb && (
+        <div className="absolute inset-0 z-0 p-3">
+          <div className="h-full w-full rounded-lg border bg-background/70 backdrop-blur-sm p-3 flex flex-col justify-between">
+            <div>
+              <div className="text-sm font-semibold">Page preview</div>
+
+              <div className="mt-2 text-xs text-muted-foreground">
+                {typeof latest?.title === "string" && latest.title.trim().length
+                  ? latest.title
+                  : typeof latestParsed?.title === "string"
+                    ? latestParsed.title
+                    : "—"}
+              </div>
+
+              <div className="mt-2 text-xs break-all text-muted-foreground">
+                {resolvedClickUrl ?? "No URL"}
+              </div>
+            </div>
+
+            <div className="text-[11px] text-muted-foreground">
+              {isV2Image
+                ? "Snapshot: image (v2)"
+                : isV1Meta
+                  ? "Snapshot: meta (v1)"
+                  : "Snapshot: unknown format"}
+            </div>
+
+            {/* If V2 image exists, render it */}
+            {isV2Image && typeof latestParsed?.dataUrl === "string" && (
+              <div className="mt-3 flex-1 overflow-hidden rounded-md border bg-black/5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={latestParsed.dataUrl}
+                  alt="snapshot"
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {cursorPx && (
         <div
-          className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none"
+          className="absolute z-20 size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none"
           style={{
             left: `${cursorPx.left}px`,
             top: `${cursorPx.top}px`,
