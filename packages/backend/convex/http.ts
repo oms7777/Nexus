@@ -28,7 +28,6 @@ http.route({
   }),
 });
 
-
 /** Live heartbeat (CORS preflight) */
 http.route({
   path: "/live/heartbeat",
@@ -54,13 +53,21 @@ http.route({
     const body = (await req.json().catch(() => ({}))) as {
       organizationId?: string;
       contactSessionId?: string;
+
       currentUrl?: string;
       referrer?: string;
       language?: string;
       timezone?: string;
       viewportSize?: string;
       screenResolution?: string;
+
       clientIp?: string;
+
+      // ✅ NOUVEAUX CHAMPS
+      title?: string;
+      userAgent?: string;
+      cookieEnabled?: boolean;
+      timezoneOffset?: number;
     };
 
     if (!body.organizationId || !body.contactSessionId) {
@@ -82,6 +89,12 @@ http.route({
       screenResolution: body.screenResolution,
 
       client_ip: body.clientIp,
+
+      // ✅ forward
+      title: body.title,
+      userAgent: body.userAgent,
+      cookieEnabled: body.cookieEnabled,
+      timezoneOffset: body.timezoneOffset,
 
       x_forwarded_for: req.headers.get("x-forwarded-for") ?? undefined,
       x_real_ip: req.headers.get("x-real-ip") ?? undefined,

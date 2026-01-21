@@ -1,4 +1,4 @@
-// apps/web/modules/live/LiveMapView.tsx (ou ton chemin exact)
+// apps/web/modules/live/LiveMapView.tsx 
 "use client";
 
 import { useMemo, useState } from "react";

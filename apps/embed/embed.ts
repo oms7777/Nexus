@@ -165,8 +165,7 @@ type SuggestionsPayload = {
       externalSessionId = `ext_${Math.random().toString(36).slice(2)}_${Date.now()}`;
     }
 
-    // FAB
-    button = document.createElement("button");
+
     // FAB
     button = document.createElement("button");
     button.id = "nexus-widget-button";
@@ -349,6 +348,8 @@ type SuggestionsPayload = {
 
         const sid = payload?.contactSessionId;
         if (typeof sid !== "string" || sid.trim().length === 0) return;
+
+        sendParentLocation(true);
 
         // ✅ If we were tracking with external id, upgrade to real sid
         if (trackingStarted && trackingSessionId === sid) return;
