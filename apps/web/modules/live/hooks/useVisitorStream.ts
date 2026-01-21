@@ -20,6 +20,14 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
+    // ✅ Tell server to start rrweb for this session (watching ON)
+    // (best-effort; if it fails, cursor still works)
+    fetch("/api/realtime/rrweb", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgId, sessionId, action: "start" }),
+    }).catch(() => {});
+
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
       forceTLS: true,
@@ -52,23 +60,8 @@ export function useVisitorStream(opts: {
     ch.bind("client-rrweb", onInc);
     ch.bind("client-snapshot", onSnap);
 
-    // ✅ START rrweb ONLY after subscription is confirmed
-    const startWatching = () => {
-      fetch("/api/realtime/rrweb", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId, sessionId, action: "start" }),
-      }).catch(() => {});
-    };
-
-    ch.bind("pusher:subscription_succeeded", () => {
-      startWatching();
-      // ✅ retry once (covers race + transient)
-      setTimeout(startWatching, 1000);
-    });
-
     return () => {
-      // stop (best effort)
+      // ✅ Tell server to stop rrweb for this session (watching OFF)
       fetch("/api/realtime/rrweb", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -1,4 +1,3 @@
-// packages/backend/convex/private/live.ts
 import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
 
@@ -22,6 +21,7 @@ export const getActiveVisitors = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .collect();
 
+    // 1) filter actives + has geo
     const active = sessions.filter(
       (s) =>
         (s.expiresAt ?? 0) > now &&
@@ -29,6 +29,7 @@ export const getActiveVisitors = query({
         typeof s.metadata?.lng === "number",
     );
 
+    // 2) dedup by stable visitor key (keep the most "alive" session)
     const bestByKey = new Map<string, (typeof active)[number]>();
 
     for (const s of active) {
@@ -44,19 +45,22 @@ export const getActiveVisitors = query({
         continue;
       }
 
+      // keep the "most recent heartbeat" (expiresAt bumped)
       if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
     }
 
     const deduped = Array.from(bestByKey.values());
+
+    // 3) Override currentUrl/title using latest sessionSnapshots (source of truth)
     const results: any[] = [];
 
     for (const s of deduped) {
       const md = s.metadata ?? {};
       const pages = Array.isArray(md.pages) ? (md.pages as string[]) : [];
 
-      // (Optional) latest snapshot as source of truth for currentUrl/title
+      // latest snapshot by (sessionId, ts)
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
@@ -73,11 +77,16 @@ export const getActiveVisitors = query({
           snapTitle = latestSnap.title ?? undefined;
           snapTs = latestSnap.ts ?? undefined;
         }
-      } catch {}
+      } catch {
+        // if index not deployed yet, ignore
+      }
 
-      const currentUrl = snapUrl || (md.currentUrl as string | undefined) || undefined;
+      const currentUrl =
+        snapUrl || (md.currentUrl as string | undefined) || undefined;
+
       const title = snapTitle || (md.title as string | undefined) || undefined;
 
+      // lastSeen should be a real timestamp, not expiresAt (future)
       const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
 
       results.push({
@@ -92,9 +101,6 @@ export const getActiveVisitors = query({
 
         currentUrl,
         title,
-
-        pages, // ✅ add this
-
         userAgent: md.userAgent as string | undefined,
         cookieEnabled: md.cookieEnabled as boolean | undefined,
         timezoneOffset: md.timezoneOffset as number | undefined,
