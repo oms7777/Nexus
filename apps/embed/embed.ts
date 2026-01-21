@@ -64,6 +64,9 @@ type SuggestionsPayload = {
   let trackingStarted = false;
   let trackingSessionId: string | null = null;
 
+  let externalSessionId: string | null = null;
+  let extKey: string | null = null;
+
   // Config from <script>
   let organizationId: string | null = null;
   let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
@@ -150,6 +153,20 @@ type SuggestionsPayload = {
   }
 
   function render() {
+    // ✅ external session id (stable) — must be after organizationId is known
+    extKey = `nx_ext_session_${organizationId}`;
+    try {
+      externalSessionId = localStorage.getItem(extKey);
+      if (!externalSessionId) {
+        externalSessionId = crypto.randomUUID();
+        localStorage.setItem(extKey, externalSessionId);
+      }
+    } catch {
+      externalSessionId = `ext_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+    }
+
+    // FAB
+    button = document.createElement("button");
     // FAB
     button = document.createElement("button");
     button.id = "nexus-widget-button";
@@ -180,17 +197,6 @@ type SuggestionsPayload = {
       openChat();
     });
 
-    button.addEventListener("mouseenter", () => {
-      if (!button) return;
-      button.style.transform = "scale(1.05)";
-      button.style.boxShadow = "0 6px 28px rgba(15,23,42,.35)";
-    });
-
-    button.addEventListener("mouseleave", () => {
-      if (!button) return;
-      button.style.transform = "scale(1)";
-      button.style.boxShadow = "0 4px 24px rgba(0,0,0,.25)";
-    });
 
     document.body.appendChild(button);
 
@@ -221,7 +227,24 @@ type SuggestionsPayload = {
       TARGET_ORIGIN = new URL(iframe!.src).origin;
 
       postToWidget({ type: "nexus:embed-ready" });
+      // ✅ Ask widget to ensure it creates/loads a contact session ASAP
+      postToWidget({
+        type: "nexus:request-session",
+        payload: { externalSessionId },
+      });
       sendParentLocation(true);
+
+      // ✅ Start tracking immediately with external id (will be upgraded when real sid arrives)
+      if (!trackingStarted && externalSessionId) {
+        trackingStarted = true;
+        trackingSessionId = externalSessionId;
+
+        initVisitorTracking({
+          orgId: organizationId!,
+          contactSessionId: externalSessionId,
+        });
+      }
+
 
       // ✅ Start SPA listener after iframe ready
       if (!unpatchHistory) {
@@ -327,16 +350,13 @@ type SuggestionsPayload = {
         const sid = payload?.contactSessionId;
         if (typeof sid !== "string" || sid.trim().length === 0) return;
 
-        // if session changed, restart tracking cleanly
-        if (trackingStarted && trackingSessionId && trackingSessionId !== sid) {
-          try {
-            destroyVisitorTracking();
-          } catch {}
-          trackingStarted = false;
-          trackingSessionId = null;
-        }
-
+        // ✅ If we were tracking with external id, upgrade to real sid
         if (trackingStarted && trackingSessionId === sid) return;
+
+        // restart tracking cleanly
+        try {
+          destroyVisitorTracking();
+        } catch {}
 
         trackingStarted = true;
         trackingSessionId = sid;
@@ -348,11 +368,11 @@ type SuggestionsPayload = {
 
         break;
       }
-
       default:
         break;
     }
   }
+
 
   function revealFabIfNeeded() {
     if (!button) return;

@@ -16,10 +16,22 @@ function getOrCreateVisitorId() {
   return id;
 }
 
+// ✅ try read parent url (if embed already sent it)
+function getBestUrl() {
+  try {
+    // inside iframe => document.referrer is often the host page URL
+    const ref = document.referrer;
+    if (ref && ref.startsWith("http")) return ref;
+  } catch {}
+  try {
+    return window.location.href;
+  } catch {
+    return undefined;
+  }
+}
+
 export function useEnsureContactSession(organizationId: string | null) {
-  const setContactSessionId = useSetAtom(
-    contactSessionIdAtomFamily(organizationId || "")
-  );
+  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(organizationId || ""));
   const ensure = useMutation(api.public.contactSessions.ensure);
   const validate = useMutation(api.public.contactSessions.validate);
 
@@ -30,7 +42,14 @@ export function useEnsureContactSession(organizationId: string | null) {
       const lsKey = `nx_contact_session_${organizationId}`;
       const visitorId = getOrCreateVisitorId();
 
-      let sid: string | null = localStorage.getItem(lsKey);
+      let sid: string | null = null;
+
+      // 1) reuse + validate
+      try {
+        sid = localStorage.getItem(lsKey);
+      } catch {
+        sid = null;
+      }
 
       if (sid) {
         try {
@@ -41,6 +60,7 @@ export function useEnsureContactSession(organizationId: string | null) {
         }
       }
 
+      // 2) ensure new
       if (!sid) {
         sid = (await ensure({
           organizationId,
@@ -49,21 +69,23 @@ export function useEnsureContactSession(organizationId: string | null) {
             userAgent: navigator.userAgent,
             language: navigator.language,
             viewportSize: `${window.innerWidth}x${window.innerHeight}`,
-            currentUrl: window.location.href,
+            currentUrl: getBestUrl(),
             referrer: document.referrer || undefined,
           },
         })) as unknown as string;
 
-        localStorage.setItem(lsKey, sid);
+        try {
+          localStorage.setItem(lsKey, sid);
+        } catch {}
       }
 
       setContactSessionId(sid as any);
 
-      // ✅ IMPORTANT: postMessage UNIQUEMENT quand sid est dispo
+      // ✅ IMPORTANT: notify parent ONLY when sid is known
       try {
         window.parent?.postMessage(
           { type: "nexus:session-ready", payload: { contactSessionId: sid } },
-          "*"
+          "*",
         );
       } catch {}
     })();

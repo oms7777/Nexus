@@ -1,124 +1,93 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
-import { useAtomValue } from "jotai";
-import { contactSessionIdAtomFamily, organizationIdAtom } from "../atoms/widget-atoms";
+import { useEffect } from "react";
+import { useSetAtom } from "jotai";
+import { useMutation } from "convex/react";
+import { api } from "@workspace/backend/_generated/api";
+import { contactSessionIdAtomFamily } from "../atoms/widget-atoms";
 
-const HEARTBEAT_MS = 60_000;
-const URL_PUSH_THROTTLE_MS = 800;
+function getOrCreateVisitorId() {
+  const k = "nx_visitor_id";
+  let id = localStorage.getItem(k);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(k, id);
+  }
+  return id;
+}
 
-function getTimezone(): string | undefined {
+// ✅ try read parent url (if embed already sent it)
+function getBestUrl() {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // inside iframe => document.referrer is often the host page URL
+    const ref = document.referrer;
+    if (ref && ref.startsWith("http")) return ref;
+  } catch {}
+  try {
+    return window.location.href;
   } catch {
     return undefined;
   }
 }
-function getViewport(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-  return `${window.innerWidth}x${window.innerHeight}`;
-}
-function getScreen(): string | undefined {
-  if (typeof window === "undefined" || !window.screen) return undefined;
-  return `${window.screen.width}x${window.screen.height}`;
-}
 
-let cachedIp: string | null = null;
-async function getPublicIp(): Promise<string | null> {
-  if (cachedIp) return cachedIp;
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 2000);
-    const res = await fetch("https://api.ipify.org?format=json", {
-      cache: "no-store",
-      signal: ctrl.signal,
-    });
-    clearTimeout(t);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { ip?: string };
-    cachedIp = data.ip ?? null;
-    return cachedIp;
-  } catch {
-    return null;
-  }
-}
-
-async function postHeartbeat(payload: Record<string, unknown>) {
-  const base = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!base) return;
-  const url = `${base.replace(/\/$/, "")}/http/live/heartbeat`;
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    keepalive: true,
-    mode: "cors",
-  }).catch(() => {});
-}
-
-export function usePresence() {
-  const organizationId = useAtomValue(organizationIdAtom);
-  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(organizationId || ""));
-
-  const parentUrlRef = useRef<string | undefined>(undefined);
-  const lastPushAtRef = useRef<number>(0);
-
-  const send = useCallback(async () => {
-    if (!organizationId || !contactSessionId) return;
-
-    const clientIp = await getPublicIp();
-
-    const currentUrl =
-      parentUrlRef.current ??
-      (typeof window !== "undefined" ? window.location.href : undefined);
-
-    const payload = {
-      organizationId,
-      contactSessionId,
-
-      currentUrl,
-      referrer: typeof document !== "undefined" ? document.referrer : undefined,
-      language: typeof navigator !== "undefined" ? navigator.language : undefined,
-      timezone: getTimezone(),
-      viewportSize: getViewport(),
-      screenResolution: getScreen(),
-      clientIp: clientIp ?? undefined,
-      title: typeof document !== "undefined" ? document.title : undefined,
-      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
-      cookieEnabled: typeof navigator !== "undefined" ? navigator.cookieEnabled : undefined,
-      timezoneOffset: typeof Date !== "undefined" ? new Date().getTimezoneOffset() : undefined,
-    };
-
-    postHeartbeat(payload);
-  }, [organizationId, contactSessionId]);
+export function useEnsureContactSession(organizationId: string | null) {
+  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(organizationId || ""));
+  const ensure = useMutation(api.public.contactSessions.ensure);
+  const validate = useMutation(api.public.contactSessions.validate);
 
   useEffect(() => {
-    if (!organizationId || !contactSessionId) return;
+    if (!organizationId) return;
 
-    // 1) LISTEN PARENT LOCATION (SPA)
-    const onMessage = (e: MessageEvent) => {
-      const d = e?.data;
-      if (!d || d.type !== "nexus:parent-location" || typeof d.href !== "string") return;
+    (async () => {
+      const lsKey = `nx_contact_session_${organizationId}`;
+      const visitorId = getOrCreateVisitorId();
 
-      parentUrlRef.current = d.href;
+      let sid: string | null = null;
 
-      // push instantly (throttled)
-      const now = Date.now();
-      if (now - lastPushAtRef.current < URL_PUSH_THROTTLE_MS) return;
-      lastPushAtRef.current = now;
+      // 1) reuse + validate
+      try {
+        sid = localStorage.getItem(lsKey);
+      } catch {
+        sid = null;
+      }
 
-      send();
-    };
+      if (sid) {
+        try {
+          const res = await validate({ contactSessionId: sid as any });
+          if (!res?.valid) sid = null;
+        } catch {
+          sid = null;
+        }
+      }
 
-    window.addEventListener("message", onMessage);
+      // 2) ensure new
+      if (!sid) {
+        sid = (await ensure({
+          organizationId,
+          metadata: {
+            visitorId,
+            userAgent: navigator.userAgent,
+            language: navigator.language,
+            viewportSize: `${window.innerWidth}x${window.innerHeight}`,
+            currentUrl: getBestUrl(),
+            referrer: document.referrer || undefined,
+          },
+        })) as unknown as string;
 
-    // 2) initial tick + interval
-    send();
-    const id = setInterval(send, HEARTBEAT_MS);
+        try {
+          localStorage.setItem(lsKey, sid);
+        } catch {}
+      }
 
-    return () => {
-      window.removeEventListener("message", onMessage);
-      clearInterval(id);
-    };
-  }, [organizationId, contactSessionId, send]);
+      setContactSessionId(sid as any);
+
+      // ✅ IMPORTANT: notify parent ONLY when sid is known
+      try {
+        window.parent?.postMessage(
+          { type: "nexus:session-ready", payload: { contactSessionId: sid } },
+          "*",
+        );
+      } catch {}
+    })();
+  }, [organizationId, ensure, validate, setContactSessionId]);
 }
