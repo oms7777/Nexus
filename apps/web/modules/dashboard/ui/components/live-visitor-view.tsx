@@ -380,6 +380,7 @@ export function LiveVisitorView({
   const [iframeBlocked, setIframeBlocked] = useState(false);
 
   const previewUrl =
+    clickUrl ||
     v1?.pageUrl ||
     (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined);
 
