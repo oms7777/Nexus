@@ -127,7 +127,8 @@ export default function LiveMapView() {
           </div>
 
           {/* ✅ V1: static “snapshot” (iframe preview) */}
-          <LiveVisitorView sessionId={selectedSessionId} />
+          <LiveVisitorView orgId={orgId} sessionId={selectedSessionId} />
+
 
           {/* ✅ Pages visited (from contactSessions.metadata.pages) */}
           <div className="mt-3">

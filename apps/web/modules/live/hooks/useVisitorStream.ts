@@ -15,18 +15,39 @@ export function useVisitorStream(opts: {
   const { orgId, sessionId, onRrweb, onSnapshot } = opts;
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
+
+  // ✅ keep latest callbacks without causing re-subscribe
+  const onRrwebRef = useRef<typeof onRrweb>(onRrweb);
+  const onSnapshotRef = useRef<typeof onSnapshot>(onSnapshot);
+
+  useEffect(() => {
+    onRrwebRef.current = onRrweb;
+  }, [onRrweb]);
+
+  useEffect(() => {
+    onSnapshotRef.current = onSnapshot;
+  }, [onSnapshot]);
+
+  // cleanup refs
   const chanRef = useRef<Channel | null>(null);
+  const pusherRef = useRef<Pusher | null>(null);
+  const startedRef = useRef(false);
 
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
+    startedRef.current = false;
+
     // ✅ Tell server to start rrweb for this session (watching ON)
-    // (best-effort; if it fails, cursor still works)
     fetch("/api/realtime/rrweb", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orgId, sessionId, action: "start" }),
-    }).catch(() => {});
+    })
+      .then(() => {
+        startedRef.current = true;
+      })
+      .catch(() => {});
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
@@ -40,6 +61,8 @@ export function useVisitorStream(opts: {
       },
     });
 
+    pusherRef.current = pusher;
+
     const chanName = `presence-org_${orgId}_session_${sessionId}`;
     const ch = pusher.subscribe(chanName) as Channel;
     chanRef.current = ch;
@@ -48,12 +71,12 @@ export function useVisitorStream(opts: {
 
     const onInc = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length && onRrweb) onRrweb(events);
+      if (events.length) onRrwebRef.current?.(events);
     };
 
     const onSnap = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length && onSnapshot) onSnapshot(events);
+      if (events.length) onSnapshotRef.current?.(events);
     };
 
     ch.bind("client-cursor", onCursor);
@@ -61,12 +84,14 @@ export function useVisitorStream(opts: {
     ch.bind("client-snapshot", onSnap);
 
     return () => {
-      // ✅ Tell server to stop rrweb for this session (watching OFF)
-      fetch("/api/realtime/rrweb", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId, sessionId, action: "stop" }),
-      }).catch(() => {});
+      // ✅ stop only if we successfully started
+      if (startedRef.current) {
+        fetch("/api/realtime/rrweb", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orgId, sessionId, action: "stop" }),
+        }).catch(() => {});
+      }
 
       try {
         ch.unbind("client-cursor", onCursor);
@@ -74,15 +99,20 @@ export function useVisitorStream(opts: {
         ch.unbind("client-snapshot", onSnap);
         ch.unbind_all();
       } catch {}
+
       try {
         pusher.unsubscribe(chanName);
       } catch {}
+
       try {
         pusher.disconnect();
       } catch {}
+
       chanRef.current = null;
+      pusherRef.current = null;
+      startedRef.current = false;
     };
-  }, [orgId, sessionId, onRrweb, onSnapshot]);
+  }, [orgId, sessionId]);
 
   return { cursor };
 }
