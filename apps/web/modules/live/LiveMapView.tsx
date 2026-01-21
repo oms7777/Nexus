@@ -5,7 +5,6 @@ import { useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
-import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
 import type { Id } from "@workspace/backend/_generated/dataModel";
 
 function matches(v: Visitor, q: string) {
@@ -66,7 +65,7 @@ export default function LiveMapView() {
       ? (selected.contactSessionId as Id<"contactSessions">)
       : null;
 
-  // ✅ NOW IT WORKS: pages is returned by query
+  // ✅ pages is returned by query
   const pages: string[] = Array.isArray((selected as any)?.pages)
     ? (((selected as any).pages as string[]) ?? []).filter(Boolean)
     : [];
@@ -122,7 +121,7 @@ export default function LiveMapView() {
         <LiveMap visitors={filtered as Visitor[]} selectedId={selectedId} />
       </div>
 
-      {/* Right panel (snapshot + pages visited) */}
+      {/* Right panel (current page + pages visited) */}
       {canShowRightPanel && (
         <aside className="w-[420px] border-l bg-background p-3 hidden xl:block">
           <div className="mb-2">
@@ -135,12 +134,26 @@ export default function LiveMapView() {
             </div>
           </div>
 
-          {/* ✅ Snapshot view (clickable) */}
-          <LiveVisitorView
-            orgId={orgId}
-            sessionId={String(selectedSessionId)}
-            clickUrl={selected?.currentUrl || undefined}
-          />
+          {/* ✅ Current page (simple link, no thumbnail) */}
+          {selected?.currentUrl ? (
+            <a
+              href={selected.currentUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mb-3 block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
+              title={selected.currentUrl}
+            >
+              <div className="text-[11px] text-muted-foreground mb-1">
+                Current page
+              </div>
+              <div className="truncate font-medium">{selected.currentUrl}</div>
+              {selected?.title ? (
+                <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                  {selected.title}
+                </div>
+              ) : null}
+            </a>
+          ) : null}
 
           {/* ✅ Pages visited */}
           <div className="mt-3">
