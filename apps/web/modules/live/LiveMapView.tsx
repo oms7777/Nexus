@@ -1,4 +1,3 @@
-// apps/web/modules/live/LiveMapView.tsx (ou ton chemin exact)
 "use client";
 
 import { useMemo, useState } from "react";
@@ -7,7 +6,7 @@ import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
-import { Id } from "@workspace/backend/_generated/dataModel";
+import type { Id } from "@workspace/backend/_generated/dataModel";
 
 function matches(v: Visitor, q: string) {
   if (!q) return true;
@@ -45,7 +44,7 @@ function matches(v: Visitor, q: string) {
 
 export default function LiveMapView() {
   const { organization } = useOrganization();
-  const orgId = organization?.id || "";
+  const orgId = organization?.id ?? ""; // important: may be "" until loaded
 
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | undefined>();
@@ -62,13 +61,16 @@ export default function LiveMapView() {
     [filtered, selectedId],
   );
 
-  const selectedSessionId = selected?.contactSessionId
-    ? (selected.contactSessionId as Id<"contactSessions">)
-    : null;
+  const selectedSessionId: Id<"contactSessions"> | null =
+    selected?.contactSessionId
+      ? (selected.contactSessionId as Id<"contactSessions">)
+      : null;
 
   const pages: string[] = Array.isArray((selected as any)?.pages)
-    ? ((selected as any).pages as string[])
+    ? (((selected as any).pages as string[]) ?? [])
     : [];
+
+  const canShowRightPanel = Boolean(selected && selectedSessionId && orgId);
 
   return (
     <div className="flex h-full w-full">
@@ -82,9 +84,11 @@ export default function LiveMapView() {
             className="w-full rounded border px-3 py-2 text-sm"
           />
         </div>
+
         <div className="p-2 text-xs text-muted-foreground">
           {filtered.length} online
         </div>
+
         <div className="flex-1 overflow-auto">
           {filtered.map((v) => (
             <button
@@ -96,10 +100,12 @@ export default function LiveMapView() {
               <div className="font-medium text-sm line-clamp-1">
                 {v.name || "Visitor"}
               </div>
+
               <div className="text-xs text-muted-foreground line-clamp-1">
                 {v.city}
                 {v.countryCode ? `, ${v.countryCode}` : ""}
               </div>
+
               {v.currentUrl && (
                 <div className="text-xs text-muted-foreground line-clamp-1">
                   {v.currentUrl}
@@ -115,22 +121,26 @@ export default function LiveMapView() {
         <LiveMap visitors={filtered as Visitor[]} selectedId={selectedId} />
       </div>
 
-      {/* Right panel (V1 snapshot + pages visited) */}
-      {selected && selectedSessionId && (
+      {/* Right panel (snapshot + pages visited) */}
+      {canShowRightPanel && (
         <aside className="w-[420px] border-l bg-background p-3 hidden xl:block">
           <div className="mb-2">
-            <div className="text-sm font-medium">{selected.name || "Visitor"}</div>
+            <div className="text-sm font-medium">
+              {selected?.name || "Visitor"}
+            </div>
             <div className="text-xs text-muted-foreground">
-              {selected.city ?? "—"}
-              {selected.countryCode ? `, ${selected.countryCode}` : ""}
+              {selected?.city ?? "—"}
+              {selected?.countryCode ? `, ${selected.countryCode}` : ""}
             </div>
           </div>
 
-          {/* ✅ V1: static “snapshot” (iframe preview) */}
-          <LiveVisitorView orgId={orgId} sessionId={selectedSessionId} />
+          {/* ✅ Snapshot view */}
+          <LiveVisitorView
+            orgId={orgId}
+            sessionId={String(selectedSessionId)}
+          />
 
-
-          {/* ✅ Pages visited (from contactSessions.metadata.pages) */}
+          {/* ✅ Pages visited */}
           <div className="mt-3">
             <div className="text-xs font-medium text-muted-foreground mb-2">
               Pages visited
