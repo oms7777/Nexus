@@ -1,115 +1,70 @@
-// apps/app/src/app/api/tracker/snapshot/route.ts
-import { NextResponse } from "next/server";
-import { api } from "@workspace/backend/_generated/api";
-import { fetchMutation } from "convex/nextjs";
-import type { Id } from "@workspace/backend/_generated/dataModel";
+// packages/backend/convex/public/snapshots.ts
+import { mutation, query } from "../_generated/server";
+import { v } from "convex/values";
 
-export const runtime = "nodejs";
+const MAX_SNAPSHOT_CHARS = 50_000; // V1: tiny payload only
+const KEEP_LAST = 50;
 
-/**
- * CORS:
- * - origin reflect (pas de "*")
- * - compatible iframe/embed
- */
-function makeCorsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
-  const requestHeaders =
-    req.headers.get("access-control-request-headers") ?? "content-type";
+export const save = mutation({
+  args: {
+    organizationId: v.string(),
+    sessionId: v.id("contactSessions"),
 
-  const headers = new Headers();
-  if (origin) headers.set("Access-Control-Allow-Origin", origin);
+    pageUrl: v.optional(v.string()),
+    title: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
 
-  headers.set("Access-Control-Allow-Credentials", "true");
-  headers.set("Access-Control-Allow-Methods", "POST,OPTIONS");
-  headers.set("Access-Control-Allow-Headers", requestHeaders);
-  headers.set("Vary", "Origin, Access-Control-Request-Headers");
-  return headers;
-}
+    // V1: keep as string (compat) but it’s not rrweb anymore
+    snapshot: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { organizationId, sessionId, snapshot, pageUrl, title, width, height } = args;
 
-export async function OPTIONS(req: Request) {
-  return new NextResponse(null, { status: 204, headers: makeCorsHeaders(req) });
-}
+    if (!snapshot) return { ok: false };
 
-// Heuristique simple: si ça ressemble à un external id / uuid / token long => mapping
-function looksLikeExternalId(s: string) {
-  return s.includes("-") || s.length > 40;
-}
-
-export async function POST(req: Request) {
-  const headers = makeCorsHeaders(req);
-
-  try {
-    const body = await req.json().catch(() => null);
-
-    const organizationId = body?.organizationId as string | undefined;
-    const sessionIdRaw = body?.sessionId as string | undefined;
-
-    const pageUrl = body?.pageUrl as string | undefined;
-    const title = body?.title as string | undefined;
-    const width =
-      typeof body?.width === "number" ? (body.width as number) : undefined;
-    const height =
-      typeof body?.height === "number" ? (body.height as number) : undefined;
-
-    if (!organizationId || !sessionIdRaw || !pageUrl) {
-      headers.set("Content-Type", "application/json");
-      return new NextResponse(
-        JSON.stringify({ ok: false, error: "Invalid payload" }),
-        { status: 400, headers },
-      );
+    if (snapshot.length > MAX_SNAPSHOT_CHARS) {
+      return { ok: false, error: "Snapshot too large" };
     }
 
-    // ✅ obtenir un vrai Id<"contactSessions">
-    let contactSessionId: Id<"contactSessions">;
-
-    if (looksLikeExternalId(sessionIdRaw)) {
-      // Mode B: external session id → map vers Convex Id
-      contactSessionId = await fetchMutation(
-        api.public.contactSessions.ensureByExternalId,
-        {
-          organizationId,
-          externalSessionId: sessionIdRaw,
-        },
-      );
-    } else {
-      // Mode A: déjà un Convex Id
-      contactSessionId = sessionIdRaw as Id<"contactSessions">;
-    }
-
-    // ✅ V1: snapshot ultra léger (pas rrweb)
-    // On garde un champ snapshot string pour compat schema.
-    const snapshotStr = JSON.stringify({
-      v: 1,
-      pageUrl,
-      title,
-      width,
-      height,
-      ts: Date.now(),
-    });
-
-    await fetchMutation(api.public.snapshots.save, {
+    const id = await ctx.db.insert("sessionSnapshots", {
       organizationId,
-      sessionId: contactSessionId,
+      sessionId,
+      ts: Date.now(),
       pageUrl,
       title,
       width,
       height,
-      snapshot: snapshotStr,
+      snapshot, // "v1" or small json
     });
 
-    headers.set("Content-Type", "application/json");
-    return new NextResponse(JSON.stringify({ ok: true }), { status: 200, headers });
-  } catch (err: any) {
-    console.error("[snapshot] POST error", err);
+    const existing = await ctx.db
+      .query("sessionSnapshots")
+      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+      .order("desc")
+      .take(KEEP_LAST + 10);
 
-    headers.set("Content-Type", "application/json");
-    return new NextResponse(
-      JSON.stringify({
-        ok: false,
-        error: "Internal error",
-        detail: typeof err?.message === "string" ? err.message : undefined,
-      }),
-      { status: 500, headers },
-    );
-  }
-}
+    if (existing.length > KEEP_LAST) {
+      const toDelete = existing.slice(KEEP_LAST);
+      for (const row of toDelete) {
+        await ctx.db.delete(row._id);
+      }
+    }
+
+    return { ok: true, id };
+  },
+});
+
+export const listRecent = query({
+  args: {
+    sessionId: v.id("contactSessions"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { sessionId, limit }) => {
+    return await ctx.db
+      .query("sessionSnapshots")
+      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+      .order("desc")
+      .take(limit ?? 12);
+  },
+});
