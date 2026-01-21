@@ -46,9 +46,11 @@ function extractMeta(events: eventWithTime[]) {
 export function LiveVisitorView({
   orgId,
   sessionId,
+  clickUrl,
 }: {
   orgId: string;
   sessionId: string;
+  clickUrl?: string;
 }) {
   const outerRef = useRef<HTMLDivElement | null>(null);
 
