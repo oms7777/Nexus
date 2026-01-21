@@ -1,18 +1,24 @@
 "use client";
 
 import Bowser from "bowser";
+import React, { useCallback, useMemo } from "react";
+import { useQuery } from "convex/react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
+
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@workspace/ui/components/accordion";
-import { getCountryFlagUrl, getCountryFromTimezone } from "@/lib/country-utils";
-import { api } from "@workspace/backend/_generated/api";
-import { Id } from "@workspace/backend/_generated/dataModel";
 import { Button } from "@workspace/ui/components/button";
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
-import { useQuery } from "convex/react";
+
+import { getCountryFlagUrl, getCountryFromTimezone } from "@/lib/country-utils";
+import { api } from "@workspace/backend/_generated/api";
+import type { Id } from "@workspace/backend/_generated/dataModel";
+
 import {
   ClockIcon,
   GlobeIcon,
@@ -21,12 +27,8 @@ import {
   LinkIcon,
   CalendarIcon,
 } from "lucide-react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import React, { useCallback, useMemo } from "react";
-import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
-import { SnapshotsStrip } from "./SnapshotsStrip";
 
+import { SnapshotsStrip } from "./SnapshotsStrip";
 
 type InfoItem = {
   label: string;
@@ -77,11 +79,7 @@ export const ContactPanel = () => {
 
   const contactSession = useQuery(
     api.private.contactSessions.getOneByConversationId,
-    conversationId
-      ? {
-          conversationId,
-        }
-      : "skip",
+    conversationId ? { conversationId } : "skip",
   );
 
   const parseUserAgent = useMemo(() => {
@@ -114,9 +112,7 @@ export const ContactPanel = () => {
     return getCountryFromTimezone(contactSession?.metadata?.timezone);
   }, [contactSession?.metadata?.timezone]);
 
-  // City sera alimentée plus tard via Live Map / geo-IP (placeholder).
   const cityLabel = contactSession?.metadata?.city ?? undefined;
-
 
   const utm = useMemo(
     () => parseUtm(contactSession?.metadata?.currentUrl),
@@ -128,30 +124,40 @@ export const ContactPanel = () => {
     return formatDuration(Date.now() - contactSession._creationTime);
   }, [contactSession?._creationTime]);
 
-  // Fallback minimal pour "Last 5 pages" en attendant l’analytics.
+  // Pages (on garde un cap 5 pour l’accordion)
   const lastPages = useMemo(() => {
     const pages = (contactSession?.metadata?.pages ?? []) as string[];
     if (pages.length) return pages.slice(0, 5);
-    // fallback
+
     const current = contactSession?.metadata?.currentUrl;
     const ref = contactSession?.metadata?.referrer;
     const list: string[] = [];
     if (current) list.push(current);
     if (ref && ref !== current) list.push(ref);
     return list.slice(0, 5);
-  }, [contactSession?.metadata?.pages, contactSession?.metadata?.currentUrl, contactSession?.metadata?.referrer]);
+  }, [
+    contactSession?.metadata?.pages,
+    contactSession?.metadata?.currentUrl,
+    contactSession?.metadata?.referrer,
+  ]);
 
+  const allPages = useMemo(() => {
+    const pages = (contactSession?.metadata?.pages ?? []) as string[];
+    return Array.isArray(pages) ? pages.filter(Boolean).slice(0, 10) : [];
+  }, [contactSession?.metadata?.pages]);
+
+  const currentUrl = contactSession?.metadata?.currentUrl ?? "";
 
   const handleQuickBook = useCallback(() => {
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("nexus:open-inline-booker", { detail: {} }));
+      window.dispatchEvent(
+        new CustomEvent("nexus:open-inline-booker", { detail: {} }),
+      );
     }
   }, []);
 
   const accordionSections = useMemo<InfoSection[]>(() => {
-    if (!contactSession?.metadata) {
-      return [];
-    }
+    if (!contactSession?.metadata) return [];
 
     return [
       {
@@ -163,11 +169,15 @@ export const ContactPanel = () => {
             label: "Browser",
             value:
               userAgentInfo.browser +
-              (userAgentInfo.browserVersion ? ` ${userAgentInfo.browserVersion}` : ""),
+              (userAgentInfo.browserVersion
+                ? ` ${userAgentInfo.browserVersion}`
+                : ""),
           },
           {
             label: "OS",
-            value: userAgentInfo.os + (userAgentInfo.osVersion ? ` ${userAgentInfo.osVersion}` : ""),
+            value:
+              userAgentInfo.os +
+              (userAgentInfo.osVersion ? ` ${userAgentInfo.osVersion}` : ""),
           },
           {
             label: "Device",
@@ -176,14 +186,8 @@ export const ContactPanel = () => {
               (userAgentInfo.deviceModel ? ` - ${userAgentInfo.deviceModel}` : ""),
             className: "capitalize",
           },
-          {
-            label: "Screen",
-            value: contactSession.metadata.screenResolution || "—",
-          },
-          {
-            label: "Viewport",
-            value: contactSession.metadata.viewportSize || "—",
-          },
+          { label: "Screen", value: contactSession.metadata.screenResolution || "—" },
+          { label: "Viewport", value: contactSession.metadata.viewportSize || "—" },
           {
             label: "Cookies",
             value: contactSession.metadata.cookieEnabled ? "Enabled" : "Disabled",
@@ -195,14 +199,7 @@ export const ContactPanel = () => {
         icon: GlobeIcon,
         title: "Location & Language",
         items: [
-          ...(cityLabel
-            ? [
-                {
-                  label: "City",
-                  value: cityLabel,
-                },
-              ]
-            : []),
+          ...(cityLabel ? [{ label: "City", value: cityLabel }] : []),
           ...(countryInfo
             ? [
                 {
@@ -222,14 +219,8 @@ export const ContactPanel = () => {
                 },
               ]
             : []),
-          {
-            label: "Language",
-            value: contactSession.metadata.language || "—",
-          },
-          {
-            label: "Timezone",
-            value: contactSession.metadata.timezone || "—",
-          },
+          { label: "Language", value: contactSession.metadata.language || "—" },
+          { label: "Timezone", value: contactSession.metadata.timezone || "—" },
           {
             label: "UTC Offset",
             value:
@@ -331,25 +322,22 @@ export const ContactPanel = () => {
             label: "Session Started",
             value: new Date(contactSession._creationTime).toLocaleString(),
           },
-          {
-            label: "Time on Site",
-            value: timeOnSite,
-          },
+          { label: "Time on Site", value: timeOnSite },
         ],
       },
     ];
   }, [contactSession, userAgentInfo, countryInfo, cityLabel, utm, lastPages, timeOnSite]);
 
-  if (contactSession === undefined || contactSession === null) {
-    return null;
-  }
+  if (contactSession === undefined || contactSession === null) return null;
 
   return (
     <div className="flex h-full w-full flex-col bg-background text-foreground">
       <div className="flex flex-col gap-y-4 p-4">
         <div className="flex items-center gap-x-2">
           <DicebearAvatar
-            badgeImageUrl={countryInfo?.code ? getCountryFlagUrl(countryInfo.code) : undefined}
+            badgeImageUrl={
+              countryInfo?.code ? getCountryFlagUrl(countryInfo.code) : undefined
+            }
             seed={contactSession._id}
             size={42}
           />
@@ -371,7 +359,12 @@ export const ContactPanel = () => {
             </Link>
           </Button>
 
-          <Button className="w-full" onClick={handleQuickBook} size="lg" variant="secondary">
+          <Button
+            className="w-full"
+            onClick={handleQuickBook}
+            size="lg"
+            variant="secondary"
+          >
             <CalendarIcon className="mr-2 h-4 w-4" />
             <span>Quick-book</span>
           </Button>
@@ -408,17 +401,58 @@ export const ContactPanel = () => {
           </Accordion>
         )}
 
-        {/* Live view */}
+        {/* Live view + pages (sans cadre preview gris) */}
         <div className="border-t p-4">
           <div className="mb-2 flex items-center justify-between">
             <h5 className="text-sm font-medium">Live view</h5>
-            <span className="text-xs text-muted-foreground">
-              {contactSession.metadata?.currentUrl?.split("?")[0] ?? "—"}
-            </span>
           </div>
 
+          {/* ✅ même rendu que sur ta capture : "Live view https://..." */}
+          {currentUrl ? (
+            <a
+              href={currentUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block text-xs text-muted-foreground hover:underline"
+              title={currentUrl}
+            >
+              <span className="text-foreground">Live view</span>{" "}
+              <span className="truncate">{currentUrl}</span>
+            </a>
+          ) : (
+            <div className="text-xs text-muted-foreground">Live view —</div>
+          )}
 
-          <SnapshotsStrip sessionId={contactSession._id} limit={8} />
+          {/* ✅ Pages visited */}
+          <div className="mt-3">
+            <div className="text-xs font-medium text-muted-foreground mb-2">
+              Pages visited
+            </div>
+
+            {allPages.length ? (
+              <div className="space-y-2">
+                {allPages.map((url, idx) => (
+                  <a
+                    key={`${url}_${idx}`}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
+                    title={url}
+                  >
+                    <div className="truncate">{url}</div>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">No pages yet</div>
+            )}
+          </div>
+
+          {/* snapshots (tu peux garder pour plus tard / V1+) */}
+          <div className="mt-4">
+            <SnapshotsStrip sessionId={contactSession._id} limit={8} />
+          </div>
         </div>
       </div>
     </div>
