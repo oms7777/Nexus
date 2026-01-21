@@ -1,32 +1,32 @@
+// apps/widget/app/api/realtime/pusher-auth/route.ts
 import { NextResponse } from "next/server";
 import { pusherServer } from "@/lib/pusher";
 
 export const runtime = "nodejs";
 
-function makeCorsHeaders(req: Request) {
-  const origin = req.headers.get("origin") ?? "*";
+// 🔥 CORS commun
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin":
+    process.env.NODE_ENV === "production"
+      ? "https://widget.inboundless.co"
+      : "*",
+  "Access-Control-Allow-Methods": "POST,OPTIONS",
+  "Access-Control-Allow-Headers": "content-type",
+};
 
-  const headers = new Headers();
-  headers.set("Access-Control-Allow-Origin", origin);
-  headers.set("Access-Control-Allow-Credentials", "true");
-  headers.set("Access-Control-Allow-Methods", "POST,OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type, X-Requested-With, Authorization");
-  headers.set("Vary", "Origin");
-  return headers;
-}
-
-export async function OPTIONS(req: Request) {
-  return new NextResponse(null, { status: 204, headers: makeCorsHeaders(req) });
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
 }
 
 export async function POST(req: Request) {
-  const headers = makeCorsHeaders(req);
-
   try {
+    // 1) Récupérer le body, en JSON ou x-www-form-urlencoded
     const raw = await req.text();
-    let data: Record<string, any> = {};
+    let data: any = {};
 
-    // Pusher envoie souvent x-www-form-urlencoded
     try {
       data = JSON.parse(raw || "{}");
     } catch {
@@ -34,20 +34,47 @@ export async function POST(req: Request) {
       data = Object.fromEntries(params.entries());
     }
 
-    const socketId = String(data.socket_id || "");
-    const channelName = String(data.channel_name || "");
+    const channelName: string =
+      data.channel_name || data.channelName || "";
+    const socketId: string = data.socket_id || data.socketId || "";
+    const orgId: string | undefined = data.orgId;
+    const sessionId: string | undefined = data.sessionId;
 
-    if (!socketId || !channelName || !/^presence-org_[\w-]+_session_[\w-]+$/.test(channelName)) {
-      return new NextResponse("Bad channel", { status: 400, headers });
+    // 2) Sécurité minimale : on ne laisse passer que nos channels presence-org_..._session_...
+    if (
+      typeof channelName !== "string" ||
+      typeof socketId !== "string" ||
+      !/^presence\-org_[\w-]+_session_[\w-]+$/.test(channelName)
+    ) {
+      return new NextResponse("Bad channel", {
+        status: 400,
+        headers: CORS_HEADERS,
+      });
     }
 
-    const presenceData = { user_id: `anon_${socketId}`, user_info: {} };
-    const auth = pusherServer.authorizeChannel(socketId, channelName, presenceData);
+    const presenceData = {
+      user_id: sessionId ?? "anon",
+      user_info: { orgId, sessionId },
+    };
 
-    headers.set("Content-Type", "application/json");
-    return new NextResponse(JSON.stringify(auth), { status: 200, headers });
+    const auth = pusherServer.authorizeChannel(
+      socketId,
+      channelName,
+      presenceData,
+    );
+
+    return new NextResponse(JSON.stringify(auth), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        ...CORS_HEADERS,
+      },
+    });
   } catch (err) {
-    console.error("[pusher-auth] error:", err);
-    return new NextResponse("Auth error", { status: 500, headers });
+    console.error("Pusher auth error:", err);
+    return new NextResponse("Auth error", {
+      status: 500,
+      headers: CORS_HEADERS,
+    });
   }
 }
