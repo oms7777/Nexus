@@ -1,42 +1,123 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useSetAtom } from "jotai";
 import { useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { contactSessionIdAtomFamily } from "../atoms/widget-atoms";
 
+/** ---------------- Helpers ---------------- */
+
+function safeGetLocalStorage(key: string) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetLocalStorage(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+}
+
 function getOrCreateVisitorId() {
   const k = "nx_visitor_id";
-  let id = localStorage.getItem(k);
+  let id = safeGetLocalStorage(k);
   if (!id) {
     id = crypto.randomUUID();
-    localStorage.setItem(k, id);
+    safeSetLocalStorage(k, id);
   }
   return id;
 }
 
-// ✅ try read parent url (if embed already sent it)
-function getBestUrl() {
-  try {
-    // inside iframe => document.referrer is often the host page URL
-    const ref = document.referrer;
-    if (ref && ref.startsWith("http")) return ref;
-  } catch {}
-  try {
-    return window.location.href;
-  } catch {
-    return undefined;
-  }
+type ParentLocationPayload = {
+  href?: string;
+  title?: string;
+  referrer?: string;
+  ts?: number;
+};
+
+function looksLikeUrl(s?: string | null) {
+  return !!s && (s.startsWith("http://") || s.startsWith("https://"));
 }
 
+/** ---------------- Hook ---------------- */
+
 export function useEnsureContactSession(organizationId: string | null) {
-  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(organizationId || ""));
+  const setContactSessionId = useSetAtom(
+    contactSessionIdAtomFamily(organizationId || ""),
+  );
+
   const ensure = useMutation(api.public.contactSessions.ensure);
+  const ensureByExternalId = useMutation(api.public.contactSessions.ensureByExternalId);
   const validate = useMutation(api.public.contactSessions.validate);
 
+  // ✅ Source of truth pour l’URL: envoyée par l’embed
+  const parentLocationRef = useRef<ParentLocationPayload | null>(null);
+
+  // ✅ External session id: envoyée par l’embed
+  const externalSessionIdRef = useRef<string | null>(null);
+
+  // 1) écoute messages parent (URL + external session id)
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data || {};
+      const type = (data as any)?.type;
+      const payload = (data as any)?.payload;
+
+      if (type === "nexus:parent-location") {
+        if (payload && typeof payload === "object") {
+          const p = payload as ParentLocationPayload;
+          if (looksLikeUrl(p.href)) parentLocationRef.current = p;
+        }
+      }
+
+      if (type === "nexus:request-session") {
+        const ext = payload?.externalSessionId;
+        if (typeof ext === "string" && ext.trim().length > 0) {
+          externalSessionIdRef.current = ext.trim();
+        }
+      }
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  // 2) ensure session
   useEffect(() => {
     if (!organizationId) return;
+
+    let cancelled = false;
+
+    const getBestUrl = () => {
+      const p = parentLocationRef.current;
+      if (looksLikeUrl(p?.href)) return p!.href!;
+      // fallback (souvent ok) : referrer = page du site
+      try {
+        const ref = document.referrer;
+        if (looksLikeUrl(ref)) return ref;
+      } catch {}
+      return undefined;
+    };
+
+    const getBestTitle = () => {
+      const p = parentLocationRef.current;
+      if (p?.title && p.title.trim().length) return p.title;
+      return undefined;
+    };
+
+    const getBestReferrer = () => {
+      const p = parentLocationRef.current;
+      if (looksLikeUrl(p?.referrer)) return p!.referrer!;
+      try {
+        const ref = document.referrer;
+        if (looksLikeUrl(ref)) return ref;
+      } catch {}
+      return undefined;
+    };
 
     (async () => {
       const lsKey = `nx_contact_session_${organizationId}`;
@@ -44,12 +125,8 @@ export function useEnsureContactSession(organizationId: string | null) {
 
       let sid: string | null = null;
 
-      // 1) reuse + validate
-      try {
-        sid = localStorage.getItem(lsKey);
-      } catch {
-        sid = null;
-      }
+      // A) reuse + validate
+      sid = safeGetLocalStorage(lsKey);
 
       if (sid) {
         try {
@@ -60,28 +137,39 @@ export function useEnsureContactSession(organizationId: string | null) {
         }
       }
 
-      // 2) ensure new
+      // B) create
       if (!sid) {
-        sid = (await ensure({
-          organizationId,
-          metadata: {
-            visitorId,
-            userAgent: navigator.userAgent,
-            language: navigator.language,
-            viewportSize: `${window.innerWidth}x${window.innerHeight}`,
-            currentUrl: getBestUrl(),
-            referrer: document.referrer || undefined,
-          },
-        })) as unknown as string;
+        const ext = externalSessionIdRef.current;
 
-        try {
-          localStorage.setItem(lsKey, sid);
-        } catch {}
+        const metadata = {
+          visitorId,
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          viewportSize: `${window.innerWidth}x${window.innerHeight}`,
+          currentUrl: getBestUrl(),
+          title: getBestTitle(),
+          referrer: getBestReferrer(),
+        };
+
+        // ✅ priorité: externalSessionId (stable)
+        if (ext) {
+          sid = (await ensureByExternalId({
+            organizationId,
+            externalSessionId: ext,
+            metadata,
+          })) as unknown as string;
+        } else {
+          sid = (await ensure({ organizationId, metadata })) as unknown as string;
+        }
+
+        safeSetLocalStorage(lsKey, sid);
       }
+
+      if (cancelled) return;
 
       setContactSessionId(sid as any);
 
-      // ✅ IMPORTANT: notify parent ONLY when sid is known
+      // ✅ notif parent quand sid est connu
       try {
         window.parent?.postMessage(
           { type: "nexus:session-ready", payload: { contactSessionId: sid } },
@@ -89,5 +177,9 @@ export function useEnsureContactSession(organizationId: string | null) {
         );
       } catch {}
     })();
-  }, [organizationId, ensure, validate, setContactSessionId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, ensure, ensureByExternalId, validate, setContactSessionId]);
 }

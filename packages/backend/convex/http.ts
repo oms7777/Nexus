@@ -1,7 +1,7 @@
 // packages/backend/convex/http.ts
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { handleClerkWebhook } from "./webhooks/clerk";
 
 const http = httpRouter();
@@ -15,11 +15,7 @@ http.route({
   }),
 });
 
-/**
- * Clerk webhook
- * - Reçoit les events Clerk (Dev/Prod selon les env vars du deployment Convex)
- * - Vérifie la signature Svix dans handleClerkWebhook
- */
+/** Clerk webhook */
 http.route({
   path: "/clerk-webhook",
   method: "POST",
@@ -27,6 +23,40 @@ http.route({
     return handleClerkWebhook(ctx, req);
   }),
 });
+
+/** Helpers */
+function looksLikeExternalId(s: string) {
+  // external UUID / long token
+  return s.includes("-") || s.length > 40;
+}
+
+function isWidgetOrAppUrl(url?: string) {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    const h = u.hostname;
+    return h === "widget.inboundless.co" || h === "app.inboundless.co";
+  } catch {
+    // if it's not a valid URL, don't trust it
+    return true;
+  }
+}
+
+async function resolveSessionId(ctx: any, input: { organizationId: string; sessionIdRaw: string }) {
+  const { organizationId, sessionIdRaw } = input;
+
+  if (looksLikeExternalId(sessionIdRaw)) {
+    // map external → real Convex Id
+    const id = await ctx.runMutation(api.public.contactSessions.ensureByExternalId, {
+      organizationId,
+      externalSessionId: sessionIdRaw,
+    });
+    return id;
+  }
+
+  // already a Convex Id string
+  return sessionIdRaw as any;
+}
 
 /** Live heartbeat (CORS preflight) */
 http.route({
@@ -63,7 +93,7 @@ http.route({
 
       clientIp?: string;
 
-      // ✅ NOUVEAUX CHAMPS
+      // ✅ nouveaux champs
       title?: string;
       userAgent?: string;
       cookieEnabled?: boolean;
@@ -77,11 +107,25 @@ http.route({
       });
     }
 
+    const resolvedSessionId = await resolveSessionId(ctx, {
+      organizationId: body.organizationId,
+      sessionIdRaw: body.contactSessionId,
+    });
+
+    // ✅ IMPORTANT: on ignore les URLs de l'iframe widget (sinon ça écrase ton vrai site)
+    const safeCurrentUrl =
+      isWidgetOrAppUrl(body.currentUrl) ? undefined : body.currentUrl;
+
+    // (optionnel) si tu veux au moins garder un truc:
+    // si currentUrl est widget mais referrer est un vrai site → on prend referrer
+    const finalCurrentUrl =
+      safeCurrentUrl ?? (isWidgetOrAppUrl(body.referrer) ? undefined : body.referrer);
+
     await ctx.runAction(internal.live.heartbeatHttp, {
       organizationId: body.organizationId,
-      contactSessionId: body.contactSessionId as any,
+      contactSessionId: resolvedSessionId as any,
 
-      currentUrl: body.currentUrl,
+      currentUrl: finalCurrentUrl,
       referrer: body.referrer,
       language: body.language,
       timezone: body.timezone,
@@ -90,7 +134,7 @@ http.route({
 
       client_ip: body.clientIp,
 
-      // ✅ forward
+      // ✅ pass-through des nouveaux champs
       title: body.title,
       userAgent: body.userAgent,
       cookieEnabled: body.cookieEnabled,

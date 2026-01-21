@@ -350,6 +350,9 @@ type SuggestionsPayload = {
         if (typeof sid !== "string" || sid.trim().length === 0) return;
 
         sendParentLocation(true);
+        setTimeout(() => sendParentLocation(true), 150);
+        setTimeout(() => sendParentLocation(true), 600);
+
 
         // ✅ If we were tracking with external id, upgrade to real sid
         if (trackingStarted && trackingSessionId === sid) return;
