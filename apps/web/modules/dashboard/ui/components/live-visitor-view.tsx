@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useMemo } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
@@ -10,20 +10,29 @@ import { Replayer } from "rrweb";
 
 type Cursor = { x: number; y: number };
 
+type V1Snapshot = {
+  v: 1;
+  pageUrl?: string;
+  title?: string;
+  width?: number;
+  height?: number;
+  ts?: number;
+};
+
 function clamp01(n: number) {
   if (!Number.isFinite(n)) return 0;
   return Math.min(1, Math.max(0, n));
 }
 
-function safeJsonParse(s: string): any | null {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
+function isRrwebEvents(x: any): x is eventWithTime[] {
+  return Array.isArray(x) && x.length >= 1 && typeof x[0] === "object";
 }
 
-function extractMetaFromRrweb(events: eventWithTime[]) {
+function isV1Snapshot(x: any): x is V1Snapshot {
+  return !!x && typeof x === "object" && x.v === 1;
+}
+
+function extractMeta(events: eventWithTime[]) {
   const meta = events.find((e: any) => e?.type === 4) as any;
   const full = events.find((e: any) => e?.type === 2) as any;
   const src = meta?.data ?? full?.data ?? {};
@@ -37,13 +46,13 @@ function extractMetaFromRrweb(events: eventWithTime[]) {
 export function LiveVisitorView({
   orgId,
   sessionId,
-  clickUrl,
 }: {
   orgId: string;
   sessionId: string;
-  clickUrl?: string;
 }) {
   const outerRef = useRef<HTMLDivElement | null>(null);
+
+  // rrweb mode
   const stageRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
@@ -72,23 +81,27 @@ export function LiveVisitorView({
 
   const latest = snaps[0];
 
-  const latestParsed = useMemo(() => {
-    const raw = latest?.snapshot;
-    if (!raw) return null;
-    return safeJsonParse(raw);
+  // Parse snapshot once
+  const parsed = useMemo(() => {
+    if (!latest?.snapshot) return null;
+    try {
+      return JSON.parse(latest.snapshot);
+    } catch {
+      return null;
+    }
   }, [latest?.snapshot]);
 
-  const isRrweb = useMemo(() => Array.isArray(latestParsed), [latestParsed]);
+  const mode: "rrweb" | "iframe" | "empty" = useMemo(() => {
+    if (!parsed) return "empty";
+    if (isRrwebEvents(parsed)) return "rrweb";
+    if (isV1Snapshot(parsed)) return "iframe";
+    return "empty";
+  }, [parsed]);
 
-  const isV1Meta = useMemo(() => {
-    if (!latestParsed || Array.isArray(latestParsed)) return false;
-    return latestParsed?.v === 1 && (latestParsed?.kind === "meta" || !latestParsed?.kind);
-  }, [latestParsed]);
-
-  const isV2Image = useMemo(() => {
-    if (!latestParsed || Array.isArray(latestParsed)) return false;
-    return latestParsed?.v === 2 && latestParsed?.kind === "image";
-  }, [latestParsed]);
+  const v1 = useMemo(() => {
+    if (mode !== "iframe") return null;
+    return parsed as V1Snapshot;
+  }, [mode, parsed]);
 
   const ensureStage = useCallback(() => {
     const outer = outerRef.current;
@@ -188,7 +201,7 @@ export function LiveVisitorView({
 
       destroyReplayer();
 
-      const meta = extractMetaFromRrweb(events);
+      const meta = extractMeta(events);
 
       const width =
         meta.width ??
@@ -222,23 +235,32 @@ export function LiveVisitorView({
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
   );
 
-  // Init from latest snapshot (rrweb only)
+  // Init either rrweb or iframe mode
   useEffect(() => {
     if (!latest?.snapshot) return;
-    if (!isRrweb) return;
+
+    // If we switch to iframe mode, stop rrweb clean
+    if (mode !== "rrweb") {
+      destroyReplayer();
+      return;
+    }
 
     ensureStage();
 
-    const parsed = safeJsonParse(latest.snapshot);
-    if (!Array.isArray(parsed)) return;
+    try {
+      const events = JSON.parse(latest.snapshot) as any;
+      if (isRrwebEvents(events)) bootFromEvents(events);
+    } catch (err) {
+      console.error("[live] failed to init snapshot", err);
+    }
+  }, [latest?.snapshot, mode, bootFromEvents, ensureStage, destroyReplayer]);
 
-    bootFromEvents(parsed as eventWithTime[]);
-  }, [latest?.snapshot, isRrweb, bootFromEvents, ensureStage]);
-
-  // Handle resize
+  // Resize layout only for rrweb mode
   useEffect(() => {
     const outer = outerRef.current;
     if (!outer) return;
+
+    if (mode !== "rrweb") return;
 
     applyLayout();
 
@@ -257,7 +279,7 @@ export function LiveVisitorView({
         ro?.disconnect();
       } catch {}
     };
-  }, [applyLayout]);
+  }, [applyLayout, mode]);
 
   const processQueue = useCallback(() => {
     if (processingRef.current) return;
@@ -294,6 +316,7 @@ export function LiveVisitorView({
 
   const onRrweb = useCallback(
     (events: eventWithTime[]) => {
+      if (mode !== "rrweb") return;
       if (!replayerRef.current) return;
 
       if (queueRef.current.length > MAX_QUEUE) {
@@ -306,15 +329,16 @@ export function LiveVisitorView({
       queueRef.current.push(...events);
       processQueue();
     },
-    [processQueue],
+    [processQueue, mode],
   );
 
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
+      if (mode !== "rrweb") return;
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
       bootFromEvents(events);
     },
-    [bootFromEvents],
+    [bootFromEvents, mode],
   );
 
   const { cursor } = useVisitorStream({
@@ -324,109 +348,138 @@ export function LiveVisitorView({
     onSnapshot,
   });
 
-  let cursorPx: { left: number; top: number } | null = null;
+  // Cursor positioning (works both modes)
+  const cursorPx = useMemo(() => {
+    if (!cursor) return null;
 
-  if (cursor) {
     const cx = clamp01((cursor as Cursor).x);
     const cy = clamp01((cursor as Cursor).y);
 
     const outer = outerRef.current;
+    if (!outer) return null;
 
-    if (!sourceRef.current || !outer) {
-      if (outer) {
-        cursorPx = {
-          left: cx * outer.clientWidth,
-          top: cy * outer.clientHeight,
-        };
-      }
-    } else {
-      const src = sourceRef.current;
-      const { scale, ox, oy } = layoutRef.current;
-      cursorPx = {
-        left: ox + cx * src.width * scale,
-        top: oy + cy * src.height * scale,
+    // iframe mode => use container pixels directly
+    if (mode !== "rrweb" || !sourceRef.current) {
+      return {
+        left: cx * outer.clientWidth,
+        top: cy * outer.clientHeight,
       };
     }
-  }
 
-  const resolvedClickUrl =
-    clickUrl ||
-    (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined) ||
-    (typeof latestParsed?.pageUrl === "string" ? latestParsed.pageUrl : undefined);
+    const src = sourceRef.current;
+    const { scale, ox, oy } = layoutRef.current;
+    return {
+      left: ox + cx * src.width * scale,
+      top: oy + cy * src.height * scale,
+    };
+  }, [cursor, mode]);
 
-  const click = () => {
-    if (!resolvedClickUrl) return;
-    try {
-      window.open(resolvedClickUrl, "_blank", "noopener,noreferrer");
-    } catch {}
-  };
+  // ---- iframe preview handling
+  const [iframeBlocked, setIframeBlocked] = useState(false);
+
+  const previewUrl =
+    v1?.pageUrl ||
+    (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined);
 
   return (
-    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height: 360 }}>
-      {/* Click overlay */}
-      <button
-        type="button"
-        onClick={click}
-        className="absolute inset-0 z-10 cursor-pointer"
-        style={{ background: "transparent" }}
-        title={resolvedClickUrl ? `Open: ${resolvedClickUrl}` : "No URL"}
-      />
-
-      {/* Stage */}
+    <div
+      className="relative rounded-xl border overflow-hidden bg-black/5"
+      style={{ height: 360 }}
+    >
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
-      {/* If we DON'T have rrweb, show a clean meta preview */}
-      {!isRrweb && (
-        <div className="absolute inset-0 z-0 p-3">
-          <div className="h-full w-full rounded-lg border bg-background/70 backdrop-blur-sm p-3 flex flex-col justify-between">
-            <div>
-              <div className="text-sm font-semibold">Page preview</div>
-
-              <div className="mt-2 text-xs text-muted-foreground">
-                {typeof latest?.title === "string" && latest.title.trim().length
-                  ? latest.title
-                  : typeof latestParsed?.title === "string"
-                    ? latestParsed.title
-                    : "—"}
-              </div>
-
-              <div className="mt-2 text-xs break-all text-muted-foreground">
-                {resolvedClickUrl ?? "No URL"}
-              </div>
+      {/* ✅ V1 lightweight = iframe preview */}
+      {mode === "iframe" && (
+        <div className="absolute inset-0">
+          {!previewUrl ? (
+            <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
+              No preview url
             </div>
+          ) : (
+            <div className="h-full w-full relative">
+              {/* clickable overlay */}
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="absolute inset-0 z-10"
+                title="Open current page"
+              />
 
-            <div className="text-[11px] text-muted-foreground">
-              {isV2Image
-                ? "Snapshot: image (v2)"
-                : isV1Meta
-                  ? "Snapshot: meta (v1)"
-                  : "Snapshot: unknown format"}
+              {/* iframe */}
+              <iframe
+                key={previewUrl}
+                src={previewUrl}
+                className="absolute inset-0 h-full w-full"
+                style={{
+                  border: "none",
+                  pointerEvents: "none", // keep it as a thumbnail
+                  background: "white",
+                }}
+                onLoad={() => {
+                  // If the site blocks framing, onLoad may still fire blank.
+                  // We detect block heuristically by a timer + contentWindow check in try/catch.
+                  setTimeout(() => {
+                    try {
+                      // Some browsers throw if cross-origin; that's fine.
+                      // If framed is blocked, often iframe shows browser error page; we can't read it.
+                      // So we only keep a manual fallback toggle (below) if user sees blank.
+                    } catch {}
+                  }, 200);
+                }}
+              />
+
+              {/* fallback banner if user sees blank (manual switch) */}
+              {iframeBlocked && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 z-20">
+                  <div className="text-xs text-muted-foreground">
+                    Preview blocked by the website (CSP / X-Frame-Options)
+                  </div>
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs underline"
+                  >
+                    Open page
+                  </a>
+                </div>
+              )}
+
+              {!iframeBlocked && (
+                <button
+                  type="button"
+                  onClick={() => setIframeBlocked(true)}
+                  className="absolute bottom-2 right-2 z-20 rounded bg-black/60 px-2 py-1 text-[10px] text-white"
+                  title="If the preview is blank, enable fallback"
+                >
+                  Preview blank?
+                </button>
+              )}
             </div>
-
-            {/* If V2 image exists, render it */}
-            {isV2Image && typeof latestParsed?.dataUrl === "string" && (
-              <div className="mt-3 flex-1 overflow-hidden rounded-md border bg-black/5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={latestParsed.dataUrl}
-                  alt="snapshot"
-                  className="h-full w-full object-contain"
-                />
-              </div>
-            )}
-          </div>
+          )}
         </div>
       )}
 
+      {/* ✅ rrweb mode = replay */}
+      {/* (nothing special here; stage is appended in outerRef) */}
+
       {cursorPx && (
         <div
-          className="absolute z-20 size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none"
+          className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none z-30"
           style={{
             left: `${cursorPx.left}px`,
             top: `${cursorPx.top}px`,
             transform: "translate(-50%,-50%)",
           }}
         />
+      )}
+
+      {/* empty state */}
+      {mode === "empty" && (
+        <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+          No preview available
+        </div>
       )}
     </div>
   );
