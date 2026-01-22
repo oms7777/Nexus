@@ -472,6 +472,7 @@ export const bookSlot = action({
         organizationId,
         text: lines.join("\n"),
         dmChannelId: rep?.slackDmChannel ?? undefined,
+        slackUserId: rep?.slackUserId ?? undefined,
       });
     } catch (e) {
       console.log("Slack sendSlackMessage failed:", e);

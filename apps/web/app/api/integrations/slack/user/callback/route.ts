@@ -1,3 +1,4 @@
+// apps/web/app/api/integrations/slack/user/callback/route.ts
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { fetchMutation } from "convex/nextjs";
@@ -8,11 +9,31 @@ export const runtime = "nodejs";
 const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID!;
 const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET!;
 
+if (!SLACK_CLIENT_ID) throw new Error("Missing SLACK_CLIENT_ID");
+if (!SLACK_CLIENT_SECRET) throw new Error("Missing SLACK_CLIENT_SECRET");
+
+function safeRedirectPath(input: any) {
+  const p = typeof input === "string" ? input.trim() : "/me/profile";
+  if (!p.startsWith("/")) return "/me/profile";
+  return p || "/me/profile";
+}
+
+function decodeState(stateParam: string) {
+  try {
+    const json = Buffer.from(stateParam, "base64url").toString("utf8");
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: Request) {
   const authCtx = await auth();
   const { userId, orgId } = authCtx;
 
-  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
+  if (!userId || !orgId) {
+    return new NextResponse("Unauthorized", { status: 401 });
+  }
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -20,25 +41,22 @@ export async function GET(req: Request) {
   const error = url.searchParams.get("error");
 
   if (error) return new NextResponse(`Slack error: ${error}`, { status: 400 });
-  if (!code || !stateParam) return new NextResponse("Missing OAuth params", { status: 400 });
-
-  let state: any = {};
-  try {
-    state = JSON.parse(Buffer.from(stateParam, "base64url").toString("utf8"));
-  } catch {
-    return new NextResponse("Invalid state", { status: 400 });
+  if (!code || !stateParam) {
+    return new NextResponse("Missing OAuth params", { status: 400 });
   }
 
+  const state = decodeState(stateParam);
+  if (!state) return new NextResponse("Invalid state", { status: 400 });
   if (!state.userConnect) return new NextResponse("Wrong Slack flow", { status: 400 });
 
-  // ✅ Safety: state org must match current org
-  if (state.orgId && state.orgId !== orgId) {
-    return new NextResponse("Org mismatch", { status: 403 });
-  }
+  // ✅ Verify state matches current identity
+  if (state.orgId !== orgId) return new NextResponse("Org mismatch", { status: 403 });
+  if (state.userId !== userId) return new NextResponse("User mismatch", { status: 403 });
 
-  const redirectPath = state.redirect ?? "/me/profile";
+  const redirectPath = safeRedirectPath(state.redirect);
   const redirectUri = `${url.origin}/api/integrations/slack/user/callback`;
 
+  // 1) Exchange code
   const tokenRes = await fetch("https://slack.com/api/oauth.v2.access", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -50,13 +68,21 @@ export async function GET(req: Request) {
     }),
   });
 
-  const data: any = await tokenRes.json();
-  if (!data.ok) return new NextResponse(`Slack OAuth error: ${data.error}`, { status: 500 });
+  const data: any = await tokenRes.json().catch(() => ({}));
+  if (!data?.ok) {
+    return new NextResponse(`Slack OAuth error: ${data?.error || "unknown_error"}`, {
+      status: 500,
+    });
+  }
 
-  const accessToken = data.access_token as string;
-  const slackUserId = data.authed_user?.id;
-  if (!slackUserId) return new NextResponse("Missing slackUserId", { status: 500 });
+  // OAuth v2: data.access_token = Bot token (xoxb-...)
+  const accessToken = data.access_token as string | undefined;
+  const slackUserId = data.authed_user?.id as string | undefined;
 
+  if (!accessToken) return new NextResponse("Missing Slack bot access_token", { status: 500 });
+  if (!slackUserId) return new NextResponse("Missing authed_user.id", { status: 500 });
+
+  // 2) Open DM to get Dxxxx channel id
   const dmRes = await fetch("https://slack.com/api/conversations.open", {
     method: "POST",
     headers: {
@@ -66,12 +92,17 @@ export async function GET(req: Request) {
     body: JSON.stringify({ users: slackUserId }),
   });
 
-  const dmData: any = await dmRes.json();
-  if (!dmData.ok) return new NextResponse(`Slack DM error: ${dmData.error}`, { status: 500 });
+  const dmData: any = await dmRes.json().catch(() => ({}));
+  if (!dmData?.ok) {
+    return new NextResponse(`Slack DM error: ${dmData?.error || "unknown_error"}`, {
+      status: 500,
+    });
+  }
 
-  const slackDmChannel = dmData.channel?.id as string;
-  if (!slackDmChannel) return new NextResponse("Missing slackDmChannel", { status: 500 });
+  const slackDmChannel = dmData.channel?.id as string | undefined;
+  if (!slackDmChannel) return new NextResponse("Missing DM channel id", { status: 500 });
 
+  // 3) Save on rep (Convex)
   const convexToken = await authCtx.getToken({ template: "convex" });
 
   await fetchMutation(
@@ -80,5 +111,8 @@ export async function GET(req: Request) {
     { token: convexToken ?? undefined }
   );
 
-  return NextResponse.redirect(`${url.origin}${redirectPath}?slack_user_connected=1`);
+  // 4) Redirect back
+  return NextResponse.redirect(
+    `${url.origin}${redirectPath}?slack_user_connected=1`
+  );
 }

@@ -194,24 +194,52 @@ export const sendSlackMessage = action({
   args: {
     organizationId: v.string(),
     text: v.string(),
-    dmChannelId: v.optional(v.string()),      // ✅ au lieu de channelOverride
-    channelOverride: v.optional(v.string()),  // ✅ optionnel si tu veux garder compat
+
+    // DM path
+    dmChannelId: v.optional(v.string()),
+    slackUserId: v.optional(v.string()),
+
+    // channel fallback (optionnel)
+    channelOverride: v.optional(v.string()),
   },
-  handler: async (ctx, { organizationId, text, dmChannelId, channelOverride }) => {
+  handler: async (ctx, { organizationId, text, dmChannelId, slackUserId, channelOverride }) => {
     await requireSlackEntitled(ctx, organizationId);
 
     const integration = await ctx.runQuery(api.integrations._getSlackIntegrationByOrg, { organizationId });
-    if (!integration) return;
+    if (!integration?.accessToken) return;
 
-    // ✅ si DM fourni : on poste direct sur l’ID (Dxxxx)
-    if (dmChannelId) {
+    const token = integration.accessToken;
+
+    // 1) If no dmChannelId but we have slackUserId, open DM on the fly
+    let effectiveDmChannelId = dmChannelId;
+
+    if (!effectiveDmChannelId && slackUserId) {
+      const openRes = await fetch("https://slack.com/api/conversations.open", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ users: slackUserId }),
+      });
+
+      const openJson: any = await openRes.json().catch(() => ({}));
+      if (!openJson.ok) {
+        console.log("Slack conversations.open error:", openJson.error);
+      } else {
+        effectiveDmChannelId = openJson.channel?.id;
+      }
+    }
+
+    // 2) DM if possible
+    if (effectiveDmChannelId) {
       const res = await fetch("https://slack.com/api/chat.postMessage", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${integration.accessToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ channel: dmChannelId, text }),
+        body: JSON.stringify({ channel: effectiveDmChannelId, text }),
       });
 
       const json: any = await res.json().catch(() => ({}));
@@ -219,23 +247,24 @@ export const sendSlackMessage = action({
       return;
     }
 
-    // ✅ sinon fallback channel org
+    // 3) Fallback channel (optional)
     const rawChannel = channelOverride ?? integration.defaultChannel ?? "general";
     const channel = rawChannel.startsWith("#") ? rawChannel.slice(1) : rawChannel;
 
     const res = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${integration.accessToken}`,
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ channel, text }),
     });
 
     const json: any = await res.json().catch(() => ({}));
-    if (!json.ok) console.log("Slack chat.postMessage error:", json.error);
+    if (!json.ok) console.log("Slack channel chat.postMessage error:", json.error);
   },
 });
+
 
 
 /* ============================================================
