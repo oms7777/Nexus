@@ -393,8 +393,10 @@ export const bookSlot = action({
         description: descriptionLines.join("\n"),
         startIso: new Date(start).toISOString(),
         endIso: new Date(end).toISOString(),
-        attendees: [{ email: attendeeEmail, displayName: attendeeName }],
-      }
+        attendees: [
+          { email: attendeeEmail, displayName: attendeeName },
+          ...(acct.email ? [{ email: acct.email }] : []),
+        ],      }
     );
 
     const meetingUrl: string | undefined =
