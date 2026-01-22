@@ -1,9 +1,9 @@
-(function(){"use strict";const M={WIDGET_URL:"https://widget.inboundless.co",DEFAULT_POSITION:"bottom-right"},O=`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+(function(){"use strict";const N={WIDGET_URL:"https://widget.inboundless.co",DEFAULT_POSITION:"bottom-right"},F=`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-</svg>`,J=`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+</svg>`,ne=`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <line x1="18" y1="6" x2="6" y2="18"></line>
   <line x1="6" y1="6" x2="18" y2="18"></line>
-</svg>`;(function(){try{if(window.self!==window.top)return}catch{return}if(window.__NX_WIDGET_EMBED_LOADED__)return;window.__NX_WIDGET_EMBED_LOADED__=!0;let d=null,l=null,o=null,t=null,a=null,w=!1,T=!1,L=!1,U=!1,v="",z=null,b=M.DEFAULT_POSITION,i=null,x=null,R=!1,S=null;const q=document.currentScript;if(q)z=q.getAttribute("data-organization-id"),b=q.getAttribute("data-position")??M.DEFAULT_POSITION;else{const e=document.querySelectorAll('script[src*="widget"]'),n=Array.from(e).find(s=>s.hasAttribute("data-organization-id"));n&&(z=n.getAttribute("data-organization-id"),b=n.getAttribute("data-position")??M.DEFAULT_POSITION)}if(!z){console.error("Nexus Widget: data-organization-id attribute is required");return}function Y(){document.readyState==="loading"?document.addEventListener("DOMContentLoaded",G,{once:!0}):G()}function ee(e){const n=history.pushState,s=history.replaceState,c=()=>Promise.resolve().then(e);return history.pushState=function(...g){const r=n.apply(this,g);return c(),r},history.replaceState=function(...g){const r=s.apply(this,g);return c(),r},window.addEventListener("popstate",c),window.addEventListener("hashchange",c),()=>{history.pushState=n,history.replaceState=s,window.removeEventListener("popstate",c),window.removeEventListener("hashchange",c)}}function G(){o=document.createElement("button"),o.id="nexus-widget-button",o.innerHTML=O,o.style.cssText=`
+</svg>`;(function(){try{if(window.self!==window.top)return}catch{return}if(window.__NX_WIDGET_EMBED_LOADED__)return;window.__NX_WIDGET_EMBED_LOADED__=!0;let d=null,l=null,n=null,t=null,a=null,w=!1,z=!1,T=!1,S=!1,v="",A=null,b=N.DEFAULT_POSITION,i=null,x=null,B=!1,j=null,H=null,D=null,k=null;const P=document.currentScript;if(P)A=P.getAttribute("data-organization-id"),b=P.getAttribute("data-position")??N.DEFAULT_POSITION;else{const e=document.querySelectorAll('script[src*="widget"]'),o=Array.from(e).find(s=>s.hasAttribute("data-organization-id"));o&&(A=o.getAttribute("data-organization-id"),b=o.getAttribute("data-position")??N.DEFAULT_POSITION)}if(!A){console.error("Nexus Widget: data-organization-id attribute is required");return}function X(){document.readyState==="loading"?document.addEventListener("DOMContentLoaded",K,{once:!0}):K()}function ie(e){const o=history.pushState,s=history.replaceState,c=()=>Promise.resolve().then(e);return history.pushState=function(...g){const r=o.apply(this,g);return c(),r},history.replaceState=function(...g){const r=s.apply(this,g);return c(),r},window.addEventListener("popstate",c),window.addEventListener("hashchange",c),()=>{history.pushState=o,history.replaceState=s,window.removeEventListener("popstate",c),window.removeEventListener("hashchange",c)}}function K(){n=document.createElement("button"),n.id="nexus-widget-button",n.innerHTML=F,n.style.cssText=`
       all: unset;
       position: fixed;
       ${b==="bottom-right"?"right: 20px;":"left: 20px;"}
@@ -18,7 +18,7 @@
       transition: transform .2s ease, box-shadow .2s ease, background .2s ease, opacity .15s ease;
       opacity: 0;
       pointer-events: none;
-    `,o.addEventListener("click",()=>{if(w){B();return}W()}),o.addEventListener("mouseenter",()=>{o&&(o.style.transform="scale(1.05)",o.style.boxShadow="0 6px 28px rgba(15,23,42,.35)")}),o.addEventListener("mouseleave",()=>{o&&(o.style.transform="scale(1)",o.style.boxShadow="0 4px 24px rgba(0,0,0,.25)")}),document.body.appendChild(o),l=document.createElement("div"),l.id="nexus-widget-container",l.style.cssText=`
+    `,n.addEventListener("click",()=>{if(w){Y();return}G()}),n.addEventListener("mouseenter",()=>{n&&(n.style.transform="scale(1.05)",n.style.boxShadow="0 6px 28px rgba(15,23,42,.35)")}),n.addEventListener("mouseleave",()=>{n&&(n.style.transform="scale(1)",n.style.boxShadow="0 4px 24px rgba(0,0,0,.25)")}),document.body.appendChild(n),l=document.createElement("div"),l.id="nexus-widget-container",l.style.cssText=`
       position: fixed;
       ${b==="bottom-right"?"right: 20px;":"left: 20px;"}
       bottom: 90px;
@@ -30,7 +30,7 @@
       display: none; opacity: 0; transform: translateY(10px);
       transition: all .3s ease; background: #fff;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
-    `,d=document.createElement("iframe"),d.src=te(),d.allow="microphone; clipboard-read; clipboard-write",d.style.cssText="width:100%;height:100%;border:none;",d.onload=()=>{U=!0,v=new URL(d.src).origin,E({type:"nexus:embed-ready"}),N(),S||(S=ee(()=>{N()})),C()},l.appendChild(d),document.body.appendChild(l),window.addEventListener("message",V),window.addEventListener("resize",k),window.addEventListener("scroll",k,{passive:!0})}function te(){const e=new URLSearchParams;return e.append("organizationId",z),`${M.WIDGET_URL}?${e.toString()}`}function V(e){var c,g;const{type:n,payload:s}=e.data||{};if(!(U&&v&&e.origin!==v))switch(n){case"close":B();break;case"resize":s!=null&&s.height&&l&&(l.style.height=`${s.height}px`);break;case"nexus:theme":{const r=s;i=(r==null?void 0:r.theme)||null,x=(r==null?void 0:r.brandLogoUrl)||null,C();break}case"nexus:suggestions":{const r=s;T=!0,i=r.theme||i||null,x=r.brandLogoUrl||x||null,C(),ne(r);break}case"nexus:promo":{const r=s;(c=d==null?void 0:d.contentWindow)==null||c.postMessage({type:"nexus:host-ack"},v||"*"),(g=d==null?void 0:d.contentWindow)==null||g.postMessage({type:"nexus:hide-internal-promo"},v||"*"),T=!0,i=r.theme||i||null,x=r.brandLogoUrl||x||null,C(),ie(r);break}}}function oe(){o&&(R||!i&&!x&&!T||(R=!0,o.style.opacity="1",o.style.pointerEvents="auto"))}function C(){if(!o)return;const e=(i==null?void 0:i.chatBubbleColor)||(i==null?void 0:i.primaryColor)||"#3b82f6",n=(i==null?void 0:i.primaryTextColor)||"#ffffff";if(o.style.background=e,o.style.color=n,oe(),!w)if(x){const s=$(x);o.innerHTML=`
+    `,d=document.createElement("iframe"),d.src=re(),d.allow="microphone; clipboard-read; clipboard-write",d.style.cssText="width:100%;height:100%;border:none;",d.onload=()=>{S=!0,v=new URL(d.src).origin,L({type:"nexus:embed-ready"}),ae(),j||(j=ie(()=>{O()})),E()},l.appendChild(d),document.body.appendChild(l),window.addEventListener("message",Q),window.addEventListener("resize",$),window.addEventListener("scroll",$,{passive:!0}),O(!0)}function re(){const e=new URLSearchParams;return e.append("organizationId",A),`${N.WIDGET_URL}?${e.toString()}`}function Q(e){var c,g;const{type:o,payload:s}=e.data||{};if(!(S&&v&&e.origin!==v))switch(o){case"close":Y();break;case"resize":s!=null&&s.height&&l&&(l.style.height=`${s.height}px`);break;case"nexus:theme":{const r=s;i=(r==null?void 0:r.theme)||null,x=(r==null?void 0:r.brandLogoUrl)||null,E();break}case"nexus:suggestions":{const r=s;z=!0,i=r.theme||i||null,x=r.brandLogoUrl||x||null,E(),le(r);break}case"nexus:promo":{const r=s;(c=d==null?void 0:d.contentWindow)==null||c.postMessage({type:"nexus:host-ack"},v||"*"),(g=d==null?void 0:d.contentWindow)==null||g.postMessage({type:"nexus:hide-internal-promo"},v||"*"),z=!0,i=r.theme||i||null,x=r.brandLogoUrl||x||null,E(),de(r);break}}}function se(){n&&(B||!i&&!x&&!z||(B=!0,n.style.opacity="1",n.style.pointerEvents="auto"))}function E(){if(!n)return;const e=(i==null?void 0:i.chatBubbleColor)||(i==null?void 0:i.primaryColor)||"#3b82f6",o=(i==null?void 0:i.primaryTextColor)||"#ffffff";if(n.style.background=e,n.style.color=o,se(),!w)if(x){const s=C(x);n.innerHTML=`
         <div style="
           width:70%;height:70%;
           border-radius:9999px;
@@ -43,7 +43,7 @@
           <img src="${s}" alt="Chat"
             style="width:100%;height:100%;object-fit:contain;" />
         </div>
-      `}else o.innerHTML=O}function E(e){if(!U||!(d!=null&&d.contentWindow))return;const n=v||"*";d.contentWindow.postMessage(e,n)}function N(){const e=location.href;E({type:"nexus:parent-location",payload:{href:e}})}function ne(e){const n=e.theme||i||{},s=n.primaryColor||"#0ea5e9",c=n.nudgeBackgroundColor||"#ffffff";t||(t=document.createElement("div"),t.id="nexus-nudge",t.style.cssText=`
+      `}else n.innerHTML=F}function L(e){if(!(d!=null&&d.contentWindow))return;const o=v||"*";d.contentWindow.postMessage(e,o)}function Z(e=!1){const o=location.href;if(!(!e&&o===H)){if(H=o,!S){D=o;return}L({type:"nexus:parent-location",payload:{href:o}})}}function ae(){if(!S)return;const e=D??location.href;D=null,Z(!0),H=e,L({type:"nexus:parent-location",payload:{href:e}})}function O(e=!1){k&&window.clearTimeout(k),k=window.setTimeout(()=>{k=null,Z(e)},250)}function le(e){const o=e.theme||i||{},s=o.primaryColor||"#0ea5e9",c=o.nudgeBackgroundColor||"#ffffff";t||(t=document.createElement("div"),t.id="nexus-nudge",t.style.cssText=`
         all: unset;
         position: fixed;
         width: 340px; max-width: min(340px, calc(100vw - 96px));
@@ -69,8 +69,8 @@
         z-index: 2147483002;
         box-shadow: 0 2px 8px rgba(0,0,0,.08);
         opacity: 0; transition: opacity .18s ease;
-      `,document.body.appendChild(a));const r=(Array.isArray(e.suggestions)?e.suggestions.slice(0,3):[]).map((y,H)=>`
-          <button data-sugg-index="${H}"
+      `,document.body.appendChild(a));const r=(Array.isArray(e.suggestions)?e.suggestions.slice(0,3):[]).map((y,R)=>`
+          <button data-sugg-index="${R}"
             style="
               all: unset;
               display:inline-flex;
@@ -105,7 +105,7 @@
             </div>
 
             ${e.privacyUrl?`<div style="margin-top:10px">
-                    <a href="${$(e.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                    <a href="${C(e.privacyUrl)}" target="_blank" rel="noopener noreferrer"
                       style="color:#6b7280;font-size:11px;text-decoration:underline">
                       View our privacy policy.
                     </a>
@@ -122,7 +122,7 @@
             ">×</button>
         </div>
       </div>
-    `;const h=t.querySelector("#nexus-close");h==null||h.addEventListener("click",()=>{L=!0,F()}),t.querySelectorAll("button[data-sugg-index]").forEach(y=>{y.addEventListener("click",()=>{W()})}),k(),!w&&!L&&requestAnimationFrame(()=>{t&&(t.style.opacity="1",t.style.transform="translateY(0)"),a&&(a.style.opacity="1")})}function ie(e){const n=e.theme||i||{},s=n.primaryColor||"#0ea5e9",c=n.primaryTextColor||"#ffffff",g=n.secondaryColor||"#ffffff",r=n.nudgeBackgroundColor||"#ffffff",h=n.secondaryTextColor||"#111827",j=n.chatBubbleColor||n.primaryColor||"#3b82f6",y=n.primaryTextColor||"#ffffff",H=e.canUseVoice!==!1;t||(t=document.createElement("div"),t.id="nexus-nudge",t.style.cssText=`
+    `;const h=t.querySelector("#nexus-close");h==null||h.addEventListener("click",()=>{T=!0,W()}),t.querySelectorAll("button[data-sugg-index]").forEach(y=>{y.addEventListener("click",()=>{G()})}),$(),!w&&!T&&requestAnimationFrame(()=>{t&&(t.style.opacity="1",t.style.transform="translateY(0)"),a&&(a.style.opacity="1")})}function de(e){const o=e.theme||i||{},s=o.primaryColor||"#0ea5e9",c=o.primaryTextColor||"#ffffff",g=o.secondaryColor||"#ffffff",r=o.nudgeBackgroundColor||"#ffffff",h=o.secondaryTextColor||"#111827",_=o.chatBubbleColor||o.primaryColor||"#3b82f6",y=o.primaryTextColor||"#ffffff",R=e.canUseVoice!==!1;t||(t=document.createElement("div"),t.id="nexus-nudge",t.style.cssText=`
         all: unset;
         position: fixed;
         width: 340px; max-width: min(340px, calc(100vw - 96px));
@@ -148,7 +148,7 @@
         z-index: 2147483002;
         box-shadow: 0 2px 8px rgba(0,0,0,.08);
         opacity: 0; transition: opacity .18s ease;
-      `,document.body.appendChild(a));const D=Array.isArray(e.avatars)?e.avatars.slice(0,3):[],K=Array.isArray(e.ctaList)&&e.ctaList.length?e.ctaList:[],Q=K.length>0,Z=e.identityMode||"auto";let I="";Z==="logo"?x&&(I=`
+      `,document.body.appendChild(a));const q=Array.isArray(e.avatars)?e.avatars.slice(0,3):[],ee=Array.isArray(e.ctaList)&&e.ctaList.length?e.ctaList:[],te=ee.length>0,oe=e.identityMode||"auto";let M="";oe==="logo"?x&&(M=`
           <div style="
             width:32px;height:32px;border-radius:9999px;
             background:#f3f4f6;
@@ -156,16 +156,16 @@
             overflow:hidden;
             border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
           ">
-            <img src="${$(x)}" alt="logo"
+            <img src="${C(x)}" alt="logo"
               style="width:100%;height:100%;object-fit:contain;" />
           </div>
-        `):Z==="avatars"?D.length&&(I=D.map((f,p)=>`
-          <img src="${$(f)}" alt="avatar ${p+1}"
+        `):oe==="avatars"?q.length&&(M=q.map((f,p)=>`
+          <img src="${C(f)}" alt="avatar ${p+1}"
             style="
               width:26px;height:26px;border-radius:9999px;object-fit:cover;
               border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
               position: relative; ${p?`margin-left:-10px; z-index:${10-p};`:"z-index:10;"}
-            " />`).join("")):x?I=`
+            " />`).join("")):x?M=`
           <div style="
             width:32px;height:32px;border-radius:9999px;
             background:#f3f4f6;
@@ -173,24 +173,24 @@
             overflow:hidden;
             border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
           ">
-            <img src="${$(x)}" alt="logo"
+            <img src="${C(x)}" alt="logo"
               style="width:100%;height:100%;object-fit:contain;" />
           </div>
-        `:D.length&&(I=D.map((f,p)=>`
-          <img src="${$(f)}" alt="avatar ${p+1}"
+        `:q.length&&(M=q.map((f,p)=>`
+          <img src="${C(f)}" alt="avatar ${p+1}"
             style="
               width:26px;height:26px;border-radius:9999px;object-fit:cover;
               border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
               position: relative; ${p?`margin-left:-10px; z-index:${10-p};`:"z-index:10;"}
-            " />`).join(""));const de=e.badgeText?`<span style="
+            " />`).join(""));const xe=e.badgeText?`<span style="
            position:absolute; left:12px; top:10px;
            background:#10b981; color:#fff; font-size:11px; line-height:1;
            padding:4px 6px; border-radius:6px; font-weight:600;">
            ${m(e.badgeText)}
-         </span>`:"",ce=e.title||"Discover the right solution for your business project.",pe=e.body||"Chat with our assistant or book a 15-min demo.",ue=Q?`
+         </span>`:"",ge=e.title||"Discover the right solution for your business project.",he=e.body||"Chat with our assistant or book a 15-min demo.",ye=te?`
         <div id="nexus-cta-stack"
           style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
-          ${K.map((f,p)=>{const _=p===0,xe=_?s:g,ge=_?c:h,he=_?"":"border:1px solid #e5e7eb;",ye=f.label&&f.label.trim().length?f.label:se(f.kind);return`
+          ${ee.map((f,p)=>{const U=p===0,me=U?s:g,we=U?c:h,ve=U?"":"border:1px solid #e5e7eb;",ke=f.label&&f.label.trim().length?f.label:pe(f.kind);return`
                 <button data-cta-index="${p}"
                   style="
                     all: unset;
@@ -198,9 +198,9 @@
                     min-height:36px;
                     padding:0 12px;
                     border-radius:8px;
-                    background:${xe};
-                    color:${ge};
-                    ${he}
+                    background:${me};
+                    color:${we};
+                    ${ve}
                     cursor:pointer;
                     font-weight:600;
                     font-size:13px;
@@ -211,7 +211,7 @@
                     box-sizing:border-box;
                     white-space:normal;
                   ">
-                  ${m(ye)}
+                  ${m(ke)}
                 </button>
               `}).join("")}
         </div>
@@ -261,7 +261,7 @@
                   ${m(e.secondary||"Book a meeting")}
                 </button>`:""}
         </div>
-      `,fe=H?`
+      `,be=R?`
         <div style="display:flex;justify-content:center;margin-top:10px;">
           <button id="nexus-voice"
             title="Voice call"
@@ -269,7 +269,7 @@
               all: unset;
               width:44px;height:44px;
               border-radius:9999px;
-              background:${j};
+              background:${_};
               color:${y};
               cursor:pointer;
               display:flex;
@@ -293,25 +293,25 @@
         </div>
       `:"";t.innerHTML=`
       <div style="position:relative">
-        ${de}
+        ${xe}
         <div style="display:flex;gap:10px;align-items:flex-start">
           <div style="display:flex;align-items:center;min-width:56px;padding-top:4px">
-            ${I}
+            ${M}
           </div>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:700;font-size:14px;color:#111827;">
-              ${m(ce)}
+              ${m(ge)}
             </div>
             <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;word-break:break-word;">
-              ${m(pe)}
+              ${m(he)}
             </div>
 
-            ${fe}
+            ${be}
 
-            ${ue}
+            ${ye}
 
             ${e.privacyUrl?`<div style="margin-top:10px">
-                    <a href="${$(e.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                    <a href="${C(e.privacyUrl)}" target="_blank" rel="noopener noreferrer"
                       style="color:#6b7280;font-size:11px;text-decoration:underline">
                       This chat may be recorded. View our privacy policy.
                     </a>
@@ -327,4 +327,4 @@
             ">×</button>
         </div>
       </div>
-    `;const P=t.querySelector("#nexus-close"),u=t.querySelector("#nexus-voice");if(H&&(u==null||u.addEventListener("mouseenter",()=>{u&&(u.style.transform="scale(1.06)",u.style.boxShadow="0 10px 22px rgba(0,0,0,.22)")}),u==null||u.addEventListener("mouseleave",()=>{u&&(u.style.transform="scale(1)",u.style.boxShadow="0 6px 18px rgba(0,0,0,.18)")}),u==null||u.addEventListener("click",()=>{A(),setTimeout(()=>{E({type:"nexus:open-voice"})},50)})),Q)t.querySelectorAll("button[data-cta-index]").forEach(p=>{const _=Number(p.getAttribute("data-cta-index")||"0");p.addEventListener("click",()=>re(_))});else{const f=t.querySelector("#nexus-primary"),p=t.querySelector("#nexus-secondary");f==null||f.addEventListener("click",()=>W()),p==null||p.addEventListener("click",()=>ae())}P==null||P.addEventListener("click",()=>{L=!0,F()}),k(),!w&&!L&&requestAnimationFrame(()=>{t&&(t.style.opacity="1",t.style.transform="translateY(0)"),a&&(a.style.opacity="1")})}function re(e){A(),setTimeout(()=>{E({type:"nexus:run-cta",index:e})},50)}function se(e){return e==="open_chat"?"Chat with AI Assistant":e==="open_booking"?"Book a meeting":"Open link"}function k(){if(!o||!t||!a)return;const e=o.getBoundingClientRect(),n=12,s=12,c=window.innerHeight-e.top;t.style.bottom=`${c+n}px`,b==="bottom-right"?(t.style.right="20px",t.style.left=""):(t.style.left="20px",t.style.right="");const g=e.left+e.width/2;a.style.left=`${g-s/2}px`,a.style.bottom=`${c+(n-s/2)}px`,a.style.transform="rotate(45deg)";const r=t.getBoundingClientRect(),h=r.right-window.innerWidth,j=-r.left;if(h>0&&b==="bottom-right"){const y=parseFloat(getComputedStyle(t).right||"20");t.style.right=`${Math.max(12,y+h)}px`}else if(j>0&&b==="bottom-left"){const y=parseFloat(getComputedStyle(t).left||"20");t.style.left=`${Math.max(12,y+j)}px`}}function F(){t&&(t.remove(),t=null),a&&(a.remove(),a=null)}function m(e){return e.replace(/[&<>"']/g,n=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[n])}function $(e){return e.replace(/"/g,"&quot;")}function A(){!l||!o||(w=!0,t&&(t.style.display="none"),a&&(a.style.display="none"),l.style.display="block",setTimeout(()=>{l&&(l.style.opacity="1",l.style.transform="translateY(0)")},10),o.innerHTML=J,C(),N())}function B(){!l||!o||(w=!1,l.style.opacity="0",l.style.transform="translateY(10px)",setTimeout(()=>l&&(l.style.display="none"),300),o.innerHTML=O,C(),!L&&T&&t&&a&&(t.style.display="block",t.style.opacity="1",t.style.transform="translateY(0)",a.style.display="block",a.style.opacity="1",k(),N()))}function W(){A(),setTimeout(()=>E({type:"nexus:open-chat"}),50)}function ae(){A(),setTimeout(()=>E({type:"nexus:run-secondary-cta"}),50)}function X(){if(window.removeEventListener("message",V),window.removeEventListener("resize",k),window.removeEventListener("scroll",k),S)try{S()}catch{}S=null,F(),l&&(l.remove(),l=null,d=null),o&&(o.remove(),o=null),w=!1,U=!1,v="",i=null,x=null,R=!1,T=!1,L=!1}function le(e){X(),e.organizationId&&(z=e.organizationId),e.position&&(b=e.position),Y()}window.NexusWidget={init:le,show:A,hide:B,destroy:X},Y()})()})();
+    `;const V=t.querySelector("#nexus-close"),u=t.querySelector("#nexus-voice");if(R&&(u==null||u.addEventListener("mouseenter",()=>{u&&(u.style.transform="scale(1.06)",u.style.boxShadow="0 10px 22px rgba(0,0,0,.22)")}),u==null||u.addEventListener("mouseleave",()=>{u&&(u.style.transform="scale(1)",u.style.boxShadow="0 6px 18px rgba(0,0,0,.18)")}),u==null||u.addEventListener("click",()=>{I(),setTimeout(()=>{L({type:"nexus:open-voice"})},50)})),te)t.querySelectorAll("button[data-cta-index]").forEach(p=>{const U=Number(p.getAttribute("data-cta-index")||"0");p.addEventListener("click",()=>ce(U))});else{const f=t.querySelector("#nexus-primary"),p=t.querySelector("#nexus-secondary");f==null||f.addEventListener("click",()=>G()),p==null||p.addEventListener("click",()=>ue())}V==null||V.addEventListener("click",()=>{T=!0,W()}),$(),!w&&!T&&requestAnimationFrame(()=>{t&&(t.style.opacity="1",t.style.transform="translateY(0)"),a&&(a.style.opacity="1")})}function ce(e){I(),setTimeout(()=>{L({type:"nexus:run-cta",index:e})},50)}function pe(e){return e==="open_chat"?"Chat with AI Assistant":e==="open_booking"?"Book a meeting":"Open link"}function $(){if(!n||!t||!a)return;const e=n.getBoundingClientRect(),o=12,s=12,c=window.innerHeight-e.top;t.style.bottom=`${c+o}px`,b==="bottom-right"?(t.style.right="20px",t.style.left=""):(t.style.left="20px",t.style.right="");const g=e.left+e.width/2;a.style.left=`${g-s/2}px`,a.style.bottom=`${c+(o-s/2)}px`,a.style.transform="rotate(45deg)";const r=t.getBoundingClientRect(),h=r.right-window.innerWidth,_=-r.left;if(h>0&&b==="bottom-right"){const y=parseFloat(getComputedStyle(t).right||"20");t.style.right=`${Math.max(12,y+h)}px`}else if(_>0&&b==="bottom-left"){const y=parseFloat(getComputedStyle(t).left||"20");t.style.left=`${Math.max(12,y+_)}px`}}function W(){t&&(t.remove(),t=null),a&&(a.remove(),a=null)}function m(e){return e.replace(/[&<>"']/g,o=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[o])}function C(e){return e.replace(/"/g,"&quot;")}function I(){!l||!n||(w=!0,t&&(t.style.display="none"),a&&(a.style.display="none"),l.style.display="block",setTimeout(()=>{l&&(l.style.opacity="1",l.style.transform="translateY(0)")},10),n.innerHTML=ne,E(),O(!0))}function Y(){!l||!n||(w=!1,l.style.opacity="0",l.style.transform="translateY(10px)",setTimeout(()=>l&&(l.style.display="none"),300),n.innerHTML=F,E(),!T&&z&&t&&a&&(t.style.display="block",t.style.opacity="1",t.style.transform="translateY(0)",a.style.display="block",a.style.opacity="1",$(),O()))}function G(){I(),setTimeout(()=>L({type:"nexus:open-chat"}),50)}function ue(){I(),setTimeout(()=>L({type:"nexus:run-secondary-cta"}),50)}function J(){if(window.removeEventListener("message",Q),window.removeEventListener("resize",$),window.removeEventListener("scroll",$),j)try{j()}catch{}j=null,k&&window.clearTimeout(k),k=null,W(),l&&(l.remove(),l=null,d=null),n&&(n.remove(),n=null),w=!1,S=!1,v="",i=null,x=null,B=!1,z=!1,T=!1,H=null,D=null}function fe(e){J(),e.organizationId&&(A=e.organizationId),e.position&&(b=e.position),X()}window.NexusWidget={init:fe,show:I,hide:Y,destroy:J},X()})()})();
