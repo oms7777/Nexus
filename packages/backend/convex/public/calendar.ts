@@ -493,7 +493,6 @@ export const bookSlot = action({
           startIso: new Date(start).toISOString(),
           endIso: new Date(end).toISOString(),
           meetingUrl,
-          organizationId,
           bookingId: String(bookingId),
           attendeePhone,
           attendeeDescription: useCase || undefined,
