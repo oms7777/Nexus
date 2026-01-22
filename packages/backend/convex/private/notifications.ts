@@ -33,7 +33,6 @@ function bookingEmailHTML(args: {
   startIso: string;
   endIso: string;
   meetingUrl?: string;
-  organizationId: string;
   bookingId: string;
   conversationUrl?: string;
 }) {
@@ -45,7 +44,6 @@ function bookingEmailHTML(args: {
     startIso,
     endIso,
     meetingUrl,
-    organizationId,
     bookingId,
     conversationUrl,
   } = args;
@@ -56,7 +54,6 @@ function bookingEmailHTML(args: {
   return `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;color:#0f172a">
     <h2 style="margin:0 0 12px">🗓️ New meeting booked</h2>
-    <p style="margin:4px 0 12px">Organisation: <strong>${organizationId}</strong></p>
 
     <table style="border-collapse:collapse;width:100%;max-width:640px">
       <tbody>
@@ -100,7 +97,6 @@ export const sendBookingEmailToSales = action({
     startIso: v.string(),
     endIso: v.string(),
     meetingUrl: v.optional(v.string()),
-    organizationId: v.string(),
     bookingId: v.string(),
     conversationUrl: v.optional(v.string()),
   },

@@ -23,7 +23,9 @@ export const meConnection = query({
     const { orgId, userId } = await getAuth(ctx);
     return await ctx.db
       .query("calendarAccounts")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", userId))
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", orgId).eq("userId", userId)
+      )
       .unique();
   },
 });
@@ -34,7 +36,9 @@ export const accountForUser = query({
     const { orgId } = await getAuth(ctx);
     return await ctx.db
       .query("calendarAccounts")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", userId))
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", orgId).eq("userId", userId)
+      )
       .unique();
   },
 });
@@ -49,7 +53,9 @@ export const saveGoogleAccount = mutation({
     const { orgId, userId } = await getAuth(ctx);
     const existing = await ctx.db
       .query("calendarAccounts")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", userId))
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", orgId).eq("userId", userId)
+      )
       .unique();
 
     const doc = {
@@ -76,7 +82,9 @@ export const disconnect = mutation({
     const { orgId, userId } = await getAuth(ctx);
     const existing = await ctx.db
       .query("calendarAccounts")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", userId))
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", orgId).eq("userId", userId)
+      )
       .unique();
     if (existing) await ctx.db.delete(existing._id);
   },
@@ -113,7 +121,10 @@ export const getAccessToken = action({
     if (!res.ok || !json.access_token) {
       throw new ConvexError(json.error || json.error_description || "TOKEN_EXCHANGE_FAILED");
     }
-    return { accessToken: String(json.access_token), expiresIn: Number(json.expires_in ?? 3600) };
+    return {
+      accessToken: String(json.access_token),
+      expiresIn: Number(json.expires_in ?? 3600),
+    };
   },
 });
 
@@ -126,7 +137,9 @@ export const mySettings = query({
     const { orgId, userId } = await getAuth(ctx);
     return await ctx.db
       .query("calendarSettings")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", userId))
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", orgId).eq("userId", userId)
+      )
       .unique();
   },
 });
@@ -145,7 +158,9 @@ export const saveMySettings = mutation({
 
     const existing = await ctx.db
       .query("calendarSettings")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", userId))
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", orgId).eq("userId", userId)
+      )
       .unique();
 
     const doc = {
@@ -177,12 +192,18 @@ export const freeBusy = action({
     timeMinIso: v.string(),
     timeMaxIso: v.string(),
   },
-  handler: async (ctx, { userId, timeMinIso, timeMaxIso }): Promise<Array<{ start: number; end: number }>> => {
+  handler: async (
+    ctx,
+    { userId, timeMinIso, timeMaxIso }
+  ): Promise<Array<{ start: number; end: number }>> => {
     const { accessToken } = await ctx.runAction(api.private.calendar.getAccessToken, { userId });
 
     const res = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
       method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ timeMin: timeMinIso, timeMax: timeMaxIso, items: [{ id: "primary" }] }),
     });
 
@@ -204,9 +225,7 @@ export const createEvent = action({
     description: v.optional(v.string()),
     startIso: v.string(),
     endIso: v.string(),
-    attendees: v.optional(
-      v.array(v.object({ email: v.string(), displayName: v.optional(v.string()) }))
-    ),
+    attendees: v.optional(v.array(v.object({ email: v.string(), displayName: v.optional(v.string()) }))),
   },
   handler: async (ctx, args): Promise<any> => {
     const { accessToken } = await ctx.runAction(api.private.calendar.getAccessToken, { userId: args.userId });
@@ -218,19 +237,21 @@ export const createEvent = action({
       end: { dateTime: args.endIso },
       attendees: args.attendees ?? [],
       reminders: { useDefault: true },
-      // Génère automatiquement un lien Google Meet
       conferenceData: { createRequest: { requestId: crypto.randomUUID() } },
     };
 
-    // Envoie d’emails aux invités + Meet activé
     const res = await fetch(
       "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1",
       {
         method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(event),
       }
     );
+
     const json = (await res.json()) as any;
     if (!res.ok) throw new ConvexError(json?.error?.message || "CREATE_EVENT_FAILED");
     return json;
@@ -244,10 +265,15 @@ export const createEvent = action({
 /** Query sans auth: retrouver un compte par org+user */
 export const accountByOrgUserNoAuth = query({
   args: { organizationId: v.string(), userId: v.string() },
-  handler: async (ctx, { organizationId, userId }): Promise<Doc<"calendarAccounts"> | null> => {
+  handler: async (
+    ctx,
+    { organizationId, userId }
+  ): Promise<Doc<"calendarAccounts"> | null> => {
     return await ctx.db
       .query("calendarAccounts")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", organizationId).eq("userId", userId))
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", organizationId).eq("userId", userId)
+      )
       .unique();
   },
 });
@@ -276,12 +302,10 @@ async function accessTokenFromRefresh(refreshToken: string): Promise<string> {
 
   const json: any = await r.json();
 
-  // 🔥 IMPORTANT: Google renvoie souvent { error: "invalid_grant" }
   if (!r.ok || !json.access_token) {
     const err = String(json?.error || "").toLowerCase();
     const desc = String(json?.error_description || "");
     if (err === "invalid_grant") {
-      // standardise le message pour que tout le code catch facilement
       throw new ConvexError("invalid_grant");
     }
     throw new ConvexError(desc || json.error || "TOKEN_EXCHANGE_FAILED");
@@ -289,7 +313,6 @@ async function accessTokenFromRefresh(refreshToken: string): Promise<string> {
 
   return String(json.access_token);
 }
-
 
 /** NO-AUTH: freeBusy par organizationId + userId (utilisé par public/calendar.listSlots) */
 export const freeBusyForOrgUser = action({
@@ -313,13 +336,12 @@ export const freeBusyForOrgUser = action({
     try {
       accessToken = await accessTokenFromRefresh(acct.refreshToken);
     } catch (e) {
-      // ✅ KEY: si token cassé => rep non bookable => pas de crash
       const msg = String((e as any)?.message ?? e ?? "").toLowerCase();
       if (msg.includes("invalid_grant")) {
         console.log(
-          `[calendar.freeBusyForOrgUser] invalid_grant for org=${organizationId} user=${userId} -> returning []`
+          `[calendar.freeBusyForOrgUser] invalid_grant for org=${organizationId} user=${userId} -> reconnect required`
         );
-        return [];
+        throw new ConvexError("CALENDAR_RECONNECT_REQUIRED");
       }
       throw e;
     }
@@ -341,7 +363,6 @@ export const freeBusyForOrgUser = action({
   },
 });
 
-
 /** NO-AUTH: createEvent par organizationId + userId (utilisé par public/calendar.bookSlot) */
 export const createEventForOrgUser = action({
   args: {
@@ -351,9 +372,7 @@ export const createEventForOrgUser = action({
     description: v.optional(v.string()),
     startIso: v.string(),
     endIso: v.string(),
-    attendees: v.optional(
-      v.array(v.object({ email: v.string(), displayName: v.optional(v.string()) }))
-    ),
+    attendees: v.optional(v.array(v.object({ email: v.string(), displayName: v.optional(v.string()) }))),
   },
   handler: async (ctx, args): Promise<any> => {
     const acct = await ctx.runQuery(api.private.calendar.accountByOrgUserNoAuth, {
@@ -368,7 +387,9 @@ export const createEventForOrgUser = action({
     } catch (e) {
       const msg = String((e as any)?.message ?? e ?? "").toLowerCase();
       if (msg.includes("invalid_grant")) {
-        // ✅ ici on bloque : sinon tu “book” sur un rep sans calendrier valide
+        console.log(
+          `[calendar.createEventForOrgUser] invalid_grant for org=${args.organizationId} user=${args.userId} -> reconnect required`
+        );
         throw new ConvexError("CALENDAR_RECONNECT_REQUIRED");
       }
       throw e;
@@ -398,4 +419,3 @@ export const createEventForOrgUser = action({
     return json;
   },
 });
-

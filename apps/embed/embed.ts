@@ -1,7 +1,6 @@
 // apps/embed/embed.ts
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
-import { initVisitorTracking, destroyVisitorTracking } from "./visitor-tracker";
 
 const NUDGE_ENABLED = true;
 
@@ -69,9 +68,6 @@ type SuggestionsPayload = {
   let iframeLoaded = false;
   let TARGET_ORIGIN = "";
 
-  // Tracking
-  let trackingStarted = false;
-  let trackingSessionId: string | null = null;
 
   // Config from <script>
   let organizationId: string | null = null;
@@ -307,29 +303,6 @@ type SuggestionsPayload = {
         break;
       }
 
-      case "nexus:session-ready": {
-        if (!organizationId) return;
-
-        const sid = payload?.contactSessionId;
-        if (typeof sid !== "string" || sid.trim().length === 0) return;
-
-        if (trackingStarted && trackingSessionId === sid) return;
-
-        trackingStarted = true;
-        trackingSessionId = sid;
-
-        initVisitorTracking({
-          orgId: organizationId,
-          contactSessionId: sid,
-        });
-
-        // ✅ NEW: send an immediate snapshot/meta for Live panel
-        sendParentLocation();
-
-        break;
-      }
-
-
 
       default:
         break;
@@ -389,60 +362,10 @@ type SuggestionsPayload = {
 
   function sendParentLocation() {
     const href = location.href;
-    postToWidget({ type: "nexus:parent-location", href });
-
-    // ✅ NEW: also persist snapshot meta server-side (for Live panel)
-    // This makes snapshots + currentUrl/title reliable even without rrweb replay.
-    sendSnapshotToServer(href);
+    postToWidget({ type: "nexus:parent-location", payload: { href } });
   }
 
-  // ✅ NEW: send lightweight snapshot meta to your /api/tracker/snapshot route
-  async function sendSnapshotToServer(pageUrl: string) {
-    try {
-      if (!organizationId) return;
-      if (!trackingSessionId) return;
 
-      // best effort page title + viewport
-      const title = typeof document !== "undefined" ? document.title : undefined;
-      const width = typeof window !== "undefined" ? window.innerWidth : undefined;
-      const height = typeof window !== "undefined" ? window.innerHeight : undefined;
-
-      const endpoint = `${EMBED_CONFIG.WIDGET_URL.replace(/\/$/, "")}/api/tracker/snapshot`;
-
-      // try POST first
-      const payload = {
-        organizationId,
-        sessionId: trackingSessionId,
-        pageUrl,
-        title,
-        width,
-        height,
-      };
-
-      // If connect-src blocks fetch, fallback to pixel GET
-      try {
-        await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(payload),
-        });
-      } catch {
-        const u = new URL(endpoint);
-        u.searchParams.set("organizationId", organizationId);
-        u.searchParams.set("sessionId", trackingSessionId);
-        u.searchParams.set("pageUrl", pageUrl);
-        if (title) u.searchParams.set("title", title);
-        if (typeof width === "number") u.searchParams.set("width", String(width));
-        if (typeof height === "number") u.searchParams.set("height", String(height));
-
-        const img = new Image();
-        img.src = u.toString();
-      }
-    } catch {
-      // silent
-    }
-  }
 
 
   /* ---------------- Nudge ---------------- */
@@ -1085,7 +1008,9 @@ type SuggestionsPayload = {
       caret.style.display = "block";
       caret.style.opacity = "1";
       placeNudge();
-      postToWidget({ type: "nexus:parent-location", href: location.href });
+      sendParentLocation();
+
+
     }
   }
 
@@ -1100,23 +1025,17 @@ type SuggestionsPayload = {
   }
 
   /* ---------------- Lifecycle ---------------- */
-
   function destroy() {
-    try { destroyVisitorTracking(); } catch {}
     window.removeEventListener("message", handleMessage);
     window.removeEventListener("resize", placeNudge);
     window.removeEventListener("scroll", placeNudge);
 
-
     if (unpatchHistory) {
-      try {
-        unpatchHistory();
-      } catch {}
+      try { unpatchHistory(); } catch {}
     }
     unpatchHistory = null;
 
     removeNudge();
-
 
     if (container) {
       container.remove();
@@ -1131,14 +1050,13 @@ type SuggestionsPayload = {
     isOpen = false;
     iframeLoaded = false;
     TARGET_ORIGIN = "";
-    trackingStarted = false;
-    trackingSessionId = null;
     theme = null;
     brandLogoUrl = null;
     fabRevealed = false;
-    hasNudgePayload = false; // ✅ reset
+    hasNudgePayload = false;
     nudgeDismissed = false;
   }
+
 
   function reinit(cfg: {
     organizationId?: string;
