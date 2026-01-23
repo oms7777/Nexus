@@ -84,13 +84,14 @@ type SuggestionsPayload = {
   // avoid flash
   let fabRevealed = false;
 
-  // SPA patch cleanup
-  let unpatchHistory: (() => void) | null = null;
-
-  // parent-location throttling (ANTI FREEZE)
+  // parent-location anti-freeze (dedupe + throttle + coalesce)
   let lastHrefSent = "";
-  let sendQueued = false;
+  let lastHrefSentAt = 0;
   let sendTimer: number | null = null;
+  let pendingForce = false;
+
+  const SCROLL_OPTS: AddEventListenerOptions = { passive: true };
+  let destroyed = false;
 
   // ---------------- Init config ----------------
   const currentScript = document.currentScript as HTMLScriptElement | null;
@@ -98,9 +99,8 @@ type SuggestionsPayload = {
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
     position =
-      (currentScript.getAttribute(
-        "data-position",
-      ) as "bottom-right" | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
+      (currentScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
+      EMBED_CONFIG.DEFAULT_POSITION;
   } else {
     const scripts = document.querySelectorAll('script[src*="widget"]');
     const embedScript = Array.from(scripts).find((s) =>
@@ -110,9 +110,8 @@ type SuggestionsPayload = {
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
       position =
-        (embedScript.getAttribute(
-          "data-position",
-        ) as "bottom-right" | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
+        (embedScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
+        EMBED_CONFIG.DEFAULT_POSITION;
     }
   }
 
@@ -127,39 +126,6 @@ type SuggestionsPayload = {
     } else {
       render();
     }
-  }
-
-  // ---------------- SPA detection ----------------
-  function patchHistoryForSpa(onChange: () => void) {
-    const origPush = history.pushState;
-    const origReplace = history.replaceState;
-
-    const fire = () => {
-      // microtask -> avoids sync re-entrancy issues
-      Promise.resolve().then(onChange);
-    };
-
-    history.pushState = function (this: History, ...args: any[]) {
-      const ret = origPush.apply(this, args as any);
-      fire();
-      return ret;
-    } as any;
-
-    history.replaceState = function (this: History, ...args: any[]) {
-      const ret = origReplace.apply(this, args as any);
-      fire();
-      return ret;
-    } as any;
-
-    window.addEventListener("popstate", fire);
-    window.addEventListener("hashchange", fire);
-
-    return () => {
-      history.pushState = origPush;
-      history.replaceState = origReplace;
-      window.removeEventListener("popstate", fire);
-      window.removeEventListener("hashchange", fire);
-    };
   }
 
   // ---------------- Render ----------------
@@ -236,13 +202,8 @@ type SuggestionsPayload = {
 
       postToWidget({ type: "nexus:embed-ready" });
 
-      // send current location once iframe is ready
+      // ✅ NO SPA PATCH: only send current location once iframe is ready
       queueParentLocationSend(true);
-
-      // Start SPA listener once
-      if (!unpatchHistory) {
-        unpatchHistory = patchHistoryForSpa(() => queueParentLocationSend());
-      }
 
       applyThemeToFab();
     };
@@ -251,12 +212,10 @@ type SuggestionsPayload = {
     document.body.appendChild(container);
 
     window.addEventListener("message", handleMessage);
-
-    // nudge placement
     window.addEventListener("resize", placeNudge);
-    window.addEventListener("scroll", placeNudge, { passive: true });
+    window.addEventListener("scroll", placeNudge, SCROLL_OPTS);
 
-    // ✅ very important for Chrome bfcache / refresh stability
+    // Important for bfcache / refresh stability
     window.addEventListener("pagehide", destroy, { once: true });
     window.addEventListener("beforeunload", destroy, { once: true });
   }
@@ -310,10 +269,7 @@ type SuggestionsPayload = {
         const promoPayload = payload as PromoPayload;
 
         // ack
-        iframe?.contentWindow?.postMessage(
-          { type: "nexus:host-ack" },
-          TARGET_ORIGIN || "*",
-        );
+        iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, TARGET_ORIGIN || "*");
         iframe?.contentWindow?.postMessage(
           { type: "nexus:hide-internal-promo" },
           TARGET_ORIGIN || "*",
@@ -343,33 +299,38 @@ type SuggestionsPayload = {
   /**
    * Anti-freeze:
    * - dedupe by href
-   * - throttle sends (max ~1 per 200ms)
-   * - NEVER recursively call itself
+   * - throttle (coalesce) -> max 1 send / 350ms
+   * - NO history patching
    */
   function queueParentLocationSend(force = false) {
     if (!iframeLoaded) return;
 
     const href = location.href;
-
     if (!force && href === lastHrefSent) return;
 
-    // Throttle
-    if (sendQueued) return;
-    sendQueued = true;
+    pendingForce = pendingForce || force;
 
-    if (sendTimer) window.clearTimeout(sendTimer);
+    if (sendTimer) return;
+
     sendTimer = window.setTimeout(() => {
-      sendQueued = false;
       sendTimer = null;
 
       const latest = location.href;
-      if (!force && latest === lastHrefSent) return;
+      const now = Date.now();
+      const mustSend = pendingForce || latest !== lastHrefSent;
+
+      pendingForce = false;
+
+      // extra safety: avoid bursts
+      if (!mustSend) return;
+      if (now - lastHrefSentAt < 250 && latest === lastHrefSent) return;
 
       lastHrefSent = latest;
+      lastHrefSentAt = now;
 
       // IMPORTANT: match SmartPromo listener: e.data.href
       postToWidget({ type: "nexus:parent-location", href: latest });
-    }, 200);
+    }, 350);
   }
 
   // ---------------- FAB theme ----------------
@@ -387,8 +348,7 @@ type SuggestionsPayload = {
   function applyThemeToFab() {
     if (!button) return;
 
-    const bubbleColor =
-      theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
+    const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
     const textColor = theme?.primaryTextColor || "#ffffff";
 
     button.style.background = bubbleColor;
@@ -468,9 +428,7 @@ type SuggestionsPayload = {
       document.body.appendChild(caret);
     }
 
-    const suggestions = Array.isArray(payload.suggestions)
-      ? payload.suggestions.slice(0, 3)
-      : [];
+    const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions.slice(0, 3) : [];
 
     const chips = suggestions
       .map(
@@ -516,9 +474,7 @@ type SuggestionsPayload = {
             ${
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
-                    <a href="${escapeAttr(
-                      payload.privacyUrl,
-                    )}" target="_blank" rel="noopener noreferrer"
+                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
                       style="color:#6b7280;font-size:11px;text-decoration:underline">
                       View our privacy policy.
                     </a>
@@ -539,19 +495,14 @@ type SuggestionsPayload = {
       </div>
     `;
 
-    nudge!.querySelector<HTMLButtonElement>("#nexus-close")?.addEventListener(
-      "click",
-      () => {
-        nudgeDismissed = true;
-        removeNudge();
-      },
-    );
+    nudge!.querySelector<HTMLButtonElement>("#nexus-close")?.addEventListener("click", () => {
+      nudgeDismissed = true;
+      removeNudge();
+    });
 
     nudge!
       .querySelectorAll<HTMLButtonElement>("button[data-sugg-index]")
-      .forEach((btn) => {
-        btn.addEventListener("click", () => openChat());
-      });
+      .forEach((btn) => btn.addEventListener("click", () => openChat()));
 
     placeNudge();
     if (!isOpen && !nudgeDismissed) {
@@ -646,9 +597,7 @@ type SuggestionsPayload = {
             style="
               width:26px;height:26px;border-radius:9999px;object-fit:cover;
               border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
-              position: relative; ${
-                i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
-              }
+              position: relative; ${i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"}
             " />`,
         )
         .join("");
@@ -676,9 +625,7 @@ type SuggestionsPayload = {
               const color = isPrimary ? primaryTextColor : secondaryTextColor;
               const border = isPrimary ? "" : "border:1px solid #e5e7eb;";
               const label =
-                cta.label && cta.label.trim().length
-                  ? cta.label
-                  : defaultLabelForKind(cta.kind);
+                cta.label && cta.label.trim().length ? cta.label : defaultLabelForKind(cta.kind);
 
               return `
                 <button data-cta-index="${index}"
@@ -815,9 +762,7 @@ type SuggestionsPayload = {
             ${
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
-                    <a href="${escapeAttr(
-                      payload.privacyUrl,
-                    )}" target="_blank" rel="noopener noreferrer"
+                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
                       style="color:#6b7280;font-size:11px;text-decoration:underline">
                       This chat may be recorded. View our privacy policy.
                     </a>
@@ -837,8 +782,7 @@ type SuggestionsPayload = {
       </div>
     `;
 
-    const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
-    closeBtn?.addEventListener("click", () => {
+    nudge!.querySelector<HTMLButtonElement>("#nexus-close")?.addEventListener("click", () => {
       nudgeDismissed = true;
       removeNudge();
     });
@@ -859,13 +803,11 @@ type SuggestionsPayload = {
           btn.addEventListener("click", () => runNudgeCta(idx));
         });
     } else {
-      nudge!.querySelector<HTMLButtonElement>("#nexus-primary")?.addEventListener(
-        "click",
-        () => openChat(),
+      nudge!.querySelector<HTMLButtonElement>("#nexus-primary")?.addEventListener("click", () =>
+        openChat(),
       );
-      nudge!.querySelector<HTMLButtonElement>("#nexus-secondary")?.addEventListener(
-        "click",
-        () => openBooking(),
+      nudge!.querySelector<HTMLButtonElement>("#nexus-secondary")?.addEventListener("click", () =>
+        openBooking(),
       );
     }
 
@@ -975,8 +917,8 @@ type SuggestionsPayload = {
     button.innerHTML = closeIcon;
     applyThemeToFab();
 
-    // send current url once opening
-    queueParentLocationSend();
+    // send current url once opening (throttled)
+    queueParentLocationSend(false);
   }
 
   function hide() {
@@ -997,7 +939,7 @@ type SuggestionsPayload = {
       caret.style.display = "block";
       caret.style.opacity = "1";
       placeNudge();
-      queueParentLocationSend();
+      queueParentLocationSend(false);
     }
   }
 
@@ -1013,19 +955,14 @@ type SuggestionsPayload = {
 
   // ---------------- Lifecycle ----------------
   function destroy() {
-    // prevent multiple destroy calls
+    if (destroyed) return;
+    destroyed = true;
+
     try {
       window.removeEventListener("message", handleMessage);
       window.removeEventListener("resize", placeNudge);
-      window.removeEventListener("scroll", placeNudge as any);
+      window.removeEventListener("scroll", placeNudge as any, SCROLL_OPTS);
     } catch {}
-
-    if (unpatchHistory) {
-      try {
-        unpatchHistory();
-      } catch {}
-    }
-    unpatchHistory = null;
 
     if (sendTimer) {
       try {
@@ -1033,7 +970,7 @@ type SuggestionsPayload = {
       } catch {}
     }
     sendTimer = null;
-    sendQueued = false;
+    pendingForce = false;
 
     removeNudge();
 
@@ -1056,13 +993,13 @@ type SuggestionsPayload = {
     hasNudgePayload = false;
     nudgeDismissed = false;
     lastHrefSent = "";
+    lastHrefSentAt = 0;
   }
 
-  function reinit(cfg: {
-    organizationId?: string;
-    position?: "bottom-right" | "bottom-left";
-  }) {
+  function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left" }) {
     destroy();
+    destroyed = false;
+
     if (cfg.organizationId) organizationId = cfg.organizationId;
     if (cfg.position) position = cfg.position;
     init();
