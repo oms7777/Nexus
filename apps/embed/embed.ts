@@ -4,6 +4,8 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 
 const NUDGE_ENABLED = true;
 
+// ---------------- Types ----------------
+
 type ThemePayload = {
   primaryColor?: string;
   primaryTextColor?: string;
@@ -42,28 +44,29 @@ type SuggestionsPayload = {
   privacyUrl?: string;
   theme?: ThemePayload;
   brandLogoUrl?: string;
+  canUseVoice?: boolean;
 };
 
 (function () {
-  // block if in iframe
+  // Block inside iframes
   try {
     if (window.self !== window.top) return;
   } catch {
     return;
   }
 
-  // singleton lock
+  // Singleton lock (avoid double init if script injected twice)
   if ((window as any).__NX_WIDGET_EMBED_LOADED__) return;
   (window as any).__NX_WIDGET_EMBED_LOADED__ = true;
 
-  // DOM
+  // ---------------- DOM ----------------
   let iframe: HTMLIFrameElement | null = null;
   let container: HTMLDivElement | null = null;
   let button: HTMLButtonElement | null = null;
   let nudge: HTMLDivElement | null = null;
   let caret: HTMLDivElement | null = null;
 
-  // State
+  // ---------------- State ----------------
   let isOpen = false;
   let hasNudgePayload = false;
   let nudgeDismissed = false;
@@ -74,28 +77,30 @@ type SuggestionsPayload = {
   let organizationId: string | null = null;
   let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
 
-  // THEME
+  // Theme
   let theme: ThemePayload | null = null;
   let brandLogoUrl: string | null = null;
 
-  // avoid FAB flash
+  // avoid flash
   let fabRevealed = false;
 
-  // patchHistory cleanup
+  // SPA patch cleanup
   let unpatchHistory: (() => void) | null = null;
 
-  // ✅ Anti-freeze guards
-  let lastHrefSent: string | null = null;
-  let pendingHref: string | null = null;
-  let navTimer: number | null = null;
+  // parent-location throttling (ANTI FREEZE)
+  let lastHrefSent = "";
+  let sendQueued = false;
+  let sendTimer: number | null = null;
 
+  // ---------------- Init config ----------------
   const currentScript = document.currentScript as HTMLScriptElement | null;
 
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
     position =
-      (currentScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
-      EMBED_CONFIG.DEFAULT_POSITION;
+      (currentScript.getAttribute(
+        "data-position",
+      ) as "bottom-right" | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
   } else {
     const scripts = document.querySelectorAll('script[src*="widget"]');
     const embedScript = Array.from(scripts).find((s) =>
@@ -105,8 +110,9 @@ type SuggestionsPayload = {
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
       position =
-        (embedScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
-        EMBED_CONFIG.DEFAULT_POSITION;
+        (embedScript.getAttribute(
+          "data-position",
+        ) as "bottom-right" | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
     }
   }
 
@@ -123,12 +129,15 @@ type SuggestionsPayload = {
     }
   }
 
-  // ✅ Patch history for SPA navigation (but we will DEBOUNCE sendParentLocation)
+  // ---------------- SPA detection ----------------
   function patchHistoryForSpa(onChange: () => void) {
     const origPush = history.pushState;
     const origReplace = history.replaceState;
 
-    const fire = () => Promise.resolve().then(onChange);
+    const fire = () => {
+      // microtask -> avoids sync re-entrancy issues
+      Promise.resolve().then(onChange);
+    };
 
     history.pushState = function (this: History, ...args: any[]) {
       const ret = origPush.apply(this, args as any);
@@ -153,6 +162,7 @@ type SuggestionsPayload = {
     };
   }
 
+  // ---------------- Render ----------------
   function render() {
     // FAB
     button = document.createElement("button");
@@ -226,15 +236,12 @@ type SuggestionsPayload = {
 
       postToWidget({ type: "nexus:embed-ready" });
 
-      // ✅ flush latest pending href once iframe is ready
-      flushParentLocation();
+      // send current location once iframe is ready
+      queueParentLocationSend(true);
 
-      // ✅ IMPORTANT: start SPA listener after iframe ready
+      // Start SPA listener once
       if (!unpatchHistory) {
-        unpatchHistory = patchHistoryForSpa(() => {
-          // ✅ debounced + de-duped
-          sendParentLocationDebounced();
-        });
+        unpatchHistory = patchHistoryForSpa(() => queueParentLocationSend());
       }
 
       applyThemeToFab();
@@ -245,12 +252,13 @@ type SuggestionsPayload = {
 
     window.addEventListener("message", handleMessage);
 
-    // keep resize/scroll for nudge
+    // nudge placement
     window.addEventListener("resize", placeNudge);
     window.addEventListener("scroll", placeNudge, { passive: true });
 
-    // ✅ also send initial href (stored until iframe is loaded)
-    sendParentLocationDebounced(true);
+    // ✅ very important for Chrome bfcache / refresh stability
+    window.addEventListener("pagehide", destroy, { once: true });
+    window.addEventListener("beforeunload", destroy, { once: true });
   }
 
   function buildWidgetUrl(): string {
@@ -259,10 +267,11 @@ type SuggestionsPayload = {
     return `${EMBED_CONFIG.WIDGET_URL}?${params.toString()}`;
   }
 
+  // ---------------- Messaging ----------------
   function handleMessage(event: MessageEvent) {
     const { type, payload } = event.data || {};
 
-    // ignore other origins once we know ours
+    // Security: accept only widget origin after iframe loaded
     if (iframeLoaded && TARGET_ORIGIN && event.origin !== TARGET_ORIGIN) return;
 
     switch (type) {
@@ -300,13 +309,19 @@ type SuggestionsPayload = {
       case "nexus:promo": {
         const promoPayload = payload as PromoPayload;
 
-        iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, TARGET_ORIGIN || "*");
-        iframe?.contentWindow?.postMessage({ type: "nexus:hide-internal-promo" }, TARGET_ORIGIN || "*");
+        // ack
+        iframe?.contentWindow?.postMessage(
+          { type: "nexus:host-ack" },
+          TARGET_ORIGIN || "*",
+        );
+        iframe?.contentWindow?.postMessage(
+          { type: "nexus:hide-internal-promo" },
+          TARGET_ORIGIN || "*",
+        );
 
         if (!NUDGE_ENABLED) return;
 
         hasNudgePayload = true;
-
         theme = promoPayload.theme || theme || null;
         brandLogoUrl = promoPayload.brandLogoUrl || brandLogoUrl || null;
 
@@ -320,6 +335,44 @@ type SuggestionsPayload = {
     }
   }
 
+  function postToWidget(msg: any) {
+    if (!iframeLoaded || !iframe?.contentWindow) return;
+    iframe.contentWindow.postMessage(msg, TARGET_ORIGIN || "*");
+  }
+
+  /**
+   * Anti-freeze:
+   * - dedupe by href
+   * - throttle sends (max ~1 per 200ms)
+   * - NEVER recursively call itself
+   */
+  function queueParentLocationSend(force = false) {
+    if (!iframeLoaded) return;
+
+    const href = location.href;
+
+    if (!force && href === lastHrefSent) return;
+
+    // Throttle
+    if (sendQueued) return;
+    sendQueued = true;
+
+    if (sendTimer) window.clearTimeout(sendTimer);
+    sendTimer = window.setTimeout(() => {
+      sendQueued = false;
+      sendTimer = null;
+
+      const latest = location.href;
+      if (!force && latest === lastHrefSent) return;
+
+      lastHrefSent = latest;
+
+      // IMPORTANT: match SmartPromo listener: e.data.href
+      postToWidget({ type: "nexus:parent-location", href: latest });
+    }, 200);
+  }
+
+  // ---------------- FAB theme ----------------
   function revealFabIfNeeded() {
     if (!button) return;
     if (fabRevealed) return;
@@ -334,7 +387,8 @@ type SuggestionsPayload = {
   function applyThemeToFab() {
     if (!button) return;
 
-    const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
+    const bubbleColor =
+      theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
     const textColor = theme?.primaryTextColor || "#ffffff";
 
     button.style.background = bubbleColor;
@@ -342,7 +396,11 @@ type SuggestionsPayload = {
 
     revealFabIfNeeded();
 
-    if (isOpen) return;
+    // if open, keep close icon
+    if (isOpen) {
+      button.innerHTML = closeIcon;
+      return;
+    }
 
     if (brandLogoUrl) {
       const safeLogo = escapeAttr(brandLogoUrl);
@@ -365,58 +423,7 @@ type SuggestionsPayload = {
     }
   }
 
-  function postToWidget(msg: any) {
-    if (!iframe?.contentWindow) return;
-    const origin = TARGET_ORIGIN || "*";
-    iframe.contentWindow.postMessage(msg, origin);
-  }
-
-  /**
-   * ✅ Core fix: send parent location with:
-   * - de-dupe (same href not resent)
-   * - debounce (SPA floods)
-   * - safe queueing until iframe ready
-   */
-  function sendParentLocation(force = false) {
-    const href = location.href;
-
-    if (!force && href === lastHrefSent) return;
-    lastHrefSent = href;
-
-    // if iframe not ready yet, store and flush later
-    if (!iframeLoaded) {
-      pendingHref = href;
-      return;
-    }
-
-    postToWidget({ type: "nexus:parent-location", payload: { href } });
-  }
-
-  function flushParentLocation() {
-    if (!iframeLoaded) return;
-
-    const href = pendingHref ?? location.href;
-    pendingHref = null;
-
-    // force flush (but still updates lastHrefSent)
-    sendParentLocation(true);
-
-    // ensure the flushed href is what we store as last sent
-    lastHrefSent = href;
-
-    postToWidget({ type: "nexus:parent-location", payload: { href } });
-  }
-
-  function sendParentLocationDebounced(force = false) {
-    if (navTimer) window.clearTimeout(navTimer);
-    navTimer = window.setTimeout(() => {
-      navTimer = null;
-      sendParentLocation(force);
-    }, 250);
-  }
-
-  /* ---------------- Nudge ---------------- */
-
+  // ---------------- Nudge ----------------
   function renderSuggestionsNudge(payload: SuggestionsPayload) {
     if (!NUDGE_ENABLED) return;
 
@@ -509,7 +516,9 @@ type SuggestionsPayload = {
             ${
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
-                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                    <a href="${escapeAttr(
+                      payload.privacyUrl,
+                    )}" target="_blank" rel="noopener noreferrer"
                       style="color:#6b7280;font-size:11px;text-decoration:underline">
                       View our privacy policy.
                     </a>
@@ -530,18 +539,19 @@ type SuggestionsPayload = {
       </div>
     `;
 
-    const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
-    closeBtn?.addEventListener("click", () => {
-      nudgeDismissed = true;
-      removeNudge();
-    });
+    nudge!.querySelector<HTMLButtonElement>("#nexus-close")?.addEventListener(
+      "click",
+      () => {
+        nudgeDismissed = true;
+        removeNudge();
+      },
+    );
 
-    const btns = nudge!.querySelectorAll<HTMLButtonElement>("button[data-sugg-index]");
-    btns.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        openChat();
+    nudge!
+      .querySelectorAll<HTMLButtonElement>("button[data-sugg-index]")
+      .forEach((btn) => {
+        btn.addEventListener("click", () => openChat());
       });
-    });
 
     placeNudge();
     if (!isOpen && !nudgeDismissed) {
@@ -607,17 +617,14 @@ type SuggestionsPayload = {
     }
 
     const avatars = Array.isArray(payload.avatars) ? payload.avatars.slice(0, 3) : [];
-    const ctaList: SimpleCta[] =
-      Array.isArray(payload.ctaList) && payload.ctaList.length ? payload.ctaList : [];
-
+    const ctaList: SimpleCta[] = Array.isArray(payload.ctaList) ? payload.ctaList : [];
     const hasMulti = ctaList.length > 0;
-    const identityMode: "auto" | "logo" | "avatars" = payload.identityMode || "auto";
 
+    const identityMode: "auto" | "logo" | "avatars" = payload.identityMode || "auto";
     let identityHtml = "";
 
-    if (identityMode === "logo") {
+    if (identityMode === "logo" || (identityMode === "auto" && brandLogoUrl)) {
       if (brandLogoUrl) {
-        const safeLogo = escapeAttr(brandLogoUrl);
         identityHtml = `
           <div style="
             width:32px;height:32px;border-radius:9999px;
@@ -626,16 +633,15 @@ type SuggestionsPayload = {
             overflow:hidden;
             border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
           ">
-            <img src="${safeLogo}" alt="logo"
+            <img src="${escapeAttr(brandLogoUrl)}" alt="logo"
               style="width:100%;height:100%;object-fit:contain;" />
           </div>
         `;
       }
-    } else if (identityMode === "avatars") {
-      if (avatars.length) {
-        identityHtml = avatars
-          .map(
-            (src, i) => `
+    } else if (identityMode === "avatars" || (identityMode === "auto" && avatars.length)) {
+      identityHtml = avatars
+        .map(
+          (src, i) => `
           <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
             style="
               width:26px;height:26px;border-radius:9999px;object-fit:cover;
@@ -644,39 +650,8 @@ type SuggestionsPayload = {
                 i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
               }
             " />`,
-          )
-          .join("");
-      }
-    } else {
-      if (brandLogoUrl) {
-        const safeLogo = escapeAttr(brandLogoUrl);
-        identityHtml = `
-          <div style="
-            width:32px;height:32px;border-radius:9999px;
-            background:#f3f4f6;
-            display:flex;align-items:center;justify-content:center;
-            overflow:hidden;
-            border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
-          ">
-            <img src="${safeLogo}" alt="logo"
-              style="width:100%;height:100%;object-fit:contain;" />
-          </div>
-        `;
-      } else if (avatars.length) {
-        identityHtml = avatars
-          .map(
-            (src, i) => `
-          <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
-            style="
-              width:26px;height:26px;border-radius:9999px;object-fit:cover;
-              border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
-              position: relative; ${
-                i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
-              }
-            " />`,
-          )
-          .join("");
-      }
+        )
+        .join("");
     }
 
     const badgeHtml = payload.badgeText
@@ -693,8 +668,7 @@ type SuggestionsPayload = {
 
     const buttonsHtml = hasMulti
       ? `
-        <div id="nexus-cta-stack"
-          style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
           ${ctaList
             .map((cta, index) => {
               const isPrimary = index === 0;
@@ -702,7 +676,9 @@ type SuggestionsPayload = {
               const color = isPrimary ? primaryTextColor : secondaryTextColor;
               const border = isPrimary ? "" : "border:1px solid #e5e7eb;";
               const label =
-                cta.label && cta.label.trim().length ? cta.label : defaultLabelForKind(cta.kind);
+                cta.label && cta.label.trim().length
+                  ? cta.label
+                  : defaultLabelForKind(cta.kind);
 
               return `
                 <button data-cta-index="${index}"
@@ -834,13 +810,14 @@ type SuggestionsPayload = {
             </div>
 
             ${micHtml}
-
             ${buttonsHtml}
 
             ${
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
-                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                    <a href="${escapeAttr(
+                      payload.privacyUrl,
+                    )}" target="_blank" rel="noopener noreferrer"
                       style="color:#6b7280;font-size:11px;text-decoration:underline">
                       This chat may be recorded. View our privacy policy.
                     </a>
@@ -861,46 +838,36 @@ type SuggestionsPayload = {
     `;
 
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
-    const voiceBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-voice");
-
-    if (canUseVoice) {
-      voiceBtn?.addEventListener("mouseenter", () => {
-        if (!voiceBtn) return;
-        voiceBtn.style.transform = "scale(1.06)";
-        voiceBtn.style.boxShadow = "0 10px 22px rgba(0,0,0,.22)";
-      });
-
-      voiceBtn?.addEventListener("mouseleave", () => {
-        if (!voiceBtn) return;
-        voiceBtn.style.transform = "scale(1)";
-        voiceBtn.style.boxShadow = "0 6px 18px rgba(0,0,0,.18)";
-      });
-
-      voiceBtn?.addEventListener("click", () => {
-        show();
-        setTimeout(() => {
-          postToWidget({ type: "nexus:open-voice" });
-        }, 50);
-      });
-    }
-
-    if (hasMulti) {
-      const btns = nudge!.querySelectorAll<HTMLButtonElement>("button[data-cta-index]");
-      btns.forEach((btn) => {
-        const idx = Number(btn.getAttribute("data-cta-index") || "0");
-        btn.addEventListener("click", () => runNudgeCta(idx));
-      });
-    } else {
-      const primaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
-      const secondaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
-      primaryBtn?.addEventListener("click", () => openChat());
-      secondaryBtn?.addEventListener("click", () => openBooking());
-    }
-
     closeBtn?.addEventListener("click", () => {
       nudgeDismissed = true;
       removeNudge();
     });
+
+    const voiceBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-voice");
+    if (canUseVoice && voiceBtn) {
+      voiceBtn.addEventListener("click", () => {
+        show();
+        setTimeout(() => postToWidget({ type: "nexus:open-voice" }), 50);
+      });
+    }
+
+    if (hasMulti) {
+      nudge!
+        .querySelectorAll<HTMLButtonElement>("button[data-cta-index]")
+        .forEach((btn) => {
+          const idx = Number(btn.getAttribute("data-cta-index") || "0");
+          btn.addEventListener("click", () => runNudgeCta(idx));
+        });
+    } else {
+      nudge!.querySelector<HTMLButtonElement>("#nexus-primary")?.addEventListener(
+        "click",
+        () => openChat(),
+      );
+      nudge!.querySelector<HTMLButtonElement>("#nexus-secondary")?.addEventListener(
+        "click",
+        () => openBooking(),
+      );
+    }
 
     placeNudge();
     if (!isOpen && !nudgeDismissed) {
@@ -916,9 +883,7 @@ type SuggestionsPayload = {
 
   function runNudgeCta(index: number) {
     show();
-    setTimeout(() => {
-      postToWidget({ type: "nexus:run-cta", index });
-    }, 50);
+    setTimeout(() => postToWidget({ type: "nexus:run-cta", index }), 50);
   }
 
   function defaultLabelForKind(kind: SimpleCta["kind"]): string {
@@ -974,15 +939,24 @@ type SuggestionsPayload = {
   }
 
   function escapeHtml(s: string) {
-    return s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]!));
+    return s.replace(
+      /[&<>"']/g,
+      (m) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[m]!),
+    );
   }
 
   function escapeAttr(s: string) {
     return s.replace(/"/g, "&quot;");
   }
 
-  /* ---------------- UI actions ---------------- */
-
+  // ---------------- UI actions ----------------
   function show() {
     if (!container || !button) return;
     isOpen = true;
@@ -1001,8 +975,8 @@ type SuggestionsPayload = {
     button.innerHTML = closeIcon;
     applyThemeToFab();
 
-    // ✅ safe + debounced
-    sendParentLocationDebounced(true);
+    // send current url once opening
+    queueParentLocationSend();
   }
 
   function hide() {
@@ -1023,8 +997,7 @@ type SuggestionsPayload = {
       caret.style.display = "block";
       caret.style.opacity = "1";
       placeNudge();
-      // ✅ do NOT spam here; one debounced send is enough
-      sendParentLocationDebounced();
+      queueParentLocationSend();
     }
   }
 
@@ -1038,11 +1011,14 @@ type SuggestionsPayload = {
     setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 50);
   }
 
-  /* ---------------- Lifecycle ---------------- */
+  // ---------------- Lifecycle ----------------
   function destroy() {
-    window.removeEventListener("message", handleMessage);
-    window.removeEventListener("resize", placeNudge);
-    window.removeEventListener("scroll", placeNudge);
+    // prevent multiple destroy calls
+    try {
+      window.removeEventListener("message", handleMessage);
+      window.removeEventListener("resize", placeNudge);
+      window.removeEventListener("scroll", placeNudge as any);
+    } catch {}
 
     if (unpatchHistory) {
       try {
@@ -1051,8 +1027,13 @@ type SuggestionsPayload = {
     }
     unpatchHistory = null;
 
-    if (navTimer) window.clearTimeout(navTimer);
-    navTimer = null;
+    if (sendTimer) {
+      try {
+        window.clearTimeout(sendTimer);
+      } catch {}
+    }
+    sendTimer = null;
+    sendQueued = false;
 
     removeNudge();
 
@@ -1074,12 +1055,13 @@ type SuggestionsPayload = {
     fabRevealed = false;
     hasNudgePayload = false;
     nudgeDismissed = false;
-
-    lastHrefSent = null;
-    pendingHref = null;
+    lastHrefSent = "";
   }
 
-  function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left" }) {
+  function reinit(cfg: {
+    organizationId?: string;
+    position?: "bottom-right" | "bottom-left";
+  }) {
     destroy();
     if (cfg.organizationId) organizationId = cfg.organizationId;
     if (cfg.position) position = cfg.position;
