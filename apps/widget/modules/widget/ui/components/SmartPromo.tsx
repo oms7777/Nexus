@@ -34,8 +34,6 @@ type SuggestionsPayload = {
   privacyUrl?: string;
   theme?: ThemePayload;
   brandLogoUrl?: string;
-
-  // ✅ NEW
   canUseVoice?: boolean;
 };
 
@@ -57,6 +55,8 @@ export default function SmartPromo() {
   const createConversation = useMutation(api.public.conversations.create);
 
   const [parentHref, setParentHref] = useState<string>();
+
+  // IMPORTANT: "sent" flags
   const sentPromoRef = useRef(false);
   const sentSuggestionsRef = useRef(false);
 
@@ -69,15 +69,12 @@ export default function SmartPromo() {
     orgId ? { organizationId: orgId } : "skip"
   );
 
-  // ✅ public plan (no auth)
   const publicPlan = useQuery(
     api.public.entitlements.getPublicPlan,
     orgId ? { organizationId: orgId } : "skip"
   );
 
   const canUseAdvancedPromos = !!(publicPlan as any)?.canUseAdvancedPromos;
-
-  // ✅ NEW: robust voice flag (support both shapes)
   const canUseVoice = !!publicPlan?.canUseVoice;
 
   const memberAvatars =
@@ -86,7 +83,7 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
-  // 🔑 CURRENTURL FIABLE (EMBED)
+  // 🔑 CURRENTURL (from parent)
   const currentUrl =
     typeof window !== "undefined"
       ? parentHref || document.referrer || window.location.href
@@ -97,7 +94,6 @@ export default function SmartPromo() {
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
       : undefined;
 
-  // ✅ promos only if allowed
   const promos =
     useQuery(
       api.public.promos.listForPage,
@@ -125,11 +121,7 @@ export default function SmartPromo() {
     setBookingIntent(intent);
 
     const nextStep =
-      consentGiven
-        ? intent === "book"
-          ? "ask_name"
-          : "idle"
-        : "consent";
+      consentGiven ? (intent === "book" ? "ask_name" : "idle") : "consent";
 
     setStep(nextStep as any);
     setScreen("chat");
@@ -171,7 +163,7 @@ export default function SmartPromo() {
     }
   };
 
-  // HOST → WIDGET BRIDGE
+  // ✅ HOST → WIDGET BRIDGE (listen parent messages)
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
@@ -260,8 +252,6 @@ export default function SmartPromo() {
       brandLogoUrl,
       identityMode: promo.identityMode ?? "auto",
       ctaList: simpleCtaList,
-
-      // ✅ NEW
       canUseVoice,
     };
   };
@@ -290,65 +280,37 @@ export default function SmartPromo() {
       privacyUrl,
       theme,
       brandLogoUrl,
-
-      // ✅ NEW
       canUseVoice,
     };
   };
 
-  // ✅ SEND PROMO (Growth/Enterprise)
+  // ✅ SEND PROMO (ONCE) — NO parentHref dependency
   useEffect(() => {
     if (!isEmbedded) return;
     if (!canUseAdvancedPromos) return;
+    if (sentPromoRef.current) return;
 
     const payload = makePromoPayload();
     if (!payload) return;
 
-    const send = () =>
-      window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
-
-    if (sentPromoRef.current) {
-      send();
-      return;
-    }
     sentPromoRef.current = true;
+    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEmbedded, canUseAdvancedPromos, promo, memberAvatars, ws, canUseVoice]);
 
-    send();
-    const t1 = setTimeout(send, 120);
-    const t2 = setTimeout(send, 600);
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [isEmbedded, canUseAdvancedPromos, promo, memberAvatars, ws, parentHref, canUseVoice]);
-
-  // ✅ SEND SUGGESTIONS (Starter)
+  // ✅ SEND SUGGESTIONS (ONCE) — NO timeouts, NO parentHref
   useEffect(() => {
     if (!isEmbedded) return;
     if (canUseAdvancedPromos) return;
+    if (sentSuggestionsRef.current) return;
 
     const payload = makeSuggestionsPayload();
     if (!payload) return;
 
-    const send = () =>
-      window.parent?.postMessage({ type: "nexus:suggestions", payload }, "*");
-
-    if (sentSuggestionsRef.current) {
-      send();
-      return;
-    }
     sentSuggestionsRef.current = true;
-
-    send();
-    const t1 = setTimeout(send, 120);
-    const t2 = setTimeout(send, 600);
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [isEmbedded, canUseAdvancedPromos, ws, parentHref, canUseVoice]);
+    window.parent?.postMessage({ type: "nexus:suggestions", payload }, "*");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEmbedded, canUseAdvancedPromos, ws, canUseVoice]);
 
   // PREVIEW INTERNE
   const showInternal = !!promo && !isEmbedded && canUseAdvancedPromos;

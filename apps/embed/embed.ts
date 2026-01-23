@@ -268,12 +268,6 @@ type SuggestionsPayload = {
       case "nexus:promo": {
         const promoPayload = payload as PromoPayload;
 
-        // ack
-        iframe?.contentWindow?.postMessage({ type: "nexus:host-ack" }, TARGET_ORIGIN || "*");
-        iframe?.contentWindow?.postMessage(
-          { type: "nexus:hide-internal-promo" },
-          TARGET_ORIGIN || "*",
-        );
 
         if (!NUDGE_ENABLED) return;
 
