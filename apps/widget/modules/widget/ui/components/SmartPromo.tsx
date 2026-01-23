@@ -212,6 +212,7 @@ export default function SmartPromo() {
         void ensureAndStart("chat");
       }
     };
+    
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
