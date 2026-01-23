@@ -55,7 +55,7 @@ type SuggestionsPayload = {
     return;
   }
 
-  // Singleton lock (avoid double init if script injected twice)
+  // Singleton lock
   if ((window as any).__NX_WIDGET_EMBED_LOADED__) return;
   (window as any).__NX_WIDGET_EMBED_LOADED__ = true;
 
@@ -86,9 +86,11 @@ type SuggestionsPayload = {
 
   // parent-location anti-freeze (dedupe + throttle + coalesce)
   let lastHrefSent = "";
-  let lastHrefSentAt = 0;
   let sendTimer: number | null = null;
   let pendingForce = false;
+
+  // placeNudge throttling (IMPORTANT)
+  let placeRaf: number | null = null;
 
   const SCROLL_OPTS: AddEventListenerOptions = { passive: true };
   let destroyed = false;
@@ -202,7 +204,7 @@ type SuggestionsPayload = {
 
       postToWidget({ type: "nexus:embed-ready" });
 
-      // ✅ NO SPA PATCH: only send current location once iframe is ready
+      // Send URL ONCE when iframe becomes ready
       queueParentLocationSend(true);
 
       applyThemeToFab();
@@ -212,8 +214,18 @@ type SuggestionsPayload = {
     document.body.appendChild(container);
 
     window.addEventListener("message", handleMessage);
-    window.addEventListener("resize", placeNudge);
-    window.addEventListener("scroll", placeNudge, SCROLL_OPTS);
+
+    // ✅ placeNudge: throttled with rAF
+    window.addEventListener("resize", schedulePlaceNudge);
+    window.addEventListener("scroll", schedulePlaceNudge, SCROLL_OPTS);
+
+    // ✅ URL sync: only on navigation-like events
+    window.addEventListener("popstate", onNavLike);
+    window.addEventListener("hashchange", onNavLike);
+    window.addEventListener("pageshow", onPageShow); // bfcache restore
+
+    // Capture clicks on links (SPA / normal)
+    document.addEventListener("click", onDocClickCapture, true);
 
     // Important for bfcache / refresh stability
     window.addEventListener("pagehide", destroy, { once: true });
@@ -267,8 +279,6 @@ type SuggestionsPayload = {
 
       case "nexus:promo": {
         const promoPayload = payload as PromoPayload;
-
-
         if (!NUDGE_ENABLED) return;
 
         hasNudgePayload = true;
@@ -293,8 +303,8 @@ type SuggestionsPayload = {
   /**
    * Anti-freeze:
    * - dedupe by href
-   * - throttle (coalesce) -> max 1 send / 350ms
-   * - NO history patching
+   * - coalesce (max 1 send / 350ms)
+   * - ONLY triggered by navigation-like events (not scroll/UI)
    */
   function queueParentLocationSend(force = false) {
     if (!iframeLoaded) return;
@@ -303,35 +313,76 @@ type SuggestionsPayload = {
     if (!force && href === lastHrefSent) return;
 
     pendingForce = pendingForce || force;
-
     if (sendTimer) return;
 
     sendTimer = window.setTimeout(() => {
       sendTimer = null;
 
       const latest = location.href;
-      const now = Date.now();
       const mustSend = pendingForce || latest !== lastHrefSent;
-
       pendingForce = false;
 
-      // extra safety: avoid bursts
       if (!mustSend) return;
-      if (now - lastHrefSentAt < 250 && latest === lastHrefSent) return;
 
       lastHrefSent = latest;
-      lastHrefSentAt = now;
 
-      // IMPORTANT: match SmartPromo listener: e.data.href
+      // IMPORTANT: SmartPromo expects e.data.href
       postToWidget({ type: "nexus:parent-location", href: latest });
     }, 350);
+  }
+
+  // ---------------- URL sync hooks ----------------
+  function onNavLike() {
+    queueParentLocationSend(false);
+  }
+
+  function onPageShow() {
+    // bfcache restore
+    queueParentLocationSend(true);
+  }
+
+  function onDocClickCapture(ev: MouseEvent) {
+    // Only track normal left clicks
+    if (ev.defaultPrevented) return;
+    if (ev.button !== 0) return;
+
+    // Find closest <a>
+    const target = ev.target as HTMLElement | null;
+    const a = target?.closest?.("a") as HTMLAnchorElement | null;
+    if (!a) return;
+
+    // Ignore new tab / modified clicks
+    if (a.target === "_blank") return;
+    if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+
+    // Ignore downloads
+    if ((a as any).download) return;
+
+    // Same-origin only (avoid noise)
+    try {
+      const url = new URL(a.href, location.href);
+      if (url.origin !== location.origin) return;
+    } catch {
+      return;
+    }
+
+    // After click navigation, location updates soon → coalesce
+    setTimeout(() => queueParentLocationSend(false), 0);
+  }
+
+  // ---------------- placeNudge (rAF throttle) ----------------
+  function schedulePlaceNudge() {
+    if (placeRaf) return;
+    placeRaf = window.requestAnimationFrame(() => {
+      placeRaf = null;
+      placeNudge();
+    });
   }
 
   // ---------------- FAB theme ----------------
   function revealFabIfNeeded() {
     if (!button) return;
     if (fabRevealed) return;
-
     if (!theme && !brandLogoUrl && !hasNudgePayload) return;
 
     fabRevealed = true;
@@ -350,7 +401,6 @@ type SuggestionsPayload = {
 
     revealFabIfNeeded();
 
-    // if open, keep close icon
     if (isOpen) {
       button.innerHTML = closeIcon;
       return;
@@ -460,11 +510,9 @@ type SuggestionsPayload = {
             <div style="font-weight:800;font-size:14px;color:#111827;">
               ${escapeHtml("Quick questions")}
             </div>
-
             <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
               ${chips}
             </div>
-
             ${
               payload.privacyUrl
                 ? `<div style="margin-top:10px">
@@ -498,7 +546,7 @@ type SuggestionsPayload = {
       .querySelectorAll<HTMLButtonElement>("button[data-sugg-index]")
       .forEach((btn) => btn.addEventListener("click", () => openChat()));
 
-    placeNudge();
+    schedulePlaceNudge();
     if (!isOpen && !nudgeDismissed) {
       requestAnimationFrame(() => {
         if (nudge) {
@@ -805,7 +853,7 @@ type SuggestionsPayload = {
       );
     }
 
-    placeNudge();
+    schedulePlaceNudge();
     if (!isOpen && !nudgeDismissed) {
       requestAnimationFrame(() => {
         if (nudge) {
@@ -910,9 +958,6 @@ type SuggestionsPayload = {
 
     button.innerHTML = closeIcon;
     applyThemeToFab();
-
-    // send current url once opening (throttled)
-    queueParentLocationSend(false);
   }
 
   function hide() {
@@ -932,8 +977,7 @@ type SuggestionsPayload = {
       nudge.style.transform = "translateY(0)";
       caret.style.display = "block";
       caret.style.opacity = "1";
-      placeNudge();
-      queueParentLocationSend(false);
+      schedulePlaceNudge();
     }
   }
 
@@ -954,9 +998,22 @@ type SuggestionsPayload = {
 
     try {
       window.removeEventListener("message", handleMessage);
-      window.removeEventListener("resize", placeNudge);
-      window.removeEventListener("scroll", placeNudge as any, SCROLL_OPTS);
+      window.removeEventListener("resize", schedulePlaceNudge);
+      window.removeEventListener("scroll", schedulePlaceNudge as any, SCROLL_OPTS);
+
+      window.removeEventListener("popstate", onNavLike);
+      window.removeEventListener("hashchange", onNavLike);
+      window.removeEventListener("pageshow", onPageShow);
+
+      document.removeEventListener("click", onDocClickCapture, true);
     } catch {}
+
+    if (placeRaf) {
+      try {
+        window.cancelAnimationFrame(placeRaf);
+      } catch {}
+    }
+    placeRaf = null;
 
     if (sendTimer) {
       try {
@@ -987,7 +1044,6 @@ type SuggestionsPayload = {
     hasNudgePayload = false;
     nudgeDismissed = false;
     lastHrefSent = "";
-    lastHrefSentAt = 0;
   }
 
   function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left" }) {
