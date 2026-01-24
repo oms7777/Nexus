@@ -5,7 +5,6 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 const NUDGE_ENABLED = true;
 
 // ---------------- Types ----------------
-
 type ThemePayload = {
   primaryColor?: string;
   primaryTextColor?: string;
@@ -64,14 +63,12 @@ type SuggestionsPayload = {
   let container: HTMLDivElement | null = null;
   let button: HTMLButtonElement | null = null;
   let nudge: HTMLDivElement | null = null;
-  let caret: HTMLDivElement | null = null;
 
   // ---------------- State ----------------
   let isOpen = false;
-  let hasNudgePayload = false;
-  let nudgeDismissed = false;
   let iframeLoaded = false;
   let TARGET_ORIGIN = "";
+  let destroyed = false;
 
   // Config from <script>
   let organizationId: string | null = null;
@@ -81,19 +78,9 @@ type SuggestionsPayload = {
   let theme: ThemePayload | null = null;
   let brandLogoUrl: string | null = null;
 
-  // avoid flash
-  let fabRevealed = false;
-
-  // parent-location anti-freeze (dedupe + throttle + coalesce)
-  let lastHrefSent = "";
-  let sendTimer: number | null = null;
-  let pendingForce = false;
-
-  // placeNudge throttling (IMPORTANT)
-  let placeRaf: number | null = null;
-
-  const SCROLL_OPTS: AddEventListenerOptions = { passive: true };
-  let destroyed = false;
+  // nudge state
+  let hasNudgePayload = false;
+  let nudgeDismissed = false;
 
   // ---------------- Init config ----------------
   const currentScript = document.currentScript as HTMLScriptElement | null;
@@ -137,41 +124,28 @@ type SuggestionsPayload = {
     button.id = "nexus-widget-button";
     button.innerHTML = chatBubbleIcon;
 
+    const side = position === "bottom-right" ? "right: 20px;" : "left: 20px;";
+
     button.style.cssText = `
       all: unset;
       position: fixed;
-      ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
+      ${side}
       bottom: 20px;
-      width: 60px; height: 60px; border-radius: 9999px;
+      width: 60px; height: 60px;
+      border-radius: 9999px;
       background: ${theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6"};
       color: ${theme?.primaryTextColor || "#ffffff"};
       cursor: pointer;
       z-index: 2147483000;
-      display: flex; align-items: center; justify-content: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       box-shadow: 0 4px 24px rgba(0,0,0,.20);
-      transition: transform .2s ease, box-shadow .2s ease, background .2s ease, opacity .15s ease;
-      opacity: 0;
-      pointer-events: none;
     `;
 
     button.addEventListener("click", () => {
-      if (isOpen) {
-        hide();
-        return;
-      }
-      openChat();
-    });
-
-    button.addEventListener("mouseenter", () => {
-      if (!button) return;
-      button.style.transform = "scale(1.05)";
-      button.style.boxShadow = "0 6px 28px rgba(15,23,42,.35)";
-    });
-
-    button.addEventListener("mouseleave", () => {
-      if (!button) return;
-      button.style.transform = "scale(1)";
-      button.style.boxShadow = "0 4px 24px rgba(0,0,0,.25)";
+      if (isOpen) hide();
+      else openChat();
     });
 
     document.body.appendChild(button);
@@ -181,15 +155,18 @@ type SuggestionsPayload = {
     container.id = "nexus-widget-container";
     container.style.cssText = `
       position: fixed;
-      ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
+      ${side}
       bottom: 90px;
-      width: 400px; height: 600px;
-      max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
+      width: 400px;
+      height: 600px;
+      max-width: calc(100vw - 40px);
+      max-height: calc(100vh - 110px);
       z-index: 2147482999;
-      border-radius: 16px; overflow: hidden;
+      border-radius: 16px;
+      overflow: hidden;
       box-shadow: 0 4px 24px rgba(0,0,0,.15);
-      display: none; opacity: 0; transform: translateY(10px);
-      transition: all .3s ease; background: #fff;
+      display: none;
+      background: #fff;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
     `;
 
@@ -202,10 +179,8 @@ type SuggestionsPayload = {
       iframeLoaded = true;
       TARGET_ORIGIN = new URL(iframe!.src).origin;
 
+      // just a handshake, no URL sync, no extra loops
       postToWidget({ type: "nexus:embed-ready" });
-
-      // Send URL ONCE when iframe becomes ready
-      queueParentLocationSend(true);
 
       applyThemeToFab();
     };
@@ -215,19 +190,7 @@ type SuggestionsPayload = {
 
     window.addEventListener("message", handleMessage);
 
-    // ✅ placeNudge: throttled with rAF
-    window.addEventListener("resize", schedulePlaceNudge);
-    window.addEventListener("scroll", schedulePlaceNudge, SCROLL_OPTS);
-
-    // ✅ URL sync: only on navigation-like events
-    window.addEventListener("popstate", onNavLike);
-    window.addEventListener("hashchange", onNavLike);
-    window.addEventListener("pageshow", onPageShow); // bfcache restore
-
-    // Capture clicks on links (SPA / normal)
-    document.addEventListener("click", onDocClickCapture, true);
-
-    // Important for bfcache / refresh stability
+    // Stability on bfcache / refresh
     window.addEventListener("pagehide", destroy, { once: true });
     window.addEventListener("beforeunload", destroy, { once: true });
   }
@@ -265,8 +228,8 @@ type SuggestionsPayload = {
       }
 
       case "nexus:suggestions": {
-        const sp = payload as SuggestionsPayload;
         if (!NUDGE_ENABLED) return;
+        const sp = payload as SuggestionsPayload;
 
         hasNudgePayload = true;
         theme = sp.theme || theme || null;
@@ -278,15 +241,15 @@ type SuggestionsPayload = {
       }
 
       case "nexus:promo": {
-        const promoPayload = payload as PromoPayload;
         if (!NUDGE_ENABLED) return;
+        const promo = payload as PromoPayload;
 
         hasNudgePayload = true;
-        theme = promoPayload.theme || theme || null;
-        brandLogoUrl = promoPayload.brandLogoUrl || brandLogoUrl || null;
+        theme = promo.theme || theme || null;
+        brandLogoUrl = promo.brandLogoUrl || brandLogoUrl || null;
 
         applyThemeToFab();
-        renderNudge(promoPayload);
+        renderPromoNudge(promo);
         break;
       }
 
@@ -300,96 +263,7 @@ type SuggestionsPayload = {
     iframe.contentWindow.postMessage(msg, TARGET_ORIGIN || "*");
   }
 
-  /**
-   * Anti-freeze:
-   * - dedupe by href
-   * - coalesce (max 1 send / 350ms)
-   * - ONLY triggered by navigation-like events (not scroll/UI)
-   */
-  function queueParentLocationSend(force = false) {
-    if (!iframeLoaded) return;
-
-    const href = location.href;
-    if (!force && href === lastHrefSent) return;
-
-    pendingForce = pendingForce || force;
-    if (sendTimer) return;
-
-    sendTimer = window.setTimeout(() => {
-      sendTimer = null;
-
-      const latest = location.href;
-      const mustSend = pendingForce || latest !== lastHrefSent;
-      pendingForce = false;
-
-      if (!mustSend) return;
-
-      lastHrefSent = latest;
-
-      // IMPORTANT: SmartPromo expects e.data.href
-      postToWidget({ type: "nexus:parent-location", href: latest });
-    }, 350);
-  }
-
-  // ---------------- URL sync hooks ----------------
-  function onNavLike() {
-    queueParentLocationSend(false);
-  }
-
-  function onPageShow() {
-    // bfcache restore
-    queueParentLocationSend(true);
-  }
-
-  function onDocClickCapture(ev: MouseEvent) {
-    // Only track normal left clicks
-    if (ev.defaultPrevented) return;
-    if (ev.button !== 0) return;
-
-    // Find closest <a>
-    const target = ev.target as HTMLElement | null;
-    const a = target?.closest?.("a") as HTMLAnchorElement | null;
-    if (!a) return;
-
-    // Ignore new tab / modified clicks
-    if (a.target === "_blank") return;
-    if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
-
-    // Ignore downloads
-    if ((a as any).download) return;
-
-    // Same-origin only (avoid noise)
-    try {
-      const url = new URL(a.href, location.href);
-      if (url.origin !== location.origin) return;
-    } catch {
-      return;
-    }
-
-    // After click navigation, location updates soon → coalesce
-    setTimeout(() => queueParentLocationSend(false), 0);
-  }
-
-  // ---------------- placeNudge (rAF throttle) ----------------
-  function schedulePlaceNudge() {
-    if (placeRaf) return;
-    placeRaf = window.requestAnimationFrame(() => {
-      placeRaf = null;
-      placeNudge();
-    });
-  }
-
   // ---------------- FAB theme ----------------
-  function revealFabIfNeeded() {
-    if (!button) return;
-    if (fabRevealed) return;
-    if (!theme && !brandLogoUrl && !hasNudgePayload) return;
-
-    fabRevealed = true;
-    button.style.opacity = "1";
-    button.style.pointerEvents = "auto";
-  }
-
   function applyThemeToFab() {
     if (!button) return;
 
@@ -398,8 +272,6 @@ type SuggestionsPayload = {
 
     button.style.background = bubbleColor;
     button.style.color = textColor;
-
-    revealFabIfNeeded();
 
     if (isOpen) {
       button.innerHTML = closeIcon;
@@ -427,57 +299,22 @@ type SuggestionsPayload = {
     }
   }
 
-  // ---------------- Nudge ----------------
+  // ---------------- Nudge (minimal, no caret, no scroll/resize logic) ----------------
   function renderSuggestionsNudge(payload: SuggestionsPayload) {
-    if (!NUDGE_ENABLED) return;
+    if (!button || !NUDGE_ENABLED) return;
+    if (nudgeDismissed) return;
 
     const palette: ThemePayload = payload.theme || theme || {};
     const primaryColor = palette.primaryColor || "#0ea5e9";
     const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
 
-    if (!nudge) {
-      nudge = document.createElement("div");
-      nudge.id = "nexus-nudge";
-      nudge.style.cssText = `
-        all: unset;
-        position: fixed;
-        width: 340px; max-width: min(340px, calc(100vw - 96px));
-        z-index: 2147483001;
-        background: ${nudgeBg};
-        border: 1px solid #e5e7eb; border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.12);
-        padding: 12px;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
-        font-size: 14px;
-        line-height: 1.4;
-        opacity: 0; transform: translateY(6px);
-        transition: opacity .18s ease, transform .18s ease;
-        pointer-events: auto;
-        background-clip: padding-box;
-      `;
-      document.body.appendChild(nudge);
-
-      caret = document.createElement("div");
-      caret.style.cssText = `
-        position: fixed;
-        width: 12px; height: 12px;
-        background: ${nudgeBg};
-        border-left: 1px solid #e5e7eb;
-        border-top: 1px solid #e5e7eb;
-        transform: rotate(45deg);
-        z-index: 2147483002;
-        box-shadow: 0 2px 8px rgba(0,0,0,.08);
-        opacity: 0; transition: opacity .18s ease;
-      `;
-      document.body.appendChild(caret);
-    }
+    ensureNudgeShell(nudgeBg);
 
     const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions.slice(0, 3) : [];
-
     const chips = suggestions
       .map(
-        (s, i) => `
-          <button data-sugg-index="${i}"
+        (s) => `
+          <button data-kind="open_chat"
             style="
               all: unset;
               display:inline-flex;
@@ -504,210 +341,79 @@ type SuggestionsPayload = {
       .join("");
 
     nudge!.innerHTML = `
-      <div style="position:relative">
-        <div style="display:flex;gap:10px;align-items:flex-start">
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:800;font-size:14px;color:#111827;">
-              ${escapeHtml("Quick questions")}
-            </div>
-            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
-              ${chips}
-            </div>
-            ${
-              payload.privacyUrl
-                ? `<div style="margin-top:10px">
-                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
-                      style="color:#6b7280;font-size:11px;text-decoration:underline">
-                      View our privacy policy.
-                    </a>
-                  </div>`
-                : ""
-            }
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:800;font-size:14px;color:#111827;">
+            ${escapeHtml("Quick questions")}
           </div>
-
-          <button id="nexus-close" title="Close"
-            style="
-              all: unset;
-              border-radius:9999px;
-              width:20px;height:20px;
-              display:flex;align-items:center;justify-content:center;
-              color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;
-            ">×</button>
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
+            ${chips}
+          </div>
+          ${
+            payload.privacyUrl
+              ? `<div style="margin-top:10px">
+                  <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                    style="color:#6b7280;font-size:11px;text-decoration:underline">
+                    View our privacy policy.
+                  </a>
+                </div>`
+              : ""
+          }
         </div>
+        <button data-kind="close" title="Close"
+          style="all:unset;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
+                 color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;">×</button>
       </div>
     `;
 
-    nudge!.querySelector<HTMLButtonElement>("#nexus-close")?.addEventListener("click", () => {
-      nudgeDismissed = true;
-      removeNudge();
-    });
-
-    nudge!
-      .querySelectorAll<HTMLButtonElement>("button[data-sugg-index]")
-      .forEach((btn) => btn.addEventListener("click", () => openChat()));
-
-    schedulePlaceNudge();
-    if (!isOpen && !nudgeDismissed) {
-      requestAnimationFrame(() => {
-        if (nudge) {
-          nudge.style.opacity = "1";
-          nudge.style.transform = "translateY(0)";
-        }
-        if (caret) caret.style.opacity = "1";
-      });
-    }
+    bindNudgeClicks();
+    showNudgeIfAllowed();
   }
 
-  function renderNudge(payload: PromoPayload) {
-    if (!NUDGE_ENABLED) return;
+  function renderPromoNudge(payload: PromoPayload) {
+    if (!button || !NUDGE_ENABLED) return;
+    if (nudgeDismissed) return;
 
     const palette: ThemePayload = payload.theme || theme || {};
     const primaryColor = palette.primaryColor || "#0ea5e9";
     const primaryTextColor = palette.primaryTextColor || "#ffffff";
     const secondaryColor = palette.secondaryColor || "#ffffff";
-    const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
     const secondaryTextColor = palette.secondaryTextColor || "#111827";
+    const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
 
-    const micBg = palette.chatBubbleColor || palette.primaryColor || "#3b82f6";
-    const micFg = palette.primaryTextColor || "#ffffff";
-    const canUseVoice = payload.canUseVoice !== false;
-
-    if (!nudge) {
-      nudge = document.createElement("div");
-      nudge.id = "nexus-nudge";
-      nudge.style.cssText = `
-        all: unset;
-        position: fixed;
-        width: 340px; max-width: min(340px, calc(100vw - 96px));
-        z-index: 2147483001;
-        background: ${nudgeBg};
-        border: 1px solid #e5e7eb; border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.12);
-        padding: 12px;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
-        font-size: 14px;
-        line-height: 1.4;
-        opacity: 0; transform: translateY(6px);
-        transition: opacity .18s ease, transform .18s ease;
-        pointer-events: auto;
-        background-clip: padding-box;
-      `;
-      document.body.appendChild(nudge);
-
-      caret = document.createElement("div");
-      caret.style.cssText = `
-        position: fixed;
-        width: 12px; height: 12px;
-        background: ${nudgeBg};
-        border-left: 1px solid #e5e7eb;
-        border-top: 1px solid #e5e7eb;
-        transform: rotate(45deg);
-        z-index: 2147483002;
-        box-shadow: 0 2px 8px rgba(0,0,0,.08);
-        opacity: 0; transition: opacity .18s ease;
-      `;
-      document.body.appendChild(caret);
-    }
-
-    const avatars = Array.isArray(payload.avatars) ? payload.avatars.slice(0, 3) : [];
-    const ctaList: SimpleCta[] = Array.isArray(payload.ctaList) ? payload.ctaList : [];
-    const hasMulti = ctaList.length > 0;
-
-    const identityMode: "auto" | "logo" | "avatars" = payload.identityMode || "auto";
-    let identityHtml = "";
-
-    if (identityMode === "logo" || (identityMode === "auto" && brandLogoUrl)) {
-      if (brandLogoUrl) {
-        identityHtml = `
-          <div style="
-            width:32px;height:32px;border-radius:9999px;
-            background:#f3f4f6;
-            display:flex;align-items:center;justify-content:center;
-            overflow:hidden;
-            border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
-          ">
-            <img src="${escapeAttr(brandLogoUrl)}" alt="logo"
-              style="width:100%;height:100%;object-fit:contain;" />
-          </div>
-        `;
-      }
-    } else if (identityMode === "avatars" || (identityMode === "auto" && avatars.length)) {
-      identityHtml = avatars
-        .map(
-          (src, i) => `
-          <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
-            style="
-              width:26px;height:26px;border-radius:9999px;object-fit:cover;
-              border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
-              position: relative; ${i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"}
-            " />`,
-        )
-        .join("");
-    }
-
-    const badgeHtml = payload.badgeText
-      ? `<span style="
-           position:absolute; left:12px; top:10px;
-           background:#10b981; color:#fff; font-size:11px; line-height:1;
-           padding:4px 6px; border-radius:6px; font-weight:600;">
-           ${escapeHtml(payload.badgeText)}
-         </span>`
-      : "";
+    ensureNudgeShell(nudgeBg);
 
     const title = payload.title || "Discover the right solution for your business project.";
     const body = payload.body || "Chat with our assistant or book a 15-min demo.";
 
-    const buttonsHtml = hasMulti
-      ? `
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
-          ${ctaList
-            .map((cta, index) => {
-              const isPrimary = index === 0;
-              const bg = isPrimary ? primaryColor : secondaryColor;
-              const color = isPrimary ? primaryTextColor : secondaryTextColor;
-              const border = isPrimary ? "" : "border:1px solid #e5e7eb;";
-              const label =
-                cta.label && cta.label.trim().length ? cta.label : defaultLabelForKind(cta.kind);
+    // minimalist: 2 CTAs only (primary + secondary) OR list first 2
+    const list = Array.isArray(payload.ctaList) ? payload.ctaList : [];
+    const ctas: SimpleCta[] =
+      list.length > 0
+        ? list.slice(0, 3)
+        : [
+            payload.primaryCta || { kind: "open_chat", label: payload.primary || "Chat with AI Assistant" },
+            payload.secondaryCta || { kind: "open_booking", label: payload.secondary || "Book a meeting" },
+          ].filter(Boolean) as any;
 
-              return `
-                <button data-cta-index="${index}"
-                  style="
-                    all: unset;
-                    width:100%;
-                    min-height:36px;
-                    padding:0 12px;
-                    border-radius:8px;
-                    background:${bg};
-                    color:${color};
-                    ${border}
-                    cursor:pointer;
-                    font-weight:600;
-                    font-size:13px;
-                    display:inline-flex;
-                    align-items:center;
-                    justify-content:center;
-                    text-align:center;
-                    box-sizing:border-box;
-                    white-space:normal;
-                  ">
-                  ${escapeHtml(label)}
-                </button>
-              `;
-            })
-            .join("")}
-        </div>
-      `
-      : `
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
-          <button id="nexus-primary"
+    const buttonsHtml = ctas
+      .map((cta, idx) => {
+        const isPrimary = idx === 0;
+        const bg = isPrimary ? primaryColor : secondaryColor;
+        const color = isPrimary ? primaryTextColor : secondaryTextColor;
+        const border = isPrimary ? "" : "border:1px solid #e5e7eb;";
+        const label = cta.label?.trim()?.length ? cta.label : defaultLabelForKind(cta.kind);
+        return `
+          <button data-kind="${cta.kind}" data-url="${cta.url ? escapeAttr(cta.url) : ""}"
             style="
-              all: unset;
+              all:unset;
               width:100%;
               min-height:36px;
               padding:0 12px;
               border-radius:8px;
-              background:${primaryColor};
-              color:${primaryTextColor};
+              background:${bg};
+              color:${color};
+              ${border}
               cursor:pointer;
               font-weight:600;
               font-size:13px;
@@ -716,158 +422,113 @@ type SuggestionsPayload = {
               justify-content:center;
               text-align:center;
               box-sizing:border-box;
-              white-space:normal;
             ">
-            ${escapeHtml(payload.primary || "Chat with AI Assistant")}
+            ${escapeHtml(label)}
           </button>
+        `;
+      })
+      .join("");
+
+    nudge!.innerHTML = `
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:14px;color:#111827;">
+            ${escapeHtml(title)}
+          </div>
+          <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;">
+            ${escapeHtml(body)}
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
+            ${buttonsHtml}
+          </div>
+
           ${
-            payload.secondary !== undefined
-              ? `<button id="nexus-secondary"
-                  style="
-                    all: unset;
-                    width:100%;
-                    min-height:36px;
-                    padding:0 12px;
-                    border-radius:8px;
-                    background:${secondaryColor};
-                    color:${secondaryTextColor};
-                    border:1px solid #e5e7eb;
-                    cursor:pointer;
-                    font-weight:600;
-                    font-size:13px;
-                    display:inline-flex;
-                    align-items:center;
-                    justify-content:center;
-                    text-align:center;
-                    box-sizing:border-box;
-                    white-space:normal;
-                  ">
-                  ${escapeHtml(payload.secondary || "Book a meeting")}
-                </button>`
+            payload.privacyUrl
+              ? `<div style="margin-top:10px">
+                  <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                    style="color:#6b7280;font-size:11px;text-decoration:underline">
+                    View our privacy policy.
+                  </a>
+                </div>`
               : ""
           }
         </div>
-      `;
 
-    const micHtml = canUseVoice
-      ? `
-        <div style="display:flex;justify-content:center;margin-top:10px;">
-          <button id="nexus-voice"
-            title="Voice call"
-            style="
-              all: unset;
-              width:44px;height:44px;
-              border-radius:9999px;
-              background:${micBg};
-              color:${micFg};
-              cursor:pointer;
-              display:flex;
-              align-items:center;
-              justify-content:center;
-              box-shadow:0 6px 18px rgba(0,0,0,.18);
-              transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
-            ">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-              xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M12 18v3" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M8 21h8" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </div>
-      `
-      : "";
-
-    nudge!.innerHTML = `
-      <div style="position:relative">
-        ${badgeHtml}
-        <div style="display:flex;gap:10px;align-items:flex-start">
-          <div style="display:flex;align-items:center;min-width:56px;padding-top:4px">
-            ${identityHtml}
-          </div>
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:700;font-size:14px;color:#111827;">
-              ${escapeHtml(title)}
-            </div>
-            <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;word-break:break-word;">
-              ${escapeHtml(body)}
-            </div>
-
-            ${micHtml}
-            ${buttonsHtml}
-
-            ${
-              payload.privacyUrl
-                ? `<div style="margin-top:10px">
-                    <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
-                      style="color:#6b7280;font-size:11px;text-decoration:underline">
-                      This chat may be recorded. View our privacy policy.
-                    </a>
-                  </div>`
-                : ""
-            }
-          </div>
-          <button id="nexus-close" title="Close"
-            style="
-              all: unset;
-              border-radius:9999px;
-              width:20px;height:20px;
-              display:flex;align-items:center;justify-content:center;
-              color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;
-            ">×</button>
-        </div>
+        <button data-kind="close" title="Close"
+          style="all:unset;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
+                 color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;">×</button>
       </div>
     `;
 
-    nudge!.querySelector<HTMLButtonElement>("#nexus-close")?.addEventListener("click", () => {
-      nudgeDismissed = true;
-      removeNudge();
-    });
-
-    const voiceBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-voice");
-    if (canUseVoice && voiceBtn) {
-      voiceBtn.addEventListener("click", () => {
-        show();
-        setTimeout(() => postToWidget({ type: "nexus:open-voice" }), 50);
-      });
-    }
-
-    if (hasMulti) {
-      nudge!
-        .querySelectorAll<HTMLButtonElement>("button[data-cta-index]")
-        .forEach((btn) => {
-          const idx = Number(btn.getAttribute("data-cta-index") || "0");
-          btn.addEventListener("click", () => runNudgeCta(idx));
-        });
-    } else {
-      nudge!.querySelector<HTMLButtonElement>("#nexus-primary")?.addEventListener("click", () =>
-        openChat(),
-      );
-      nudge!.querySelector<HTMLButtonElement>("#nexus-secondary")?.addEventListener("click", () =>
-        openBooking(),
-      );
-    }
-
-    schedulePlaceNudge();
-    if (!isOpen && !nudgeDismissed) {
-      requestAnimationFrame(() => {
-        if (nudge) {
-          nudge.style.opacity = "1";
-          nudge.style.transform = "translateY(0)";
-        }
-        if (caret) caret.style.opacity = "1";
-      });
-    }
+    bindNudgeClicks();
+    showNudgeIfAllowed();
   }
 
-  function runNudgeCta(index: number) {
-    show();
-    setTimeout(() => postToWidget({ type: "nexus:run-cta", index }), 50);
+  function ensureNudgeShell(nudgeBg: string) {
+    if (nudge) return;
+
+    const side = position === "bottom-right" ? "right: 20px;" : "left: 20px;";
+
+    nudge = document.createElement("div");
+    nudge.id = "nexus-nudge";
+    nudge.style.cssText = `
+      all: unset;
+      position: fixed;
+      ${side}
+      bottom: 92px;
+      width: 340px;
+      max-width: min(340px, calc(100vw - 96px));
+      z-index: 2147483001;
+      background: ${nudgeBg};
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      padding: 12px;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
+      font-size: 14px;
+      line-height: 1.4;
+      display: none;
+    `;
+    document.body.appendChild(nudge);
+  }
+
+  function bindNudgeClicks() {
+    if (!nudge) return;
+
+    const buttons = nudge.querySelectorAll<HTMLButtonElement>("button[data-kind]");
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const kind = (btn.getAttribute("data-kind") || "") as SimpleCta["kind"] | "close";
+        if (kind === "close") {
+          nudgeDismissed = true;
+          hideNudge();
+          return;
+        }
+
+        // route actions
+        if (kind === "open_chat") openChat();
+        else if (kind === "open_booking") openBooking();
+        else if (kind === "open_url") {
+          const url = btn.getAttribute("data-url") || "";
+          if (url) window.open(url, "_blank", "noopener,noreferrer");
+        }
+      });
+    });
+  }
+
+  function showNudgeIfAllowed() {
+    if (!nudge) return;
+    if (!hasNudgePayload) return;
+    if (nudgeDismissed) return;
+    if (isOpen) return;
+
+    nudge.style.display = "block";
+  }
+
+  function hideNudge() {
+    if (!nudge) return;
+    nudge.style.display = "none";
   }
 
   function defaultLabelForKind(kind: SimpleCta["kind"]): string {
@@ -876,66 +537,9 @@ type SuggestionsPayload = {
     return "Open link";
   }
 
-  function placeNudge() {
-    if (!button || !nudge || !caret) return;
-
-    const rect = button.getBoundingClientRect();
-    const gap = 12;
-    const caretSize = 12;
-    const fromBottomToButtonTop = window.innerHeight - rect.top;
-
-    nudge.style.bottom = `${fromBottomToButtonTop + gap}px`;
-    if (position === "bottom-right") {
-      nudge.style.right = "20px";
-      (nudge.style as any).left = "";
-    } else {
-      nudge.style.left = "20px";
-      (nudge.style as any).right = "";
-    }
-
-    const centerX = rect.left + rect.width / 2;
-    caret.style.left = `${centerX - caretSize / 2}px`;
-    caret.style.bottom = `${fromBottomToButtonTop + (gap - caretSize / 2)}px`;
-    caret.style.transform = "rotate(45deg)";
-
-    const r = nudge.getBoundingClientRect();
-    const overflowRight = r.right - window.innerWidth;
-    const overflowLeft = -r.left;
-
-    if (overflowRight > 0 && position === "bottom-right") {
-      const currRight = parseFloat(getComputedStyle(nudge).right || "20");
-      nudge.style.right = `${Math.max(12, currRight + overflowRight)}px`;
-    } else if (overflowLeft > 0 && position === "bottom-left") {
-      const currLeft = parseFloat(getComputedStyle(nudge).left || "20");
-      nudge.style.left = `${Math.max(12, currLeft + overflowLeft)}px`;
-    }
-  }
-
-  function removeNudge() {
-    if (nudge) {
-      nudge.remove();
-      nudge = null;
-    }
-    if (caret) {
-      caret.remove();
-      caret = null;
-    }
-  }
-
   function escapeHtml(s: string) {
-    return s.replace(
-      /[&<>"']/g,
-      (m) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        }[m]!),
-    );
+    return s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]!));
   }
-
   function escapeAttr(s: string) {
     return s.replace(/"/g, "&quot;");
   }
@@ -945,17 +549,9 @@ type SuggestionsPayload = {
     if (!container || !button) return;
     isOpen = true;
 
-    if (nudge) nudge.style.display = "none";
-    if (caret) caret.style.display = "none";
+    hideNudge();
 
     container.style.display = "block";
-    setTimeout(() => {
-      if (container) {
-        container.style.opacity = "1";
-        container.style.transform = "translateY(0)";
-      }
-    }, 10);
-
     button.innerHTML = closeIcon;
     applyThemeToFab();
   }
@@ -964,31 +560,22 @@ type SuggestionsPayload = {
     if (!container || !button) return;
     isOpen = false;
 
-    container.style.opacity = "0";
-    container.style.transform = "translateY(10px)";
-    setTimeout(() => container && (container.style.display = "none"), 300);
-
+    container.style.display = "none";
     button.innerHTML = chatBubbleIcon;
     applyThemeToFab();
 
-    if (!nudgeDismissed && hasNudgePayload && nudge && caret) {
-      nudge.style.display = "block";
-      nudge.style.opacity = "1";
-      nudge.style.transform = "translateY(0)";
-      caret.style.display = "block";
-      caret.style.opacity = "1";
-      schedulePlaceNudge();
-    }
+    // restore nudge if available
+    if (!nudgeDismissed && hasNudgePayload) showNudgeIfAllowed();
   }
 
   function openChat() {
     show();
-    setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 50);
+    setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 0);
   }
 
   function openBooking() {
     show();
-    setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 50);
+    setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 0);
   }
 
   // ---------------- Lifecycle ----------------
@@ -998,38 +585,19 @@ type SuggestionsPayload = {
 
     try {
       window.removeEventListener("message", handleMessage);
-      window.removeEventListener("resize", schedulePlaceNudge);
-      window.removeEventListener("scroll", schedulePlaceNudge as any, SCROLL_OPTS);
-
-      window.removeEventListener("popstate", onNavLike);
-      window.removeEventListener("hashchange", onNavLike);
-      window.removeEventListener("pageshow", onPageShow);
-
-      document.removeEventListener("click", onDocClickCapture, true);
     } catch {}
 
-    if (placeRaf) {
-      try {
-        window.cancelAnimationFrame(placeRaf);
-      } catch {}
+    if (nudge) {
+      nudge.remove();
+      nudge = null;
     }
-    placeRaf = null;
-
-    if (sendTimer) {
-      try {
-        window.clearTimeout(sendTimer);
-      } catch {}
-    }
-    sendTimer = null;
-    pendingForce = false;
-
-    removeNudge();
 
     if (container) {
       container.remove();
       container = null;
       iframe = null;
     }
+
     if (button) {
       button.remove();
       button = null;
@@ -1040,10 +608,8 @@ type SuggestionsPayload = {
     TARGET_ORIGIN = "";
     theme = null;
     brandLogoUrl = null;
-    fabRevealed = false;
     hasNudgePayload = false;
     nudgeDismissed = false;
-    lastHrefSent = "";
   }
 
   function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left" }) {

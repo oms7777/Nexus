@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -54,16 +54,13 @@ export default function SmartPromo() {
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
   const createConversation = useMutation(api.public.conversations.create);
 
-  const [parentHref, setParentHref] = useState<string>();
-
-  // IMPORTANT: "sent" flags
+  // IMPORTANT: sent flags
   const sentPromoRef = useRef(false);
   const sentSuggestionsRef = useRef(false);
 
-  const isEmbedded =
-    typeof window !== "undefined" ? window.parent !== window : false;
+  const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
 
-  // ----- DATA (CONVEX)
+  // ---- DATA (CONVEX)
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip"
@@ -83,10 +80,10 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
-  // 🔑 CURRENTURL (from parent)
+  // ✅ CURRENT URL: use referrer in iframe (host page), no parent messaging needed
   const currentUrl =
     typeof window !== "undefined"
-      ? parentHref || document.referrer || window.location.href
+      ? (isEmbedded ? document.referrer || undefined : window.location.href)
       : undefined;
 
   const utm =
@@ -163,15 +160,10 @@ export default function SmartPromo() {
     }
   };
 
-  // ✅ HOST → WIDGET BRIDGE (listen parent messages)
+  // ✅ listen ONLY commands from parent (open / run cta). No URL syncing.
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
-
-      if (t === "nexus:parent-location" && typeof e.data.href === "string") {
-        setParentHref(e.data.href);
-        return;
-      }
 
       if (t === "nexus:open-chat") {
         void ensureAndStart("chat");
@@ -212,7 +204,6 @@ export default function SmartPromo() {
         void ensureAndStart("chat");
       }
     };
-    
 
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
@@ -285,7 +276,7 @@ export default function SmartPromo() {
     };
   };
 
-  // ✅ SEND PROMO (ONCE) — NO parentHref dependency
+  // ✅ SEND PROMO (ONCE)
   useEffect(() => {
     if (!isEmbedded) return;
     if (!canUseAdvancedPromos) return;
@@ -299,7 +290,7 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEmbedded, canUseAdvancedPromos, promo, memberAvatars, ws, canUseVoice]);
 
-  // ✅ SEND SUGGESTIONS (ONCE) — NO timeouts, NO parentHref
+  // ✅ SEND SUGGESTIONS (ONCE)
   useEffect(() => {
     if (!isEmbedded) return;
     if (canUseAdvancedPromos) return;
@@ -313,46 +304,9 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEmbedded, canUseAdvancedPromos, ws, canUseVoice]);
 
-  // PREVIEW INTERNE
+  // PREVIEW INTERNE (unchanged)
   const showInternal = !!promo && !isEmbedded && canUseAdvancedPromos;
   if (!showInternal) return null;
 
-  return (
-    <div
-      className="fixed bottom-4 right-4 w-[320px] rounded-xl border bg-white shadow-lg"
-      style={{ zIndex: 1000 }}
-    >
-      <div className="p-3">
-        {promo?.card?.badgeText && (
-          <div className="mb-2 inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
-            {promo.card.badgeText}
-          </div>
-        )}
-        <div className="font-semibold">
-          {promo?.card?.title ?? "Need a hand?"}
-        </div>
-        <div className="mt-1 text-sm text-muted-foreground">
-          {promo?.card?.body ?? "Chat with our assistant or book a 15-min demo."}
-        </div>
-        <div className="mt-3 flex flex-col gap-2">
-          {promo.primaryCta && (
-            <button
-              className="h-9 w-full rounded-md bg-sky-500 px-3 font-medium text-white"
-              onClick={() => runCta(promo.primaryCta!)}
-            >
-              {promo.primaryCta.label ?? "Chat"}
-            </button>
-          )}
-          {promo.secondaryCta && (
-            <button
-              className="h-9 w-full rounded-md border px-3 font-medium"
-              onClick={() => runCta(promo.secondaryCta!)}
-            >
-              {promo.secondaryCta.label}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }

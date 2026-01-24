@@ -1,36 +1,39 @@
-(function(){"use strict";const U={WIDGET_URL:"https://widget.inboundless.co",DEFAULT_POSITION:"bottom-right"},O=`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+(function(){"use strict";const m={WIDGET_URL:"https://widget.inboundless.co",DEFAULT_POSITION:"bottom-right"},C=`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-</svg>`,K=`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+</svg>`,U=`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <line x1="18" y1="6" x2="6" y2="18"></line>
   <line x1="6" y1="6" x2="18" y2="18"></line>
-</svg>`;(function(){try{if(window.self!==window.top)return}catch{return}if(window.__NX_WIDGET_EMBED_LOADED__)return;window.__NX_WIDGET_EMBED_LOADED__=!0;let d=null,l=null,n=null,t=null,a=null,y=!1,E=!1,v=!1,z=!1,S="",A=null,p=U.DEFAULT_POSITION,s=null,c=null,R=!1,j="",k=null,_=!1,L=null;const X={passive:!0};let q=!1;const F=document.currentScript;if(F)A=F.getAttribute("data-organization-id"),p=F.getAttribute("data-position")??U.DEFAULT_POSITION;else{const e=document.querySelectorAll('script[src*="widget"]'),o=Array.from(e).find(i=>i.hasAttribute("data-organization-id"));o&&(A=o.getAttribute("data-organization-id"),p=o.getAttribute("data-position")??U.DEFAULT_POSITION)}if(!A){console.error("Nexus Widget: data-organization-id attribute is required");return}function Q(){document.readyState==="loading"?document.addEventListener("DOMContentLoaded",Z,{once:!0}):Z()}function Z(){n=document.createElement("button"),n.id="nexus-widget-button",n.innerHTML=O,n.style.cssText=`
+</svg>`;(function(){try{if(window.self!==window.top)return}catch{return}if(window.__NX_WIDGET_EMBED_LOADED__)return;window.__NX_WIDGET_EMBED_LOADED__=!0;let a=null,l=null,o=null,s=null,u=!1,w=!1,g="",T=!1,x=null,h=m.DEFAULT_POSITION,t=null,d=null,b=!1,c=!1;const L=document.currentScript;if(L)x=L.getAttribute("data-organization-id"),h=L.getAttribute("data-position")??m.DEFAULT_POSITION;else{const e=document.querySelectorAll('script[src*="widget"]'),n=Array.from(e).find(i=>i.hasAttribute("data-organization-id"));n&&(x=n.getAttribute("data-organization-id"),h=n.getAttribute("data-position")??m.DEFAULT_POSITION)}if(!x){console.error("Nexus Widget: data-organization-id attribute is required");return}function D(){document.readyState==="loading"?document.addEventListener("DOMContentLoaded",S,{once:!0}):S()}function S(){o=document.createElement("button"),o.id="nexus-widget-button",o.innerHTML=C;const e=h==="bottom-right"?"right: 20px;":"left: 20px;";o.style.cssText=`
       all: unset;
       position: fixed;
-      ${p==="bottom-right"?"right: 20px;":"left: 20px;"}
+      ${e}
       bottom: 20px;
-      width: 60px; height: 60px; border-radius: 9999px;
-      background: ${(s==null?void 0:s.chatBubbleColor)||(s==null?void 0:s.primaryColor)||"#3b82f6"};
-      color: ${(s==null?void 0:s.primaryTextColor)||"#ffffff"};
+      width: 60px; height: 60px;
+      border-radius: 9999px;
+      background: ${(t==null?void 0:t.chatBubbleColor)||(t==null?void 0:t.primaryColor)||"#3b82f6"};
+      color: ${(t==null?void 0:t.primaryTextColor)||"#ffffff"};
       cursor: pointer;
       z-index: 2147483000;
-      display: flex; align-items: center; justify-content: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       box-shadow: 0 4px 24px rgba(0,0,0,.20);
-      transition: transform .2s ease, box-shadow .2s ease, background .2s ease, opacity .15s ease;
-      opacity: 0;
-      pointer-events: none;
-    `,n.addEventListener("click",()=>{if(y){W();return}Y()}),n.addEventListener("mouseenter",()=>{n&&(n.style.transform="scale(1.05)",n.style.boxShadow="0 6px 28px rgba(15,23,42,.35)")}),n.addEventListener("mouseleave",()=>{n&&(n.style.transform="scale(1)",n.style.boxShadow="0 4px 24px rgba(0,0,0,.25)")}),document.body.appendChild(n),l=document.createElement("div"),l.id="nexus-widget-container",l.style.cssText=`
+    `,o.addEventListener("click",()=>{u?$():j()}),document.body.appendChild(o),l=document.createElement("div"),l.id="nexus-widget-container",l.style.cssText=`
       position: fixed;
-      ${p==="bottom-right"?"right: 20px;":"left: 20px;"}
+      ${e}
       bottom: 90px;
-      width: 400px; height: 600px;
-      max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
+      width: 400px;
+      height: 600px;
+      max-width: calc(100vw - 40px);
+      max-height: calc(100vh - 110px);
       z-index: 2147482999;
-      border-radius: 16px; overflow: hidden;
+      border-radius: 16px;
+      overflow: hidden;
       box-shadow: 0 4px 24px rgba(0,0,0,.15);
-      display: none; opacity: 0; transform: translateY(10px);
-      transition: all .3s ease; background: #fff;
+      display: none;
+      background: #fff;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
-    `,d=document.createElement("iframe"),d.src=ce(),d.allow="microphone; clipboard-read; clipboard-write",d.style.cssText="width:100%;height:100%;border:none;",d.onload=()=>{z=!0,S=new URL(d.src).origin,C({type:"nexus:embed-ready"}),M(!0),T()},l.appendChild(d),document.body.appendChild(l),window.addEventListener("message",J),window.addEventListener("resize",b),window.addEventListener("scroll",b,X),window.addEventListener("popstate",B),window.addEventListener("hashchange",B),window.addEventListener("pageshow",ee),document.addEventListener("click",te,!0),window.addEventListener("pagehide",D,{once:!0}),window.addEventListener("beforeunload",D,{once:!0})}function ce(){const e=new URLSearchParams;return e.append("organizationId",A),`${U.WIDGET_URL}?${e.toString()}`}function J(e){const{type:o,payload:i}=e.data||{};if(!(z&&S&&e.origin!==S))switch(o){case"close":W();break;case"resize":i!=null&&i.height&&l&&(l.style.height=`${i.height}px`);break;case"nexus:theme":{const r=i;s=(r==null?void 0:r.theme)||null,c=(r==null?void 0:r.brandLogoUrl)||null,T();break}case"nexus:suggestions":{const r=i;E=!0,s=r.theme||s||null,c=r.brandLogoUrl||c||null,T(),pe(r);break}case"nexus:promo":{const r=i;E=!0,s=r.theme||s||null,c=r.brandLogoUrl||c||null,T(),fe(r);break}}}function C(e){!z||!(d!=null&&d.contentWindow)||d.contentWindow.postMessage(e,S||"*")}function M(e=!1){if(!z)return;const o=location.href;!e&&o===j||(_=_||e,!k&&(k=window.setTimeout(()=>{k=null;const i=location.href,r=_||i!==j;_=!1,r&&(j=i,C({type:"nexus:parent-location",href:i}))},350)))}function B(){M(!1)}function ee(){M(!0)}function te(e){var r;if(e.defaultPrevented||e.button!==0)return;const o=e.target,i=(r=o==null?void 0:o.closest)==null?void 0:r.call(o,"a");if(i&&i.target!=="_blank"&&!(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)&&!i.download){try{if(new URL(i.href,location.href).origin!==location.origin)return}catch{return}setTimeout(()=>M(!1),0)}}function b(){L||(L=window.requestAnimationFrame(()=>{L=null,he()}))}function ue(){n&&(R||!s&&!c&&!E||(R=!0,n.style.opacity="1",n.style.pointerEvents="auto"))}function T(){if(!n)return;const e=(s==null?void 0:s.chatBubbleColor)||(s==null?void 0:s.primaryColor)||"#3b82f6",o=(s==null?void 0:s.primaryTextColor)||"#ffffff";if(n.style.background=e,n.style.color=o,ue(),y){n.innerHTML=K;return}if(c){const i=I(c);n.innerHTML=`
+    `,a=document.createElement("iframe"),a.src=G(),a.allow="microphone; clipboard-read; clipboard-write",a.style.cssText="width:100%;height:100%;border:none;",a.onload=()=>{w=!0,g=new URL(a.src).origin,_({type:"nexus:embed-ready"}),f()},l.appendChild(a),document.body.appendChild(l),window.addEventListener("message",B),window.addEventListener("pagehide",k,{once:!0}),window.addEventListener("beforeunload",k,{once:!0})}function G(){const e=new URLSearchParams;return e.append("organizationId",x),`${m.WIDGET_URL}?${e.toString()}`}function B(e){const{type:n,payload:i}=e.data||{};if(!(w&&g&&e.origin!==g))switch(n){case"close":$();break;case"resize":i!=null&&i.height&&l&&(l.style.height=`${i.height}px`);break;case"nexus:theme":{const r=i;t=(r==null?void 0:r.theme)||null,d=(r==null?void 0:r.brandLogoUrl)||null,f();break}case"nexus:suggestions":{const r=i;b=!0,t=r.theme||t||null,d=r.brandLogoUrl||d||null,f(),q(r);break}case"nexus:promo":{const r=i;b=!0,t=r.theme||t||null,d=r.brandLogoUrl||d||null,f(),V(r);break}}}function _(e){!w||!(a!=null&&a.contentWindow)||a.contentWindow.postMessage(e,g||"*")}function f(){if(!o)return;const e=(t==null?void 0:t.chatBubbleColor)||(t==null?void 0:t.primaryColor)||"#3b82f6",n=(t==null?void 0:t.primaryTextColor)||"#ffffff";if(o.style.background=e,o.style.color=n,u){o.innerHTML=U;return}if(d){const i=v(d);o.innerHTML=`
         <div style="
           width:70%;height:70%;
           border-radius:9999px;
@@ -43,34 +46,8 @@
           <img src="${i}" alt="Chat"
             style="width:100%;height:100%;object-fit:contain;" />
         </div>
-      `}else n.innerHTML=O}function pe(e){var x;const o=e.theme||s||{},i=o.primaryColor||"#0ea5e9",r=o.nudgeBackgroundColor||"#ffffff";t||(t=document.createElement("div"),t.id="nexus-nudge",t.style.cssText=`
-        all: unset;
-        position: fixed;
-        width: 340px; max-width: min(340px, calc(100vw - 96px));
-        z-index: 2147483001;
-        background: ${r};
-        border: 1px solid #e5e7eb; border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.12);
-        padding: 12px;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
-        font-size: 14px;
-        line-height: 1.4;
-        opacity: 0; transform: translateY(6px);
-        transition: opacity .18s ease, transform .18s ease;
-        pointer-events: auto;
-        background-clip: padding-box;
-      `,document.body.appendChild(t),a=document.createElement("div"),a.style.cssText=`
-        position: fixed;
-        width: 12px; height: 12px;
-        background: ${r};
-        border-left: 1px solid #e5e7eb;
-        border-top: 1px solid #e5e7eb;
-        transform: rotate(45deg);
-        z-index: 2147483002;
-        box-shadow: 0 2px 8px rgba(0,0,0,.08);
-        opacity: 0; transition: opacity .18s ease;
-      `,document.body.appendChild(a));const m=(Array.isArray(e.suggestions)?e.suggestions.slice(0,3):[]).map((g,w)=>`
-          <button data-sugg-index="${w}"
+      `}else o.innerHTML=C}function q(e){if(!o||c)return;const n=e.theme||t||{},i=n.primaryColor||"#0ea5e9",r=n.nudgeBackgroundColor||"#ffffff";M(r);const I=(Array.isArray(e.suggestions)?e.suggestions.slice(0,3):[]).map(z=>`
+          <button data-kind="open_chat"
             style="
               all: unset;
               display:inline-flex;
@@ -90,122 +67,39 @@
               overflow:hidden;
               text-overflow:ellipsis;
             ">
-            ${f(g)}
+            ${y(z)}
           </button>
-        `).join("");t.innerHTML=`
-      <div style="position:relative">
-        <div style="display:flex;gap:10px;align-items:flex-start">
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:800;font-size:14px;color:#111827;">
-              ${f("Quick questions")}
-            </div>
-            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
-              ${m}
-            </div>
-            ${e.privacyUrl?`<div style="margin-top:10px">
-                    <a href="${I(e.privacyUrl)}" target="_blank" rel="noopener noreferrer"
-                      style="color:#6b7280;font-size:11px;text-decoration:underline">
-                      View our privacy policy.
-                    </a>
-                  </div>`:""}
+        `).join("");s.innerHTML=`
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:800;font-size:14px;color:#111827;">
+            ${y("Quick questions")}
           </div>
-
-          <button id="nexus-close" title="Close"
-            style="
-              all: unset;
-              border-radius:9999px;
-              width:20px;height:20px;
-              display:flex;align-items:center;justify-content:center;
-              color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;
-            ">×</button>
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
+            ${I}
+          </div>
+          ${e.privacyUrl?`<div style="margin-top:10px">
+                  <a href="${v(e.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                    style="color:#6b7280;font-size:11px;text-decoration:underline">
+                    View our privacy policy.
+                  </a>
+                </div>`:""}
         </div>
+        <button data-kind="close" title="Close"
+          style="all:unset;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
+                 color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;">×</button>
       </div>
-    `,(x=t.querySelector("#nexus-close"))==null||x.addEventListener("click",()=>{v=!0,P()}),t.querySelectorAll("button[data-sugg-index]").forEach(g=>g.addEventListener("click",()=>Y())),b(),!y&&!v&&requestAnimationFrame(()=>{t&&(t.style.opacity="1",t.style.transform="translateY(0)"),a&&(a.style.opacity="1")})}function fe(e){var ae,le,de;const o=e.theme||s||{},i=o.primaryColor||"#0ea5e9",r=o.primaryTextColor||"#ffffff",$=o.secondaryColor||"#ffffff",m=o.nudgeBackgroundColor||"#ffffff",x=o.secondaryTextColor||"#111827",g=o.chatBubbleColor||o.primaryColor||"#3b82f6",w=o.primaryTextColor||"#ffffff",ne=e.canUseVoice!==!1;t||(t=document.createElement("div"),t.id="nexus-nudge",t.style.cssText=`
-        all: unset;
-        position: fixed;
-        width: 340px; max-width: min(340px, calc(100vw - 96px));
-        z-index: 2147483001;
-        background: ${m};
-        border: 1px solid #e5e7eb; border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.12);
-        padding: 12px;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
-        font-size: 14px;
-        line-height: 1.4;
-        opacity: 0; transform: translateY(6px);
-        transition: opacity .18s ease, transform .18s ease;
-        pointer-events: auto;
-        background-clip: padding-box;
-      `,document.body.appendChild(t),a=document.createElement("div"),a.style.cssText=`
-        position: fixed;
-        width: 12px; height: 12px;
-        background: ${m};
-        border-left: 1px solid #e5e7eb;
-        border-top: 1px solid #e5e7eb;
-        transform: rotate(45deg);
-        z-index: 2147483002;
-        box-shadow: 0 2px 8px rgba(0,0,0,.08);
-        opacity: 0; transition: opacity .18s ease;
-      `,document.body.appendChild(a));const oe=Array.isArray(e.avatars)?e.avatars.slice(0,3):[],ie=Array.isArray(e.ctaList)?e.ctaList:[],re=ie.length>0,H=e.identityMode||"auto";let G="";H==="logo"||H==="auto"&&c?c&&(G=`
-          <div style="
-            width:32px;height:32px;border-radius:9999px;
-            background:#f3f4f6;
-            display:flex;align-items:center;justify-content:center;
-            overflow:hidden;
-            border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.12);
-          ">
-            <img src="${I(c)}" alt="logo"
-              style="width:100%;height:100%;object-fit:contain;" />
-          </div>
-        `):(H==="avatars"||H==="auto"&&oe.length)&&(G=oe.map((u,h)=>`
-          <img src="${I(u)}" alt="avatar ${h+1}"
+    `,O(),A()}function V(e){if(!o||c)return;const n=e.theme||t||{},i=n.primaryColor||"#0ea5e9",r=n.primaryTextColor||"#ffffff",W=n.secondaryColor||"#ffffff",I=n.secondaryTextColor||"#111827",z=n.nudgeBackgroundColor||"#ffffff";M(z);const J=e.title||"Discover the right solution for your business project.",Y=e.body||"Chat with our assistant or book a 15-min demo.",P=Array.isArray(e.ctaList)?e.ctaList:[],Z=(P.length>0?P.slice(0,3):[e.primaryCta||{kind:"open_chat",label:e.primary||"Chat with AI Assistant"},e.secondaryCta||{kind:"open_booking",label:e.secondary||"Book a meeting"}].filter(Boolean)).map((p,ee)=>{var R,F;const N=ee===0,te=N?i:W,ne=N?r:I,ie=N?"":"border:1px solid #e5e7eb;",oe=(F=(R=p.label)==null?void 0:R.trim())!=null&&F.length?p.label:X(p.kind);return`
+          <button data-kind="${p.kind}" data-url="${p.url?v(p.url):""}"
             style="
-              width:26px;height:26px;border-radius:9999px;object-fit:cover;
-              border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
-              position: relative; ${h?`margin-left:-10px; z-index:${10-h};`:"z-index:10;"}
-            " />`).join(""));const me=e.badgeText?`<span style="
-           position:absolute; left:12px; top:10px;
-           background:#10b981; color:#fff; font-size:11px; line-height:1;
-           padding:4px 6px; border-radius:6px; font-weight:600;">
-           ${f(e.badgeText)}
-         </span>`:"",we=e.title||"Discover the right solution for your business project.",ve=e.body||"Chat with our assistant or book a 15-min demo.",ke=re?`
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
-          ${ie.map((u,h)=>{const V=h===0,Ce=V?i:$,Te=V?r:x,$e=V?"":"border:1px solid #e5e7eb;",Ee=u.label&&u.label.trim().length?u.label:ge(u.kind);return`
-                <button data-cta-index="${h}"
-                  style="
-                    all: unset;
-                    width:100%;
-                    min-height:36px;
-                    padding:0 12px;
-                    border-radius:8px;
-                    background:${Ce};
-                    color:${Te};
-                    ${$e}
-                    cursor:pointer;
-                    font-weight:600;
-                    font-size:13px;
-                    display:inline-flex;
-                    align-items:center;
-                    justify-content:center;
-                    text-align:center;
-                    box-sizing:border-box;
-                    white-space:normal;
-                  ">
-                  ${f(Ee)}
-                </button>
-              `}).join("")}
-        </div>
-      `:`
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
-          <button id="nexus-primary"
-            style="
-              all: unset;
+              all:unset;
               width:100%;
               min-height:36px;
               padding:0 12px;
               border-radius:8px;
-              background:${i};
-              color:${r};
+              background:${te};
+              color:${ne};
+              ${ie}
               cursor:pointer;
               font-weight:600;
               font-size:13px;
@@ -214,96 +108,50 @@
               justify-content:center;
               text-align:center;
               box-sizing:border-box;
-              white-space:normal;
             ">
-            ${f(e.primary||"Chat with AI Assistant")}
+            ${y(oe)}
           </button>
-          ${e.secondary!==void 0?`<button id="nexus-secondary"
-                  style="
-                    all: unset;
-                    width:100%;
-                    min-height:36px;
-                    padding:0 12px;
-                    border-radius:8px;
-                    background:${$};
-                    color:${x};
-                    border:1px solid #e5e7eb;
-                    cursor:pointer;
-                    font-weight:600;
-                    font-size:13px;
-                    display:inline-flex;
-                    align-items:center;
-                    justify-content:center;
-                    text-align:center;
-                    box-sizing:border-box;
-                    white-space:normal;
-                  ">
-                  ${f(e.secondary||"Book a meeting")}
-                </button>`:""}
-        </div>
-      `,Le=ne?`
-        <div style="display:flex;justify-content:center;margin-top:10px;">
-          <button id="nexus-voice"
-            title="Voice call"
-            style="
-              all: unset;
-              width:44px;height:44px;
-              border-radius:9999px;
-              background:${g};
-              color:${w};
-              cursor:pointer;
-              display:flex;
-              align-items:center;
-              justify-content:center;
-              box-shadow:0 6px 18px rgba(0,0,0,.18);
-              transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
-            ">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-              xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M12 18v3" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M8 21h8" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </div>
-      `:"";t.innerHTML=`
-      <div style="position:relative">
-        ${me}
-        <div style="display:flex;gap:10px;align-items:flex-start">
-          <div style="display:flex;align-items:center;min-width:56px;padding-top:4px">
-            ${G}
+        `}).join("");s.innerHTML=`
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:14px;color:#111827;">
+            ${y(J)}
           </div>
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:700;font-size:14px;color:#111827;">
-              ${f(we)}
-            </div>
-            <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;word-break:break-word;">
-              ${f(ve)}
-            </div>
-
-            ${Le}
-            ${ke}
-
-            ${e.privacyUrl?`<div style="margin-top:10px">
-                    <a href="${I(e.privacyUrl)}" target="_blank" rel="noopener noreferrer"
-                      style="color:#6b7280;font-size:11px;text-decoration:underline">
-                      This chat may be recorded. View our privacy policy.
-                    </a>
-                  </div>`:""}
+          <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;">
+            ${y(Y)}
           </div>
-          <button id="nexus-close" title="Close"
-            style="
-              all: unset;
-              border-radius:9999px;
-              width:20px;height:20px;
-              display:flex;align-items:center;justify-content:center;
-              color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;
-            ">×</button>
+
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
+            ${Z}
+          </div>
+
+          ${e.privacyUrl?`<div style="margin-top:10px">
+                  <a href="${v(e.privacyUrl)}" target="_blank" rel="noopener noreferrer"
+                    style="color:#6b7280;font-size:11px;text-decoration:underline">
+                    View our privacy policy.
+                  </a>
+                </div>`:""}
         </div>
+
+        <button data-kind="close" title="Close"
+          style="all:unset;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
+                 color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;">×</button>
       </div>
-    `,(ae=t.querySelector("#nexus-close"))==null||ae.addEventListener("click",()=>{v=!0,P()});const se=t.querySelector("#nexus-voice");ne&&se&&se.addEventListener("click",()=>{N(),setTimeout(()=>C({type:"nexus:open-voice"}),50)}),re?t.querySelectorAll("button[data-cta-index]").forEach(u=>{const h=Number(u.getAttribute("data-cta-index")||"0");u.addEventListener("click",()=>xe(h))}):((le=t.querySelector("#nexus-primary"))==null||le.addEventListener("click",()=>Y()),(de=t.querySelector("#nexus-secondary"))==null||de.addEventListener("click",()=>ye())),b(),!y&&!v&&requestAnimationFrame(()=>{t&&(t.style.opacity="1",t.style.transform="translateY(0)"),a&&(a.style.opacity="1")})}function xe(e){N(),setTimeout(()=>C({type:"nexus:run-cta",index:e}),50)}function ge(e){return e==="open_chat"?"Chat with AI Assistant":e==="open_booking"?"Book a meeting":"Open link"}function he(){if(!n||!t||!a)return;const e=n.getBoundingClientRect(),o=12,i=12,r=window.innerHeight-e.top;t.style.bottom=`${r+o}px`,p==="bottom-right"?(t.style.right="20px",t.style.left=""):(t.style.left="20px",t.style.right="");const $=e.left+e.width/2;a.style.left=`${$-i/2}px`,a.style.bottom=`${r+(o-i/2)}px`,a.style.transform="rotate(45deg)";const m=t.getBoundingClientRect(),x=m.right-window.innerWidth,g=-m.left;if(x>0&&p==="bottom-right"){const w=parseFloat(getComputedStyle(t).right||"20");t.style.right=`${Math.max(12,w+x)}px`}else if(g>0&&p==="bottom-left"){const w=parseFloat(getComputedStyle(t).left||"20");t.style.left=`${Math.max(12,w+g)}px`}}function P(){t&&(t.remove(),t=null),a&&(a.remove(),a=null)}function f(e){return e.replace(/[&<>"']/g,o=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[o])}function I(e){return e.replace(/"/g,"&quot;")}function N(){!l||!n||(y=!0,t&&(t.style.display="none"),a&&(a.style.display="none"),l.style.display="block",setTimeout(()=>{l&&(l.style.opacity="1",l.style.transform="translateY(0)")},10),n.innerHTML=K,T())}function W(){!l||!n||(y=!1,l.style.opacity="0",l.style.transform="translateY(10px)",setTimeout(()=>l&&(l.style.display="none"),300),n.innerHTML=O,T(),!v&&E&&t&&a&&(t.style.display="block",t.style.opacity="1",t.style.transform="translateY(0)",a.style.display="block",a.style.opacity="1",b()))}function Y(){N(),setTimeout(()=>C({type:"nexus:open-chat"}),50)}function ye(){N(),setTimeout(()=>C({type:"nexus:run-secondary-cta"}),50)}function D(){if(!q){q=!0;try{window.removeEventListener("message",J),window.removeEventListener("resize",b),window.removeEventListener("scroll",b,X),window.removeEventListener("popstate",B),window.removeEventListener("hashchange",B),window.removeEventListener("pageshow",ee),document.removeEventListener("click",te,!0)}catch{}if(L)try{window.cancelAnimationFrame(L)}catch{}if(L=null,k)try{window.clearTimeout(k)}catch{}k=null,_=!1,P(),l&&(l.remove(),l=null,d=null),n&&(n.remove(),n=null),y=!1,z=!1,S="",s=null,c=null,R=!1,E=!1,v=!1,j=""}}function be(e){D(),q=!1,e.organizationId&&(A=e.organizationId),e.position&&(p=e.position),Q()}window.NexusWidget={init:be,show:N,hide:W,destroy:D},Q()})()})();
+    `,O(),A()}function M(e){if(s)return;const n=h==="bottom-right"?"right: 20px;":"left: 20px;";s=document.createElement("div"),s.id="nexus-nudge",s.style.cssText=`
+      all: unset;
+      position: fixed;
+      ${n}
+      bottom: 92px;
+      width: 340px;
+      max-width: min(340px, calc(100vw - 96px));
+      z-index: 2147483001;
+      background: ${e};
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      padding: 12px;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
+      font-size: 14px;
+      line-height: 1.4;
+      display: none;
+    `,document.body.appendChild(s)}function O(){if(!s)return;s.querySelectorAll("button[data-kind]").forEach(n=>{n.addEventListener("click",()=>{const i=n.getAttribute("data-kind")||"";if(i==="close"){c=!0,H();return}if(i==="open_chat")j();else if(i==="open_booking")K();else if(i==="open_url"){const r=n.getAttribute("data-url")||"";r&&window.open(r,"_blank","noopener,noreferrer")}})})}function A(){s&&b&&(c||u||(s.style.display="block"))}function H(){s&&(s.style.display="none")}function X(e){return e==="open_chat"?"Chat with AI Assistant":e==="open_booking"?"Book a meeting":"Open link"}function y(e){return e.replace(/[&<>"']/g,n=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[n])}function v(e){return e.replace(/"/g,"&quot;")}function E(){!l||!o||(u=!0,H(),l.style.display="block",o.innerHTML=U,f())}function $(){!l||!o||(u=!1,l.style.display="none",o.innerHTML=C,f(),!c&&b&&A())}function j(){E(),setTimeout(()=>_({type:"nexus:open-chat"}),0)}function K(){E(),setTimeout(()=>_({type:"nexus:run-secondary-cta"}),0)}function k(){if(!T){T=!0;try{window.removeEventListener("message",B)}catch{}s&&(s.remove(),s=null),l&&(l.remove(),l=null,a=null),o&&(o.remove(),o=null),u=!1,w=!1,g="",t=null,d=null,b=!1,c=!1}}function Q(e){k(),T=!1,e.organizationId&&(x=e.organizationId),e.position&&(h=e.position),D()}window.NexusWidget={init:Q,show:E,hide:$,destroy:k},D()})()})();
