@@ -1,3 +1,4 @@
+// apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
@@ -56,7 +57,7 @@ export function LiveVisitorView({
 }) {
   const outerRef = useRef<HTMLDivElement | null>(null);
 
-  // rrweb mode
+  // rrweb stage/replayer
   const stageRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
@@ -77,15 +78,14 @@ export function LiveVisitorView({
   const MAX_QUEUE = 5_000;
   const MAX_PER_FRAME = 120;
 
+  // ✅ on garde Convex snapshots uniquement comme fallback/“clickUrl”
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
       sessionId: sessionId as unknown as Id<"contactSessions">,
       limit: 1,
     }) ?? [];
-
   const latest = snaps[0];
 
-  // Parse snapshot once
   const parsed = useMemo(() => {
     if (!latest?.snapshot) return null;
     try {
@@ -95,17 +95,21 @@ export function LiveVisitorView({
     }
   }, [latest?.snapshot]);
 
-  const mode: "rrweb" | "iframe" | "empty" = useMemo(() => {
-    if (!parsed) return "empty";
-    if (isRrwebEvents(parsed)) return "rrweb";
-    if (isV1Snapshot(parsed)) return "iframe";
-    return "empty";
-  }, [parsed]);
+  // ✅ mode piloté par ce qu’on reçoit en live (rrweb > iframe > empty)
+  const [mode, setMode] = useState<"rrweb" | "iframe" | "empty">("empty");
 
   const v1 = useMemo(() => {
-    if (mode !== "iframe") return null;
-    return parsed as V1Snapshot;
-  }, [mode, parsed]);
+    if (!parsed) return null;
+    if (isV1Snapshot(parsed)) return parsed as V1Snapshot;
+    return null;
+  }, [parsed]);
+
+  // fallback: si Convex contient un snapshot rrweb (rare), on peut l’utiliser
+  useEffect(() => {
+    if (!parsed) return;
+    if (isRrwebEvents(parsed)) setMode("rrweb");
+    else if (isV1Snapshot(parsed)) setMode((m) => (m === "rrweb" ? "rrweb" : "iframe"));
+  }, [parsed]);
 
   const ensureStage = useCallback(() => {
     const outer = outerRef.current;
@@ -207,20 +211,18 @@ export function LiveVisitorView({
 
       const meta = extractMeta(events);
 
-      const width =
+      const w =
         meta.width ??
         (typeof latest?.width === "number" ? latest.width : undefined) ??
         1200;
-
-      const height =
+      const h =
         meta.height ??
         (typeof latest?.height === "number" ? latest.height : undefined) ??
         800;
 
-      sourceRef.current = { width, height };
-
-      stage.style.width = `${width}px`;
-      stage.style.height = `${height}px`;
+      sourceRef.current = { width: w, height: h };
+      stage.style.width = `${w}px`;
+      stage.style.height = `${h}px`;
 
       try {
         const replayer = new Replayer(events, {
@@ -239,31 +241,10 @@ export function LiveVisitorView({
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
   );
 
-  // Init either rrweb or iframe mode
-  useEffect(() => {
-    if (!latest?.snapshot) return;
-
-    // If we switch to iframe mode, stop rrweb clean
-    if (mode !== "rrweb") {
-      destroyReplayer();
-      return;
-    }
-
-    ensureStage();
-
-    try {
-      const events = JSON.parse(latest.snapshot) as any;
-      if (isRrwebEvents(events)) bootFromEvents(events);
-    } catch (err) {
-      console.error("[live] failed to init snapshot", err);
-    }
-  }, [latest?.snapshot, mode, bootFromEvents, ensureStage, destroyReplayer]);
-
-  // Resize layout only for rrweb mode
+  // Resize layout only when rrweb is active
   useEffect(() => {
     const outer = outerRef.current;
     if (!outer) return;
-
     if (mode !== "rrweb") return;
 
     applyLayout();
@@ -308,11 +289,8 @@ export function LiveVisitorView({
         count++;
       }
 
-      if (queueRef.current.length) {
-        rafRef.current = requestAnimationFrame(tick);
-      } else {
-        processingRef.current = false;
-      }
+      if (queueRef.current.length) rafRef.current = requestAnimationFrame(tick);
+      else processingRef.current = false;
     };
 
     rafRef.current = requestAnimationFrame(tick);
@@ -324,10 +302,7 @@ export function LiveVisitorView({
       if (!replayerRef.current) return;
 
       if (queueRef.current.length > MAX_QUEUE) {
-        queueRef.current.splice(
-          0,
-          queueRef.current.length - Math.floor(MAX_QUEUE / 2),
-        );
+        queueRef.current.splice(0, queueRef.current.length - Math.floor(MAX_QUEUE / 2));
       }
 
       queueRef.current.push(...events);
@@ -336,13 +311,14 @@ export function LiveVisitorView({
     [processQueue, mode],
   );
 
+  // ✅ dès qu’on reçoit un snapshot live => on passe en rrweb et on boot
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
-      if (mode !== "rrweb") return;
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
+      setMode("rrweb");
       bootFromEvents(events);
     },
-    [bootFromEvents, mode],
+    [bootFromEvents],
   );
 
   const { cursor } = useVisitorStream({
@@ -352,7 +328,6 @@ export function LiveVisitorView({
     onSnapshot,
   });
 
-  // Cursor positioning (works both modes)
   const cursorPx = useMemo(() => {
     if (!cursor) return null;
 
@@ -362,12 +337,9 @@ export function LiveVisitorView({
     const outer = outerRef.current;
     if (!outer) return null;
 
-    // iframe mode => use container pixels directly
+    // si pas rrweb layout, on fait simple
     if (mode !== "rrweb" || !sourceRef.current) {
-      return {
-        left: cx * outer.clientWidth,
-        top: cy * outer.clientHeight,
-      };
+      return { left: cx * outer.clientWidth, top: cy * outer.clientHeight };
     }
 
     const src = sourceRef.current;
@@ -386,14 +358,17 @@ export function LiveVisitorView({
     v1?.pageUrl ||
     (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined);
 
+  // si pas rrweb, mais on a v1 => iframe
+  useEffect(() => {
+    if (mode === "rrweb") return;
+    if (previewUrl) setMode("iframe");
+    else setMode("empty");
+  }, [previewUrl, mode]);
+
   return (
-    <div
-      className="relative rounded-xl border overflow-hidden bg-black/5"
-      style={{ height }}
-    >
+    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
-      {/* ✅ V1 lightweight = iframe preview */}
       {mode === "iframe" && (
         <div className="absolute inset-0">
           {!previewUrl ? (
@@ -402,7 +377,6 @@ export function LiveVisitorView({
             </div>
           ) : (
             <div className="h-full w-full relative">
-              {/* clickable overlay */}
               <a
                 href={previewUrl}
                 target="_blank"
@@ -410,42 +384,23 @@ export function LiveVisitorView({
                 className="absolute inset-0 z-10"
                 title="Open current page"
               />
-
-              {/* iframe */}
               <iframe
                 key={previewUrl}
                 src={previewUrl}
                 className="absolute inset-0 h-full w-full"
                 style={{
                   border: "none",
-                  pointerEvents: "none", // keep it as a thumbnail
+                  pointerEvents: "none",
                   background: "white",
-                }}
-                onLoad={() => {
-                  // If the site blocks framing, onLoad may still fire blank.
-                  // We detect block heuristically by a timer + contentWindow check in try/catch.
-                  setTimeout(() => {
-                    try {
-                      // Some browsers throw if cross-origin; that's fine.
-                      // If framed is blocked, often iframe shows browser error page; we can't read it.
-                      // So we only keep a manual fallback toggle (below) if user sees blank.
-                    } catch {}
-                  }, 200);
                 }}
               />
 
-              {/* fallback banner if user sees blank (manual switch) */}
               {iframeBlocked && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 z-20">
                   <div className="text-xs text-muted-foreground">
                     Preview blocked by the website (CSP / X-Frame-Options)
                   </div>
-                  <a
-                    href={previewUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs underline"
-                  >
+                  <a href={previewUrl} target="_blank" rel="noreferrer" className="text-xs underline">
                     Open page
                   </a>
                 </div>
@@ -466,9 +421,6 @@ export function LiveVisitorView({
         </div>
       )}
 
-      {/* ✅ rrweb mode = replay */}
-      {/* (nothing special here; stage is appended in outerRef) */}
-
       {cursorPx && (
         <div
           className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none z-30"
@@ -480,7 +432,6 @@ export function LiveVisitorView({
         />
       )}
 
-      {/* empty state */}
       {mode === "empty" && (
         <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
           No preview available

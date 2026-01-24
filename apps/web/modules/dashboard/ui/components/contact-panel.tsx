@@ -455,7 +455,6 @@ export const ContactPanel = () => {
             <LiveVisitorView
             orgId={contactSession.organizationId}
             sessionId={String(contactSession._id)}
-            clickUrl={contactSession.metadata?.currentUrl ?? undefined}
             height={360}
             />
             <SnapshotsStrip sessionId={contactSession._id} limit={8} />

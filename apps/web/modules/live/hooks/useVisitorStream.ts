@@ -1,3 +1,4 @@
+// apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -20,8 +21,7 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
-    // ✅ Tell server to start rrweb for this session (watching ON)
-    // (best-effort; if it fails, cursor still works)
+    // ✅ demande au serveur de déclencher rrweb côté visiteur
     fetch("/api/realtime/rrweb", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -34,10 +34,13 @@ export function useVisitorStream(opts: {
       disableStats: true,
       enabledTransports: ["ws", "wss"],
       disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
+
+      // ✅ IMPORTANT: passer orgId/sessionId au backend auth
       channelAuthorization: {
         endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
         transport: "ajax",
-      },
+        params: { orgId, sessionId },
+      } as any,
     });
 
     const chanName = `presence-org_${orgId}_session_${sessionId}`;
@@ -61,7 +64,6 @@ export function useVisitorStream(opts: {
     ch.bind("client-snapshot", onSnap);
 
     return () => {
-      // ✅ Tell server to stop rrweb for this session (watching OFF)
       fetch("/api/realtime/rrweb", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -74,12 +76,14 @@ export function useVisitorStream(opts: {
         ch.unbind("client-snapshot", onSnap);
         ch.unbind_all();
       } catch {}
+
       try {
         pusher.unsubscribe(chanName);
       } catch {}
       try {
         pusher.disconnect();
       } catch {}
+
       chanRef.current = null;
     };
   }, [orgId, sessionId, onRrweb, onSnapshot]);
