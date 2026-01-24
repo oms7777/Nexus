@@ -1,106 +1,50 @@
-// apps/embed/embed.ts
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
 
-const NUDGE_ENABLED = true;
-
-// ---------------- Types ----------------
-type ThemePayload = {
-  primaryColor?: string;
-  primaryTextColor?: string;
-  secondaryColor?: string;
-  secondaryTextColor?: string;
-  nudgeBackgroundColor?: string;
-  chatBubbleColor?: string;
-};
-
-type SimpleCta = {
-  kind: "open_chat" | "open_booking" | "open_url";
-  label: string;
-  url?: string;
-};
-
-type PromoPayload = {
-  title?: string;
-  body?: string;
-  primary?: string;
-  secondary?: string;
-  primaryCta?: SimpleCta;
-  secondaryCta?: SimpleCta;
-  avatars?: string[];
-  badgeText?: string;
-  privacyUrl?: string;
-  theme?: ThemePayload;
-  brandLogoUrl?: string;
-  identityMode?: "auto" | "logo" | "avatars";
-  ctaList?: SimpleCta[];
-  canUseVoice?: boolean;
-};
-
-type SuggestionsPayload = {
-  greetMessage?: string;
-  suggestions: string[];
-  privacyUrl?: string;
-  theme?: ThemePayload;
-  brandLogoUrl?: string;
-  canUseVoice?: boolean;
-};
+const NUDGE_ENABLED = true; // 👉 un seul nudge, piloté par SmartPromo
 
 (function () {
-  // Block inside iframes
-  try {
-    if (window.self !== window.top) return;
-  } catch {
-    return;
-  }
-
-  // Singleton lock
-  if ((window as any).__NX_WIDGET_EMBED_LOADED__) return;
-  (window as any).__NX_WIDGET_EMBED_LOADED__ = true;
-
-  // ---------------- DOM ----------------
+  // DOM
   let iframe: HTMLIFrameElement | null = null;
   let container: HTMLDivElement | null = null;
   let button: HTMLButtonElement | null = null;
   let nudge: HTMLDivElement | null = null;
+  let caret: HTMLDivElement | null = null;
 
-  // ---------------- State ----------------
+  // State
   let isOpen = false;
+  let hasPromoPayload = false; // SmartPromo a envoyé une promo
+  let nudgeDismissed = false; // user a fermé le nudge
   let iframeLoaded = false;
   let TARGET_ORIGIN = "";
-  let destroyed = false;
+
+  // Tracking
+  let trackingStarted = false;
+  let trackingSessionId: string | null = null;
 
   // Config from <script>
   let organizationId: string | null = null;
   let position: "bottom-right" | "bottom-left" = EMBED_CONFIG.DEFAULT_POSITION;
 
-  // Theme
-  let theme: ThemePayload | null = null;
-  let brandLogoUrl: string | null = null;
-
-  // nudge state
-  let hasNudgePayload = false;
-  let nudgeDismissed = false;
-
-  // ---------------- Init config ----------------
+  // Read attributes
   const currentScript = document.currentScript as HTMLScriptElement | null;
-
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
     position =
-      (currentScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
-      EMBED_CONFIG.DEFAULT_POSITION;
+      (currentScript.getAttribute("data-position") as
+        | "bottom-right"
+        | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
   } else {
     const scripts = document.querySelectorAll('script[src*="widget"]');
     const embedScript = Array.from(scripts).find((s) =>
-      s.hasAttribute("data-organization-id"),
+      s.hasAttribute("data-organization-id")
     ) as HTMLScriptElement | undefined;
-
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
       position =
-        (embedScript.getAttribute("data-position") as "bottom-right" | "bottom-left") ??
-        EMBED_CONFIG.DEFAULT_POSITION;
+        (embedScript.getAttribute("data-position") as
+          | "bottom-right"
+          | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
     }
   }
 
@@ -108,6 +52,8 @@ type SuggestionsPayload = {
     console.error("Nexus Widget: data-organization-id attribute is required");
     return;
   }
+
+  /* ---------------- Init ---------------- */
 
   function init() {
     if (document.readyState === "loading") {
@@ -117,37 +63,36 @@ type SuggestionsPayload = {
     }
   }
 
-  // ---------------- Render ----------------
   function render() {
     // FAB
     button = document.createElement("button");
     button.id = "nexus-widget-button";
     button.innerHTML = chatBubbleIcon;
-
-    const side = position === "bottom-right" ? "right: 20px;" : "left: 20px;";
-
     button.style.cssText = `
-      all: unset;
       position: fixed;
-      ${side}
+      ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
       bottom: 20px;
-      width: 60px; height: 60px;
-      border-radius: 9999px;
-      background: ${theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6"};
-      color: ${theme?.primaryTextColor || "#ffffff"};
-      cursor: pointer;
+      width: 60px; height: 60px; border-radius: 50%;
+      background: #3b82f6; color: white; border: none; cursor: pointer;
       z-index: 2147483000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 24px rgba(0,0,0,.20);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 24px rgba(59,130,246,.35); transition: transform .2s ease;
     `;
-
     button.addEventListener("click", () => {
-      if (isOpen) hide();
-      else openChat();
+      if (isOpen) {
+        hide();
+        return;
+      }
+      openChat();
     });
-
+    button.addEventListener(
+      "mouseenter",
+      () => (button!.style.transform = "scale(1.05)")
+    );
+    button.addEventListener(
+      "mouseleave",
+      () => (button!.style.transform = "scale(1)")
+    );
     document.body.appendChild(button);
 
     // Container
@@ -155,44 +100,42 @@ type SuggestionsPayload = {
     container.id = "nexus-widget-container";
     container.style.cssText = `
       position: fixed;
-      ${side}
+      ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
       bottom: 90px;
-      width: 400px;
-      height: 600px;
-      max-width: calc(100vw - 40px);
-      max-height: calc(100vh - 110px);
+      width: 400px; height: 600px;
+      max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
       z-index: 2147482999;
-      border-radius: 16px;
-      overflow: hidden;
+      border-radius: 16px; overflow: hidden;
       box-shadow: 0 4px 24px rgba(0,0,0,.15);
-      display: none;
-      background: #fff;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
+      display: none; opacity: 0; transform: translateY(10px);
+      transition: all .3s ease; background: #fff;
     `;
 
+    // Iframe
     iframe = document.createElement("iframe");
     iframe.src = buildWidgetUrl();
     iframe.allow = "microphone; clipboard-read; clipboard-write";
     iframe.style.cssText = `width:100%;height:100%;border:none;`;
-
     iframe.onload = () => {
       iframeLoaded = true;
       TARGET_ORIGIN = new URL(iframe!.src).origin;
-
-      // just a handshake, no URL sync, no extra loops
       postToWidget({ type: "nexus:embed-ready" });
-
-      applyThemeToFab();
+      sendParentLocation();
     };
 
     container.appendChild(iframe);
     document.body.appendChild(container);
 
+    // Messaging
     window.addEventListener("message", handleMessage);
+    patchHistoryForSpa();
+    window.addEventListener("popstate", sendParentLocation);
 
-    // Stability on bfcache / refresh
-    window.addEventListener("pagehide", destroy, { once: true });
-    window.addEventListener("beforeunload", destroy, { once: true });
+    // Nudge positioning
+    window.addEventListener("resize", placeNudge);
+    window.addEventListener("scroll", placeNudge, { passive: true });
+
+    // ❌ plus de fallback nudge ici : tout vient de SmartPromo
   }
 
   function buildWidgetUrl(): string {
@@ -201,12 +144,12 @@ type SuggestionsPayload = {
     return `${EMBED_CONFIG.WIDGET_URL}?${params.toString()}`;
   }
 
-  // ---------------- Messaging ----------------
-  function handleMessage(event: MessageEvent) {
-    const { type, payload } = event.data || {};
+  /* ---------------- Messaging ---------------- */
 
-    // Security: accept only widget origin after iframe loaded
-    if (iframeLoaded && TARGET_ORIGIN && event.origin !== TARGET_ORIGIN) return;
+  function handleMessage(event: MessageEvent) {
+    if (!iframeLoaded || !TARGET_ORIGIN || event.origin !== TARGET_ORIGIN)
+      return;
+    const { type, payload } = event.data || {};
 
     switch (type) {
       case "close":
@@ -214,42 +157,39 @@ type SuggestionsPayload = {
         break;
 
       case "resize":
-        if (payload?.height && container) {
+        if (payload?.height && container)
           container.style.height = `${payload.height}px`;
-        }
         break;
-
-      case "nexus:theme": {
-        const p = payload as { theme?: ThemePayload; brandLogoUrl?: string };
-        theme = p?.theme || null;
-        brandLogoUrl = p?.brandLogoUrl || null;
-        applyThemeToFab();
-        break;
-      }
-
-      case "nexus:suggestions": {
-        if (!NUDGE_ENABLED) return;
-        const sp = payload as SuggestionsPayload;
-
-        hasNudgePayload = true;
-        theme = sp.theme || theme || null;
-        brandLogoUrl = sp.brandLogoUrl || brandLogoUrl || null;
-
-        applyThemeToFab();
-        renderSuggestionsNudge(sp);
-        break;
-      }
 
       case "nexus:promo": {
+        // L’iframe envoie la promo personnalisée (SmartPromo)
+        iframe?.contentWindow?.postMessage(
+          { type: "nexus:host-ack" },
+          TARGET_ORIGIN
+        );
+        iframe?.contentWindow?.postMessage(
+          { type: "nexus:hide-internal-promo" },
+          TARGET_ORIGIN
+        );
+
         if (!NUDGE_ENABLED) return;
-        const promo = payload as PromoPayload;
 
-        hasNudgePayload = true;
-        theme = promo.theme || theme || null;
-        brandLogoUrl = promo.brandLogoUrl || brandLogoUrl || null;
+        hasPromoPayload = true;
+        // payload vient de SmartPromo: titres, boutons, avatars, privacyUrl, etc.
+        renderNudge(payload);
+        break;
+      }
 
-        applyThemeToFab();
-        renderPromoNudge(promo);
+      case "nexus:session-ready": {
+        if (!organizationId) return;
+        if (!payload || typeof payload.sessionId !== "string") return;
+        if (trackingStarted) return;
+
+        trackingStarted = true;
+        trackingSessionId = payload.sessionId;
+
+
+
         break;
       }
 
@@ -259,363 +199,316 @@ type SuggestionsPayload = {
   }
 
   function postToWidget(msg: any) {
-    if (!iframeLoaded || !iframe?.contentWindow) return;
-    iframe.contentWindow.postMessage(msg, TARGET_ORIGIN || "*");
+    if (!iframeLoaded || !iframe?.contentWindow || !TARGET_ORIGIN) return;
+    iframe.contentWindow.postMessage(msg, TARGET_ORIGIN);
   }
 
-  // ---------------- FAB theme ----------------
-  function applyThemeToFab() {
-    if (!button) return;
-
-    const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
-    const textColor = theme?.primaryTextColor || "#ffffff";
-
-    button.style.background = bubbleColor;
-    button.style.color = textColor;
-
-    if (isOpen) {
-      button.innerHTML = closeIcon;
-      return;
-    }
-
-    if (brandLogoUrl) {
-      const safeLogo = escapeAttr(brandLogoUrl);
-      button.innerHTML = `
-        <div style="
-          width:70%;height:70%;
-          border-radius:9999px;
-          overflow:hidden;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          background:rgba(255,255,255,0.9);
-        ">
-          <img src="${safeLogo}" alt="Chat"
-            style="width:100%;height:100%;object-fit:contain;" />
-        </div>
-      `;
-    } else {
-      button.innerHTML = chatBubbleIcon;
-    }
+  function sendParentLocation() {
+    postToWidget({ type: "nexus:parent-location", href: location.href });
   }
 
-  // ---------------- Nudge (minimal, no caret, no scroll/resize logic) ----------------
-  function renderSuggestionsNudge(payload: SuggestionsPayload) {
-    if (!button || !NUDGE_ENABLED) return;
-    if (nudgeDismissed) return;
-
-    const palette: ThemePayload = payload.theme || theme || {};
-    const primaryColor = palette.primaryColor || "#0ea5e9";
-    const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
-
-    ensureNudgeShell(nudgeBg);
-
-    const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions.slice(0, 3) : [];
-    const chips = suggestions
-      .map(
-        (s) => `
-          <button data-kind="open_chat"
-            style="
-              all: unset;
-              display:inline-flex;
-              align-items:center;
-              justify-content:center;
-              padding:8px 10px;
-              border-radius:9999px;
-              border:1px solid ${primaryColor}59;
-              cursor:pointer;
-              font-weight:600;
-              font-size:12px;
-              line-height:1;
-              color:${primaryColor};
-              background:${primaryColor}14;
-              white-space:nowrap;
-              max-width:100%;
-              overflow:hidden;
-              text-overflow:ellipsis;
-            ">
-            ${escapeHtml(s)}
-          </button>
-        `,
-      )
-      .join("");
-
-    nudge!.innerHTML = `
-      <div style="display:flex;gap:10px;align-items:flex-start">
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:800;font-size:14px;color:#111827;">
-            ${escapeHtml("Quick questions")}
-          </div>
-          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
-            ${chips}
-          </div>
-          ${
-            payload.privacyUrl
-              ? `<div style="margin-top:10px">
-                  <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
-                    style="color:#6b7280;font-size:11px;text-decoration:underline">
-                    View our privacy policy.
-                  </a>
-                </div>`
-              : ""
-          }
-        </div>
-        <button data-kind="close" title="Close"
-          style="all:unset;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
-                 color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;">×</button>
-      </div>
-    `;
-
-    bindNudgeClicks();
-    showNudgeIfAllowed();
-  }
-
-  function renderPromoNudge(payload: PromoPayload) {
-    if (!button || !NUDGE_ENABLED) return;
-    if (nudgeDismissed) return;
-
-    const palette: ThemePayload = payload.theme || theme || {};
-    const primaryColor = palette.primaryColor || "#0ea5e9";
-    const primaryTextColor = palette.primaryTextColor || "#ffffff";
-    const secondaryColor = palette.secondaryColor || "#ffffff";
-    const secondaryTextColor = palette.secondaryTextColor || "#111827";
-    const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
-
-    ensureNudgeShell(nudgeBg);
-
-    const title = payload.title || "Discover the right solution for your business project.";
-    const body = payload.body || "Chat with our assistant or book a 15-min demo.";
-
-    // minimalist: 2 CTAs only (primary + secondary) OR list first 2
-    const list = Array.isArray(payload.ctaList) ? payload.ctaList : [];
-    const ctas: SimpleCta[] =
-      list.length > 0
-        ? list.slice(0, 3)
-        : [
-            payload.primaryCta || { kind: "open_chat", label: payload.primary || "Chat with AI Assistant" },
-            payload.secondaryCta || { kind: "open_booking", label: payload.secondary || "Book a meeting" },
-          ].filter(Boolean) as any;
-
-    const buttonsHtml = ctas
-      .map((cta, idx) => {
-        const isPrimary = idx === 0;
-        const bg = isPrimary ? primaryColor : secondaryColor;
-        const color = isPrimary ? primaryTextColor : secondaryTextColor;
-        const border = isPrimary ? "" : "border:1px solid #e5e7eb;";
-        const label = cta.label?.trim()?.length ? cta.label : defaultLabelForKind(cta.kind);
-        return `
-          <button data-kind="${cta.kind}" data-url="${cta.url ? escapeAttr(cta.url) : ""}"
-            style="
-              all:unset;
-              width:100%;
-              min-height:36px;
-              padding:0 12px;
-              border-radius:8px;
-              background:${bg};
-              color:${color};
-              ${border}
-              cursor:pointer;
-              font-weight:600;
-              font-size:13px;
-              display:inline-flex;
-              align-items:center;
-              justify-content:center;
-              text-align:center;
-              box-sizing:border-box;
-            ">
-            ${escapeHtml(label)}
-          </button>
-        `;
-      })
-      .join("");
-
-    nudge!.innerHTML = `
-      <div style="display:flex;gap:10px;align-items:flex-start">
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:700;font-size:14px;color:#111827;">
-            ${escapeHtml(title)}
-          </div>
-          <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;">
-            ${escapeHtml(body)}
-          </div>
-
-          <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
-            ${buttonsHtml}
-          </div>
-
-          ${
-            payload.privacyUrl
-              ? `<div style="margin-top:10px">
-                  <a href="${escapeAttr(payload.privacyUrl)}" target="_blank" rel="noopener noreferrer"
-                    style="color:#6b7280;font-size:11px;text-decoration:underline">
-                    View our privacy policy.
-                  </a>
-                </div>`
-              : ""
-          }
-        </div>
-
-        <button data-kind="close" title="Close"
-          style="all:unset;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
-                 color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;">×</button>
-      </div>
-    `;
-
-    bindNudgeClicks();
-    showNudgeIfAllowed();
-  }
-
-  function ensureNudgeShell(nudgeBg: string) {
-    if (nudge) return;
-
-    const side = position === "bottom-right" ? "right: 20px;" : "left: 20px;";
-
-    nudge = document.createElement("div");
-    nudge.id = "nexus-nudge";
-    nudge.style.cssText = `
-      all: unset;
-      position: fixed;
-      ${side}
-      bottom: 92px;
-      width: 340px;
-      max-width: min(340px, calc(100vw - 96px));
-      z-index: 2147483001;
-      background: ${nudgeBg};
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      box-shadow: 0 8px 24px rgba(0,0,0,.12);
-      padding: 12px;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
-      font-size: 14px;
-      line-height: 1.4;
-      display: none;
-    `;
-    document.body.appendChild(nudge);
-  }
-
-  function bindNudgeClicks() {
-    if (!nudge) return;
-
-    const buttons = nudge.querySelectorAll<HTMLButtonElement>("button[data-kind]");
-    buttons.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const kind = (btn.getAttribute("data-kind") || "") as SimpleCta["kind"] | "close";
-        if (kind === "close") {
-          nudgeDismissed = true;
-          hideNudge();
-          return;
-        }
-
-        // route actions
-        if (kind === "open_chat") openChat();
-        else if (kind === "open_booking") openBooking();
-        else if (kind === "open_url") {
-          const url = btn.getAttribute("data-url") || "";
-          if (url) window.open(url, "_blank", "noopener,noreferrer");
-        }
-      });
+  function patchHistoryForSpa() {
+    (["pushState", "replaceState"] as const).forEach((fn) => {
+      const orig = (history as any)[fn];
+      (history as any)[fn] = function (...args: any[]) {
+        const ret = orig.apply(this, args);
+        if (iframeLoaded) sendParentLocation();
+        return ret;
+      };
     });
   }
 
-  function showNudgeIfAllowed() {
-    if (!nudge) return;
-    if (!hasNudgePayload) return;
-    if (nudgeDismissed) return;
-    if (isOpen) return;
+  /* ---------------- Nudge ---------------- */
 
-    nudge.style.display = "block";
+  function renderNudge(payload: {
+    title?: string;
+    body?: string;
+    primary?: string;
+    secondary?: string;
+    primaryCta?: {
+      kind: "open_chat" | "open_booking" | "open_url";
+      label: string;
+      url?: string;
+    };
+    secondaryCta?: {
+      kind: "open_chat" | "open_booking" | "open_url";
+      label: string;
+      url?: string;
+    };
+    avatars?: string[];
+    privacyUrl?: string;
+    badgeText?: string;
+  }) {
+    if (!NUDGE_ENABLED) return;
+
+    if (!nudge) {
+      nudge = document.createElement("div");
+      nudge.id = "nexus-nudge";
+      nudge.style.cssText = `
+        position: fixed;
+        width: 340px; max-width: min(340px, calc(100vw - 96px));
+        z-index: 2147483001;
+        background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.12);
+        padding: 12px;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
+        opacity: 0; transform: translateY(6px);
+        transition: opacity .18s ease, transform .18s ease;
+        pointer-events: auto;
+      `;
+      document.body.appendChild(nudge);
+
+      caret = document.createElement("div");
+      caret.style.cssText = `
+        position: fixed;
+        width: 12px; height: 12px;
+        background: #ffffff;
+        border-left: 1px solid #e5e7eb;
+        border-top: 1px solid #e5e7eb;
+        transform: rotate(45deg);
+        z-index: 2147483002;
+        box-shadow: 0 2px 8px rgba(0,0,0,.08);
+        opacity: 0; transition: opacity .18s ease;
+      `;
+      document.body.appendChild(caret);
+    }
+
+    const avatars = Array.isArray(payload.avatars)
+      ? payload.avatars.slice(0, 3)
+      : [];
+    const avatarHtml = avatars
+      .map(
+        (src, i) => `
+      <img src="${escapeAttr(src)}" alt="avatar ${i + 1}"
+        style="
+          width:26px;height:26px;border-radius:9999px;object-fit:cover;
+          border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12);
+          position: relative; ${
+            i ? `margin-left:-10px; z-index:${10 - i};` : "z-index:10;"
+          }
+        " />`
+      )
+      .join("");
+
+    const badgeHtml = payload.badgeText
+      ? `<span style="
+           position:absolute; left:12px; top:10px;
+           background:#10b981; color:#fff; font-size:11px; line-height:1;
+           padding:4px 6px; border-radius:6px; font-weight:600;">
+           ${escapeHtml(payload.badgeText)}
+         </span>`
+      : "";
+
+    nudge.innerHTML = `
+      <div style="position:relative">
+        ${badgeHtml}
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <div style="display:flex;align-items:center;min-width:56px;padding-top:2px">${avatarHtml}</div>
+          <div style="flex:1">
+            <div style="font-weight:700">${escapeHtml(
+              payload.title ||
+                "Discover the right solution for your business project."
+            )}</div>
+            <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4">${escapeHtml(
+              payload.body ||
+                "Chat with our assistant or book a 15-min demo."
+            )}</div>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button id="nexus-primary"
+                style="flex:1;height:36px;border:none;border-radius:8px;background:#0ea5e9;color:#fff;cursor:pointer;font-weight:600">
+                ${escapeHtml(payload.primary || "Chat with AI Assistant")}
+              </button>
+              ${
+                payload.secondary !== undefined
+                  ? `<button id="nexus-secondary"
+                      style="flex:1;height:36px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#111827;cursor:pointer;font-weight:600">
+                      ${escapeHtml(payload.secondary || "Book a meeting")}
+                    </button>`
+                  : ""
+              }
+            </div>
+            ${
+              payload.privacyUrl
+                ? `<div style="margin-top:10px">
+                    <a href="${escapeAttr(
+                      payload.privacyUrl
+                    )}" target="_blank" rel="noopener noreferrer"
+                      style="color:#6b7280;font-size:11px;text-decoration:underline">
+                      This chat may be recorded. View our privacy policy.
+                    </a>
+                  </div>`
+                : ""
+            }
+          </div>
+          <button id="nexus-close" title="Close"
+            style="border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:18px;line-height:18px">×</button>
+        </div>
+      </div>
+    `;
+
+    const primaryBtn = nudge.querySelector<HTMLButtonElement>("#nexus-primary");
+    const secondaryBtn =
+      nudge.querySelector<HTMLButtonElement>("#nexus-secondary");
+    const closeBtn = nudge.querySelector<HTMLButtonElement>("#nexus-close");
+
+    primaryBtn?.addEventListener("click", () => openChat());
+    secondaryBtn?.addEventListener("click", () => openBooking());
+    closeBtn?.addEventListener("click", () => {
+      nudgeDismissed = true;
+      removeNudge();
+    });
+
+    placeNudge();
+    if (!isOpen && !nudgeDismissed) {
+      requestAnimationFrame(() => {
+        if (nudge) {
+          nudge.style.opacity = "1";
+          nudge.style.transform = "translateY(0)";
+        }
+        if (caret) caret.style.opacity = "1";
+      });
+    }
   }
 
-  function hideNudge() {
-    if (!nudge) return;
-    nudge.style.display = "none";
+  function placeNudge() {
+    if (!button || !nudge || !caret) return;
+
+    const rect = button.getBoundingClientRect();
+    const gap = 12;
+    const caretSize = 12;
+    const fromBottomToButtonTop = window.innerHeight - rect.top;
+
+    nudge.style.bottom = `${fromBottomToButtonTop + gap}px`;
+    if (position === "bottom-right") {
+      nudge.style.right = "20px";
+      nudge.style.left = "";
+    } else {
+      nudge.style.left = "20px";
+      nudge.style.right = "";
+    }
+
+    const centerX = rect.left + rect.width / 2;
+    caret.style.left = `${centerX - caretSize / 2}px`;
+    caret.style.bottom = `${fromBottomToButtonTop + (gap - caretSize / 2)}px`;
+    caret.style.transform = "rotate(45deg)";
+
+    const r = nudge.getBoundingClientRect();
+    const overflowRight = r.right - window.innerWidth;
+    const overflowLeft = -r.left;
+    if (overflowRight > 0 && position === "bottom-right") {
+      const currRight = parseFloat(getComputedStyle(nudge).right || "20");
+      nudge.style.right = `${Math.max(12, currRight + overflowRight)}px`;
+    } else if (overflowLeft > 0 && position === "bottom-left") {
+      const currLeft = parseFloat(getComputedStyle(nudge).left || "20");
+      nudge.style.left = `${Math.max(12, currLeft + overflowLeft)}px`;
+    }
   }
 
-  function defaultLabelForKind(kind: SimpleCta["kind"]): string {
-    if (kind === "open_chat") return "Chat with AI Assistant";
-    if (kind === "open_booking") return "Book a meeting";
-    return "Open link";
+  function removeNudge() {
+    if (nudge) {
+      nudge.remove();
+      nudge = null;
+    }
+    if (caret) {
+      caret.remove();
+      caret = null;
+    }
   }
 
   function escapeHtml(s: string) {
-    return s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]!));
+    return s.replace(
+      /[&<>"']/g,
+      (m) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[
+          m
+        ]!
+        )
+    );
   }
   function escapeAttr(s: string) {
     return s.replace(/"/g, "&quot;");
   }
 
-  // ---------------- UI actions ----------------
+  /* ---------------- UI actions ---------------- */
+
   function show() {
     if (!container || !button) return;
     isOpen = true;
-
-    hideNudge();
+    if (nudge) nudge.style.display = "none";
+    if (caret) caret.style.display = "none";
 
     container.style.display = "block";
+    setTimeout(() => {
+      if (container) {
+        container.style.opacity = "1";
+        container.style.transform = "translateY(0)";
+      }
+    }, 10);
     button.innerHTML = closeIcon;
-    applyThemeToFab();
+
+    sendParentLocation();
   }
 
   function hide() {
     if (!container || !button) return;
     isOpen = false;
 
-    container.style.display = "none";
+    container.style.opacity = "0";
+    container.style.transform = "translateY(10px)";
+    setTimeout(() => container && (container.style.display = "none"), 300);
     button.innerHTML = chatBubbleIcon;
-    applyThemeToFab();
+    button.style.background = "#3b82f6";
 
-    // restore nudge if available
-    if (!nudgeDismissed && hasNudgePayload) showNudgeIfAllowed();
+    // 👉 ne réaffiche le nudge que s'il vient d'une promo réelle
+    if (!nudgeDismissed && hasPromoPayload && nudge && caret) {
+      nudge.style.display = "block";
+      nudge.style.opacity = "1";
+      nudge.style.transform = "translateY(0)";
+      caret.style.display = "block";
+      caret.style.opacity = "1";
+      placeNudge();
+      postToWidget({ type: "nexus:parent-location", href: location.href });
+    }
   }
 
   function openChat() {
     show();
-    setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 0);
+    setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 50);
   }
-
   function openBooking() {
     show();
-    setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 0);
+    setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 50);
   }
 
-  // ---------------- Lifecycle ----------------
+  /* ---------------- Lifecycle ---------------- */
+
   function destroy() {
-    if (destroyed) return;
-    destroyed = true;
-
-    try {
-      window.removeEventListener("message", handleMessage);
-    } catch {}
-
-    if (nudge) {
-      nudge.remove();
-      nudge = null;
-    }
-
+    window.removeEventListener("message", handleMessage);
+    window.removeEventListener("popstate", sendParentLocation);
+    window.removeEventListener("resize", placeNudge);
+    window.removeEventListener("scroll", placeNudge);
+    removeNudge();
     if (container) {
       container.remove();
       container = null;
       iframe = null;
     }
-
     if (button) {
       button.remove();
       button = null;
     }
-
     isOpen = false;
     iframeLoaded = false;
     TARGET_ORIGIN = "";
-    theme = null;
-    brandLogoUrl = null;
-    hasNudgePayload = false;
-    nudgeDismissed = false;
+    trackingStarted = false;
+    trackingSessionId = null;
   }
 
-  function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left" }) {
+  function reinit(cfg: {
+    organizationId?: string;
+    position?: "bottom-right" | "bottom-left";
+  }) {
     destroy();
-    destroyed = false;
-
     if (cfg.organizationId) organizationId = cfg.organizationId;
     if (cfg.position) position = cfg.position;
     init();
