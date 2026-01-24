@@ -3,7 +3,7 @@
 import { useAtomValue, useSetAtom } from "jotai"
 import { formatDistanceToNow } from "date-fns"
 import { ArrowLeftIcon } from "lucide-react"
-import { contactSessionIdAtomFamily, conversationIdAtom, organizationIdAtom, screenAtom } from "../../atoms/widget-atoms"
+import { contactSessionIdAtom, conversationIdAtom, organizationIdAtom, screenAtom } from "../../atoms/widget-atoms"
 import { ConversationStatusIcon } from "@workspace/ui/components/conversation-status-icon"
 import { WidgetHeader } from "../components/widget-header"
 import { Button } from "@workspace/ui/components/button"
@@ -18,9 +18,7 @@ export const WidgetInboxScreen = () => {
     const setConversationId = useSetAtom(conversationIdAtom)
 
     const organizationId = useAtomValue(organizationIdAtom)
-    const contactSessionId = useAtomValue(
-        contactSessionIdAtomFamily(organizationId || "")
-    );
+    const contactSessionId = useAtomValue(contactSessionIdAtom);
 
     const conversations = usePaginatedQuery(
         api.public.conversations.getMany,

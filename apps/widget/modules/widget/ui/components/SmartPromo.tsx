@@ -8,7 +8,7 @@ import {
   organizationIdAtom,
   screenAtom,
   conversationIdAtom,
-  contactSessionIdAtomFamily,
+  contactSessionIdAtom,
 } from "../../atoms/widget-atoms";
 import {
   bookingIntentAtom,
@@ -48,8 +48,8 @@ export default function SmartPromo() {
   const consentGiven = useAtomValue(consentGivenAtom);
   const currentConvId = useAtomValue(conversationIdAtom);
 
-  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(orgId || ""));
-  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(orgId || ""));
+  const contactSessionId = useAtomValue(contactSessionIdAtom);
+  const setContactSessionId = useSetAtom(contactSessionIdAtom);
 
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
   const createConversation = useMutation(api.public.conversations.create);

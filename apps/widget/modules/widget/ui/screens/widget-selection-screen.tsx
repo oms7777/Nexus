@@ -11,7 +11,7 @@ import { Button } from "@workspace/ui/components/button";
 import { WidgetHeader } from "../components/widget-header";
 
 import {
-  contactSessionIdAtomFamily,
+  contactSessionIdAtom,
   conversationIdAtom,
   errorMessageAtom,
   hasVapiSecretsAtom,
@@ -36,12 +36,8 @@ export const WidgetSelectionScreen = () => {
 
   const consentGiven = useAtomValue(consentGivenAtom);
 
-  const contactSessionId = useAtomValue(
-    organizationId ? contactSessionIdAtomFamily(organizationId) : (null as any),
-  );
-  const setContactSessionId = useSetAtom(
-    organizationId ? contactSessionIdAtomFamily(organizationId) : (null as any),
-  );
+  const contactSessionId = useAtomValue(contactSessionIdAtom);
+  const setContactSessionId = useSetAtom(contactSessionIdAtom);
 
   const existingConversationId = useAtomValue(conversationIdAtom);
 

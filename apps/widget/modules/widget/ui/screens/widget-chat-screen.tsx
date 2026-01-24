@@ -21,7 +21,7 @@ import { useAtomValue, useAtom, useSetAtom } from "jotai";
 
 import {
   conversationIdAtom,
-  contactSessionIdAtomFamily,
+  contactSessionIdAtom,
   organizationIdAtom,
   widgetSettingsAtom,
   screenAtom,
@@ -386,9 +386,7 @@ export const WidgetChatScreen = () => {
     
   const consentCfg = widgetSettings?.consent;
   const organizationId = useAtomValue(organizationIdAtom);
-  const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(organizationId || "")
-  );
+  const contactSessionId = useAtomValue(contactSessionIdAtom);
   const conversationId = useAtomValue(conversationIdAtom);
   const setConversationId = useSetAtom(conversationIdAtom);
   const setScreen = useSetAtom(screenAtom);

@@ -3,7 +3,7 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { LoaderIcon } from "lucide-react";
 import {
-  contactSessionIdAtomFamily,
+  contactSessionIdAtom,
   conversationIdAtom,
   errorMessageAtom,
   loadingMessageAtom,
@@ -54,8 +54,8 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
 
   const setConversationId = useSetAtom(conversationIdAtom);
 
-  const contactSessionId = useAtomValue(contactSessionIdAtomFamily(organizationId || ""));
-  const setContactSessionId = useSetAtom(contactSessionIdAtomFamily(organizationId || ""));
+  const contactSessionId = useAtomValue(contactSessionIdAtom);
+  const setContactSessionId = useSetAtom(contactSessionIdAtom);
 
   const validateOrganization = useAction(api.public.organizations.validate);
 

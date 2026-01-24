@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useSetAtom } from "jotai";
 import { useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
-import { contactSessionIdAtomFamily } from "../atoms/widget-atoms";
+import { contactSessionIdAtom } from "../atoms/widget-atoms";
 
 function getOrCreateVisitorId() {
   const k = "nx_visitor_id";
@@ -17,9 +17,7 @@ function getOrCreateVisitorId() {
 }
 
 export function useEnsureContactSession(organizationId: string | null) {
-  const setContactSessionId = useSetAtom(
-    contactSessionIdAtomFamily(organizationId || "")
-  );
+  const setContactSessionId = useSetAtom(contactSessionIdAtom);
   const ensure = useMutation(api.public.contactSessions.ensure);
   const validate = useMutation(api.public.contactSessions.validate);
 
@@ -27,7 +25,7 @@ export function useEnsureContactSession(organizationId: string | null) {
     if (!organizationId) return;
 
     (async () => {
-      const lsKey = `nx_contact_session_${organizationId}`;
+      const lsKey = "nx_contact_session";
       const visitorId = getOrCreateVisitorId();
 
       let sid: string | null = localStorage.getItem(lsKey);

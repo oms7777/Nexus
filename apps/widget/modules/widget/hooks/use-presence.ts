@@ -4,7 +4,7 @@
 import { useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import {
-  contactSessionIdAtomFamily,
+  contactSessionIdAtom,
   organizationIdAtom,
 } from "../atoms/widget-atoms";
 
@@ -67,9 +67,7 @@ async function postHeartbeat(payload: Record<string, unknown>) {
 
 export function usePresence() {
   const organizationId = useAtomValue(organizationIdAtom);
-  const contactSessionId = useAtomValue(
-    contactSessionIdAtomFamily(organizationId || ""),
-  );
+  const contactSessionId = useAtomValue(contactSessionIdAtom);
 
   // stocke l’URL la plus récente reçue depuis l’embed (SPA-safe)
   const parentUrlRef = useRef<string | undefined>(undefined);
