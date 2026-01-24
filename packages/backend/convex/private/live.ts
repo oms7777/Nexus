@@ -21,7 +21,7 @@ export const getActiveVisitors = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .collect();
 
-    // 1) filter active + has geo
+    // 1) filter actives + has geo
     const active = sessions.filter(
       (s) =>
         (s.expiresAt ?? 0) > now &&
@@ -45,6 +45,7 @@ export const getActiveVisitors = query({
         continue;
       }
 
+      // keep the "most recent heartbeat" (expiresAt bumped)
       if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
@@ -52,20 +53,47 @@ export const getActiveVisitors = query({
 
     const deduped = Array.from(bestByKey.values());
 
-    // 3) build results (source of truth = metadata updated by heartbeat)
-    return deduped.map((s) => {
-      const md: any = s.metadata ?? {};
+    // 3) Override currentUrl/title using latest sessionSnapshots (source of truth)
+    const results: any[] = [];
 
-      const pages = Array.isArray(md.pages) ? md.pages.filter(Boolean) : [];
+    for (const s of deduped) {
+      const md = s.metadata ?? {};
 
-      const currentUrl = (md.currentUrl as string | undefined) || undefined;
-      const title = (md.title as string | undefined) || undefined;
+      // ✅ pages visited (source: metadata.pages)
+      const pages = Array.isArray((md as any).pages)
+        ? ((md as any).pages as string[]).filter(Boolean)
+        : [];
 
-      // lastSeen must be real timestamp (not expiresAt)
-      const lastSeen =
-        (md.lastSeenAt as number | undefined) ?? s._creationTime;
+      // latest snapshot by (sessionId, ts)
+      let snapUrl: string | undefined;
+      let snapTitle: string | undefined;
+      let snapTs: number | undefined;
 
-      return {
+      try {
+        const latestSnap = await ctx.db
+          .query("sessionSnapshots")
+          .withIndex("by_session_ts", (q) => q.eq("sessionId", s._id))
+          .order("desc")
+          .first();
+
+        if (latestSnap) {
+          snapUrl = latestSnap.pageUrl ?? undefined;
+          snapTitle = latestSnap.title ?? undefined;
+          snapTs = latestSnap.ts ?? undefined;
+        }
+      } catch {
+        // if index not deployed yet, ignore
+      }
+
+      const currentUrl =
+        snapUrl || (md.currentUrl as string | undefined) || undefined;
+
+      const title = snapTitle || (md.title as string | undefined) || undefined;
+
+      // lastSeen should be a real timestamp, not expiresAt (future)
+      const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
+
+      results.push({
         _id: s._id,
         name: s.name,
         email: s.email,
@@ -82,6 +110,7 @@ export const getActiveVisitors = query({
         cookieEnabled: md.cookieEnabled as boolean | undefined,
         timezoneOffset: md.timezoneOffset as number | undefined,
 
+        // ✅ pages visited returned to UI
         pages,
         pageCount: pages.length,
 
@@ -91,7 +120,9 @@ export const getActiveVisitors = query({
         conversationId: (s as any).conversationId ?? null,
 
         lastSeen,
-      };
-    });
+      });
+    }
+
+    return results;
   },
 });

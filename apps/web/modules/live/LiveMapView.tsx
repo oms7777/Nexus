@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
+import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view"
 import type { Id } from "@workspace/backend/_generated/dataModel";
 
 function matches(v: Visitor, q: string) {
@@ -133,7 +134,12 @@ export default function LiveMapView() {
               {selected?.countryCode ? `, ${selected.countryCode}` : ""}
             </div>
           </div>
-
+          {/* ✅ Snapshot view (clickable) */}
+          <LiveVisitorView
+            orgId={orgId}
+            sessionId={String(selectedSessionId)}
+            clickUrl={selected?.currentUrl || undefined}
+          />
           {/* ✅ Current page (simple link, no thumbnail) */}
           {selected?.currentUrl ? (
             <a

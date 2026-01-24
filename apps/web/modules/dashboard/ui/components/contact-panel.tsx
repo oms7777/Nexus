@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 import { SnapshotsStrip } from "./SnapshotsStrip";
+import { LiveVisitorView } from "./live-visitor-view";
 
 type InfoItem = {
   label: string;
@@ -449,8 +450,14 @@ export const ContactPanel = () => {
             )}
           </div>
 
-          {/* snapshots (tu peux garder pour plus tard / V1+) */}
+          
           <div className="mt-4">
+            <LiveVisitorView
+            orgId={contactSession.organizationId}
+            sessionId={String(contactSession._id)}
+            clickUrl={contactSession.metadata?.currentUrl ?? undefined}
+            height={360}
+            />
             <SnapshotsStrip sessionId={contactSession._id} limit={8} />
           </div>
         </div>

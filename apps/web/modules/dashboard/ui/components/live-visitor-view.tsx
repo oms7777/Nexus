@@ -1,12 +1,12 @@
 "use client";
 
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
-import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
 import type { eventWithTime } from "rrweb/typings/types";
 import { Replayer } from "rrweb";
+import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 
 type Cursor = { x: number; y: number };
 
@@ -47,10 +47,12 @@ export function LiveVisitorView({
   orgId,
   sessionId,
   clickUrl,
+  height = 360,
 }: {
   orgId: string;
   sessionId: string;
   clickUrl?: string;
+  height?: number;
 }) {
   const outerRef = useRef<HTMLDivElement | null>(null);
 
@@ -387,7 +389,7 @@ export function LiveVisitorView({
   return (
     <div
       className="relative rounded-xl border overflow-hidden bg-black/5"
-      style={{ height: 360 }}
+      style={{ height }}
     >
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
