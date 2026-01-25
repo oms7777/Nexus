@@ -1,5 +1,18 @@
+// packages/backend/convex/private/live.ts
 import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
+
+const ACTIVE_WINDOW_MS = 90_000; // ✅ disparaît vite si offline (90s)
+
+function getLastSeenMs(s: any) {
+  const md = s.metadata ?? {};
+  const mdSeen =
+    typeof md.lastSeenAt === "number" ? md.lastSeenAt :
+    typeof s.lastSeenAt === "number" ? s.lastSeenAt :
+    typeof s._creationTime === "number" ? s._creationTime :
+    0;
+  return mdSeen;
+}
 
 export const getActiveVisitors = query({
   args: {},
@@ -21,15 +34,16 @@ export const getActiveVisitors = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .collect();
 
-    // 1) filter actives + has geo
-    const active = sessions.filter(
-      (s) =>
-        (s.expiresAt ?? 0) > now &&
-        typeof s.metadata?.lat === "number" &&
-        typeof s.metadata?.lng === "number",
-    );
+    // ✅ Active = lastSeenAt within window + has geo
+    const active = sessions.filter((s) => {
+      const md = s.metadata ?? {};
+      const seen = getLastSeenMs(s);
+      const isRecent = seen > now - ACTIVE_WINDOW_MS;
+      const hasGeo = typeof md.lat === "number" && typeof md.lng === "number";
+      return isRecent && hasGeo;
+    });
 
-    // 2) dedup by stable visitor key (keep the most "alive" session)
+    // ✅ dedup by stable visitor key (keep most recently seen)
     const bestByKey = new Map<string, (typeof active)[number]>();
 
     for (const s of active) {
@@ -45,26 +59,24 @@ export const getActiveVisitors = query({
         continue;
       }
 
-      // keep the "most recent heartbeat" (expiresAt bumped)
-      if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
-        bestByKey.set(key, s);
-      }
+      const prevSeen = getLastSeenMs(prev);
+      const curSeen = getLastSeenMs(s);
+
+      if (curSeen > prevSeen) bestByKey.set(key, s);
     }
 
     const deduped = Array.from(bestByKey.values());
 
-    // 3) Override currentUrl/title using latest sessionSnapshots (source of truth)
+    // Override currentUrl/title using latest sessionSnapshots (source of truth)
     const results: any[] = [];
 
     for (const s of deduped) {
       const md = s.metadata ?? {};
 
-      // ✅ pages visited (source: metadata.pages)
       const pages = Array.isArray((md as any).pages)
         ? ((md as any).pages as string[]).filter(Boolean)
         : [];
 
-      // latest snapshot by (sessionId, ts)
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
@@ -82,16 +94,13 @@ export const getActiveVisitors = query({
           snapTs = latestSnap.ts ?? undefined;
         }
       } catch {
-        // if index not deployed yet, ignore
+        // ignore
       }
 
-      const currentUrl =
-        snapUrl || (md.currentUrl as string | undefined) || undefined;
-
+      const currentUrl = snapUrl || (md.currentUrl as string | undefined) || undefined;
       const title = snapTitle || (md.title as string | undefined) || undefined;
 
-      // lastSeen should be a real timestamp, not expiresAt (future)
-      const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
+      const lastSeen = Math.max(getLastSeenMs(s), snapTs ?? 0);
 
       results.push({
         _id: s._id,
@@ -110,7 +119,6 @@ export const getActiveVisitors = query({
         cookieEnabled: md.cookieEnabled as boolean | undefined,
         timezoneOffset: md.timezoneOffset as number | undefined,
 
-        // ✅ pages visited returned to UI
         pages,
         pageCount: pages.length,
 

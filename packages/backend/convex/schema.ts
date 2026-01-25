@@ -205,6 +205,7 @@ export default defineSchema({
     visitorId: v.optional(v.string()),
 
     expiresAt: v.number(),
+    lastSeenAt: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
     identifiedAt: v.optional(v.number()),
     metadata: v.optional(

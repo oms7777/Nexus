@@ -1,3 +1,4 @@
+// apps/embed/visitor-tracker.ts
 import { record } from "rrweb";
 import type { eventWithTime, listenerHandler } from "rrweb/typings/types";
 import Pusher, { type Channel } from "pusher-js";
@@ -14,42 +15,33 @@ const PUSHER_KEY = "913d0c824be3b5eb38bc";
 const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 
-// ✅ Snapshot meta endpoint (your route.ts)
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
-
-// ✅ NEW: endpoint to persist visited pages + currentUrl/title/lastSeenAt
-// You will create this route in your app (I tell you below).
 const VISIT_URL = "https://app.inboundless.co/api/tracker/visit";
 
-// Pusher client events payload limit ~10KB
 const MAX_PAYLOAD_BYTES = 9_000;
 
-// batching
 const BATCH_INTERVAL_MS = 250;
 const MAX_BATCH_EVENTS = 25;
 
-// snapshot persist debounce
 const SNAPSHOT_DEBOUNCE_MS = 350;
 
-// URL-change -> restart recorder (reliable full snapshot)
 const URL_CHANGE_DEBOUNCE_MS = 250;
 const MIN_RESTART_INTERVAL_MS = 3000;
 
-// activity / idle control
 const IDLE_PAUSE_MS = 60_000;
 
-// safety limits
-const MAX_SESSION_MS = 12 * 60 * 1000; // 12 minutes max rrweb running when enabled
+const MAX_SESSION_MS = 12 * 60 * 1000;
 const MAX_TOTAL_EVENTS = 25_000;
 
-// perf watchdog (stop rrweb if host is too slow)
 const WATCHDOG_INTERVAL_MS = 30_000;
 const MAX_LONGTASKS_PER_WINDOW = 8;
 
-// ✅ NEW: visited pages controls
 const PAGES_MAX = 20;
 const VISIT_DEBOUNCE_MS = 500;
 const MIN_VISIT_INTERVAL_MS = 800;
+
+// ✅ NEW: presence heartbeat interval
+const PRESENCE_HEARTBEAT_MS = 15_000;
 
 // =======================
 // State
@@ -58,7 +50,6 @@ let started = false;
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 
-// rrweb
 let stopRecording: (() => void) | null = null;
 let recordStopFn: listenerHandler | undefined;
 
@@ -66,49 +57,42 @@ let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 let lastMeta: eventWithTime | null = null;
 
-// rrweb “watching” mode
 let rrwebWatching = false;
 
-// cursor
 let onMoveRef: ((e: MouseEvent) => void) | null = null;
 let rafCursor = 0;
 let lastCursor: { x: number; y: number } | null = null;
 
-// incremental batching
 let batch: eventWithTime[] = [];
 let batchTimer: ReturnType<typeof setTimeout> | null = null;
 
-// snapshot persist debounce + abort
 let snapshotDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let snapshotAbort: AbortController | null = null;
 
-// URL-change hook
 let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
 let urlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastRestartAt = 0;
 
-// perf watchdog
 let longTaskObserver: PerformanceObserver | null = null;
 let longTaskCount = 0;
 let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
-// session stop timer
 let sessionStopTimer: ReturnType<typeof setInterval> | null = null;
 
-// activity
 let lastActivityAt = Date.now();
 let totalEvents = 0;
 
-// unload handlers (we REMOVE them on destroy)
 let onBeforeUnload: (() => void) | null = null;
 let onPageHide: (() => void) | null = null;
 
-// ✅ NEW: pages tracking
 let pages: string[] = [];
 let visitDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastVisitPersistAt = 0;
 let visitAbort: AbortController | null = null;
+
+// ✅ NEW: heartbeat timer
+let presenceTimer: ReturnType<typeof setInterval> | null = null;
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
@@ -126,13 +110,8 @@ function shouldPauseHeavy() {
   return now() - lastActivityAt > IDLE_PAUSE_MS;
 }
 
-// =======================
-// Helpers: URL normalization / dedup
-// =======================
 function normalizeUrl(u: string) {
   try {
-    // keep query params (utm etc) because you want them in filtering
-    // but normalize hash (often noisy)
     const url = new URL(u);
     url.hash = "";
     return url.toString();
@@ -145,7 +124,6 @@ function pushPage(url: string) {
   const clean = normalizeUrl(url);
   if (!clean) return;
 
-  // move-to-end if already exists
   const idx = pages.indexOf(clean);
   if (idx >= 0) pages.splice(idx, 1);
 
@@ -156,16 +134,12 @@ function pushPage(url: string) {
   }
 }
 
-// =======================
-// Networking: Pusher (rrweb)
-// =======================
 function flushBatchNow() {
   if (!channelRef || !snapshotSent) return;
   if (!batch.length) return;
 
   const payload = { events: batch.splice(0, batch.length) };
   const json = JSON.stringify(payload);
-
   if (safeBytes(json) > MAX_PAYLOAD_BYTES) return;
 
   try {
@@ -181,9 +155,6 @@ function scheduleFlush() {
   }, BATCH_INTERVAL_MS);
 }
 
-// =======================
-// ✅ Networking: persist snapshot meta (your /api/tracker/snapshot)
-// =======================
 function persistSnapshotMetaDebounced(opts: {
   orgId: string;
   sessionId: string;
@@ -202,7 +173,6 @@ function persistSnapshotMetaDebounced(opts: {
     } catch {}
     snapshotAbort = new AbortController();
 
-    // POST first, fallback GET pixel
     try {
       await fetch(SNAPSHOT_URL, {
         method: "POST",
@@ -226,20 +196,13 @@ function persistSnapshotMetaDebounced(opts: {
         if (opts.title) u.searchParams.set("title", opts.title);
         if (typeof opts.width === "number") u.searchParams.set("width", String(opts.width));
         if (typeof opts.height === "number") u.searchParams.set("height", String(opts.height));
-
         const img = new Image();
         img.src = u.toString();
-      } catch {
-        // silent
-      }
+      } catch {}
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 }
 
-// =======================
-// ✅ Networking: persist visited pages + currentUrl/title/lastSeenAt
-// This requires creating /api/tracker/visit route (below I explain).
-// =======================
 function persistVisitToDbDebounced(opts: {
   orgId: string;
   sessionId: string;
@@ -282,9 +245,6 @@ function persistVisitToDbDebounced(opts: {
   }, VISIT_DEBOUNCE_MS);
 }
 
-// =======================
-// Recorder lifecycle
-// =======================
 function resetRecorderStateForNewPage() {
   snapshotSent = false;
   snapshotBuffer = [];
@@ -306,12 +266,10 @@ function stopRrwebOnly() {
   stopRecording = null;
   recordStopFn = undefined;
 
-  // drop buffered work
   resetRecorderStateForNewPage();
 }
 
 function startRrwebRecorder(orgId: string, sessionId: string) {
-  // stop previous rrweb only (keep pusher/channel)
   stopRrwebOnly();
 
   totalEvents = 0;
@@ -357,7 +315,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       if (!snapshotSent) snapshotBuffer.push(event);
 
-      // ✅ Keep your live replay behavior unchanged (Pusher)
       if (isFullSnapshot) {
         if (!snapshotSent) {
           snapshotSent = true;
@@ -368,12 +325,10 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
           const hasMeta = snap.some((e: any) => e?.type === 4);
           const payloadEvents = !hasMeta && lastMeta ? [lastMeta, ...snap] : snap;
 
-          // send to viewers immediately
           try {
             channelRef?.trigger("client-snapshot", { events: payloadEvents });
           } catch {}
 
-          // ✅ Also persist meta snapshot (not rrweb) so Live panel always has URL/title
           persistSnapshotMetaDebounced({
             orgId,
             sessionId,
@@ -392,7 +347,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
           channelRef?.trigger("client-snapshot", { events: payloadEvents });
         } catch {}
 
-        // persist meta snapshot
         persistSnapshotMetaDebounced({
           orgId,
           sessionId,
@@ -422,7 +376,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
   recordStopFn = stop;
   stopRecording = stop ? (() => stop()) : null;
 
-  // best-effort snapshot quickly
   const doSnapshot = () => {
     if (!stopRecording) return;
     try {
@@ -441,7 +394,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
   if (!channelRef) return;
   if (!rrwebWatching) return;
-  if (!stopRecording) return; // rrweb currently off
+  if (!stopRecording) return;
 
   if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
   urlDebounceTimer = setTimeout(() => {
@@ -455,9 +408,6 @@ function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
   }, URL_CHANGE_DEBOUNCE_MS);
 }
 
-// =======================
-// History patch
-// =======================
 function patchHistoryForUrlChanges(onChange: () => void) {
   const origPush = history.pushState;
   const origReplace = history.replaceState;
@@ -487,9 +437,6 @@ function patchHistoryForUrlChanges(onChange: () => void) {
   };
 }
 
-// =======================
-// Cursor
-// =======================
 function setupCursor() {
   if (onMoveRef) {
     try {
@@ -522,9 +469,6 @@ function setupCursor() {
   document.addEventListener("mousemove", onMoveRef, { passive: true });
 }
 
-// =======================
-// Perf watchdog
-// =======================
 function startPerfWatchdog() {
   longTaskCount = 0;
 
@@ -545,7 +489,7 @@ function startPerfWatchdog() {
     if (document.hidden) return;
 
     if (longTaskCount >= MAX_LONGTASKS_PER_WINDOW) {
-      stopRrwebOnly(); // cursor-only fallback
+      stopRrwebOnly();
       rrwebWatching = false;
     }
 
@@ -553,9 +497,6 @@ function startPerfWatchdog() {
   }, WATCHDOG_INTERVAL_MS);
 }
 
-// =======================
-// ✅ Pages / presence tracking
-// =======================
 function persistPresenceNow(orgId: string, sessionId: string) {
   try {
     const href = location.href;
@@ -564,7 +505,7 @@ function persistPresenceNow(orgId: string, sessionId: string) {
 
     pushPage(href);
 
-    // update session metadata (pages/currentUrl/title/lastSeenAt)
+    // ✅ always bump lastSeenAt + pages/currentUrl server-side
     persistVisitToDbDebounced({
       orgId,
       sessionId,
@@ -574,7 +515,7 @@ function persistPresenceNow(orgId: string, sessionId: string) {
       lastSeenAt: ts,
     });
 
-    // store snapshot meta for Live panel (clickable)
+    // snapshot meta for Live panel
     persistSnapshotMetaDebounced({
       orgId,
       sessionId,
@@ -583,31 +524,44 @@ function persistPresenceNow(orgId: string, sessionId: string) {
       width: window.innerWidth,
       height: window.innerHeight,
     });
-  } catch {
-    // silent
-  }
+  } catch {}
 }
 
 function startPresenceHeartbeat(orgId: string, sessionId: string) {
   // fire once immediately
   persistPresenceNow(orgId, sessionId);
 
-  // also refresh on visibility changes
+  // visibility changes
   const onVis = () => {
     if (!document.hidden) persistPresenceNow(orgId, sessionId);
   };
   document.addEventListener("visibilitychange", onVis);
 
+  // ✅ NEW: interval heartbeat (keeps lastSeenAt fresh even without SPA nav)
+  if (presenceTimer) {
+    try {
+      clearInterval(presenceTimer);
+    } catch {}
+  }
+  presenceTimer = setInterval(() => {
+    if (!started) return;
+    if (document.hidden) return;
+    persistPresenceNow(orgId, sessionId);
+  }, PRESENCE_HEARTBEAT_MS);
+
   return () => {
     try {
       document.removeEventListener("visibilitychange", onVis);
     } catch {}
+    if (presenceTimer) {
+      try {
+        clearInterval(presenceTimer);
+      } catch {}
+    }
+    presenceTimer = null;
   };
 }
 
-// =======================
-// Unload handling
-// =======================
 function attachUnloadHandlers() {
   detachUnloadHandlers();
 
@@ -660,9 +614,6 @@ function detachUnloadHandlers() {
   onPageHide = null;
 }
 
-// =======================
-// Full cleanup (embed destroyed / session ends)
-// =======================
 function cleanup() {
   stopRrwebOnly();
 
@@ -737,6 +688,13 @@ function cleanup() {
   }
   sessionStopTimer = null;
 
+  if (presenceTimer) {
+    try {
+      clearInterval(presenceTimer);
+    } catch {}
+  }
+  presenceTimer = null;
+
   detachUnloadHandlers();
 
   try {
@@ -771,14 +729,10 @@ export function destroyVisitorTracking() {
   cleanup();
 }
 
-// =======================
-// Init
-// =======================
 export function initVisitorTracking({ orgId, contactSessionId }: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
-  // never track inside widget iframe
   if (window.self !== window.top) return;
 
   started = true;
@@ -799,7 +753,7 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
-      params: { orgId, sessionId: contactSessionId }, // ✅ AJOUT
+      params: { orgId, sessionId: contactSessionId },
     } as any,
   });
 
@@ -812,17 +766,12 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   let stopPresence: (() => void) | null = null;
 
   channel.bind("pusher:subscription_succeeded", () => {
-    // watchdog
     startPerfWatchdog();
-
-    // cursor always on
     setupCursor();
 
-    // ✅ presence/meta always on
+    // ✅ always-on presence heartbeat
     stopPresence = startPresenceHeartbeat(orgId, contactSessionId);
 
-    // ✅ rrweb NOT started by default anymore
-    // it will start only on server-start-rrweb
     channel.bind("server-start-rrweb", () => {
       if (rrwebWatching) return;
       rrwebWatching = true;
@@ -834,7 +783,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
       stopRrwebOnly();
     });
 
-    // stop rrweb after MAX_SESSION_MS (only when rrweb is ON)
     const startedAt = now();
     sessionStopTimer = setInterval(() => {
       if (!started) return;
@@ -849,7 +797,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
       }
     }, 10_000);
 
-    // SPA URL changes
     unpatchHistory = patchHistoryForUrlChanges(() => {
       const href = location.href;
       if (!href || href === lastHref) return;
@@ -860,7 +807,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
       // ✅ always persist pages + currentUrl/title
       persistPresenceNow(orgId, contactSessionId);
 
-      // rrweb restart only when rrweb is ON
       if (!rrwebWatching) return;
       restartRrwebRecorderDebounced(orgId, contactSessionId);
     });

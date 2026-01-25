@@ -1,7 +1,7 @@
 // apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
-import { useRef, useEffect, useCallback, useMemo, useState } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState, useLayoutEffect } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
@@ -78,7 +78,33 @@ export function LiveVisitorView({
   const MAX_QUEUE = 5_000;
   const MAX_PER_FRAME = 120;
 
-  // ✅ on garde Convex snapshots uniquement comme fallback/“clickUrl”
+  // ✅ observe container size (fix cursor + iframe scale)
+  const [outerSize, setOuterSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  useLayoutEffect(() => {
+    const el = outerRef.current;
+    if (!el) return;
+
+    const update = () => setOuterSize({ w: el.clientWidth, h: el.clientHeight });
+    update();
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(update);
+      ro.observe(el);
+    } else {
+      window.addEventListener("resize", update);
+    }
+
+    return () => {
+      try {
+        ro?.disconnect();
+      } catch {}
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // ✅ Convex snapshot fallback (for clickUrl + v1 iframe)
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
       sessionId: sessionId as unknown as Id<"contactSessions">,
@@ -95,7 +121,6 @@ export function LiveVisitorView({
     }
   }, [latest?.snapshot]);
 
-  // ✅ mode piloté par ce qu’on reçoit en live (rrweb > iframe > empty)
   const [mode, setMode] = useState<"rrweb" | "iframe" | "empty">("empty");
 
   const v1 = useMemo(() => {
@@ -104,7 +129,7 @@ export function LiveVisitorView({
     return null;
   }, [parsed]);
 
-  // fallback: si Convex contient un snapshot rrweb (rare), on peut l’utiliser
+  // If Convex contains rrweb events (rare), allow rrweb
   useEffect(() => {
     if (!parsed) return;
     if (isRrwebEvents(parsed)) setMode("rrweb");
@@ -161,7 +186,8 @@ export function LiveVisitorView({
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    const scale = Math.min(vw / src.width, vh / src.height, 1);
+    // ✅ always fit (no cap at 1), because you want “encadré”
+    const scale = Math.min(vw / src.width, vh / src.height);
 
     const contentW = src.width * scale;
     const contentH = src.height * scale;
@@ -241,30 +267,11 @@ export function LiveVisitorView({
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
   );
 
-  // Resize layout only when rrweb is active
+  // Layout updates when rrweb active and container resizes
   useEffect(() => {
-    const outer = outerRef.current;
-    if (!outer) return;
     if (mode !== "rrweb") return;
-
     applyLayout();
-
-    let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(() => applyLayout());
-      ro.observe(outer);
-    } else {
-      const onResize = () => applyLayout();
-      window.addEventListener("resize", onResize);
-      return () => window.removeEventListener("resize", onResize);
-    }
-
-    return () => {
-      try {
-        ro?.disconnect();
-      } catch {}
-    };
-  }, [applyLayout, mode]);
+  }, [mode, outerSize.w, outerSize.h, applyLayout]);
 
   const processQueue = useCallback(() => {
     if (processingRef.current) return;
@@ -311,7 +318,7 @@ export function LiveVisitorView({
     [processQueue, mode],
   );
 
-  // ✅ dès qu’on reçoit un snapshot live => on passe en rrweb et on boot
+  // when we receive a live snapshot => rrweb mode + boot
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
@@ -328,18 +335,17 @@ export function LiveVisitorView({
     onSnapshot,
   });
 
-  const cursorPx = useMemo(() => {
+  // ✅ cursor position computed from outerSize (always reactive)
+  const cursorPx = (() => {
     if (!cursor) return null;
+    if (!outerSize.w || !outerSize.h) return null;
 
     const cx = clamp01((cursor as Cursor).x);
     const cy = clamp01((cursor as Cursor).y);
 
-    const outer = outerRef.current;
-    if (!outer) return null;
-
-    // si pas rrweb layout, on fait simple
+    // iframe/empty => simple overlay
     if (mode !== "rrweb" || !sourceRef.current) {
-      return { left: cx * outer.clientWidth, top: cy * outer.clientHeight };
+      return { left: cx * outerSize.w, top: cy * outerSize.h };
     }
 
     const src = sourceRef.current;
@@ -348,29 +354,33 @@ export function LiveVisitorView({
       left: ox + cx * src.width * scale,
       top: oy + cy * src.height * scale,
     };
-  }, [cursor, mode]);
+  })();
 
   // ---- iframe preview handling
-  const [iframeBlocked, setIframeBlocked] = useState(false);
-
   const previewUrl =
     clickUrl ||
     v1?.pageUrl ||
     (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined);
 
-  // si pas rrweb, mais on a v1 => iframe
   useEffect(() => {
     if (mode === "rrweb") return;
     if (previewUrl) setMode("iframe");
     else setMode("empty");
   }, [previewUrl, mode]);
 
+  // ✅ “Encadré” preview: render a bigger virtual page, scale it down to fit
+  const VIRTUAL_W = 1280;
+  const VIRTUAL_H = 3000;
+  const iframeScale = outerSize.w && outerSize.h
+    ? Math.min(outerSize.w / VIRTUAL_W, outerSize.h / VIRTUAL_H)
+    : 1;
+
   return (
     <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
       {mode === "iframe" && (
-        <div className="absolute inset-0">
+        <div className="absolute inset-0 bg-white">
           {!previewUrl ? (
             <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
               No preview url
@@ -384,38 +394,33 @@ export function LiveVisitorView({
                 className="absolute inset-0 z-10"
                 title="Open current page"
               />
-              <iframe
-                key={previewUrl}
-                src={previewUrl}
-                className="absolute inset-0 h-full w-full"
+
+              {/* ✅ scale-down wrapper */}
+              <div
+                className="absolute left-0 top-0"
                 style={{
-                  border: "none",
+                  width: `${VIRTUAL_W}px`,
+                  height: `${VIRTUAL_H}px`,
+                  transformOrigin: "top left",
+                  transform: `scale(${iframeScale})`,
                   pointerEvents: "none",
-                  background: "white",
                 }}
-              />
+              >
+                <iframe
+                  key={previewUrl}
+                  src={previewUrl}
+                  style={{
+                    width: `${VIRTUAL_W}px`,
+                    height: `${VIRTUAL_H}px`,
+                    border: "none",
+                    background: "white",
+                  }}
+                />
+              </div>
 
-              {iframeBlocked && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 z-20">
-                  <div className="text-xs text-muted-foreground">
-                    Preview blocked by the website (CSP / X-Frame-Options)
-                  </div>
-                  <a href={previewUrl} target="_blank" rel="noreferrer" className="text-xs underline">
-                    Open page
-                  </a>
-                </div>
-              )}
-
-              {!iframeBlocked && (
-                <button
-                  type="button"
-                  onClick={() => setIframeBlocked(true)}
-                  className="absolute bottom-2 right-2 z-20 rounded bg-black/60 px-2 py-1 text-[10px] text-white"
-                  title="If the preview is blank, enable fallback"
-                >
-                  Preview blank?
-                </button>
-              )}
+              <div className="absolute bottom-2 right-2 z-20 rounded bg-black/60 px-2 py-1 text-[10px] text-white pointer-events-none">
+                Preview zoom-out
+              </div>
             </div>
           )}
         </div>
