@@ -347,63 +347,89 @@ export function LiveVisitorView({
     else setMode("empty");
   }, [previewUrl, mode]);
 
-  // ✅ iframe preview (centered)
-  const VIRTUAL_W = 1280;
+  // ✅ iframe preview: fit WIDTH (big), scroll vertically (full page)
+  const VIRTUAL_W =
+    v1?.width ?? (typeof latest?.width === "number" ? latest.width : undefined) ?? 1280;
   const VIRTUAL_H = 3000;
 
-  const iframeScale =
-    outerSize.w && outerSize.h ? Math.min(outerSize.w / VIRTUAL_W, outerSize.h / VIRTUAL_H) : 1;
-
-  const iframeOx =
-    outerSize.w ? Math.max(0, (outerSize.w - VIRTUAL_W * iframeScale) / 2) : 0;
-
-  const iframeOy =
-    outerSize.h ? Math.max(0, (outerSize.h - VIRTUAL_H * iframeScale) / 2) : 0;
+  const iframeScale = outerSize.w ? Math.min(1, outerSize.w / VIRTUAL_W) : 1;
+  const iframeOx = outerSize.w ? Math.max(0, (outerSize.w - VIRTUAL_W * iframeScale) / 2) : 0;
 
   return (
     <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
       {mode === "iframe" && (
-        <div className="absolute inset-0 bg-white">
+        <div className="absolute inset-0 bg-slate-50">
           {!previewUrl ? (
             <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
               No preview url
             </div>
           ) : (
-            <div className="h-full w-full relative">
-              <a
-                href={previewUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="absolute inset-0 z-10"
-                title="Open current page"
-              />
+            <div className="h-full w-full p-3">
+              <div className="h-full w-full rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                {/* Top bar */}
+                <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 bg-white">
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-yellow-400" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-green-400" />
+                  </div>
 
-              <div
-                className="absolute left-0 top-0"
-                style={{
-                  width: `${VIRTUAL_W}px`,
-                  height: `${VIRTUAL_H}px`,
-                  transformOrigin: "top left",
-                  transform: `translate(${iframeOx}px, ${iframeOy}px) scale(${iframeScale})`,
-                  pointerEvents: "none",
-                }}
-              >
-                <iframe
-                  key={previewUrl}
-                  src={previewUrl}
-                  style={{
-                    width: `${VIRTUAL_W}px`,
-                    height: `${VIRTUAL_H}px`,
-                    border: "none",
-                    background: "white",
-                  }}
-                />
-              </div>
+                  <div className="ml-3 flex-1">
+                    <div className="truncate rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                      {previewUrl}
+                    </div>
+                  </div>
 
-              <div className="absolute bottom-2 right-2 z-20 rounded bg-black/60 px-2 py-1 text-[10px] text-white pointer-events-none">
-                Preview zoom-out
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] hover:bg-slate-50"
+                    title="Open page"
+                  >
+                    Open
+                  </a>
+                </div>
+
+                {/* Scrollable preview */}
+                <div className="relative h-[calc(100%-44px)] overflow-auto bg-white">
+                  <div
+                    className="relative"
+                    style={{
+                      width: `${VIRTUAL_W * iframeScale}px`,
+                      height: `${VIRTUAL_H * iframeScale}px`,
+                      marginLeft: `${iframeOx}px`,
+                    }}
+                  >
+                    <div
+                      className="absolute left-0 top-0"
+                      style={{
+                        width: `${VIRTUAL_W}px`,
+                        height: `${VIRTUAL_H}px`,
+                        transformOrigin: "top left",
+                        transform: `scale(${iframeScale})`,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <iframe
+                        key={previewUrl}
+                        src={previewUrl}
+                        style={{
+                          width: `${VIRTUAL_W}px`,
+                          height: `${VIRTUAL_H}px`,
+                          border: "none",
+                          background: "white",
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="sticky bottom-2 ml-auto mr-2 w-fit rounded bg-black/60 px-2 py-1 text-[10px] text-white">
+                    Scroll to view full page
+                  </div>
+                </div>
               </div>
             </div>
           )}
