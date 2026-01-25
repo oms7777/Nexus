@@ -21,7 +21,7 @@ export const getActiveVisitors = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .collect();
 
-    // 1) filter actives + has geo
+    // 1) actives + has geo
     const active = sessions.filter(
       (s) =>
         (s.expiresAt ?? 0) > now &&
@@ -29,14 +29,22 @@ export const getActiveVisitors = query({
         typeof s.metadata?.lng === "number",
     );
 
-    // 2) dedup by stable visitor key (keep the most "alive" session)
+    // 2) dedup: keep the most "alive" session
     const bestByKey = new Map<string, (typeof active)[number]>();
 
     for (const s of active) {
       const md = s.metadata ?? {};
+
+      const visitorId = (md.visitorId as string | undefined) || undefined;
+      const ext = (s.externalSessionId as string | undefined) || undefined;
+      const ip = (md.ip as string | undefined) || undefined;
+      const ua = (md.userAgent as string | undefined) || undefined;
+
       const key =
-        (md.visitorId as string | undefined) ||
-        (s.externalSessionId as string | undefined) ||
+        visitorId ||
+        ext ||
+        (ip && ua ? `${ip}|${ua}` : undefined) ||
+        (ip ? `ip:${ip}` : undefined) ||
         String(s._id);
 
       const prev = bestByKey.get(key);
@@ -45,7 +53,6 @@ export const getActiveVisitors = query({
         continue;
       }
 
-      // keep the "most recent heartbeat" (expiresAt bumped)
       if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
@@ -53,18 +60,16 @@ export const getActiveVisitors = query({
 
     const deduped = Array.from(bestByKey.values());
 
-    // 3) Override currentUrl/title using latest sessionSnapshots (source of truth)
+    // 3) override currentUrl/title from latest sessionSnapshots
     const results: any[] = [];
 
     for (const s of deduped) {
       const md = s.metadata ?? {};
 
-      // ✅ pages visited (source: metadata.pages)
       const pages = Array.isArray((md as any).pages)
         ? ((md as any).pages as string[]).filter(Boolean)
         : [];
 
-      // latest snapshot by (sessionId, ts)
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
@@ -82,15 +87,12 @@ export const getActiveVisitors = query({
           snapTs = latestSnap.ts ?? undefined;
         }
       } catch {
-        // if index not deployed yet, ignore
+        // index not deployed? ignore
       }
 
-      const currentUrl =
-        snapUrl || (md.currentUrl as string | undefined) || undefined;
-
+      const currentUrl = snapUrl || (md.currentUrl as string | undefined) || undefined;
       const title = snapTitle || (md.title as string | undefined) || undefined;
 
-      // lastSeen should be a real timestamp, not expiresAt (future)
       const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
 
       results.push({
@@ -110,10 +112,8 @@ export const getActiveVisitors = query({
         cookieEnabled: md.cookieEnabled as boolean | undefined,
         timezoneOffset: md.timezoneOffset as number | undefined,
 
-        // ✅ pages visited returned to UI
         pages,
         pageCount: pages.length,
-
         timeOnSiteMs: now - s._creationTime,
 
         contactSessionId: s._id,

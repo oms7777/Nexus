@@ -23,7 +23,7 @@ function isPrivateOrLoopback(ip: string) {
 /** TTL du cache IP (24h) */
 const GEO_TTL_MS = 24 * 60 * 60 * 1000;
 /** Visiteur "actif" pendant 15min après le dernier heartbeat */
-const SESSION_TTL_MS = 15 * 60 * 1000;
+const SESSION_TTL_MS = 90 * 1000;
 
 /** Cache lookup */
 export const getCached = internalQuery({

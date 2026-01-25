@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
-import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view"
+import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
 import type { Id } from "@workspace/backend/_generated/dataModel";
 
 function matches(v: Visitor, q: string) {
@@ -27,14 +27,7 @@ function matches(v: Visitor, q: string) {
     } catch {}
   }
 
-  const haystack = [
-    v.name,
-    v.email,
-    v.city,
-    v.countryCode,
-    v.currentUrl,
-    ...utm,
-  ]
+  const haystack = [v.name, v.email, v.city, v.countryCode, v.currentUrl, ...utm]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -56,6 +49,13 @@ export default function LiveMapView() {
     [visitors, query],
   );
 
+  // ✅ si le visiteur sélectionné n’est plus online (ou filtré), on le reset
+  useEffect(() => {
+    if (!selectedId) return;
+    const stillThere = filtered.some((v) => v._id === selectedId);
+    if (!stillThere) setSelectedId(undefined);
+  }, [filtered, selectedId]);
+
   const selected = useMemo(
     () => filtered.find((v) => v._id === selectedId),
     [filtered, selectedId],
@@ -66,7 +66,6 @@ export default function LiveMapView() {
       ? (selected.contactSessionId as Id<"contactSessions">)
       : null;
 
-  // ✅ pages is returned by query
   const pages: string[] = Array.isArray((selected as any)?.pages)
     ? (((selected as any).pages as string[]) ?? []).filter(Boolean)
     : [];
@@ -86,9 +85,7 @@ export default function LiveMapView() {
           />
         </div>
 
-        <div className="p-2 text-xs text-muted-foreground">
-          {filtered.length} online
-        </div>
+        <div className="p-2 text-xs text-muted-foreground">{filtered.length} online</div>
 
         <div className="flex-1 overflow-auto">
           {filtered.map((v) => (
@@ -98,9 +95,7 @@ export default function LiveMapView() {
               className="w-full text-left px-3 py-3 hover:bg-accent border-b"
               title={v.currentUrl || ""}
             >
-              <div className="font-medium text-sm line-clamp-1">
-                {v.name || "Visitor"}
-              </div>
+              <div className="font-medium text-sm line-clamp-1">{v.name || "Visitor"}</div>
 
               <div className="text-xs text-muted-foreground line-clamp-1">
                 {v.city}
@@ -108,9 +103,7 @@ export default function LiveMapView() {
               </div>
 
               {v.currentUrl && (
-                <div className="text-xs text-muted-foreground line-clamp-1">
-                  {v.currentUrl}
-                </div>
+                <div className="text-xs text-muted-foreground line-clamp-1">{v.currentUrl}</div>
               )}
             </button>
           ))}
@@ -122,36 +115,33 @@ export default function LiveMapView() {
         <LiveMap visitors={filtered as Visitor[]} selectedId={selectedId} />
       </div>
 
-      {/* Right panel (current page + pages visited) */}
+      {/* Right panel */}
       {canShowRightPanel && (
-        <aside className="w-[420px] border-l bg-background p-3 hidden xl:block">
+        <aside className="w-[460px] border-l bg-background p-3 hidden xl:block overflow-auto">
           <div className="mb-2">
-            <div className="text-sm font-medium">
-              {selected?.name || "Visitor"}
-            </div>
+            <div className="text-sm font-medium">{selected?.name || "Visitor"}</div>
             <div className="text-xs text-muted-foreground">
               {selected?.city ?? "—"}
               {selected?.countryCode ? `, ${selected.countryCode}` : ""}
             </div>
           </div>
-          {/* ✅ Snapshot view (clickable) */}
+
           <LiveVisitorView
             orgId={orgId}
             sessionId={String(selectedSessionId)}
             clickUrl={selected?.currentUrl || undefined}
+            height={520}
           />
-          {/* ✅ Current page (simple link, no thumbnail) */}
+
           {selected?.currentUrl ? (
             <a
               href={selected.currentUrl}
               target="_blank"
               rel="noreferrer"
-              className="mb-3 block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
+              className="mt-3 mb-3 block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
               title={selected.currentUrl}
             >
-              <div className="text-[11px] text-muted-foreground mb-1">
-                Current page
-              </div>
+              <div className="text-[11px] text-muted-foreground mb-1">Current page</div>
               <div className="truncate font-medium">{selected.currentUrl}</div>
               {selected?.title ? (
                 <div className="mt-1 truncate text-[11px] text-muted-foreground">
@@ -161,11 +151,8 @@ export default function LiveMapView() {
             </a>
           ) : null}
 
-          {/* ✅ Pages visited */}
           <div className="mt-3">
-            <div className="text-xs font-medium text-muted-foreground mb-2">
-              Pages visited
-            </div>
+            <div className="text-xs font-medium text-muted-foreground mb-2">Pages visited</div>
 
             {pages.length ? (
               <div className="space-y-2">
