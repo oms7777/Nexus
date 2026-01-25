@@ -454,11 +454,9 @@ export const ContactPanel = () => {
           <div className="mt-4">
             <LiveVisitorView
               orgId={contactSession.organizationId}
-              convexSessionId={String(contactSession._id)}
               streamSessionId={String(
                 (contactSession as any).externalSessionId || contactSession._id
               )}
-              clickUrl={contactSession.metadata?.currentUrl || undefined}
               height={360}
             />
             <SnapshotsStrip sessionId={contactSession._id} limit={8} />
