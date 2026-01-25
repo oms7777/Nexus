@@ -38,7 +38,7 @@ function isWidgetOrAppUrl(url?: string) {
     return h === "widget.inboundless.co" || h === "app.inboundless.co";
   } catch {
     // if it's not a valid URL, don't trust it
-    return true;
+    return false;
   }
 }
 

@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
+
 import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
 
@@ -59,8 +60,12 @@ export default function LiveMapView() {
     [filtered, selectedId],
   );
 
-  // ✅ Single session id (Convex session id == Pusher presence session id for now)
-  const sessionId: string | null = selected?.contactSessionId
+  /**
+   * ✅ IMPORTANT
+   * Ton LiveVisitorView doit écouter EXACTEMENT le même ID que l’embed utilise
+   * pour le channel Pusher: contactSessionId
+   */
+  const streamSessionId: string | null = selected?.contactSessionId
     ? String(selected.contactSessionId)
     : null;
 
@@ -68,7 +73,7 @@ export default function LiveMapView() {
     ? (((selected as any).pages as string[]) ?? []).filter(Boolean)
     : [];
 
-  const canShowRightPanel = Boolean(selected && sessionId && orgId);
+  const canShowRightPanel = Boolean(selected && streamSessionId && orgId);
 
   return (
     <div className="flex h-full w-full">
@@ -132,7 +137,11 @@ export default function LiveMapView() {
             </div>
           </div>
 
-          <LiveVisitorView orgId={orgId} streamSessionId={sessionId!} height={520} />
+          <LiveVisitorView
+            orgId={orgId}
+            streamSessionId={streamSessionId!}
+            height={520}
+          />
 
           {selected?.currentUrl ? (
             <a

@@ -143,7 +143,7 @@ export function LiveVisitorView({
     sessionId: streamSessionId,
     onSnapshot: bootReplay,
     onRrweb,
-    onCursor: setCursor, // ✅ now supported
+    onCursor: setCursor,
   });
 
   const cursorPx = (() => {

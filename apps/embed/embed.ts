@@ -391,59 +391,8 @@ type SuggestionsPayload = {
   function sendParentLocation() {
     const href = location.href;
     postToWidget({ type: "nexus:parent-location", href });
-
-    // ✅ NEW: also persist snapshot meta server-side (for Live panel)
-    // This makes snapshots + currentUrl/title reliable even without rrweb replay.
-    sendSnapshotToServer(href);
   }
 
-  // ✅ NEW: send lightweight snapshot meta to your /api/tracker/snapshot route
-  async function sendSnapshotToServer(pageUrl: string) {
-    try {
-      if (!organizationId) return;
-      if (!trackingSessionId) return;
-
-      // best effort page title + viewport
-      const title = typeof document !== "undefined" ? document.title : undefined;
-      const width = typeof window !== "undefined" ? window.innerWidth : undefined;
-      const height = typeof window !== "undefined" ? window.innerHeight : undefined;
-
-      const endpoint = `${EMBED_CONFIG.WIDGET_URL.replace(/\/$/, "")}/api/tracker/snapshot`;
-
-      // try POST first
-      const payload = {
-        organizationId,
-        sessionId: trackingSessionId,
-        pageUrl,
-        title,
-        width,
-        height,
-      };
-
-      // If connect-src blocks fetch, fallback to pixel GET
-      try {
-        await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(payload),
-        });
-      } catch {
-        const u = new URL(endpoint);
-        u.searchParams.set("organizationId", organizationId);
-        u.searchParams.set("sessionId", trackingSessionId);
-        u.searchParams.set("pageUrl", pageUrl);
-        if (title) u.searchParams.set("title", title);
-        if (typeof width === "number") u.searchParams.set("width", String(width));
-        if (typeof height === "number") u.searchParams.set("height", String(height));
-
-        const img = new Image();
-        img.src = u.toString();
-      }
-    } catch {
-      // silent
-    }
-  }
 
 
   /* ---------------- Nudge ---------------- */

@@ -40,7 +40,6 @@ const PAGES_MAX = 20;
 const VISIT_DEBOUNCE_MS = 500;
 const MIN_VISIT_INTERVAL_MS = 800;
 
-// ✅ NEW: presence heartbeat interval
 const PRESENCE_HEARTBEAT_MS = 15_000;
 
 // =======================
@@ -91,7 +90,6 @@ let visitDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastVisitPersistAt = 0;
 let visitAbort: AbortController | null = null;
 
-// ✅ NEW: heartbeat timer
 let presenceTimer: ReturnType<typeof setInterval> | null = null;
 
 function safeBytes(str: string) {
@@ -194,8 +192,10 @@ function persistSnapshotMetaDebounced(opts: {
         u.searchParams.set("sessionId", opts.sessionId);
         u.searchParams.set("pageUrl", opts.pageUrl);
         if (opts.title) u.searchParams.set("title", opts.title);
-        if (typeof opts.width === "number") u.searchParams.set("width", String(opts.width));
-        if (typeof opts.height === "number") u.searchParams.set("height", String(opts.height));
+        if (typeof opts.width === "number")
+          u.searchParams.set("width", String(opts.width));
+        if (typeof opts.height === "number")
+          u.searchParams.set("height", String(opts.height));
         const img = new Image();
         img.src = u.toString();
       } catch {}
@@ -384,7 +384,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
   };
 
   if ("requestIdleCallback" in window) {
-    // @ts-ignore
     (window as any).requestIdleCallback(doSnapshot, { timeout: 2000 });
   } else {
     setTimeout(doSnapshot, 1500);
@@ -478,8 +477,7 @@ function startPerfWatchdog() {
         const entries = list.getEntries();
         if (entries?.length) longTaskCount += entries.length;
       });
-      // @ts-ignore
-      longTaskObserver.observe({ entryTypes: ["longtask"] });
+      longTaskObserver.observe({ entryTypes: ["longtask"] } as any);
     } catch {
       longTaskObserver = null;
     }
@@ -505,7 +503,6 @@ function persistPresenceNow(orgId: string, sessionId: string) {
 
     pushPage(href);
 
-    // ✅ always bump lastSeenAt + pages/currentUrl server-side
     persistVisitToDbDebounced({
       orgId,
       sessionId,
@@ -515,7 +512,6 @@ function persistPresenceNow(orgId: string, sessionId: string) {
       lastSeenAt: ts,
     });
 
-    // snapshot meta for Live panel
     persistSnapshotMetaDebounced({
       orgId,
       sessionId,
@@ -528,16 +524,13 @@ function persistPresenceNow(orgId: string, sessionId: string) {
 }
 
 function startPresenceHeartbeat(orgId: string, sessionId: string) {
-  // fire once immediately
   persistPresenceNow(orgId, sessionId);
 
-  // visibility changes
   const onVis = () => {
     if (!document.hidden) persistPresenceNow(orgId, sessionId);
   };
   document.addEventListener("visibilitychange", onVis);
 
-  // ✅ NEW: interval heartbeat (keeps lastSeenAt fresh even without SPA nav)
   if (presenceTimer) {
     try {
       clearInterval(presenceTimer);
@@ -729,7 +722,10 @@ export function destroyVisitorTracking() {
   cleanup();
 }
 
-export function initVisitorTracking({ orgId, contactSessionId }: VisitorTrackingOptions) {
+export function initVisitorTracking({
+  orgId,
+  contactSessionId,
+}: VisitorTrackingOptions) {
   if (started) return;
   if (typeof window === "undefined") return;
 
@@ -760,28 +756,28 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   pusherRef = pusher;
 
   const channelName = `presence-org_${orgId}_session_${contactSessionId}`;
-  const channel = pusher.subscribe(channelName);
+  const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
 
   let stopPresence: (() => void) | null = null;
+
+  // ✅ FIX: bind immediately (avoid missing the event)
+  channel.bind("server-start-rrweb", () => {
+    if (rrwebWatching) return;
+    rrwebWatching = true;
+    startRrwebRecorder(orgId, contactSessionId);
+  });
+
+  channel.bind("server-stop-rrweb", () => {
+    rrwebWatching = false;
+    stopRrwebOnly();
+  });
 
   channel.bind("pusher:subscription_succeeded", () => {
     startPerfWatchdog();
     setupCursor();
 
-    // ✅ always-on presence heartbeat
     stopPresence = startPresenceHeartbeat(orgId, contactSessionId);
-
-    channel.bind("server-start-rrweb", () => {
-      if (rrwebWatching) return;
-      rrwebWatching = true;
-      startRrwebRecorder(orgId, contactSessionId);
-    });
-
-    channel.bind("server-stop-rrweb", () => {
-      rrwebWatching = false;
-      stopRrwebOnly();
-    });
 
     const startedAt = now();
     sessionStopTimer = setInterval(() => {
@@ -804,7 +800,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
       lastHref = href;
       markActivity();
 
-      // ✅ always persist pages + currentUrl/title
       persistPresenceNow(orgId, contactSessionId);
 
       if (!rrwebWatching) return;
