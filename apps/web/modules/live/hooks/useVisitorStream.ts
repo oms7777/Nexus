@@ -1,4 +1,3 @@
-// apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -6,6 +5,23 @@ import Pusher, { type Channel } from "pusher-js";
 import type { eventWithTime } from "rrweb/typings/types";
 
 type Cursor = { x: number; y: number };
+
+function coerceCursor(payload: any): Cursor | null {
+  if (!payload) return null;
+
+  // payload direct {x,y}
+  if (typeof payload.x === "number" && typeof payload.y === "number") {
+    return { x: payload.x, y: payload.y };
+  }
+
+  // payload { cursor: {x,y} }
+  const c = payload.cursor;
+  if (c && typeof c.x === "number" && typeof c.y === "number") {
+    return { x: c.x, y: c.y };
+  }
+
+  return null;
+}
 
 export function useVisitorStream(opts: {
   orgId: string;
@@ -17,11 +33,15 @@ export function useVisitorStream(opts: {
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const chanRef = useRef<Channel | null>(null);
+  const pusherRef = useRef<Pusher | null>(null);
 
   useEffect(() => {
+    // reset cursor à chaque changement
+    setCursor(null);
+
     if (!orgId || !sessionId) return;
 
-    // ✅ demande au serveur de déclencher rrweb côté visiteur
+    // ✅ déclenche rrweb côté visiteur
     fetch("/api/realtime/rrweb", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,7 +55,7 @@ export function useVisitorStream(opts: {
       enabledTransports: ["ws", "wss"],
       disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
 
-      // ✅ IMPORTANT: passer orgId/sessionId au backend auth
+      // ✅ IMPORTANT: orgId/sessionId passés au backend auth
       channelAuthorization: {
         endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
         transport: "ajax",
@@ -43,11 +63,16 @@ export function useVisitorStream(opts: {
       } as any,
     });
 
+    pusherRef.current = pusher;
+
     const chanName = `presence-org_${orgId}_session_${sessionId}`;
     const ch = pusher.subscribe(chanName) as Channel;
     chanRef.current = ch;
 
-    const onCursor = (p: Cursor) => setCursor(p);
+    const onCursor = (payload: any) => {
+      const c = coerceCursor(payload);
+      if (c) setCursor(c);
+    };
 
     const onInc = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
@@ -59,19 +84,36 @@ export function useVisitorStream(opts: {
       if (events.length && onSnapshot) onSnapshot(events);
     };
 
+    // ✅ bind cursor: client + fallback (au cas où)
     ch.bind("client-cursor", onCursor);
+    ch.bind("cursor", onCursor);
+
     ch.bind("client-rrweb", onInc);
     ch.bind("client-snapshot", onSnap);
 
+    // (optionnel) debug connexion
+    const onConnected = () => {
+      // console.log("[pusher] connected", chanName);
+    };
+    const onError = (e: any) => {
+      console.error("[pusher] connection error", e);
+    };
+    pusher.connection.bind("connected", onConnected);
+    pusher.connection.bind("error", onError);
+
     return () => {
+      // stop rrweb côté visiteur
       fetch("/api/realtime/rrweb", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgId, sessionId, action: "stop" }),
       }).catch(() => {});
 
+      setCursor(null);
+
       try {
         ch.unbind("client-cursor", onCursor);
+        ch.unbind("cursor", onCursor);
         ch.unbind("client-rrweb", onInc);
         ch.unbind("client-snapshot", onSnap);
         ch.unbind_all();
@@ -80,11 +122,18 @@ export function useVisitorStream(opts: {
       try {
         pusher.unsubscribe(chanName);
       } catch {}
+
+      try {
+        pusher.connection.unbind("connected", onConnected);
+        pusher.connection.unbind("error", onError);
+      } catch {}
+
       try {
         pusher.disconnect();
       } catch {}
 
       chanRef.current = null;
+      pusherRef.current = null;
     };
   }, [orgId, sessionId, onRrweb, onSnapshot]);
 
