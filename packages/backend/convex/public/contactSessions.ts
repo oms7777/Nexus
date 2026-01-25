@@ -435,35 +435,80 @@ export const ensureByExternalId = mutation({
 
     const visitorId = pickVisitorId(safeIncoming);
 
-    const existing = await ctx.db
+    // always bump lastSeenAt if we got metadata
+    if (safeIncoming) safeIncoming.lastSeenAt = Date.now();
+
+    /**
+     * ✅ Priority 1: If visitorId exists → reuse by (org + visitorId)
+     * This is the only truly stable dedupe key across:
+     * refresh / new tab / re-open / externalSession changes.
+     */
+    if (visitorId) {
+      const existingByVisitor = await ctx.db
+        .query("contactSessions")
+        .withIndex("by_org_visitor_id", (q: any) =>
+          q.eq("organizationId", organizationId).eq("visitorId", visitorId),
+        )
+        .order("desc")
+        .first();
+
+      if (existingByVisitor) {
+        const oldMd = (existingByVisitor.metadata ?? {}) as Metadata;
+        const newMd = mergeMetadata(oldMd, safeIncoming);
+
+        // keep externalSessionId updated (latest wins)
+        await ctx.db.patch(existingByVisitor._id, {
+          expiresAt,
+          metadata: newMd,
+          visitorId,
+          externalSessionId,
+        });
+
+        await ensureSessionStartedLogged(ctx, {
+          organizationId,
+          contactSessionId: existingByVisitor._id,
+          source: "ensure_existing",
+        });
+
+        return existingByVisitor._id;
+      }
+    }
+
+    /**
+     * ✅ Priority 2: reuse by (org + externalSessionId)
+     * If visitorId not present yet, at least keep one session per externalSessionId.
+     */
+    const existingByExternal = await ctx.db
       .query("contactSessions")
       .withIndex("by_org_external_session", (q: any) =>
         q.eq("organizationId", organizationId).eq("externalSessionId", externalSessionId),
       )
+      .order("desc")
       .first();
 
-    if (existing) {
-      const oldMd = (existing.metadata ?? {}) as Metadata;
+    if (existingByExternal) {
+      const oldMd = (existingByExternal.metadata ?? {}) as Metadata;
       const newMd = mergeMetadata(oldMd, safeIncoming);
-      newMd.lastSeenAt = Date.now();
 
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch(existingByExternal._id, {
         expiresAt,
         metadata: newMd,
-        visitorId: visitorId ?? existing.visitorId,
+        visitorId: visitorId ?? existingByExternal.visitorId,
+        externalSessionId,
       });
 
       await ensureSessionStartedLogged(ctx, {
         organizationId,
-        contactSessionId: existing._id,
+        contactSessionId: existingByExternal._id,
         source: "ensure_existing",
       });
 
-      return existing._id;
+      return existingByExternal._id;
     }
 
-    if (safeIncoming) safeIncoming.lastSeenAt = Date.now();
-
+    /**
+     * ✅ Priority 3: create
+     */
     const id = await ctx.db.insert("contactSessions", {
       name: "Visitor",
       email: "",

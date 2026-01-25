@@ -33,19 +33,30 @@ export const getActiveVisitors = query({
     // 2) dedup by stable visitor key
     const bestByKey = new Map<string, (typeof active)[number]>();
 
-    for (const s of active) {
+    const stableKeyFor = (s: any) => {
       const md = s.metadata ?? {};
-      const key =
-        (md.visitorId as string | undefined) ||
-        (s.externalSessionId as string | undefined) ||
-        String(s._id);
+      const vid =
+        (s.visitorId as string | undefined) ||
+        (md.visitorId as string | undefined);
 
+      if (vid && String(vid).trim()) return `v:${String(vid)}`;
+
+      const ext = s.externalSessionId as string | undefined;
+      if (ext && String(ext).trim()) return `e:${String(ext)}`;
+
+      return `id:${String(s._id)}`;
+    };
+
+    for (const s of active) {
+      const key = stableKeyFor(s);
       const prev = bestByKey.get(key);
+
       if (!prev) {
         bestByKey.set(key, s);
         continue;
       }
 
+      // keep the "most alive"
       if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
@@ -62,6 +73,7 @@ export const getActiveVisitors = query({
         ? ((md as any).pages as string[]).filter(Boolean)
         : [];
 
+      // latest snapshot by (sessionId, ts)
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
@@ -85,7 +97,8 @@ export const getActiveVisitors = query({
 
       const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
 
-      // ✅ IMPORTANT: streamSessionId used by Pusher channels
+      // ✅ Stream id for Pusher channels
+      // Use externalSessionId if exists, else fallback to Convex id
       const externalSessionId = (s as any).externalSessionId as string | undefined;
       const streamSessionId = externalSessionId || String(s._id);
 

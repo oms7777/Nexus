@@ -37,10 +37,8 @@ function extractMeta(events: eventWithTime[]) {
   const meta = events.find((e: any) => e?.type === 4) as any;
   const full = events.find((e: any) => e?.type === 2) as any;
   const src = meta?.data ?? full?.data ?? {};
-
   const width = typeof src?.width === "number" ? src.width : undefined;
   const height = typeof src?.height === "number" ? src.height : undefined;
-
   return { width, height };
 }
 
@@ -186,7 +184,6 @@ export function LiveVisitorView({
     if (!vw || !vh) return;
 
     const scale = Math.min(vw / src.width, vh / src.height);
-
     const contentW = src.width * scale;
     const contentH = src.height * scale;
     const ox = Math.max(0, (vw - contentW) / 2);
@@ -235,25 +232,15 @@ export function LiveVisitorView({
 
       const meta = extractMeta(events);
 
-      const w =
-        meta.width ??
-        (typeof latest?.width === "number" ? latest.width : undefined) ??
-        1200;
-      const h =
-        meta.height ??
-        (typeof latest?.height === "number" ? latest.height : undefined) ??
-        800;
+      const w = meta.width ?? (typeof latest?.width === "number" ? latest.width : undefined) ?? 1200;
+      const h = meta.height ?? (typeof latest?.height === "number" ? latest.height : undefined) ?? 800;
 
       sourceRef.current = { width: w, height: h };
       stage.style.width = `${w}px`;
       stage.style.height = `${h}px`;
 
       try {
-        const replayer = new Replayer(events, {
-          root: stage,
-          mouseTail: false as any,
-        } as any);
-
+        const replayer = new Replayer(events, { root: stage, mouseTail: false as any } as any);
         replayerRef.current = replayer;
         replayer.play();
       } catch {
@@ -324,7 +311,7 @@ export function LiveVisitorView({
     [bootFromEvents],
   );
 
-  // ✅ IMPORTANT: use streamSessionId for Pusher
+  // ✅ IMPORTANT: use streamSessionId for Pusher channels
   const { cursor } = useVisitorStream({
     orgId,
     sessionId: streamSessionId,
@@ -352,9 +339,7 @@ export function LiveVisitorView({
   })();
 
   const previewUrl =
-    clickUrl ||
-    v1?.pageUrl ||
-    (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined);
+    clickUrl || v1?.pageUrl || (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined);
 
   useEffect(() => {
     if (mode === "rrweb") return;
@@ -362,10 +347,18 @@ export function LiveVisitorView({
     else setMode("empty");
   }, [previewUrl, mode]);
 
+  // ✅ iframe preview (centered)
   const VIRTUAL_W = 1280;
   const VIRTUAL_H = 3000;
+
   const iframeScale =
     outerSize.w && outerSize.h ? Math.min(outerSize.w / VIRTUAL_W, outerSize.h / VIRTUAL_H) : 1;
+
+  const iframeOx =
+    outerSize.w ? Math.max(0, (outerSize.w - VIRTUAL_W * iframeScale) / 2) : 0;
+
+  const iframeOy =
+    outerSize.h ? Math.max(0, (outerSize.h - VIRTUAL_H * iframeScale) / 2) : 0;
 
   return (
     <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
@@ -393,7 +386,7 @@ export function LiveVisitorView({
                   width: `${VIRTUAL_W}px`,
                   height: `${VIRTUAL_H}px`,
                   transformOrigin: "top left",
-                  transform: `scale(${iframeScale})`,
+                  transform: `translate(${iframeOx}px, ${iframeOy}px) scale(${iframeScale})`,
                   pointerEvents: "none",
                 }}
               >

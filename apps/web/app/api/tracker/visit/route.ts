@@ -6,8 +6,7 @@ import { api } from "@workspace/backend/_generated/api";
 export const runtime = "nodejs";
 
 const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin":
-    process.env.NODE_ENV === "production" ? "*" : "*",
+  "Access-Control-Allow-Origin": process.env.NODE_ENV === "production" ? "*" : "*",
   "Access-Control-Allow-Methods": "POST,OPTIONS,GET",
   "Access-Control-Allow-Headers": "content-type",
 };
@@ -24,7 +23,7 @@ export async function OPTIONS() {
 
 type Body = {
   organizationId?: string;
-  sessionId?: string;
+  sessionId?: string; // ✅ streamSessionId (externalSessionId)
   pageUrl?: string;
   title?: string;
   referrer?: string;
@@ -32,25 +31,44 @@ type Body = {
 
 async function handleUpsert(payload: Body) {
   const organizationId = typeof payload.organizationId === "string" ? payload.organizationId : "";
-  const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : "";
+  const externalSessionId = typeof payload.sessionId === "string" ? payload.sessionId : "";
   const pageUrl = typeof payload.pageUrl === "string" ? payload.pageUrl : "";
   const title = typeof payload.title === "string" ? payload.title : undefined;
+  const referrer = typeof payload.referrer === "string" ? payload.referrer : undefined;
 
-  if (!organizationId || !sessionId || !pageUrl) {
-    return NextResponse.json({ ok: false, error: "Missing organizationId/sessionId/pageUrl" }, { status: 400, headers: CORS_HEADERS });
+  if (!organizationId || !externalSessionId || !pageUrl) {
+    return NextResponse.json(
+      { ok: false, error: "Missing organizationId/sessionId/pageUrl" },
+      { status: 400, headers: CORS_HEADERS },
+    );
   }
 
   const convex = getConvex();
 
-  // ✅ Patch metadata (currentUrl/title/pages/lastSeenAt + expiresAt bump)
-  await convex.mutation(api.public.contactSessions.setCurrentUrl, {
-    sessionId: sessionId as any,
-    url: pageUrl,
-    title,
-    referrer: typeof payload.referrer === "string" ? payload.referrer : undefined,
+  // ✅ 1) Ensure a Convex contactSession exists for this externalSessionId
+  const convexSessionId = await convex.mutation(api.public.contactSessions.ensureByExternalId, {
+    organizationId,
+    externalSessionId,
+    metadata: {
+      currentUrl: pageUrl,
+      title,
+      referrer,
+      lastSeenAt: Date.now(),
+      // NOTE: geo/userAgent/etc are ideally sent by widget,
+      // but we keep this light here.
+      pages: [pageUrl],
+    } as any,
   });
 
-  return NextResponse.json({ ok: true }, { headers: CORS_HEADERS });
+  // ✅ 2) Patch URL/pages + bump TTL using Convex _id
+  await convex.mutation(api.public.contactSessions.setCurrentUrl, {
+    sessionId: convexSessionId as any,
+    url: pageUrl,
+    title,
+    referrer,
+  });
+
+  return NextResponse.json({ ok: true, convexSessionId }, { headers: CORS_HEADERS });
 }
 
 export async function POST(req: Request) {
@@ -58,7 +76,10 @@ export async function POST(req: Request) {
     const body = (await req.json()) as Body;
     return await handleUpsert(body);
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Invalid JSON" }, { status: 400, headers: CORS_HEADERS });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Invalid JSON" },
+      { status: 400, headers: CORS_HEADERS },
+    );
   }
 }
 
@@ -76,7 +97,6 @@ export async function GET(req: Request) {
 
     await handleUpsert(body);
 
-    // return a 1x1 gif
     const gif = Buffer.from(
       "R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==",
       "base64",
