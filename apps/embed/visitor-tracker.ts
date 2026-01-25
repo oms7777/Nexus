@@ -799,7 +799,8 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
-    },
+      params: { orgId, sessionId: contactSessionId }, // ✅ AJOUT
+    } as any,
   });
 
   pusherRef = pusher;
