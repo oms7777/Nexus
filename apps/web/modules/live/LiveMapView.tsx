@@ -49,7 +49,6 @@ export default function LiveMapView() {
     [visitors, query],
   );
 
-  // ✅ si le visiteur sélectionné n’est plus online (ou filtré), on le reset
   useEffect(() => {
     if (!selectedId) return;
     const stillThere = filtered.some((v) => v._id === selectedId);
@@ -61,16 +60,23 @@ export default function LiveMapView() {
     [filtered, selectedId],
   );
 
-  const selectedSessionId: Id<"contactSessions"> | null =
+  // ✅ Convex id (for snapshots / DB)
+  const convexSessionId: Id<"contactSessions"> | null =
     selected?.contactSessionId
       ? (selected.contactSessionId as Id<"contactSessions">)
+      : null;
+
+  // ✅ Stream id (for Pusher presence channel)
+  const streamSessionId: string | null =
+    (selected as any)?.streamSessionId
+      ? String((selected as any).streamSessionId)
       : null;
 
   const pages: string[] = Array.isArray((selected as any)?.pages)
     ? (((selected as any).pages as string[]) ?? []).filter(Boolean)
     : [];
 
-  const canShowRightPanel = Boolean(selected && selectedSessionId && orgId);
+  const canShowRightPanel = Boolean(selected && convexSessionId && streamSessionId && orgId);
 
   return (
     <div className="flex h-full w-full">
@@ -128,7 +134,8 @@ export default function LiveMapView() {
 
           <LiveVisitorView
             orgId={orgId}
-            sessionId={String(selectedSessionId)}
+            convexSessionId={String(convexSessionId)}
+            streamSessionId={String(streamSessionId)}
             clickUrl={selected?.currentUrl || undefined}
             height={520}
           />

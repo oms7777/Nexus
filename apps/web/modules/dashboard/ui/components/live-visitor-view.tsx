@@ -46,18 +46,19 @@ function extractMeta(events: eventWithTime[]) {
 
 export function LiveVisitorView({
   orgId,
-  sessionId,
+  convexSessionId,
+  streamSessionId,
   clickUrl,
   height = 360,
 }: {
   orgId: string;
-  sessionId: string;
+  convexSessionId: string; // ✅ Convex _id for DB
+  streamSessionId: string; // ✅ externalSessionId (or fallback) for Pusher channel
   clickUrl?: string;
   height?: number;
 }) {
   const outerRef = useRef<HTMLDivElement | null>(null);
 
-  // rrweb stage/replayer
   const stageRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
@@ -78,7 +79,6 @@ export function LiveVisitorView({
   const MAX_QUEUE = 5_000;
   const MAX_PER_FRAME = 120;
 
-  // ✅ observe container size (fix cursor + iframe scale)
   const [outerSize, setOuterSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
   useLayoutEffect(() => {
@@ -104,10 +104,10 @@ export function LiveVisitorView({
     };
   }, []);
 
-  // ✅ Convex snapshot fallback (for clickUrl + v1 iframe)
+  // ✅ Convex snapshot fallback uses convexSessionId
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
-      sessionId: sessionId as unknown as Id<"contactSessions">,
+      sessionId: convexSessionId as unknown as Id<"contactSessions">,
       limit: 1,
     }) ?? [];
   const latest = snaps[0];
@@ -129,7 +129,6 @@ export function LiveVisitorView({
     return null;
   }, [parsed]);
 
-  // If Convex contains rrweb events (rare), allow rrweb
   useEffect(() => {
     if (!parsed) return;
     if (isRrwebEvents(parsed)) setMode("rrweb");
@@ -186,7 +185,6 @@ export function LiveVisitorView({
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    // ✅ always fit (no cap at 1), because you want “encadré”
     const scale = Math.min(vw / src.width, vh / src.height);
 
     const contentW = src.width * scale;
@@ -267,7 +265,6 @@ export function LiveVisitorView({
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
   );
 
-  // Layout updates when rrweb active and container resizes
   useEffect(() => {
     if (mode !== "rrweb") return;
     applyLayout();
@@ -318,7 +315,6 @@ export function LiveVisitorView({
     [processQueue, mode],
   );
 
-  // when we receive a live snapshot => rrweb mode + boot
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
@@ -328,14 +324,14 @@ export function LiveVisitorView({
     [bootFromEvents],
   );
 
+  // ✅ IMPORTANT: use streamSessionId for Pusher
   const { cursor } = useVisitorStream({
     orgId,
-    sessionId,
+    sessionId: streamSessionId,
     onRrweb,
     onSnapshot,
   });
 
-  // ✅ cursor position computed from outerSize (always reactive)
   const cursorPx = (() => {
     if (!cursor) return null;
     if (!outerSize.w || !outerSize.h) return null;
@@ -343,7 +339,6 @@ export function LiveVisitorView({
     const cx = clamp01((cursor as Cursor).x);
     const cy = clamp01((cursor as Cursor).y);
 
-    // iframe/empty => simple overlay
     if (mode !== "rrweb" || !sourceRef.current) {
       return { left: cx * outerSize.w, top: cy * outerSize.h };
     }
@@ -356,7 +351,6 @@ export function LiveVisitorView({
     };
   })();
 
-  // ---- iframe preview handling
   const previewUrl =
     clickUrl ||
     v1?.pageUrl ||
@@ -368,12 +362,10 @@ export function LiveVisitorView({
     else setMode("empty");
   }, [previewUrl, mode]);
 
-  // ✅ “Encadré” preview: render a bigger virtual page, scale it down to fit
   const VIRTUAL_W = 1280;
   const VIRTUAL_H = 3000;
-  const iframeScale = outerSize.w && outerSize.h
-    ? Math.min(outerSize.w / VIRTUAL_W, outerSize.h / VIRTUAL_H)
-    : 1;
+  const iframeScale =
+    outerSize.w && outerSize.h ? Math.min(outerSize.w / VIRTUAL_W, outerSize.h / VIRTUAL_H) : 1;
 
   return (
     <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
@@ -395,7 +387,6 @@ export function LiveVisitorView({
                 title="Open current page"
               />
 
-              {/* ✅ scale-down wrapper */}
               <div
                 className="absolute left-0 top-0"
                 style={{

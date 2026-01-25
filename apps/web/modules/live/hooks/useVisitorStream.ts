@@ -9,7 +9,7 @@ type Cursor = { x: number; y: number };
 
 export function useVisitorStream(opts: {
   orgId: string;
-  sessionId: string;
+  sessionId: string; // ✅ streamSessionId (externalSessionId or fallback)
   onRrweb?: (events: eventWithTime[]) => void;
   onSnapshot?: (events: eventWithTime[]) => void;
 }) {
@@ -21,7 +21,7 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
-    // ✅ demande au serveur de déclencher rrweb côté visiteur
+    // ✅ ask server to trigger rrweb on that SAME presence channel
     fetch("/api/realtime/rrweb", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,7 +35,6 @@ export function useVisitorStream(opts: {
       enabledTransports: ["ws", "wss"],
       disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
 
-      // ✅ IMPORTANT: passer orgId/sessionId au backend auth
       channelAuthorization: {
         endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
         transport: "ajax",
