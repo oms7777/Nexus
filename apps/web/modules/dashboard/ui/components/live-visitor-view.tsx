@@ -1,3 +1,4 @@
+// apps/web/modules/dashboard/ui/components/live-visitor-view.tsx
 "use client";
 
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
@@ -36,8 +37,10 @@ function extractMeta(events: eventWithTime[]) {
   const meta = events.find((e: any) => e?.type === 4) as any;
   const full = events.find((e: any) => e?.type === 2) as any;
   const src = meta?.data ?? full?.data ?? {};
+
   const width = typeof src?.width === "number" ? src.width : undefined;
   const height = typeof src?.height === "number" ? src.height : undefined;
+
   return { width, height };
 }
 
@@ -45,7 +48,7 @@ export function LiveVisitorView({
   orgId,
   sessionId,
   clickUrl,
-  height = 520,
+  height = 360,
 }: {
   orgId: string;
   sessionId: string;
@@ -63,6 +66,7 @@ export function LiveVisitorView({
   const processingRef = useRef(false);
 
   const sourceRef = useRef<{ width: number; height: number } | null>(null);
+
   const layoutRef = useRef<{ scale: number; ox: number; oy: number }>({
     scale: 1,
     ox: 0,
@@ -71,12 +75,10 @@ export function LiveVisitorView({
 
   const lastAppliedRef = useRef<string>("");
 
-  // ✅ pour recalculer curseur/layout (outerRef n’est pas réactif)
-  const [box, setBox] = useState({ w: 0, h: 0 });
-
   const MAX_QUEUE = 5_000;
   const MAX_PER_FRAME = 120;
 
+  // ✅ on garde Convex snapshots uniquement comme fallback/“clickUrl”
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
       sessionId: sessionId as unknown as Id<"contactSessions">,
@@ -93,6 +95,7 @@ export function LiveVisitorView({
     }
   }, [latest?.snapshot]);
 
+  // ✅ mode piloté par ce qu’on reçoit en live (rrweb > iframe > empty)
   const [mode, setMode] = useState<"rrweb" | "iframe" | "empty">("empty");
 
   const v1 = useMemo(() => {
@@ -101,36 +104,12 @@ export function LiveVisitorView({
     return null;
   }, [parsed]);
 
-  // Fallback: si Convex contient déjà un snapshot rrweb
+  // fallback: si Convex contient un snapshot rrweb (rare), on peut l’utiliser
   useEffect(() => {
     if (!parsed) return;
     if (isRrwebEvents(parsed)) setMode("rrweb");
     else if (isV1Snapshot(parsed)) setMode((m) => (m === "rrweb" ? "rrweb" : "iframe"));
   }, [parsed]);
-
-  // Mesure container
-  useEffect(() => {
-    const el = outerRef.current;
-    if (!el) return;
-
-    const update = () => setBox({ w: el.clientWidth, h: el.clientHeight });
-    update();
-
-    let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(update);
-      ro.observe(el);
-    } else {
-      window.addEventListener("resize", update);
-      return () => window.removeEventListener("resize", update);
-    }
-
-    return () => {
-      try {
-        ro?.disconnect();
-      } catch {}
-    };
-  }, []);
 
   const ensureStage = useCallback(() => {
     const outer = outerRef.current;
@@ -148,7 +127,6 @@ export function LiveVisitorView({
       outer.appendChild(stage);
     }
 
-    // ✅ cache rrweb mouse (on garde notre curseur custom)
     const existingStyle = outer.querySelector("style[data-hide-rrweb-mouse='1']");
     if (!existingStyle) {
       const style = document.createElement("style");
@@ -176,21 +154,19 @@ export function LiveVisitorView({
     const outer = outerRef.current;
     const stage = stageRef.current;
     const src = sourceRef.current;
+
     if (!outer || !stage || !src?.width || !src?.height) return;
 
     const vw = outer.clientWidth;
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    // ✅ fit to container (sans upscale)
     const scale = Math.min(vw / src.width, vh / src.height, 1);
 
-    // ✅ si scale=1, pas de center => scroll/pan depuis top-left
     const contentW = src.width * scale;
     const contentH = src.height * scale;
-
-    const ox = scale < 1 ? Math.max(0, (vw - contentW) / 2) : 0;
-    const oy = scale < 1 ? Math.max(0, (vh - contentH) / 2) : 0;
+    const ox = Math.max(0, (vw - contentW) / 2);
+    const oy = Math.max(0, (vh - contentH) / 2);
 
     const s = Math.round(scale * 10000) / 10000;
     const x = Math.round(ox * 10) / 10;
@@ -265,11 +241,30 @@ export function LiveVisitorView({
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
   );
 
-  // Re-apply layout on box changes in rrweb mode
+  // Resize layout only when rrweb is active
   useEffect(() => {
+    const outer = outerRef.current;
+    if (!outer) return;
     if (mode !== "rrweb") return;
+
     applyLayout();
-  }, [box.w, box.h, mode, applyLayout]);
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => applyLayout());
+      ro.observe(outer);
+    } else {
+      const onResize = () => applyLayout();
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }
+
+    return () => {
+      try {
+        ro?.disconnect();
+      } catch {}
+    };
+  }, [applyLayout, mode]);
 
   const processQueue = useCallback(() => {
     if (processingRef.current) return;
@@ -316,6 +311,7 @@ export function LiveVisitorView({
     [processQueue, mode],
   );
 
+  // ✅ dès qu’on reçoit un snapshot live => on passe en rrweb et on boot
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
@@ -332,18 +328,6 @@ export function LiveVisitorView({
     onSnapshot,
   });
 
-  const previewUrl =
-    clickUrl ||
-    v1?.pageUrl ||
-    (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined);
-
-  // si pas rrweb live, iframe fallback
-  useEffect(() => {
-    if (mode === "rrweb") return;
-    if (previewUrl) setMode("iframe");
-    else setMode("empty");
-  }, [previewUrl, mode]);
-
   const cursorPx = useMemo(() => {
     if (!cursor) return null;
 
@@ -353,12 +337,9 @@ export function LiveVisitorView({
     const outer = outerRef.current;
     if (!outer) return null;
 
-    // iframe mode => pixels du container
+    // si pas rrweb layout, on fait simple
     if (mode !== "rrweb" || !sourceRef.current) {
-      return {
-        left: cx * (box.w || outer.clientWidth),
-        top: cy * (box.h || outer.clientHeight),
-      };
+      return { left: cx * outer.clientWidth, top: cy * outer.clientHeight };
     }
 
     const src = sourceRef.current;
@@ -367,14 +348,27 @@ export function LiveVisitorView({
       left: ox + cx * src.width * scale,
       top: oy + cy * src.height * scale,
     };
-  }, [cursor, mode, box.w, box.h]);
+  }, [cursor, mode]);
+
+  // ---- iframe preview handling
+  const [iframeBlocked, setIframeBlocked] = useState(false);
+
+  const previewUrl =
+    clickUrl ||
+    v1?.pageUrl ||
+    (typeof latest?.pageUrl === "string" ? latest.pageUrl : undefined);
+
+  // si pas rrweb, mais on a v1 => iframe
+  useEffect(() => {
+    if (mode === "rrweb") return;
+    if (previewUrl) setMode("iframe");
+    else setMode("empty");
+  }, [previewUrl, mode]);
 
   return (
     <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height }}>
-      {/* ✅ rrweb: overflow-auto pour pouvoir scroll si needed */}
-      <div ref={outerRef} className="absolute inset-0 overflow-auto" />
+      <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
-      {/* ✅ iframe fallback */}
       {mode === "iframe" && (
         <div className="absolute inset-0">
           {!previewUrl ? (
@@ -383,33 +377,50 @@ export function LiveVisitorView({
             </div>
           ) : (
             <div className="h-full w-full relative">
-              {/* ✅ bouton open (pas d’overlay qui bloque le scroll) */}
               <a
                 href={previewUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="absolute top-2 right-2 z-20 rounded bg-black/60 px-2 py-1 text-[11px] text-white"
+                className="absolute inset-0 z-10"
                 title="Open current page"
-              >
-                Open
-              </a>
-
+              />
               <iframe
                 key={previewUrl}
                 src={previewUrl}
                 className="absolute inset-0 h-full w-full"
                 style={{
                   border: "none",
-                  pointerEvents: "auto", // ✅ scroll possible
+                  pointerEvents: "none",
                   background: "white",
                 }}
               />
+
+              {iframeBlocked && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 z-20">
+                  <div className="text-xs text-muted-foreground">
+                    Preview blocked by the website (CSP / X-Frame-Options)
+                  </div>
+                  <a href={previewUrl} target="_blank" rel="noreferrer" className="text-xs underline">
+                    Open page
+                  </a>
+                </div>
+              )}
+
+              {!iframeBlocked && (
+                <button
+                  type="button"
+                  onClick={() => setIframeBlocked(true)}
+                  className="absolute bottom-2 right-2 z-20 rounded bg-black/60 px-2 py-1 text-[10px] text-white"
+                  title="If the preview is blank, enable fallback"
+                >
+                  Preview blank?
+                </button>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* ✅ curseur live (rrweb + iframe) */}
       {cursorPx && (
         <div
           className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none z-30"
