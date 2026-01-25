@@ -65,8 +65,8 @@ export default function LiveMapView() {
    * Ton LiveVisitorView doit écouter EXACTEMENT le même ID que l’embed utilise
    * pour le channel Pusher: contactSessionId
    */
-  const streamSessionId: string | null = selected?.contactSessionId
-    ? String(selected.contactSessionId)
+  const streamSessionId: string | null = selected?.streamSessionId
+    ? String(selected.streamSessionId)
     : null;
 
   const pages: string[] = Array.isArray((selected as any)?.pages)
