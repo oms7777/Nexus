@@ -9,11 +9,12 @@ type Cursor = { x: number; y: number };
 
 export function useVisitorStream(opts: {
   orgId: string;
-  sessionId: string; // ✅ streamSessionId (externalSessionId or fallback)
+  sessionId: string; // stream session id (for Pusher presence channel)
+  onCursor?: (cursor: Cursor) => void; // ✅ NEW
   onRrweb?: (events: eventWithTime[]) => void;
   onSnapshot?: (events: eventWithTime[]) => void;
 }) {
-  const { orgId, sessionId, onRrweb, onSnapshot } = opts;
+  const { orgId, sessionId, onCursor, onRrweb, onSnapshot } = opts;
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const chanRef = useRef<Channel | null>(null);
@@ -21,7 +22,7 @@ export function useVisitorStream(opts: {
   useEffect(() => {
     if (!orgId || !sessionId) return;
 
-    // ✅ ask server to trigger rrweb on that SAME presence channel
+    // ask server to trigger rrweb on that SAME presence channel
     fetch("/api/realtime/rrweb", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -34,7 +35,6 @@ export function useVisitorStream(opts: {
       disableStats: true,
       enabledTransports: ["ws", "wss"],
       disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
-
       channelAuthorization: {
         endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
         transport: "ajax",
@@ -46,21 +46,24 @@ export function useVisitorStream(opts: {
     const ch = pusher.subscribe(chanName) as Channel;
     chanRef.current = ch;
 
-    const onCursor = (p: Cursor) => setCursor(p);
-
-    const onInc = (payload: any) => {
-      const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length && onRrweb) onRrweb(events);
+    const handleCursor = (p: Cursor) => {
+      setCursor(p);
+      onCursor?.(p); // ✅ forward
     };
 
-    const onSnap = (payload: any) => {
+    const handleInc = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length && onSnapshot) onSnapshot(events);
+      if (events.length) onRrweb?.(events);
     };
 
-    ch.bind("client-cursor", onCursor);
-    ch.bind("client-rrweb", onInc);
-    ch.bind("client-snapshot", onSnap);
+    const handleSnap = (payload: any) => {
+      const events = (payload?.events ?? []) as eventWithTime[];
+      if (events.length) onSnapshot?.(events);
+    };
+
+    ch.bind("client-cursor", handleCursor);
+    ch.bind("client-rrweb", handleInc);
+    ch.bind("client-snapshot", handleSnap);
 
     return () => {
       fetch("/api/realtime/rrweb", {
@@ -70,9 +73,9 @@ export function useVisitorStream(opts: {
       }).catch(() => {});
 
       try {
-        ch.unbind("client-cursor", onCursor);
-        ch.unbind("client-rrweb", onInc);
-        ch.unbind("client-snapshot", onSnap);
+        ch.unbind("client-cursor", handleCursor);
+        ch.unbind("client-rrweb", handleInc);
+        ch.unbind("client-snapshot", handleSnap);
         ch.unbind_all();
       } catch {}
 
@@ -85,7 +88,7 @@ export function useVisitorStream(opts: {
 
       chanRef.current = null;
     };
-  }, [orgId, sessionId, onRrweb, onSnapshot]);
+  }, [orgId, sessionId, onCursor, onRrweb, onSnapshot]);
 
   return { cursor };
 }

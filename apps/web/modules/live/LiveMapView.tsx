@@ -6,7 +6,6 @@ import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
-import type { Id } from "@workspace/backend/_generated/dataModel";
 
 function matches(v: Visitor, q: string) {
   if (!q) return true;
@@ -60,23 +59,16 @@ export default function LiveMapView() {
     [filtered, selectedId],
   );
 
-  // ✅ Convex id (for snapshots / DB)
-  const convexSessionId: Id<"contactSessions"> | null =
-    selected?.contactSessionId
-      ? (selected.contactSessionId as Id<"contactSessions">)
-      : null;
-
-  // ✅ Stream id (for Pusher presence channel)
-  const streamSessionId: string | null =
-    (selected as any)?.streamSessionId
-      ? String((selected as any).streamSessionId)
-      : null;
+  // ✅ Single session id (Convex session id == Pusher presence session id for now)
+  const sessionId: string | null = selected?.contactSessionId
+    ? String(selected.contactSessionId)
+    : null;
 
   const pages: string[] = Array.isArray((selected as any)?.pages)
     ? (((selected as any).pages as string[]) ?? []).filter(Boolean)
     : [];
 
-  const canShowRightPanel = Boolean(selected && convexSessionId && streamSessionId && orgId);
+  const canShowRightPanel = Boolean(selected && sessionId && orgId);
 
   return (
     <div className="flex h-full w-full">
@@ -91,7 +83,9 @@ export default function LiveMapView() {
           />
         </div>
 
-        <div className="p-2 text-xs text-muted-foreground">{filtered.length} online</div>
+        <div className="p-2 text-xs text-muted-foreground">
+          {filtered.length} online
+        </div>
 
         <div className="flex-1 overflow-auto">
           {filtered.map((v) => (
@@ -101,7 +95,9 @@ export default function LiveMapView() {
               className="w-full text-left px-3 py-3 hover:bg-accent border-b"
               title={v.currentUrl || ""}
             >
-              <div className="font-medium text-sm line-clamp-1">{v.name || "Visitor"}</div>
+              <div className="font-medium text-sm line-clamp-1">
+                {v.name || "Visitor"}
+              </div>
 
               <div className="text-xs text-muted-foreground line-clamp-1">
                 {v.city}
@@ -109,7 +105,9 @@ export default function LiveMapView() {
               </div>
 
               {v.currentUrl && (
-                <div className="text-xs text-muted-foreground line-clamp-1">{v.currentUrl}</div>
+                <div className="text-xs text-muted-foreground line-clamp-1">
+                  {v.currentUrl}
+                </div>
               )}
             </button>
           ))}
@@ -125,20 +123,16 @@ export default function LiveMapView() {
       {canShowRightPanel && (
         <aside className="w-[460px] border-l bg-background p-3 hidden xl:block overflow-auto">
           <div className="mb-2">
-            <div className="text-sm font-medium">{selected?.name || "Visitor"}</div>
+            <div className="text-sm font-medium">
+              {selected?.name || "Visitor"}
+            </div>
             <div className="text-xs text-muted-foreground">
               {selected?.city ?? "—"}
               {selected?.countryCode ? `, ${selected.countryCode}` : ""}
             </div>
           </div>
 
-          <LiveVisitorView
-            orgId={orgId}
-            convexSessionId={String(convexSessionId)}
-            streamSessionId={String(streamSessionId)}
-            clickUrl={selected?.currentUrl || undefined}
-            height={520}
-          />
+          <LiveVisitorView orgId={orgId} streamSessionId={sessionId!} height={520} />
 
           {selected?.currentUrl ? (
             <a
@@ -148,7 +142,9 @@ export default function LiveMapView() {
               className="mt-3 mb-3 block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
               title={selected.currentUrl}
             >
-              <div className="text-[11px] text-muted-foreground mb-1">Current page</div>
+              <div className="text-[11px] text-muted-foreground mb-1">
+                Current page
+              </div>
               <div className="truncate font-medium">{selected.currentUrl}</div>
               {selected?.title ? (
                 <div className="mt-1 truncate text-[11px] text-muted-foreground">
@@ -159,7 +155,9 @@ export default function LiveMapView() {
           ) : null}
 
           <div className="mt-3">
-            <div className="text-xs font-medium text-muted-foreground mb-2">Pages visited</div>
+            <div className="text-xs font-medium text-muted-foreground mb-2">
+              Pages visited
+            </div>
 
             {pages.length ? (
               <div className="space-y-2">
