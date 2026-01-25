@@ -92,15 +92,18 @@ export const getActiveVisitors = query({
         }
       } catch {}
 
-      const currentUrl = snapUrl || (md.currentUrl as string | undefined) || undefined;
+      const currentUrl =
+        snapUrl || (md.currentUrl as string | undefined) || undefined;
       const title = snapTitle || (md.title as string | undefined) || undefined;
 
       const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
 
-      // ✅ Stream id for Pusher channels
-      // Use externalSessionId if exists, else fallback to Convex id
-      const externalSessionId = (s as any).externalSessionId as string | undefined;
-      const streamSessionId = externalSessionId || String(s._id);
+      // ✅ IMPORTANT: force stream id to Convex session id (matches widget tracker)
+      const streamSessionId = String(s._id);
+
+      const externalSessionId = (s as any).externalSessionId as
+        | string
+        | undefined;
 
       results.push({
         _id: s._id,
