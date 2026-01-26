@@ -29,6 +29,7 @@ export const getActiveVisitors = query({
         typeof s.metadata?.lng === "number",
     );
 
+    // dedup by stable visitor key
     const bestByKey = new Map<string, (typeof active)[number]>();
 
     const stableKeyFor = (s: any) => {
@@ -54,6 +55,7 @@ export const getActiveVisitors = query({
         continue;
       }
 
+      // keep the most alive
       if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
@@ -69,6 +71,7 @@ export const getActiveVisitors = query({
         ? ((md as any).pages as string[]).filter(Boolean)
         : [];
 
+      // latest snapshot
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
@@ -93,7 +96,8 @@ export const getActiveVisitors = query({
 
       const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
 
-      // ✅ IMPORTANT: un seul id pour le channel Pusher = contactSessionId (Convex _id)
+      // ✅ SINGLE SOURCE OF TRUTH for Pusher channel:
+      // presence-org_${orgId}_session_${contactSessionId}
       const contactSessionId = String(s._id);
       const streamSessionId = contactSessionId;
 
@@ -124,7 +128,7 @@ export const getActiveVisitors = query({
         timeOnSiteMs: now - s._creationTime,
 
         contactSessionId, // string
-        streamSessionId, // ✅ identique à contactSessionId
+        streamSessionId,  // ✅ same
 
         externalSessionId: externalSessionId ?? null,
         conversationId: (s as any).conversationId ?? null,

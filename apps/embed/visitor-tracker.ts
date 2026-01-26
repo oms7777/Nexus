@@ -5,7 +5,7 @@ import Pusher, { type Channel } from "pusher-js";
 
 type VisitorTrackingOptions = {
   orgId: string;
-  contactSessionId: string; // MUST match the session id used in viewer
+  contactSessionId: string; // MUST be the Convex contactSessionId (string)
 };
 
 // =======================
@@ -43,27 +43,6 @@ const MIN_VISIT_INTERVAL_MS = 800;
 const PRESENCE_HEARTBEAT_MS = 15_000;
 
 // =======================
-// Debug
-// =======================
-const DEBUG = true;
-function log(...args: any[]) {
-  if (!DEBUG) return;
-  try {
-    // eslint-disable-next-line no-console
-    console.log("[visitor-tracker]", ...args);
-  } catch {}
-}
-
-// Optional debug switch: localStorage.setItem("nx_rrweb_autostart","1")
-function shouldAutoStart() {
-  try {
-    return localStorage.getItem("nx_rrweb_autostart") === "1";
-  } catch {
-    return false;
-  }
-}
-
-// =======================
 // State
 // =======================
 let started = false;
@@ -71,6 +50,7 @@ let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 
 let stopRecording: (() => void) | null = null;
+let recordStopFn: listenerHandler | undefined;
 
 let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
@@ -158,17 +138,11 @@ function flushBatchNow() {
 
   const payload = { events: batch.splice(0, batch.length) };
   const json = JSON.stringify(payload);
-  if (safeBytes(json) > MAX_PAYLOAD_BYTES) {
-    log("batch too big, dropped", safeBytes(json));
-    return;
-  }
+  if (safeBytes(json) > MAX_PAYLOAD_BYTES) return;
 
   try {
     channelRef.trigger("client-rrweb", payload);
-    log("➡️ sent client-rrweb", payload.events?.length ?? 0);
-  } catch (e) {
-    log("trigger client-rrweb failed", e);
-  }
+  } catch {}
 }
 
 function scheduleFlush() {
@@ -211,9 +185,7 @@ function persistSnapshotMetaDebounced(opts: {
           height: opts.height,
         }),
       });
-      log("✅ snapshot meta persisted");
-    } catch (e) {
-      log("snapshot meta persist failed", e);
+    } catch {
       try {
         const u = new URL(SNAPSHOT_URL);
         u.searchParams.set("organizationId", opts.orgId);
@@ -267,10 +239,7 @@ function persistVisitToDbDebounced(opts: {
           lastSeenAt: opts.lastSeenAt,
         }),
       });
-      log("✅ visit persisted");
-    } catch {
-      // best effort
-    }
+    } catch {}
   }, VISIT_DEBOUNCE_MS);
 }
 
@@ -293,9 +262,9 @@ function stopRrwebOnly() {
     stopRecording?.();
   } catch {}
   stopRecording = null;
+  recordStopFn = undefined;
 
   resetRecorderStateForNewPage();
-  log("⏹️ rrweb stopped");
 }
 
 function startRrwebRecorder(orgId: string, sessionId: string) {
@@ -303,8 +272,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
   totalEvents = 0;
   lastActivityAt = now();
-
-  log("▶️ rrweb starting…", { orgId, sessionId });
 
   const stop: listenerHandler | undefined = record({
     sampling: {
@@ -328,7 +295,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       totalEvents++;
       if (totalEvents > MAX_TOTAL_EVENTS) {
-        log("max events reached, stopping");
         stopRrwebOnly();
         return;
       }
@@ -347,7 +313,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       if (!snapshotSent) snapshotBuffer.push(event);
 
-      // =============== FULL SNAPSHOT ===============
       if (isFullSnapshot) {
         if (!snapshotSent) {
           snapshotSent = true;
@@ -360,10 +325,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
           try {
             channelRef?.trigger("client-snapshot", { events: payloadEvents });
-            log("📸 sent FIRST client-snapshot", payloadEvents.length);
-          } catch (e) {
-            log("trigger client-snapshot failed", e);
-          }
+          } catch {}
 
           persistSnapshotMetaDebounced({
             orgId,
@@ -381,10 +343,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
         try {
           channelRef?.trigger("client-snapshot", { events: payloadEvents });
-          log("📸 sent client-snapshot (refresh)", payloadEvents.length);
-        } catch (e) {
-          log("trigger client-snapshot refresh failed", e);
-        }
+        } catch {}
 
         persistSnapshotMetaDebounced({
           orgId,
@@ -398,7 +357,6 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         return;
       }
 
-      // =============== INCREMENTAL ===============
       if (!snapshotSent) return;
       if (!channelRef) return;
 
@@ -413,16 +371,14 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
     },
   });
 
+  recordStopFn = stop;
   stopRecording = stop ? (() => stop()) : null;
 
   const doSnapshot = () => {
     if (!stopRecording) return;
     try {
       (record as any).takeFullSnapshot?.();
-      log("takeFullSnapshot requested");
-    } catch (e) {
-      log("takeFullSnapshot failed", e);
-    }
+    } catch {}
   };
 
   if ("requestIdleCallback" in window) {
@@ -445,7 +401,6 @@ function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
     if (t - lastRestartAt < MIN_RESTART_INTERVAL_MS) return;
     lastRestartAt = t;
 
-    log("🔁 restart rrweb due to url change");
     startRrwebRecorder(orgId, sessionId);
   }, URL_CHANGE_DEBOUNCE_MS);
 }
@@ -530,7 +485,6 @@ function startPerfWatchdog() {
     if (document.hidden) return;
 
     if (longTaskCount >= MAX_LONGTASKS_PER_WINDOW) {
-      log("⚠️ perf watchdog triggered, stopping rrweb");
       stopRrwebOnly();
       rrwebWatching = false;
     }
@@ -760,8 +714,6 @@ function cleanup() {
   lastVisitPersistAt = 0;
 
   started = false;
-
-  log("cleanup done");
 }
 
 export function destroyVisitorTracking() {
@@ -772,8 +724,7 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   if (started) return;
   if (typeof window === "undefined") return;
 
-  // ⚠️ si tu veux enregistrer même dans iframe (pour debug), commente cette ligne.
-  // Mais attention: rrweb enregistrera l'iframe, pas la page entière.
+  // ✅ IMPORTANT: NE PAS BLOQUER EN IFRAME (ton widget y vit)
   // if (window.self !== window.top) return;
 
   started = true;
@@ -784,13 +735,6 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
 
   pages = [];
   pushPage(location.href);
-
-  log("init", {
-    orgId,
-    contactSessionId,
-    href: location.href,
-    inIframe: window.self !== window.top,
-  });
 
   const pusher = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
@@ -807,55 +751,35 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
 
   pusherRef = pusher;
 
-  pusher.connection.bind("state_change", (s: any) => {
-    log("pusher state", s?.previous, "->", s?.current);
-  });
-
-  pusher.connection.bind("error", (err: any) => {
-    log("pusher connection error", err);
-  });
-
   const channelName = `presence-org_${orgId}_session_${contactSessionId}`;
   const channel = pusher.subscribe(channelName) as Channel;
   channelRef = channel;
 
   let stopPresence: (() => void) | null = null;
 
-  // ✅ bind immediately
+  // ✅ bind immediately (avoid missing the event)
   channel.bind("server-start-rrweb", () => {
-    log("✅ received server-start-rrweb");
     if (rrwebWatching) return;
     rrwebWatching = true;
     startRrwebRecorder(orgId, contactSessionId);
   });
 
   channel.bind("server-stop-rrweb", () => {
-    log("✅ received server-stop-rrweb");
     rrwebWatching = false;
     stopRrwebOnly();
   });
 
   channel.bind("pusher:subscription_succeeded", () => {
-    log("✅ subscription_succeeded", channelName);
-
     startPerfWatchdog();
     setupCursor();
-    stopPresence = startPresenceHeartbeat(orgId, contactSessionId);
-    attachUnloadHandlers();
 
-    // ✅ optional: auto-start for debugging
-    if (shouldAutoStart()) {
-      log("AUTO START enabled -> starting rrweb now");
-      rrwebWatching = true;
-      startRrwebRecorder(orgId, contactSessionId);
-    }
+    stopPresence = startPresenceHeartbeat(orgId, contactSessionId);
 
     const startedAt = now();
     sessionStopTimer = setInterval(() => {
       if (!started) return;
       if (!rrwebWatching) return;
       if (now() - startedAt > MAX_SESSION_MS) {
-        log("max session reached -> stopping");
         rrwebWatching = false;
         stopRrwebOnly();
         if (sessionStopTimer) {
@@ -877,10 +801,11 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
       if (!rrwebWatching) return;
       restartRrwebRecorderDebounced(orgId, contactSessionId);
     });
+
+    attachUnloadHandlers();
   });
 
-  channel.bind("pusher:subscription_error", (e: any) => {
-    log("❌ subscription_error", e);
+  channel.bind("pusher:subscription_error", () => {
     try {
       stopPresence?.();
     } catch {}

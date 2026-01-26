@@ -17,10 +17,12 @@ export function useVisitorStream(opts: {
   const { orgId, sessionId, onCursor, onRrweb, onSnapshot } = opts;
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
-  const chanRef = useRef<Channel | null>(null);
+  const startedRef = useRef(false);
 
   useEffect(() => {
     if (!orgId || !sessionId) return;
+
+    startedRef.current = false;
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
@@ -37,7 +39,6 @@ export function useVisitorStream(opts: {
 
     const chanName = `presence-org_${orgId}_session_${sessionId}`;
     const ch = pusher.subscribe(chanName) as Channel;
-    chanRef.current = ch;
 
     const handleCursor = (p: Cursor) => {
       setCursor(p);
@@ -58,8 +59,10 @@ export function useVisitorStream(opts: {
     ch.bind("client-rrweb", handleInc);
     ch.bind("client-snapshot", handleSnap);
 
-    // ✅ IMPORTANT: start rrweb ONLY after we are subscribed
-    const onSub = () => {
+    const startRrweb = () => {
+      if (startedRef.current) return; // ✅ avoid multiple /rrweb start
+      startedRef.current = true;
+
       fetch("/api/realtime/rrweb", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -67,7 +70,8 @@ export function useVisitorStream(opts: {
       }).catch(() => {});
     };
 
-    ch.bind("pusher:subscription_succeeded", onSub);
+    // ✅ start only when we're actually subscribed
+    ch.bind("pusher:subscription_succeeded", startRrweb);
 
     return () => {
       // stop rrweb best-effort
@@ -78,7 +82,7 @@ export function useVisitorStream(opts: {
       }).catch(() => {});
 
       try {
-        ch.unbind("pusher:subscription_succeeded", onSub);
+        ch.unbind("pusher:subscription_succeeded", startRrweb);
         ch.unbind("client-cursor", handleCursor);
         ch.unbind("client-rrweb", handleInc);
         ch.unbind("client-snapshot", handleSnap);
@@ -91,8 +95,6 @@ export function useVisitorStream(opts: {
       try {
         pusher.disconnect();
       } catch {}
-
-      chanRef.current = null;
     };
   }, [orgId, sessionId, onCursor, onRrweb, onSnapshot]);
 
