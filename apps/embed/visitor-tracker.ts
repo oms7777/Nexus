@@ -272,10 +272,31 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         return;
       }
 
+      // =======================
+      // Incremental
+      // =======================
       if (!snapshotSent) return;
       if (!channelRef) return;
 
       batch.push(event);
+
+      // ✅ Flush immediat sur scroll / resize (pour que le live suive la position)
+      const evType = (event as any)?.type; // 3 = IncrementalSnapshot
+      const src = (event as any)?.data?.source;
+
+      const isIncremental = evType === 3;
+      const isScroll =
+        src === 3 ||
+        src === "scroll" ||
+        src === "Scroll" ||
+        src === "IncrementalSource.Scroll";
+      const isViewportResize =
+        src === 4 || src === "viewport-resize" || src === "ViewportResize";
+
+      if (isIncremental && (isScroll || isViewportResize)) {
+        flushBatchNow();
+        return;
+      }
 
       if (batch.length >= MAX_BATCH_EVENTS) {
         flushBatchNow();
