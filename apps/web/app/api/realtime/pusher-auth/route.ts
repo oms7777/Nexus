@@ -1,6 +1,6 @@
 // apps/app/src/app/api/realtime/pusher-auth/route.ts
 import { NextResponse } from "next/server";
-import Pusher, { type PresenceChannelData } from "pusher";
+import Pusher from "pusher";
 
 export const runtime = "nodejs";
 
@@ -31,6 +31,18 @@ export async function OPTIONS(req: Request) {
   return new NextResponse(null, { status: 204, headers: makeCors(origin, req) });
 }
 
+function parseBody(raw: string) {
+  // Pusher envoie généralement x-www-form-urlencoded :
+  // socket_id=...&channel_name=...
+  // Mais on supporte JSON aussi (au cas où).
+  try {
+    const j = JSON.parse(raw || "{}");
+    if (j && typeof j === "object") return j;
+  } catch {}
+  const params = new URLSearchParams(raw);
+  return Object.fromEntries(params.entries());
+}
+
 export async function POST(req: Request) {
   const origin = req.headers.get("origin");
   if (!origin) return new NextResponse("Missing origin", { status: 400 });
@@ -38,35 +50,28 @@ export async function POST(req: Request) {
   const CORS = makeCors(origin, req);
 
   try {
-    // Pusher envoie souvent x-www-form-urlencoded
     const raw = await req.text();
-    let data: any = {};
+    const data: any = parseBody(raw);
 
-    try {
-      data = JSON.parse(raw || "{}");
-    } catch {
-      const params = new URLSearchParams(raw);
-      data = Object.fromEntries(params.entries());
-    }
-
-    const channelName = String(data.channel_name || data.channelName || "");
-    const socketId = String(data.socket_id || data.socketId || "");
+    const channelName = String(data.channel_name ?? data.channelName ?? "");
+    const socketId = String(data.socket_id ?? data.socketId ?? "");
 
     if (!channelName || !socketId) {
       return new NextResponse("Bad request", { status: 400, headers: CORS });
     }
 
-    // presence-org_<orgId>_session_<sessionId>
-    const m = /^presence-org_([\w-]+)_session_([\w-]+)$/.exec(channelName);
+    // ✅ On attend EXACTEMENT : presence-org_<orgId>_session_<sessionId>
+    const m = channelName.match(/^presence-org_([\w-]+)_session_([\w-]+)$/);
     if (!m) {
       return new NextResponse("Bad channel", { status: 400, headers: CORS });
     }
 
-    // ✅ garantis string (pas string|undefined)
-    const orgId: string = m[1]!;
-    const sessionId: string = m[2]!;
+    // ✅ TS fix: m[1]/m[2] peuvent être vus comme string|undefined → on force non-null
+    const orgId = m[1]!;
+    const sessionId = m[2]!;
 
-    const presenceData: PresenceChannelData = {
+    // ✅ PresenceChannelData: user_id DOIT être string
+    const presenceData = {
       user_id: sessionId,
       user_info: { orgId, sessionId },
     };

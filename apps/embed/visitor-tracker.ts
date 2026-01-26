@@ -16,21 +16,28 @@ const PUSHER_CLUSTER = "eu";
 const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
 const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
+// Pusher client events payload limit ~10KB
 const MAX_PAYLOAD_BYTES = 9_000;
 
+// batching
 const BATCH_INTERVAL_MS = 250;
 const MAX_BATCH_EVENTS = 25;
 
+// snapshot persist debounce
 const SNAPSHOT_DEBOUNCE_MS = 300;
 
+// URL-change -> restart recorder (reliable full snapshot)
 const URL_CHANGE_DEBOUNCE_MS = 250;
 const MIN_RESTART_INTERVAL_MS = 3000;
 
+// activity / idle control
 const IDLE_PAUSE_MS = 60_000;
 
-const MAX_SESSION_MS = 12 * 60 * 1000;
+// safety limits
+const MAX_SESSION_MS = 12 * 60 * 1000; // 12 minutes max rrweb running
 const MAX_TOTAL_EVENTS = 25_000;
 
+// perf watchdog (stop rrweb if host is too slow)
 const WATCHDOG_INTERVAL_MS = 30_000;
 const MAX_LONGTASKS_PER_WINDOW = 8;
 
@@ -42,6 +49,7 @@ let started = false;
 let pusherRef: Pusher | null = null;
 let channelRef: Channel | null = null;
 
+// rrweb
 let stopRecording: (() => void) | null = null;
 let recordStopFn: listenerHandler | undefined;
 
@@ -49,44 +57,59 @@ let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 let lastMeta: eventWithTime | null = null;
 
+// cursor
 let onMoveRef: ((e: MouseEvent) => void) | null = null;
 let rafCursor = 0;
 let lastCursor: { x: number; y: number } | null = null;
 
+// incremental batching
 let batch: eventWithTime[] = [];
 let batchTimer: ReturnType<typeof setTimeout> | null = null;
 
+// snapshot persist debounce + abort
 let snapshotDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let snapshotAbort: AbortController | null = null;
 
+// URL-change hook
 let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
 let urlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastRestartAt = 0;
 
+// perf watchdog
 let longTaskObserver: PerformanceObserver | null = null;
 let longTaskCount = 0;
 let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
+// session stop timer
 let sessionStopTimer: ReturnType<typeof setInterval> | null = null;
 
+// activity
 let lastActivityAt = Date.now();
 let totalEvents = 0;
 
+// unload handlers (we REMOVE them on destroy)
 let onBeforeUnload: (() => void) | null = null;
 let onPageHide: (() => void) | null = null;
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
 }
+
 function now() {
   return Date.now();
 }
+
 function markActivity() {
   lastActivityAt = now();
 }
+
 function shouldPauseHeavy() {
   return now() - lastActivityAt > IDLE_PAUSE_MS;
+}
+
+function isNonEmptyString(v: any): v is string {
+  return typeof v === "string" && v.trim().length > 0;
 }
 
 // =======================
@@ -140,7 +163,9 @@ function persistSnapshotToDbDebounced(opts: {
           events: opts.events,
         }),
       });
-    } catch {}
+    } catch {
+      // best effort
+    }
   }, SNAPSHOT_DEBOUNCE_MS);
 }
 
@@ -184,6 +209,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
       scroll: 200,
       input: "last",
     },
+
     slimDOMOptions: {
       script: true,
       comment: true,
@@ -433,7 +459,7 @@ function detachUnloadHandlers() {
 }
 
 // =======================
-// Full cleanup
+// Cleanup
 // =======================
 function cleanup() {
   stopRrwebOnly();
@@ -530,10 +556,12 @@ export function destroyVisitorTracking() {
 // Init
 // =======================
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
+  // ✅ CRITICAL: ne démarre pas tant que orgId/sessionId ne sont pas OK
+  if (!isNonEmptyString(orgId) || !isNonEmptyString(sessionId)) return;
   if (started) return;
   if (typeof window === "undefined") return;
 
-  // never track inside widget iframe
+  // never track inside widget iframe (si tu veux tracker dans iframe, enlève ça)
   if (window.self !== window.top) return;
 
   started = true;
@@ -547,12 +575,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     disableStats: true,
     enabledTransports: ["ws", "wss"],
     disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
-
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
-      params: { orgId, sessionId },
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
     },
   });
 
@@ -594,5 +619,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     attachUnloadHandlers();
   });
 
-  channel.bind("pusher:subscription_error", () => cleanup());
+  channel.bind("pusher:subscription_error", () => {
+    cleanup();
+  });
 }
