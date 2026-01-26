@@ -1,3 +1,4 @@
+// apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -12,8 +13,9 @@ export function useVisitorStream(opts: {
   sessionId: string | Id<"contactSessions">;
   onRrweb?: (events: eventWithTime[]) => void;
   onSnapshot?: (events: eventWithTime[]) => void;
+  onPage?: (p: { href?: string; title?: string; ts?: number }) => void;
 }) {
-  const { orgId, sessionId, onRrweb, onSnapshot } = opts;
+  const { orgId, sessionId, onRrweb, onSnapshot, onPage } = opts;
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const chanRef = useRef<Channel | null>(null);
@@ -43,23 +45,33 @@ export function useVisitorStream(opts: {
 
     const onInc = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length && onRrweb) onRrweb(events);
+      if (events.length) onRrweb?.(events);
     };
 
     const onSnap = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length && onSnapshot) onSnapshot(events);
+      if (events.length) onSnapshot?.(events);
+    };
+
+    const onPg = (payload: any) => {
+      onPage?.({
+        href: payload?.href,
+        title: payload?.title,
+        ts: payload?.ts,
+      });
     };
 
     ch.bind("client-cursor", onCursor);
     ch.bind("client-rrweb", onInc);
     ch.bind("client-snapshot", onSnap);
+    ch.bind("client-page", onPg);
 
     return () => {
       try {
         ch.unbind("client-cursor", onCursor);
         ch.unbind("client-rrweb", onInc);
         ch.unbind("client-snapshot", onSnap);
+        ch.unbind("client-page", onPg);
         ch.unbind_all();
       } catch {}
       try {
@@ -70,7 +82,7 @@ export function useVisitorStream(opts: {
       } catch {}
       chanRef.current = null;
     };
-  }, [orgId, sessionId, onRrweb, onSnapshot]);
+  }, [orgId, sessionId, onRrweb, onSnapshot, onPage]);
 
   return { cursor };
 }

@@ -1,3 +1,4 @@
+// LiveVisitorView.tsx (ton fichier actuel) — version FIX live scroll
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";
@@ -11,7 +12,6 @@ import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 type Cursor = { x: number; y: number };
 
 function extractMeta(events: eventWithTime[]) {
-  // rrweb: Meta event type = 4
   const meta = events.find((e: any) => e?.type === 4) as any;
   const full = events.find((e: any) => e?.type === 2) as any;
   const src = meta?.data ?? full?.data ?? {};
@@ -34,32 +34,27 @@ export function LiveVisitorView({
   orgId: string;
   sessionId: Id<"contactSessions">;
 }) {
-  const outerRef = useRef<HTMLDivElement | null>(null); // viewport container
-  const stageRef = useRef<HTMLDivElement | null>(null); // scaled rrweb root
+  const outerRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
 
-  // queue processing (anti-freeze)
   const queueRef = useRef<eventWithTime[]>([]);
   const rafRef = useRef<number>(0);
   const processingRef = useRef(false);
 
-  // source page dims
   const sourceRef = useRef<{ width: number; height: number } | null>(null);
 
-  // layout state (scale + offset)
   const layoutRef = useRef<{ scale: number; ox: number; oy: number }>({
     scale: 1,
     ox: 0,
     oy: 0,
   });
 
-  // anti jitter
   const lastAppliedRef = useRef<string>("");
 
   const MAX_QUEUE = 5_000;
-  const MAX_PER_FRAME = 120;
+  const MAX_PER_FRAME = 180;
 
-  // latest snapshot from DB
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
       sessionId,
@@ -84,10 +79,7 @@ export function LiveVisitorView({
       outer.appendChild(stage);
     }
 
-    // hide rrweb cursor to avoid double cursor
-    const existingStyle = outer.querySelector(
-      "style[data-hide-rrweb-mouse='1']",
-    );
+    const existingStyle = outer.querySelector("style[data-hide-rrweb-mouse='1']");
     if (!existingStyle) {
       const style = document.createElement("style");
       style.setAttribute("data-hide-rrweb-mouse", "1");
@@ -121,16 +113,13 @@ export function LiveVisitorView({
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    // scale to fit (never upscale above 1 for stability)
     const scale = Math.min(vw / src.width, vh / src.height, 1);
 
-    // center
     const contentW = src.width * scale;
     const contentH = src.height * scale;
     const ox = Math.max(0, (vw - contentW) / 2);
     const oy = Math.max(0, (vh - contentH) / 2);
 
-    // round to reduce micro oscillations
     const s = Math.round(scale * 10000) / 10000;
     const x = Math.round(ox * 10) / 10;
     const y = Math.round(oy * 10) / 10;
@@ -189,18 +178,23 @@ export function LiveVisitorView({
         800;
 
       sourceRef.current = { width, height };
-
       stage.style.width = `${width}px`;
       stage.style.height = `${height}px`;
 
       try {
+        // ✅ CRITICAL: liveMode => scroll + mutations apply instantly on addEvent
         const replayer = new Replayer(events, {
           root: stage,
           mouseTail: false as any,
+          liveMode: true,
         } as any);
 
         replayerRef.current = replayer;
-        replayer.play();
+
+        // ✅ use startLive when available, else fallback
+        const anyR: any = replayer;
+        if (typeof anyR.startLive === "function") anyR.startLive();
+        else replayer.play();
       } catch {
         replayerRef.current = null;
       }
@@ -210,7 +204,6 @@ export function LiveVisitorView({
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
   );
 
-  // Init from latest snapshot DB
   useEffect(() => {
     if (!latest?.snapshot) return;
 
@@ -224,7 +217,6 @@ export function LiveVisitorView({
     }
   }, [latest?.snapshot, ensureStage, bootFromEvents]);
 
-  // ResizeObserver for stable layout updates
   useEffect(() => {
     const outer = outerRef.current;
     if (!outer) return;
@@ -266,7 +258,21 @@ export function LiveVisitorView({
         try {
           // ignore full snapshot in incremental stream
           if ((e as any)?.type === 2) continue;
+
           r.addEvent(e);
+
+          // if viewport changed, layout can change
+          const t = (e as any)?.type;
+          const src = (e as any)?.data?.source;
+          const isMetaOrResize =
+            t === 4 ||
+            (t === 3 &&
+              (src === 4 ||
+                src === "viewport-resize" ||
+                src === "ViewportResize" ||
+                src === "IncrementalSource.ViewportResize"));
+
+          if (isMetaOrResize) requestAnimationFrame(() => applyLayout());
         } catch {}
         count++;
       }
@@ -279,7 +285,7 @@ export function LiveVisitorView({
     };
 
     rafRef.current = requestAnimationFrame(tick);
-  }, []);
+  }, [applyLayout]);
 
   const onRrweb = useCallback(
     (events: eventWithTime[]) => {
@@ -300,15 +306,12 @@ export function LiveVisitorView({
 
   const onSnapshot = useCallback(
     (events: eventWithTime[]) => {
-      // ignore meta-only
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
-
       bootFromEvents(events);
     },
     [bootFromEvents],
   );
 
-  // ✅ no cast needed if your hook accepts string | Id<...>
   const { cursor } = useVisitorStream({
     orgId,
     sessionId,
@@ -316,7 +319,6 @@ export function LiveVisitorView({
     onSnapshot,
   });
 
-  // ✅ compute cursor in render (refs are always fresh)
   let cursorPx: { left: number; top: number } | null = null;
   const src = sourceRef.current;
 

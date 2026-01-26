@@ -112,21 +112,55 @@ function isNonEmptyString(v: any): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+function getPageContext() {
+  try {
+    return {
+      href: typeof location !== "undefined" ? location.href : undefined,
+      title: typeof document !== "undefined" ? document.title : undefined,
+    };
+  } catch {
+    return { href: undefined, title: undefined };
+  }
+}
+
 // =======================
 // Networking
 // =======================
+
+// ✅ IMPORTANT: never drop the whole batch if too big.
+// Instead, chunk it into smaller payloads under MAX_PAYLOAD_BYTES.
 function flushBatchNow() {
   if (!channelRef || !snapshotSent) return;
   if (!batch.length) return;
 
-  const payload = { events: batch.splice(0, batch.length) };
-  const json = JSON.stringify(payload);
-
-  if (safeBytes(json) > MAX_PAYLOAD_BYTES) return;
-
   try {
-    channelRef.trigger("client-rrweb", payload);
-  } catch {}
+    while (batch.length) {
+      // Try to send up to MAX_BATCH_EVENTS per chunk, but size-bound.
+      const chunk: eventWithTime[] = [];
+      while (batch.length && chunk.length < MAX_BATCH_EVENTS) {
+        const candidate = batch[0];
+        if (!candidate) break; // ✅ TS guard
+
+        const testPayload = { events: [...chunk, candidate] };
+        const testJson = JSON.stringify(testPayload);
+
+        if (safeBytes(testJson) > MAX_PAYLOAD_BYTES) break;
+
+        chunk.push(candidate);
+        batch.shift();
+      }
+
+      // If we couldn't fit even 1 event, drop that single event (it’s too large)
+      if (!chunk.length) {
+        batch.shift();
+        continue;
+      }
+
+      channelRef.trigger("client-rrweb", { events: chunk });
+    }
+  } catch {
+    // best effort
+  }
 }
 
 function scheduleFlush() {
@@ -152,6 +186,8 @@ function persistSnapshotToDbDebounced(opts: {
     } catch {}
     snapshotAbort = new AbortController();
 
+    const ctx = getPageContext();
+
     try {
       await fetch(SNAPSHOT_URL, {
         method: "POST",
@@ -161,6 +197,8 @@ function persistSnapshotToDbDebounced(opts: {
           organizationId: opts.orgId,
           sessionId: opts.sessionId,
           events: opts.events,
+          pageUrl: ctx.href,
+          title: ctx.title,
         }),
       });
     } catch {
@@ -196,6 +234,20 @@ function stopRrwebOnly() {
   resetRecorderStateForNewPage();
 }
 
+function emitPageEvent() {
+  if (!channelRef) return;
+  const ctx = getPageContext();
+  if (!ctx.href) return;
+
+  try {
+    channelRef.trigger("client-page", {
+      href: ctx.href,
+      title: ctx.title,
+      ts: now(),
+    });
+  } catch {}
+}
+
 function startRrwebRecorder(orgId: string, sessionId: string) {
   stopRrwebOnly();
 
@@ -229,14 +281,50 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         return;
       }
 
-      if (shouldPauseHeavy()) {
-        const t = (event as any)?.type;
-        if (t !== 4 && t !== 2) return;
-      }
+      // =======================
+      // Idle gating (do NOT kill scroll/resize/click/input)
+      // =======================
+      const type = (event as any)?.type;
+      const src = (event as any)?.data?.source;
 
+      const isIncremental = type === 3; // IncrementalSnapshot
+
+      const isScroll =
+        src === 3 ||
+        src === "scroll" ||
+        src === "Scroll" ||
+        src === "IncrementalSource.Scroll";
+
+      const isViewportResize =
+        src === 4 || src === "viewport-resize" || src === "ViewportResize";
+
+      // mouse interaction + input sources (cover string + numeric)
+      const isMouseInteraction =
+        src === 2 ||
+        src === "mouse-interaction" ||
+        src === "MouseInteraction" ||
+        src === "IncrementalSource.MouseInteraction";
+
+      const isInput =
+        src === 5 ||
+        src === "input" ||
+        src === "Input" ||
+        src === "IncrementalSource.Input";
+
+      // mark activity early
       markActivity();
 
-      const type = (event as any)?.type;
+      if (shouldPauseHeavy()) {
+        const allow =
+          type === 4 || // Meta
+          type === 2 || // FullSnapshot
+          (isIncremental &&
+            (isScroll || isViewportResize || isMouseInteraction || isInput));
+
+        if (!allow) return;
+      }
+
+      // rrweb meta
       if (type === 4) lastMeta = event;
 
       const isFullSnapshot = type === 2;
@@ -256,7 +344,12 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
           persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
           try {
-            channelRef?.trigger("client-snapshot", { events: payloadEvents });
+            const ctx = getPageContext();
+            channelRef?.trigger("client-snapshot", {
+              events: payloadEvents,
+              pageUrl: ctx.href,
+              title: ctx.title,
+            });
           } catch {}
 
           return;
@@ -266,16 +359,30 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
         try {
-          channelRef?.trigger("client-snapshot", { events: payloadEvents });
+          const ctx = getPageContext();
+          channelRef?.trigger("client-snapshot", {
+            events: payloadEvents,
+            pageUrl: ctx.href,
+            title: ctx.title,
+          });
         } catch {}
 
         return;
       }
 
+      // =======================
+      // Incremental
+      // =======================
       if (!snapshotSent) return;
       if (!channelRef) return;
 
       batch.push(event);
+
+      // ✅ flush immediately on scroll/resize so the live view follows instantly
+      if (isIncremental && (isScroll || isViewportResize)) {
+        flushBatchNow();
+        return;
+      }
 
       if (batch.length >= MAX_BATCH_EVENTS) {
         flushBatchNow();
@@ -556,7 +663,6 @@ export function destroyVisitorTracking() {
 // Init
 // =======================
 export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
-  // ✅ CRITICAL: ne démarre pas tant que orgId/sessionId ne sont pas OK
   if (!isNonEmptyString(orgId) || !isNonEmptyString(sessionId)) return;
   if (started) return;
   if (typeof window === "undefined") return;
@@ -578,6 +684,7 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
+      params: { orgId, sessionId },
     },
   });
 
@@ -589,6 +696,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
   channel.bind("pusher:subscription_succeeded", () => {
     startPerfWatchdog();
+
+    // push current page ASAP
+    emitPageEvent();
 
     const startedAt = now();
     sessionStopTimer = setInterval(() => {
@@ -611,6 +721,8 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
       lastHref = href;
       markActivity();
+
+      emitPageEvent();
 
       if (!channelRef) return;
       if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
