@@ -112,6 +112,17 @@ function isNonEmptyString(v: any): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+function getPageContext() {
+  try {
+    return {
+      href: typeof location !== "undefined" ? location.href : undefined,
+      title: typeof document !== "undefined" ? document.title : undefined,
+    };
+  } catch {
+    return { href: undefined, title: undefined };
+  }
+}
+
 // =======================
 // Networking
 // =======================
@@ -152,6 +163,8 @@ function persistSnapshotToDbDebounced(opts: {
     } catch {}
     snapshotAbort = new AbortController();
 
+    const ctx = getPageContext();
+
     try {
       await fetch(SNAPSHOT_URL, {
         method: "POST",
@@ -160,7 +173,11 @@ function persistSnapshotToDbDebounced(opts: {
         body: JSON.stringify({
           organizationId: opts.orgId,
           sessionId: opts.sessionId,
+          // ✅ keep original field name
           events: opts.events,
+          // ✅ extra context (safe to ignore server-side if not used)
+          pageUrl: ctx.href,
+          title: ctx.title,
         }),
       });
     } catch {
@@ -194,6 +211,20 @@ function stopRrwebOnly() {
   recordStopFn = undefined;
 
   resetRecorderStateForNewPage();
+}
+
+function emitPageEvent() {
+  if (!channelRef) return;
+  const ctx = getPageContext();
+  if (!ctx.href) return;
+
+  try {
+    channelRef.trigger("client-page", {
+      href: ctx.href,
+      title: ctx.title,
+      ts: now(),
+    });
+  } catch {}
 }
 
 function startRrwebRecorder(orgId: string, sessionId: string) {
@@ -256,7 +287,12 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
           persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
           try {
-            channelRef?.trigger("client-snapshot", { events: payloadEvents });
+            const ctx = getPageContext();
+            channelRef?.trigger("client-snapshot", {
+              events: payloadEvents,
+              pageUrl: ctx.href,
+              title: ctx.title,
+            });
           } catch {}
 
           return;
@@ -266,16 +302,42 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
         try {
-          channelRef?.trigger("client-snapshot", { events: payloadEvents });
+          const ctx = getPageContext();
+          channelRef?.trigger("client-snapshot", {
+            events: payloadEvents,
+            pageUrl: ctx.href,
+            title: ctx.title,
+          });
         } catch {}
 
         return;
       }
 
+      // =======================
+      // Incremental
+      // =======================
       if (!snapshotSent) return;
       if (!channelRef) return;
 
       batch.push(event);
+
+      // ✅ Flush immediat sur scroll / resize (pour que le live suive la position)
+      const evType = (event as any)?.type; // 3 = IncrementalSnapshot
+      const src = (event as any)?.data?.source;
+
+      const isIncremental = evType === 3;
+      const isScroll =
+        src === 3 ||
+        src === "scroll" ||
+        src === "Scroll" ||
+        src === "IncrementalSource.Scroll";
+      const isViewportResize =
+        src === 4 || src === "viewport-resize" || src === "ViewportResize";
+
+      if (isIncremental && (isScroll || isViewportResize)) {
+        flushBatchNow();
+        return;
+      }
 
       if (batch.length >= MAX_BATCH_EVENTS) {
         flushBatchNow();
@@ -578,6 +640,8 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
+      // ✅ garde ces params (même si ton auth peut parser le channelName, ça aide pour debug/future)
+      params: { orgId, sessionId },
     },
   });
 
@@ -589,6 +653,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
   channel.bind("pusher:subscription_succeeded", () => {
     startPerfWatchdog();
+
+    // ✅ emit page context ASAP (utile pour current page / current url côté UI)
+    emitPageEvent();
 
     const startedAt = now();
     sessionStopTimer = setInterval(() => {
@@ -611,6 +678,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
       lastHref = href;
       markActivity();
+
+      // ✅ push current page immediately (en plus du restart snapshot)
+      emitPageEvent();
 
       if (!channelRef) return;
       if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
