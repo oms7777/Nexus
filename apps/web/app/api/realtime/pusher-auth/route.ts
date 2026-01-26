@@ -1,6 +1,6 @@
 // apps/app/src/app/api/realtime/pusher-auth/route.ts
 import { NextResponse } from "next/server";
-import Pusher from "pusher";
+import Pusher, { type PresenceChannelData } from "pusher";
 
 export const runtime = "nodejs";
 
@@ -41,6 +41,7 @@ export async function POST(req: Request) {
     // Pusher envoie souvent x-www-form-urlencoded
     const raw = await req.text();
     let data: any = {};
+
     try {
       data = JSON.parse(raw || "{}");
     } catch {
@@ -48,29 +49,25 @@ export async function POST(req: Request) {
       data = Object.fromEntries(params.entries());
     }
 
-    const channelName: string = data.channel_name || data.channelName || "";
-    const socketId: string = data.socket_id || data.socketId || "";
-    const orgId: string | undefined = data.orgId;
-    const sessionId: string | undefined = data.sessionId;
+    const channelName = String(data.channel_name || data.channelName || "");
+    const socketId = String(data.socket_id || data.socketId || "");
 
-    if (!orgId) return new NextResponse("Missing orgId", { status: 400, headers: CORS });
+    if (!channelName || !socketId) {
+      return new NextResponse("Bad request", { status: 400, headers: CORS });
+    }
 
-    // ✅ validate channel format
-    if (
-      typeof channelName !== "string" ||
-      typeof socketId !== "string" ||
-      !/^presence\-org_[\w-]+_session_[\w-]+$/.test(channelName)
-    ) {
+    // presence-org_<orgId>_session_<sessionId>
+    const m = /^presence-org_([\w-]+)_session_([\w-]+)$/.exec(channelName);
+    if (!m) {
       return new NextResponse("Bad channel", { status: 400, headers: CORS });
     }
 
-    // ✅ safety: channel must match orgId
-    if (!channelName.startsWith(`presence-org_${orgId}_session_`)) {
-      return new NextResponse("Channel/org mismatch", { status: 403, headers: CORS });
-    }
+    // ✅ garantis string (pas string|undefined)
+    const orgId: string = m[1]!;
+    const sessionId: string = m[2]!;
 
-    const presenceData = {
-      user_id: sessionId ?? "anon",
+    const presenceData: PresenceChannelData = {
+      user_id: sessionId,
       user_info: { orgId, sessionId },
     };
 
