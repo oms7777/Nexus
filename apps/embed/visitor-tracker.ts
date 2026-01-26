@@ -260,14 +260,32 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         return;
       }
 
-      if (shouldPauseHeavy()) {
-        const t = (event as any)?.type;
-        if (t !== 4 && t !== 2) return;
-      }
+      // =======================
+      // Idle gating (keep scroll/resize real-time)
+      // =======================
+      const type = (event as any)?.type;
+      const src = (event as any)?.data?.source;
 
+      const isIncremental = type === 3; // IncrementalSnapshot
+      const isScroll =
+        src === 3 ||
+        src === "scroll" ||
+        src === "Scroll" ||
+        src === "IncrementalSource.Scroll";
+      const isViewportResize =
+        src === 4 || src === "viewport-resize" || src === "ViewportResize";
+
+      // ✅ mark activity EARLY so scroll/resize exits idle
       markActivity();
 
-      const type = (event as any)?.type;
+      // ✅ if idle: only allow meta/full snapshot + scroll/resize incrementals
+      if (shouldPauseHeavy()) {
+        const allow =
+          type === 4 || type === 2 || (isIncremental && (isScroll || isViewportResize));
+        if (!allow) return;
+      }
+
+      // rrweb meta
       if (type === 4) lastMeta = event;
 
       const isFullSnapshot = type === 2;
@@ -321,19 +339,8 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       batch.push(event);
 
-      // ✅ Flush immediat sur scroll / resize (pour que le live suive la position)
-      const evType = (event as any)?.type; // 3 = IncrementalSnapshot
-      const src = (event as any)?.data?.source;
-
-      const isIncremental = evType === 3;
-      const isScroll =
-        src === 3 ||
-        src === "scroll" ||
-        src === "Scroll" ||
-        src === "IncrementalSource.Scroll";
-      const isViewportResize =
-        src === 4 || src === "viewport-resize" || src === "ViewportResize";
-
+      // ✅ flush immediat sur scroll / resize (pour que le live suive la position)
+      // (on réutilise isIncremental/isScroll/isViewportResize calculés plus haut)
       if (isIncremental && (isScroll || isViewportResize)) {
         flushBatchNow();
         return;
