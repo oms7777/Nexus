@@ -60,13 +60,9 @@ export default function LiveMapView() {
     [filtered, selectedId],
   );
 
-  /**
-   * ✅ IMPORTANT
-   * Ton LiveVisitorView doit écouter EXACTEMENT le même ID que l’embed utilise
-   * pour le channel Pusher: contactSessionId
-   */
-  const streamSessionId: string | null = selected?.streamSessionId
-    ? String(selected.streamSessionId)
+  // ✅ IMPORTANT: le channel Pusher côté embed utilise contactSessionId
+  const streamSessionId: string | null = (selected as any)?.contactSessionId
+    ? String((selected as any).contactSessionId)
     : null;
 
   const pages: string[] = Array.isArray((selected as any)?.pages)
@@ -93,7 +89,7 @@ export default function LiveMapView() {
         </div>
 
         <div className="flex-1 overflow-auto">
-          {filtered.map((v) => (
+          {filtered.map((v: any) => (
             <button
               key={v._id}
               onClick={() => setSelectedId(v._id)}
@@ -129,11 +125,13 @@ export default function LiveMapView() {
         <aside className="w-[460px] border-l bg-background p-3 hidden xl:block overflow-auto">
           <div className="mb-2">
             <div className="text-sm font-medium">
-              {selected?.name || "Visitor"}
+              {(selected as any)?.name || "Visitor"}
             </div>
             <div className="text-xs text-muted-foreground">
-              {selected?.city ?? "—"}
-              {selected?.countryCode ? `, ${selected.countryCode}` : ""}
+              {(selected as any)?.city ?? "—"}
+              {(selected as any)?.countryCode
+                ? `, ${(selected as any).countryCode}`
+                : ""}
             </div>
           </div>
 
@@ -143,21 +141,23 @@ export default function LiveMapView() {
             height={520}
           />
 
-          {selected?.currentUrl ? (
+          {(selected as any)?.currentUrl ? (
             <a
-              href={selected.currentUrl}
+              href={(selected as any).currentUrl}
               target="_blank"
               rel="noreferrer"
               className="mt-3 mb-3 block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
-              title={selected.currentUrl}
+              title={(selected as any).currentUrl}
             >
               <div className="text-[11px] text-muted-foreground mb-1">
                 Current page
               </div>
-              <div className="truncate font-medium">{selected.currentUrl}</div>
-              {selected?.title ? (
+              <div className="truncate font-medium">
+                {(selected as any).currentUrl}
+              </div>
+              {(selected as any)?.title ? (
                 <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                  {selected.title}
+                  {(selected as any).title}
                 </div>
               ) : null}
             </a>

@@ -9,7 +9,7 @@ type Cursor = { x: number; y: number };
 
 export function useVisitorStream(opts: {
   orgId: string;
-  sessionId: string; // stream session id (for Pusher presence channel)
+  sessionId: string; // MUST match embed contactSessionId
   onCursor?: (cursor: Cursor) => void;
   onRrweb?: (events: eventWithTime[]) => void;
   onSnapshot?: (events: eventWithTime[]) => void;
@@ -21,23 +21,6 @@ export function useVisitorStream(opts: {
 
   useEffect(() => {
     if (!orgId || !sessionId) return;
-
-    let gotFirstSnapshot = false;
-    let startTimer: ReturnType<typeof setInterval> | null = null;
-
-    const requestStart = () =>
-      fetch("/api/realtime/rrweb", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId, sessionId, action: "start" }),
-      }).catch(() => {});
-
-    const requestStop = () =>
-      fetch("/api/realtime/rrweb", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId, sessionId, action: "stop" }),
-      }).catch(() => {});
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
@@ -68,43 +51,34 @@ export function useVisitorStream(opts: {
 
     const handleSnap = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length) {
-        gotFirstSnapshot = true;
-        onSnapshot?.(events);
-      }
+      if (events.length) onSnapshot?.(events);
     };
 
     ch.bind("client-cursor", handleCursor);
     ch.bind("client-rrweb", handleInc);
     ch.bind("client-snapshot", handleSnap);
 
-    // ✅ START rrweb only when viewer subscription is READY + retry until snapshot
-    ch.bind("pusher:subscription_succeeded", () => {
-      requestStart();
+    // ✅ IMPORTANT: start rrweb ONLY after we are subscribed
+    const onSub = () => {
+      fetch("/api/realtime/rrweb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, sessionId, action: "start" }),
+      }).catch(() => {});
+    };
 
-      let attempts = 0;
-      startTimer = setInterval(() => {
-        attempts++;
-
-        if (gotFirstSnapshot || attempts > 10) {
-          if (startTimer) clearInterval(startTimer);
-          startTimer = null;
-          return;
-        }
-
-        requestStart();
-      }, 1000);
-    });
+    ch.bind("pusher:subscription_succeeded", onSub);
 
     return () => {
-      if (startTimer) {
-        clearInterval(startTimer);
-        startTimer = null;
-      }
-
-      requestStop();
+      // stop rrweb best-effort
+      fetch("/api/realtime/rrweb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, sessionId, action: "stop" }),
+      }).catch(() => {});
 
       try {
+        ch.unbind("pusher:subscription_succeeded", onSub);
         ch.unbind("client-cursor", handleCursor);
         ch.unbind("client-rrweb", handleInc);
         ch.unbind("client-snapshot", handleSnap);

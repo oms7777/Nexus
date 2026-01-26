@@ -22,7 +22,6 @@ export const getActiveVisitors = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .collect();
 
-    // 1) filter actives + has geo
     const active = sessions.filter(
       (s) =>
         (s.expiresAt ?? 0) > now &&
@@ -30,7 +29,6 @@ export const getActiveVisitors = query({
         typeof s.metadata?.lng === "number",
     );
 
-    // 2) dedup by stable visitor key
     const bestByKey = new Map<string, (typeof active)[number]>();
 
     const stableKeyFor = (s: any) => {
@@ -56,14 +54,12 @@ export const getActiveVisitors = query({
         continue;
       }
 
-      // keep the "most alive"
       if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
     }
 
     const deduped = Array.from(bestByKey.values());
-
     const results: any[] = [];
 
     for (const s of deduped) {
@@ -73,7 +69,6 @@ export const getActiveVisitors = query({
         ? ((md as any).pages as string[]).filter(Boolean)
         : [];
 
-      // latest snapshot by (sessionId, ts)
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
@@ -98,8 +93,9 @@ export const getActiveVisitors = query({
 
       const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
 
-      // ✅ IMPORTANT: force stream id to Convex session id (matches widget tracker)
-      const streamSessionId = String(s._id);
+      // ✅ IMPORTANT: un seul id pour le channel Pusher = contactSessionId (Convex _id)
+      const contactSessionId = String(s._id);
+      const streamSessionId = contactSessionId;
 
       const externalSessionId = (s as any).externalSessionId as
         | string
@@ -127,13 +123,10 @@ export const getActiveVisitors = query({
 
         timeOnSiteMs: now - s._creationTime,
 
-        // ✅ Convex session id for DB queries
-        contactSessionId: s._id,
+        contactSessionId, // string
+        streamSessionId, // ✅ identique à contactSessionId
 
-        // ✅ Stream id for Pusher channels (matches widget)
-        streamSessionId,
         externalSessionId: externalSessionId ?? null,
-
         conversationId: (s as any).conversationId ?? null,
         lastSeen,
       });
