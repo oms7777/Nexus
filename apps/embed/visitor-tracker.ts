@@ -9,21 +9,19 @@ type VisitorTrackingOptions = {
 };
 
 // =======================
-// Config
+// Config (from Vite env)
 // =======================
-const PUSHER_KEY = "913d0c824be3b5eb38bc";
-const PUSHER_CLUSTER = "eu";
-const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
+const PUSHER_KEY = (import.meta as any).env?.VITE_PUSHER_KEY as string | undefined;
+const PUSHER_CLUSTER = (import.meta as any).env?.VITE_PUSHER_CLUSTER as string | undefined;
+const PUSHER_AUTH_URL = (import.meta as any).env?.VITE_PUSHER_AUTH_URL as string | undefined;
 
-const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 const VISIT_URL = "https://app.inboundless.co/api/tracker/visit";
 
+// Pusher client events payload should be < 10KB. Keep margin.
 const MAX_PAYLOAD_BYTES = 9_000;
 
 const BATCH_INTERVAL_MS = 250;
 const MAX_BATCH_EVENTS = 25;
-
-const SNAPSHOT_DEBOUNCE_MS = 350;
 
 const URL_CHANGE_DEBOUNCE_MS = 250;
 const MIN_RESTART_INTERVAL_MS = 3000;
@@ -52,6 +50,7 @@ let channelRef: Channel | null = null;
 let stopRecording: (() => void) | null = null;
 let recordStopFn: listenerHandler | undefined;
 
+// rrweb gating: do not send incremental events until we sent a full snapshot
 let snapshotSent = false;
 let snapshotBuffer: eventWithTime[] = [];
 let lastMeta: eventWithTime | null = null;
@@ -64,9 +63,6 @@ let lastCursor: { x: number; y: number } | null = null;
 
 let batch: eventWithTime[] = [];
 let batchTimer: ReturnType<typeof setTimeout> | null = null;
-
-let snapshotDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-let snapshotAbort: AbortController | null = null;
 
 let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
@@ -91,6 +87,18 @@ let lastVisitPersistAt = 0;
 let visitAbort: AbortController | null = null;
 
 let presenceTimer: ReturnType<typeof setInterval> | null = null;
+
+function assertConfig() {
+  if (!PUSHER_KEY || !PUSHER_CLUSTER || !PUSHER_AUTH_URL) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[visitor-tracker] Missing VITE_PUSHER_* env. " +
+        "Set VITE_PUSHER_KEY / VITE_PUSHER_CLUSTER / VITE_PUSHER_AUTH_URL in apps/embed."
+    );
+    return false;
+  }
+  return true;
+}
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
@@ -153,56 +161,6 @@ function scheduleFlush() {
   }, BATCH_INTERVAL_MS);
 }
 
-function persistSnapshotMetaDebounced(opts: {
-  orgId: string;
-  sessionId: string;
-  pageUrl: string;
-  title?: string;
-  width?: number;
-  height?: number;
-}) {
-  if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
-
-  snapshotDebounceTimer = setTimeout(async () => {
-    snapshotDebounceTimer = null;
-
-    try {
-      snapshotAbort?.abort();
-    } catch {}
-    snapshotAbort = new AbortController();
-
-    try {
-      await fetch(SNAPSHOT_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: snapshotAbort.signal,
-        body: JSON.stringify({
-          organizationId: opts.orgId,
-          sessionId: opts.sessionId,
-          pageUrl: opts.pageUrl,
-          title: opts.title,
-          width: opts.width,
-          height: opts.height,
-        }),
-      });
-    } catch {
-      try {
-        const u = new URL(SNAPSHOT_URL);
-        u.searchParams.set("organizationId", opts.orgId);
-        u.searchParams.set("sessionId", opts.sessionId);
-        u.searchParams.set("pageUrl", opts.pageUrl);
-        if (opts.title) u.searchParams.set("title", opts.title);
-        if (typeof opts.width === "number")
-          u.searchParams.set("width", String(opts.width));
-        if (typeof opts.height === "number")
-          u.searchParams.set("height", String(opts.height));
-        const img = new Image();
-        img.src = u.toString();
-      } catch {}
-    }
-  }, SNAPSHOT_DEBOUNCE_MS);
-}
-
 function persistVisitToDbDebounced(opts: {
   orgId: string;
   sessionId: string;
@@ -241,6 +199,25 @@ function persistVisitToDbDebounced(opts: {
       });
     } catch {}
   }, VISIT_DEBOUNCE_MS);
+}
+
+function persistPresenceNow(orgId: string, sessionId: string) {
+  try {
+    const href = location.href;
+    const title = document.title;
+    const ts = now();
+
+    pushPage(href);
+
+    persistVisitToDbDebounced({
+      orgId,
+      sessionId,
+      pageUrl: href,
+      title,
+      pages: [...pages],
+      lastSeenAt: ts,
+    });
+  } catch {}
 }
 
 function resetRecorderStateForNewPage() {
@@ -301,6 +278,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       if (shouldPauseHeavy()) {
         const t = (event as any)?.type;
+        // keep meta + full snapshot, skip noisy stuff when idle
         if (t !== 4 && t !== 2) return;
       }
 
@@ -314,6 +292,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
       if (!snapshotSent) snapshotBuffer.push(event);
 
       if (isFullSnapshot) {
+        // 1) first full snapshot => send buffered + ensure meta
         if (!snapshotSent) {
           snapshotSent = true;
 
@@ -327,36 +306,24 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
             channelRef?.trigger("client-snapshot", { events: payloadEvents });
           } catch {}
 
-          persistSnapshotMetaDebounced({
-            orgId,
-            sessionId,
-            pageUrl: location.href,
-            title: document.title,
-            width: window.innerWidth,
-            height: window.innerHeight,
-          });
-
+          // Option B: persist only via /visit
+          persistPresenceNow(orgId, sessionId);
           return;
         }
 
+        // 2) subsequent full snapshots: send [meta + snapshot] or snapshot
         const payloadEvents = lastMeta ? [lastMeta, event] : [event];
 
         try {
           channelRef?.trigger("client-snapshot", { events: payloadEvents });
         } catch {}
 
-        persistSnapshotMetaDebounced({
-          orgId,
-          sessionId,
-          pageUrl: location.href,
-          title: document.title,
-          width: window.innerWidth,
-          height: window.innerHeight,
-        });
-
+        // Option B: persist only via /visit
+        persistPresenceNow(orgId, sessionId);
         return;
       }
 
+      // No incremental events until we have a full snapshot
       if (!snapshotSent) return;
       if (!channelRef) return;
 
@@ -374,6 +341,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
   recordStopFn = stop;
   stopRecording = stop ? (() => stop()) : null;
 
+  // force first snapshot soon
   const doSnapshot = () => {
     if (!stopRecording) return;
     try {
@@ -493,34 +461,6 @@ function startPerfWatchdog() {
   }, WATCHDOG_INTERVAL_MS);
 }
 
-function persistPresenceNow(orgId: string, sessionId: string) {
-  try {
-    const href = location.href;
-    const title = document.title;
-    const ts = now();
-
-    pushPage(href);
-
-    persistVisitToDbDebounced({
-      orgId,
-      sessionId,
-      pageUrl: href,
-      title,
-      pages: [...pages],
-      lastSeenAt: ts,
-    });
-
-    persistSnapshotMetaDebounced({
-      orgId,
-      sessionId,
-      pageUrl: href,
-      title,
-      width: window.innerWidth,
-      height: window.innerHeight,
-    });
-  } catch {}
-}
-
 function startPresenceHeartbeat(orgId: string, sessionId: string) {
   persistPresenceNow(orgId, sessionId);
 
@@ -564,9 +504,6 @@ function attachUnloadHandlers() {
       stopRrwebOnly();
     } catch {}
     try {
-      snapshotAbort?.abort();
-    } catch {}
-    try {
       visitAbort?.abort();
     } catch {}
   };
@@ -577,9 +514,6 @@ function attachUnloadHandlers() {
     } catch {}
     try {
       stopRrwebOnly();
-    } catch {}
-    try {
-      snapshotAbort?.abort();
     } catch {}
     try {
       visitAbort?.abort();
@@ -635,24 +569,12 @@ function cleanup() {
   rafCursor = 0;
   lastCursor = null;
 
-  if (snapshotDebounceTimer) {
-    try {
-      clearTimeout(snapshotDebounceTimer);
-    } catch {}
-  }
-  snapshotDebounceTimer = null;
-
   if (visitDebounceTimer) {
     try {
       clearTimeout(visitDebounceTimer);
     } catch {}
   }
   visitDebounceTimer = null;
-
-  try {
-    snapshotAbort?.abort();
-  } catch {}
-  snapshotAbort = null;
 
   try {
     visitAbort?.abort();
@@ -724,8 +646,7 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   if (started) return;
   if (typeof window === "undefined") return;
 
-  // ✅ IMPORTANT: NE PAS BLOQUER EN IFRAME (ton widget y vit)
-  // if (window.self !== window.top) return;
+  if (!assertConfig()) return;
 
   started = true;
   lastHref = location.href;
@@ -736,14 +657,14 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
   pages = [];
   pushPage(location.href);
 
-  const pusher = new Pusher(PUSHER_KEY, {
-    cluster: PUSHER_CLUSTER,
+  const pusher = new Pusher(PUSHER_KEY!, {
+    cluster: PUSHER_CLUSTER!,
     forceTLS: true,
     disableStats: true,
     enabledTransports: ["ws", "wss"],
     disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
     channelAuthorization: {
-      endpoint: PUSHER_AUTH_URL,
+      endpoint: PUSHER_AUTH_URL!,
       transport: "ajax",
       params: { orgId, sessionId: contactSessionId },
     } as any,
@@ -757,10 +678,13 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
 
   let stopPresence: (() => void) | null = null;
 
-  // ✅ bind immediately (avoid missing the event)
   channel.bind("server-start-rrweb", () => {
     if (rrwebWatching) return;
     rrwebWatching = true;
+
+    // make sure Live can show "current page" even before rrweb starts streaming
+    persistPresenceNow(orgId, contactSessionId);
+
     startRrwebRecorder(orgId, contactSessionId);
   });
 
@@ -796,6 +720,7 @@ export function initVisitorTracking({ orgId, contactSessionId }: VisitorTracking
       lastHref = href;
       markActivity();
 
+      // Option B: persist only via /visit
       persistPresenceNow(orgId, contactSessionId);
 
       if (!rrwebWatching) return;
