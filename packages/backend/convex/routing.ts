@@ -44,6 +44,13 @@ function pickRandom<T>(arr: T[]): T | null {
   return arr[idx] ?? null;
 }
 
+function normalizeCountryCode(cc?: string): string | undefined {
+  if (!cc) return undefined;
+  const x = cc.trim();
+  if (!x) return undefined;
+  return x.toUpperCase();
+}
+
 /**
  * Calcule la liste des territory.key qui couvrent un countryCode donné.
  */
@@ -52,8 +59,8 @@ async function resolveTerritoryKeysForCountry(
   organizationId: string,
   countryCode?: string,
 ): Promise<string[]> {
-  if (!countryCode) return [];
-  const cc = countryCode.toUpperCase();
+  const normalized = normalizeCountryCode(countryCode);
+  if (!normalized) return [];
 
   const territories = (await ctx.db
     .query("territories")
@@ -61,7 +68,7 @@ async function resolveTerritoryKeysForCountry(
     .collect()) as Doc<"territories">[];
 
   return territories
-    .filter((t) => (t.countryCodes ?? []).includes(cc))
+    .filter((t) => (t.countryCodes ?? []).includes(normalized))
     .map((t) => t.key);
 }
 
@@ -79,10 +86,6 @@ function extractUtmSourceFromUrl(url?: string): string | undefined {
 /**
  * Choisit UN rep pour une session donnée.
  * Retourne son userId (Clerk) ou null.
- *
- * ✅ IMPORTANT:
- * - rep = document repsPresence
- * - users = profil (avatar/title) -> ne doit PAS impacter le routing
  */
 export const pickRepForSession = query({
   args: {
@@ -98,7 +101,7 @@ export const pickRepForSession = query({
     const currentUrl = session.metadata?.currentUrl as string | undefined;
 
     const matchCtx = {
-      countryCode: session.metadata?.countryCode as string | undefined,
+      countryCode: normalizeCountryCode(session.metadata?.countryCode as string | undefined),
       currentUrl,
       utmSource:
         (session.metadata?.utmSource as string | undefined) ??
@@ -118,13 +121,12 @@ export const pickRepForSession = query({
 
     if (preferredRepUserId) {
       const preferred = reps.find((r) => r.userId === preferredRepUserId);
-      // ✅ MAJ: on exige dispo + role sales (tu peux enlever role si tu veux support aussi)
       if (preferred && preferred.available && preferred.role === "sales") {
         return preferred.userId;
       }
     }
 
-    // 4) routingRules par priorité (override "entreprise")
+    // 4) routingRules par priorité
     const rules = await ctx.db
       .query("routingRules")
       .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
@@ -145,7 +147,7 @@ export const pickRepForSession = query({
         candidates = candidates.filter((r) => target.repIds!.includes(r.userId));
       }
 
-      // filtre regions si défini (ici ce sont des territory.key)
+      // filtre regions si défini (territory.key)
       if (target.regions && target.regions.length > 0) {
         candidates = candidates.filter((r) => {
           const repRegions = r.regions ?? [];
@@ -157,7 +159,7 @@ export const pickRepForSession = query({
       if (chosen) return chosen.userId;
     }
 
-    // 5) Fallback intelligent territories: countryCode → territories → reps
+    // 5) Fallback territories: countryCode → territories → reps
     if (matchCtx.countryCode) {
       const territoryKeys = await resolveTerritoryKeysForCountry(
         ctx,

@@ -113,11 +113,11 @@ export function LiveVisitorView({
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    const scale = Math.min(vw / src.width, vh / src.height, 1);
+    const scale = vw / src.width;
 
     const contentW = src.width * scale;
     const contentH = src.height * scale;
-    const ox = Math.max(0, (vw - contentW) / 2);
+    const ox = 0;
     const oy = Math.max(0, (vh - contentH) / 2);
 
     const s = Math.round(scale * 10000) / 10000;

@@ -24,6 +24,19 @@ function extractUtmSourceFromUrl(url?: string): string | undefined {
   }
 }
 
+function normalizeCountryCode(cc?: string): string | undefined {
+  if (!cc) return undefined;
+  const x = cc.trim();
+  if (!x) return undefined;
+  return x.toUpperCase();
+}
+
+function pickRandom<T>(arr: T[]): T | null {
+  if (!arr.length) return null;
+  const idx = Math.floor(Math.random() * arr.length);
+  return arr[idx] ?? null;
+}
+
 export const listRepsForVisitor = query({
   args: {
     organizationId: v.string(),
@@ -35,9 +48,9 @@ export const listRepsForVisitor = query({
   handler: async (
     ctx,
     { organizationId, contactSessionId, countryCode, currentUrl, utmSource },
-  ) => {
+  ): Promise<PublicRep[]> => {
     try {
-      if (!organizationId) return [] as PublicRep[];
+      if (!organizationId) return [];
 
       // ✅ 0) ROUTING MODE GATE (SOURCE OF TRUTH)
       const settings = await ctx.db
@@ -50,9 +63,7 @@ export const listRepsForVisitor = query({
         | "visitor_choice";
 
       // ✅ If auto_assign => NEVER expose rep choices to widget
-      if (routingMode !== "visitor_choice") {
-        return [] as PublicRep[];
-      }
+      if (routingMode !== "visitor_choice") return [];
 
       // 1) Resolve visitor context (session overrides)
       let visitorCountry: string | undefined = countryCode;
@@ -62,8 +73,7 @@ export const listRepsForVisitor = query({
       if (contactSessionId) {
         const session = await ctx.db.get(contactSessionId);
         if (session && session.organizationId === organizationId) {
-          if (session.expiresAt && session.expiresAt < Date.now()) return [] as PublicRep[];
-
+          if (session.expiresAt && session.expiresAt < Date.now()) return [];
           const md = session.metadata ?? {};
           if (!visitorCountry && typeof md.countryCode === "string") visitorCountry = md.countryCode;
           if (!visitorUrl && typeof md.currentUrl === "string") visitorUrl = md.currentUrl;
@@ -72,6 +82,7 @@ export const listRepsForVisitor = query({
         }
       }
 
+      visitorCountry = normalizeCountryCode(visitorCountry);
       if (!visitorUtmSource) visitorUtmSource = extractUtmSourceFromUrl(visitorUrl);
 
       // 2) Load reps (sales only for visitor choice)
@@ -83,19 +94,18 @@ export const listRepsForVisitor = query({
         .collect();
 
       const availableReps = rawReps.filter((r) => r.available);
-      if (!availableReps.length) return [] as PublicRep[];
+      if (!availableReps.length) return [];
 
       // 3) Territories mapping for country
       let visitorTerritoryKeys: string[] = [];
       if (visitorCountry) {
-        const cc = visitorCountry.toUpperCase();
         const territories = (await ctx.db
           .query("territories")
           .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
           .collect()) as Doc<"territories">[];
 
         visitorTerritoryKeys = territories
-          .filter((t) => (t.countryCodes ?? []).includes(cc))
+          .filter((t) => (t.countryCodes ?? []).includes(visitorCountry!))
           .map((t) => t.key);
       }
 
@@ -113,17 +123,24 @@ export const listRepsForVisitor = query({
         const matchUtmSourceArr: string[] | undefined = match.utmSource;
 
         if (matchCountries && matchCountries.length) {
-          if (!visitorCountry || !matchCountries.includes(visitorCountry)) return false;
+          const normalizedRuleCountries = matchCountries
+            .map((c) => normalizeCountryCode(c))
+            .filter(Boolean) as string[];
+
+          if (!visitorCountry || !normalizedRuleCountries.includes(visitorCountry)) return false;
         }
+
         if (matchUrlIncludes && matchUrlIncludes.length) {
           if (!visitorUrl) return false;
           const url = visitorUrl.toLowerCase();
           const ok = matchUrlIncludes.some((sub: string) => url.includes(sub.toLowerCase()));
           if (!ok) return false;
         }
+
         if (matchUtmSourceArr && matchUtmSourceArr.length) {
           if (!visitorUtmSource || !matchUtmSourceArr.includes(visitorUtmSource)) return false;
         }
+
         return true;
       };
 
@@ -137,8 +154,7 @@ export const listRepsForVisitor = query({
         const rt = rule.routeTo;
         let subset = availableReps.filter((r) => r.role === rt.role);
 
-        if (rt.repIds && rt.repIds.length)
-          subset = subset.filter((r) => rt.repIds!.includes(r.userId));
+        if (rt.repIds && rt.repIds.length) subset = subset.filter((r) => rt.repIds!.includes(r.userId));
 
         if (rt.regions && rt.regions.length) {
           subset = subset.filter((r) => {
@@ -174,9 +190,7 @@ export const listRepsForVisitor = query({
       return matchedReps.map((rep) => {
         const u = byExternalId.get(rep.userId);
         const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
-            ? u.avatarUrl.trim()
-            : undefined;
+          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
 
         return {
           userId: rep.userId,
@@ -190,10 +204,11 @@ export const listRepsForVisitor = query({
       });
     } catch (e) {
       console.log("routing.listRepsForVisitor error:", e);
-      return [] as PublicRep[];
+      return [];
     }
   },
 });
+
 export const listCandidatesForAutoAssign = query({
   args: {
     organizationId: v.string(),
@@ -205,9 +220,9 @@ export const listCandidatesForAutoAssign = query({
   handler: async (
     ctx,
     { organizationId, contactSessionId, countryCode, currentUrl, utmSource },
-  ) => {
+  ): Promise<PublicRep[]> => {
     try {
-      if (!organizationId) return [] as PublicRep[];
+      if (!organizationId) return [];
 
       // 1) Resolve visitor context (session overrides)
       let visitorCountry: string | undefined = countryCode;
@@ -217,8 +232,7 @@ export const listCandidatesForAutoAssign = query({
       if (contactSessionId) {
         const session = await ctx.db.get(contactSessionId);
         if (session && session.organizationId === organizationId) {
-          if (session.expiresAt && session.expiresAt < Date.now()) return [] as PublicRep[];
-
+          if (session.expiresAt && session.expiresAt < Date.now()) return [];
           const md = session.metadata ?? {};
           if (!visitorCountry && typeof md.countryCode === "string") visitorCountry = md.countryCode;
           if (!visitorUrl && typeof md.currentUrl === "string") visitorUrl = md.currentUrl;
@@ -227,6 +241,7 @@ export const listCandidatesForAutoAssign = query({
         }
       }
 
+      visitorCountry = normalizeCountryCode(visitorCountry);
       if (!visitorUtmSource) visitorUtmSource = extractUtmSourceFromUrl(visitorUrl);
 
       // 2) Load reps (sales only)
@@ -238,19 +253,18 @@ export const listCandidatesForAutoAssign = query({
         .collect();
 
       const availableReps = rawReps.filter((r) => r.available);
-      if (!availableReps.length) return [] as PublicRep[];
+      if (!availableReps.length) return [];
 
       // 3) Territories mapping for country
       let visitorTerritoryKeys: string[] = [];
       if (visitorCountry) {
-        const cc = visitorCountry.toUpperCase();
         const territories = (await ctx.db
           .query("territories")
           .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
           .collect()) as Doc<"territories">[];
 
         visitorTerritoryKeys = territories
-          .filter((t) => (t.countryCodes ?? []).includes(cc))
+          .filter((t) => (t.countryCodes ?? []).includes(visitorCountry!))
           .map((t) => t.key);
       }
 
@@ -268,17 +282,24 @@ export const listCandidatesForAutoAssign = query({
         const matchUtmSourceArr: string[] | undefined = match.utmSource;
 
         if (matchCountries && matchCountries.length) {
-          if (!visitorCountry || !matchCountries.includes(visitorCountry)) return false;
+          const normalizedRuleCountries = matchCountries
+            .map((c) => normalizeCountryCode(c))
+            .filter(Boolean) as string[];
+
+          if (!visitorCountry || !normalizedRuleCountries.includes(visitorCountry)) return false;
         }
+
         if (matchUrlIncludes && matchUrlIncludes.length) {
           if (!visitorUrl) return false;
           const url = visitorUrl.toLowerCase();
           const ok = matchUrlIncludes.some((sub: string) => url.includes(sub.toLowerCase()));
           if (!ok) return false;
         }
+
         if (matchUtmSourceArr && matchUtmSourceArr.length) {
           if (!visitorUtmSource || !matchUtmSourceArr.includes(visitorUtmSource)) return false;
         }
+
         return true;
       };
 
@@ -292,8 +313,7 @@ export const listCandidatesForAutoAssign = query({
         const rt = rule.routeTo;
         let subset = availableReps.filter((r) => r.role === rt.role);
 
-        if (rt.repIds && rt.repIds.length)
-          subset = subset.filter((r) => rt.repIds!.includes(r.userId));
+        if (rt.repIds && rt.repIds.length) subset = subset.filter((r) => rt.repIds!.includes(r.userId));
 
         if (rt.regions && rt.regions.length) {
           subset = subset.filter((r) => {
@@ -329,9 +349,7 @@ export const listCandidatesForAutoAssign = query({
       return matchedReps.map((rep) => {
         const u = byExternalId.get(rep.userId);
         const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
-            ? u.avatarUrl.trim()
-            : undefined;
+          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
 
         return {
           userId: rep.userId,
@@ -345,65 +363,184 @@ export const listCandidatesForAutoAssign = query({
       });
     } catch (e) {
       console.log("routing.listCandidatesForAutoAssign error:", e);
-      return [] as PublicRep[];
+      return [];
     }
   },
 });
-
 
 export const pickRepForVisitor = query({
   args: {
     organizationId: v.string(),
     contactSessionId: v.id("contactSessions"),
   },
-  handler: async (ctx, { organizationId, contactSessionId }) => {
+  handler: async (ctx, { organizationId, contactSessionId }): Promise<PublicRep | null> => {
     const session = await ctx.db.get(contactSessionId);
     if (!session) return null;
     if (session.organizationId !== organizationId) return null;
     if (session.expiresAt && session.expiresAt < Date.now()) return null;
 
-    // 🔥 IMPORTANT: auto_assign doit retourner UN rep, visitor_choice peut aussi
-    const reps = await ctx.db
+    const currentUrl = session.metadata?.currentUrl as string | undefined;
+    const matchCountry = normalizeCountryCode(session.metadata?.countryCode as string | undefined);
+    const matchUtm =
+      (session.metadata?.utmSource as string | undefined) ?? extractUtmSourceFromUrl(currentUrl);
+
+    // reps sales (source of truth)
+    const reps = (await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_role", (q) =>
-        q.eq("organizationId", organizationId).eq("role", "sales"),
-      )
-      .collect();
+      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+      .collect()) as Doc<"repsPresence">[];
 
-    const available = reps.filter((r) => r.available);
-    if (!available.length) return null;
+    const availableSales = reps.filter((r) => r.available && r.role === "sales");
+    if (!availableSales.length) return null;
 
-    // 1) Si le visitor a déjà choisi un rep
+    // 1) preferred rep (visitor_choice)
     const preferred = session.metadata?.preferredRepUserId as string | undefined;
     if (preferred) {
-      const found = available.find((r) => r.userId === preferred);
-      if (found) {
+      const foundPref = availableSales.find((r) => r.userId === preferred);
+      if (foundPref) {
         const u = await ctx.db
           .query("users")
           .withIndex("by_org_external", (q: any) =>
-            q.eq("organizationId", organizationId).eq("externalId", found.userId),
+            q.eq("organizationId", organizationId).eq("externalId", foundPref.userId),
           )
           .unique();
 
         const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
-            ? u.avatarUrl.trim()
-            : undefined;
+          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
 
         return {
-          userId: found.userId,
+          userId: foundPref.userId,
           name: u?.name ?? undefined,
           avatarUrl: avatar,
           title: u?.title ?? undefined,
-          role: found.role,
-          regions: found.regions ?? [],
-          available: found.available,
-        } as PublicRep;
+          role: foundPref.role,
+          regions: foundPref.regions ?? [],
+          available: foundPref.available,
+        };
       }
     }
 
-    // 2) Sinon: pick random parmi les sales disponibles
-    const chosen = available[Math.floor(Math.random() * available.length)];
+    // 2) Apply routingRules by priority (same logic as routing.pickRepForSession)
+    const rules = (await ctx.db
+      .query("routingRules")
+      .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
+      .order("asc")
+      .take(100)) as Doc<"routingRules">[];
+
+    const ruleMatches = (rule: Doc<"routingRules">): boolean => {
+      const m = rule.match ?? {};
+
+      if (m.countries && m.countries.length > 0) {
+        const normalized = m.countries
+          .map((c) => normalizeCountryCode(c))
+          .filter(Boolean) as string[];
+        if (!matchCountry || !normalized.includes(matchCountry)) return false;
+      }
+
+      if (m.urlIncludes && m.urlIncludes.length > 0) {
+        if (!currentUrl) return false;
+        const url = currentUrl.toLowerCase();
+        const ok = m.urlIncludes.some((sub: string) => url.includes(sub.toLowerCase()));
+        if (!ok) return false;
+      }
+
+      if (m.utmSource && m.utmSource.length > 0) {
+        if (!matchUtm || !m.utmSource.includes(matchUtm)) return false;
+      }
+
+      return true;
+    };
+
+    for (const rule of rules) {
+      if (rule.enabled === false) continue;
+      if (!ruleMatches(rule)) continue;
+
+      const target = rule.routeTo;
+
+      // candidates: available + role
+      let candidates = reps.filter((r) => r.available && r.role === target.role);
+
+      if (target.repIds && target.repIds.length > 0) {
+        candidates = candidates.filter((r) => target.repIds!.includes(r.userId));
+      }
+
+      if (target.regions && target.regions.length > 0) {
+        candidates = candidates.filter((r) => {
+          const repRegions = r.regions ?? [];
+          return target.regions!.some((reg) => repRegions.includes(reg));
+        });
+      }
+
+      const chosen = pickRandom(candidates);
+      if (chosen) {
+        const u = await ctx.db
+          .query("users")
+          .withIndex("by_org_external", (q: any) =>
+            q.eq("organizationId", organizationId).eq("externalId", chosen.userId),
+          )
+          .unique();
+
+        const avatar =
+          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
+
+        return {
+          userId: chosen.userId,
+          name: u?.name ?? undefined,
+          avatarUrl: avatar,
+          title: u?.title ?? undefined,
+          role: chosen.role,
+          regions: chosen.regions ?? [],
+          available: chosen.available,
+        };
+      }
+    }
+
+    // 3) Territories fallback: countryCode -> territories -> reps
+    if (matchCountry) {
+      const territories = (await ctx.db
+        .query("territories")
+        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+        .collect()) as Doc<"territories">[];
+
+      const territoryKeys = territories
+        .filter((t) => (t.countryCodes ?? []).includes(matchCountry))
+        .map((t) => t.key);
+
+      if (territoryKeys.length > 0) {
+        const geoCandidates = availableSales.filter((r) => {
+          const repRegions = r.regions ?? [];
+          return repRegions.some((reg) => territoryKeys.includes(reg));
+        });
+
+        const chosen = pickRandom(geoCandidates);
+        if (chosen) {
+          const u = await ctx.db
+            .query("users")
+            .withIndex("by_org_external", (q: any) =>
+              q.eq("organizationId", organizationId).eq("externalId", chosen.userId),
+            )
+            .unique();
+
+          const avatar =
+            typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
+              ? u.avatarUrl.trim()
+              : undefined;
+
+          return {
+            userId: chosen.userId,
+            name: u?.name ?? undefined,
+            avatarUrl: avatar,
+            title: u?.title ?? undefined,
+            role: chosen.role,
+            regions: chosen.regions ?? [],
+            available: chosen.available,
+          };
+        }
+      }
+    }
+
+    // 4) fallback: any available sales
+    const chosen = pickRandom(availableSales);
     if (!chosen) return null;
 
     const u = await ctx.db
@@ -414,9 +551,7 @@ export const pickRepForVisitor = query({
       .unique();
 
     const avatar =
-      typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
-        ? u.avatarUrl.trim()
-        : undefined;
+      typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
 
     return {
       userId: chosen.userId,
@@ -426,7 +561,6 @@ export const pickRepForVisitor = query({
       role: chosen.role,
       regions: chosen.regions ?? [],
       available: chosen.available,
-    } as PublicRep;
+    };
   },
 });
-
