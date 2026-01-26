@@ -1,33 +1,8 @@
+// apps/app/src/app/api/realtime/pusher-auth/route.ts
 import { NextResponse } from "next/server";
 import Pusher from "pusher";
 
 export const runtime = "nodejs";
-
-// ✅ Origins autorisées (prod + dev)
-const ALLOWED_ORIGINS = new Set([
-  "https://app.inboundless.co",
-  "https://widget.inboundless.co",
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://localhost:5173",
-]);
-
-function corsHeaders(origin: string | null) {
-  const allow =
-    origin && ALLOWED_ORIGINS.has(origin)
-      ? origin
-      : process.env.NODE_ENV === "production"
-        ? "https://app.inboundless.co"
-        : "*";
-
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Methods": "POST,OPTIONS",
-    "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Credentials": "true",
-    Vary: "Origin",
-  } as Record<string, string>;
-}
 
 const pusherServer = new Pusher({
   appId: process.env.PUSHER_APP_ID!,
@@ -37,20 +12,35 @@ const pusherServer = new Pusher({
   useTLS: true,
 });
 
+function makeCors(origin: string, req: Request) {
+  const requestHeaders =
+    req.headers.get("access-control-request-headers") ?? "content-type";
+
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "POST,OPTIONS",
+    "Access-Control-Allow-Headers": requestHeaders,
+    "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin, Access-Control-Request-Headers",
+  } as Record<string, string>;
+}
+
 export async function OPTIONS(req: Request) {
   const origin = req.headers.get("origin");
-  return new NextResponse(null, { status: 204, headers: corsHeaders(origin) });
+  if (!origin) return new NextResponse(null, { status: 204 });
+  return new NextResponse(null, { status: 204, headers: makeCors(origin, req) });
 }
 
 export async function POST(req: Request) {
   const origin = req.headers.get("origin");
-  const CORS = corsHeaders(origin);
+  if (!origin) return new NextResponse("Missing origin", { status: 400 });
+
+  const CORS = makeCors(origin, req);
 
   try {
     // Pusher envoie souvent x-www-form-urlencoded
     const raw = await req.text();
     let data: any = {};
-
     try {
       data = JSON.parse(raw || "{}");
     } catch {
@@ -60,16 +50,23 @@ export async function POST(req: Request) {
 
     const channelName: string = data.channel_name || data.channelName || "";
     const socketId: string = data.socket_id || data.socketId || "";
-
     const orgId: string | undefined = data.orgId;
     const sessionId: string | undefined = data.sessionId;
 
+    if (!orgId) return new NextResponse("Missing orgId", { status: 400, headers: CORS });
+
+    // ✅ validate channel format
     if (
       typeof channelName !== "string" ||
       typeof socketId !== "string" ||
       !/^presence\-org_[\w-]+_session_[\w-]+$/.test(channelName)
     ) {
       return new NextResponse("Bad channel", { status: 400, headers: CORS });
+    }
+
+    // ✅ safety: channel must match orgId
+    if (!channelName.startsWith(`presence-org_${orgId}_session_`)) {
+      return new NextResponse("Channel/org mismatch", { status: 403, headers: CORS });
     }
 
     const presenceData = {
