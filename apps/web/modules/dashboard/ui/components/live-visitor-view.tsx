@@ -1,12 +1,12 @@
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";
-import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
 import type { eventWithTime } from "rrweb/typings/types";
 import { Replayer } from "rrweb";
+import { useVisitorStream } from "@/modules/live/hooks/useVisitorStream";
 
 type Cursor = { x: number; y: number };
 
@@ -32,10 +32,10 @@ export function LiveVisitorView({
   sessionId,
 }: {
   orgId: string;
-  sessionId: string;
+  sessionId: Id<"contactSessions">;
 }) {
-  const outerRef = useRef<HTMLDivElement | null>(null); // viewport fixed size
-  const stageRef = useRef<HTMLDivElement | null>(null); // scaled canvas root
+  const outerRef = useRef<HTMLDivElement | null>(null); // viewport container
+  const stageRef = useRef<HTMLDivElement | null>(null); // scaled rrweb root
   const replayerRef = useRef<Replayer | null>(null);
 
   // queue processing (anti-freeze)
@@ -46,7 +46,7 @@ export function LiveVisitorView({
   // source page dims
   const sourceRef = useRef<{ width: number; height: number } | null>(null);
 
-  // layout state to position cursor correctly
+  // layout state (scale + offset)
   const layoutRef = useRef<{ scale: number; ox: number; oy: number }>({
     scale: 1,
     ox: 0,
@@ -59,10 +59,10 @@ export function LiveVisitorView({
   const MAX_QUEUE = 5_000;
   const MAX_PER_FRAME = 120;
 
-  // latest snapshot from DB (you store sessionSnapshots, but your query name is api.public.snapshots.listRecent)
+  // latest snapshot from DB
   const snaps =
     useQuery(api.public.snapshots.listRecent, {
-      sessionId: sessionId as unknown as Id<"contactSessions">,
+      sessionId,
       limit: 1,
     }) ?? [];
 
@@ -79,12 +79,12 @@ export function LiveVisitorView({
       stage.style.top = "0";
       stage.style.transformOrigin = "top left";
       stage.style.willChange = "transform";
-      stage.style.pointerEvents = "none"; // important: avoid interfering in overlay
+      stage.style.pointerEvents = "none";
       stageRef.current = stage;
       outer.appendChild(stage);
     }
 
-    // hide rrweb cursor to avoid "2 cursors" (covers multiple rrweb versions)
+    // hide rrweb cursor to avoid double cursor
     const existingStyle = outer.querySelector(
       "style[data-hide-rrweb-mouse='1']",
     );
@@ -121,16 +121,16 @@ export function LiveVisitorView({
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    // scale based on source dims (stable)
+    // scale to fit (never upscale above 1 for stability)
     const scale = Math.min(vw / src.width, vh / src.height, 1);
 
-    // center inside viewport
+    // center
     const contentW = src.width * scale;
     const contentH = src.height * scale;
     const ox = Math.max(0, (vw - contentW) / 2);
     const oy = Math.max(0, (vh - contentH) / 2);
 
-    // round a bit to prevent micro oscillations
+    // round to reduce micro oscillations
     const s = Math.round(scale * 10000) / 10000;
     const x = Math.round(ox * 10) / 10;
     const y = Math.round(oy * 10) / 10;
@@ -140,33 +140,33 @@ export function LiveVisitorView({
     lastAppliedRef.current = signature;
 
     layoutRef.current = { scale: s, ox: x, oy: y };
-
     stage.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
   }, []);
 
+  const stopRAF = useCallback(() => {
+    try {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    } catch {}
+    rafRef.current = 0;
+  }, []);
+
   const destroyReplayer = useCallback(() => {
+    stopRAF();
+
     try {
       replayerRef.current?.pause();
     } catch {}
     replayerRef.current = null;
 
-    // reset queue
     queueRef.current = [];
     processingRef.current = false;
 
-    try {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    } catch {}
-    rafRef.current = 0;
-
-    // clean stage DOM only
     if (stageRef.current) stageRef.current.innerHTML = "";
 
-    // reset layout state
     sourceRef.current = null;
     layoutRef.current = { scale: 1, ox: 0, oy: 0 };
     lastAppliedRef.current = "";
-  }, []);
+  }, [stopRAF]);
 
   const bootFromEvents = useCallback(
     (events: eventWithTime[]) => {
@@ -176,7 +176,6 @@ export function LiveVisitorView({
 
       destroyReplayer();
 
-      // infer source size from rrweb meta OR from DB record OR fallback
       const meta = extractMeta(events);
 
       const width =
@@ -191,14 +190,12 @@ export function LiveVisitorView({
 
       sourceRef.current = { width, height };
 
-      // stage keeps original size; we scale/translate it
       stage.style.width = `${width}px`;
       stage.style.height = `${height}px`;
 
       try {
         const replayer = new Replayer(events, {
           root: stage,
-          // best-effort across versions
           mouseTail: false as any,
         } as any);
 
@@ -208,7 +205,6 @@ export function LiveVisitorView({
         replayerRef.current = null;
       }
 
-      // apply layout after DOM is mounted
       requestAnimationFrame(() => applyLayout());
     },
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
@@ -226,9 +222,9 @@ export function LiveVisitorView({
     } catch (err) {
       console.error("[live] failed to init snapshot", err);
     }
-  }, [latest?.snapshot, bootFromEvents, ensureStage]);
+  }, [latest?.snapshot, ensureStage, bootFromEvents]);
 
-  // ResizeObserver = stable without loops
+  // ResizeObserver for stable layout updates
   useEffect(() => {
     const outer = outerRef.current;
     if (!outer) return;
@@ -239,17 +235,16 @@ export function LiveVisitorView({
     if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => applyLayout());
       ro.observe(outer);
-    } else {
-      const onResize = () => applyLayout();
-      window.addEventListener("resize", onResize);
-      return () => window.removeEventListener("resize", onResize);
+      return () => {
+        try {
+          ro?.disconnect();
+        } catch {}
+      };
     }
 
-    return () => {
-      try {
-        ro?.disconnect();
-      } catch {}
-    };
+    const onResize = () => applyLayout();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, [applyLayout]);
 
   const processQueue = useCallback(() => {
@@ -290,7 +285,6 @@ export function LiveVisitorView({
     (events: eventWithTime[]) => {
       if (!replayerRef.current) return;
 
-      // drop strategy
       if (queueRef.current.length > MAX_QUEUE) {
         queueRef.current.splice(
           0,
@@ -309,12 +303,12 @@ export function LiveVisitorView({
       // ignore meta-only
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
 
-      // on full snapshot, reboot + re-layout (URL change)
       bootFromEvents(events);
     },
     [bootFromEvents],
   );
 
+  // ✅ no cast needed if your hook accepts string | Id<...>
   const { cursor } = useVisitorStream({
     orgId,
     sessionId,
@@ -322,9 +316,10 @@ export function LiveVisitorView({
     onSnapshot,
   });
 
-  // compute overlay cursor position in pixels (scale + offset aware)
+  // ✅ compute cursor in render (refs are always fresh)
   let cursorPx: { left: number; top: number } | null = null;
   const src = sourceRef.current;
+
   if (cursor && src?.width && src?.height) {
     const { scale, ox, oy } = layoutRef.current;
     const cx = clamp01((cursor as Cursor).x);
@@ -341,10 +336,8 @@ export function LiveVisitorView({
       className="relative rounded-xl border overflow-hidden bg-black/5"
       style={{ height: 360 }}
     >
-      {/* viewport */}
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
-      {/* single overlay cursor (pixel-accurate, no drift) */}
       {cursorPx && (
         <div
           className="absolute size-4 rounded-full bg-emerald-500/80 ring-2 ring-white/70 pointer-events-none"

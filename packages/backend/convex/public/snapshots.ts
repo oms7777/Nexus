@@ -1,90 +1,45 @@
-// packages/backend/convex/public/snapshots.ts
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 
-const MAX_SNAPSHOT_CHARS = 50_000; // V1: tiny payload only
-const KEEP_LAST = 50;
-
-// small tracking for pages list
-const KEEP_PAGES = 25;
+// Guard simple (Convex runtime: éviter TextEncoder)
+const MAX_SNAPSHOT_CHARS = 2_000_000; // ~2MB-ish worst case (ajuste si besoin)
+const KEEP_LAST = 25;
 
 export const save = mutation({
   args: {
     organizationId: v.string(),
     sessionId: v.id("contactSessions"),
 
+    // ✅ compat: optionnels (au cas où ton API route les envoie encore)
     pageUrl: v.optional(v.string()),
     title: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
 
-    // V1: keep as string (compat) but it’s not rrweb anymore
     snapshot: v.string(),
   },
   handler: async (ctx, args) => {
     const { organizationId, sessionId, snapshot, pageUrl, title, width, height } = args;
 
     if (!snapshot) return { ok: false };
+
+    // ✅ guard simple (pas de TextEncoder ici)
     if (snapshot.length > MAX_SNAPSHOT_CHARS) {
       return { ok: false, error: "Snapshot too large" };
     }
 
-    // 1) Ensure session exists + belongs to org (anti cross-org writes)
-    const session = await ctx.db.get(sessionId);
-    if (!session) return { ok: false, error: "Session not found" };
-    if (session.organizationId !== organizationId) {
-      return { ok: false, error: "Forbidden" };
-    }
-
-    const now = Date.now();
-
-    // 2) Presence + lightweight "visited pages" tracking in metadata (no schema change needed)
-    const prevMeta = session.metadata ?? undefined;
-
-    // build pages[]
-    const prevPages = Array.isArray(prevMeta?.pages) ? prevMeta!.pages! : [];
-    let nextPages = prevPages;
-
-    if (pageUrl) {
-      const last = prevPages[prevPages.length - 1];
-      if (last !== pageUrl) {
-        nextPages = [...prevPages, pageUrl].slice(-KEEP_PAGES);
-      }
-    }
-
-    const nextViewportSize =
-      typeof width === "number" && typeof height === "number" ? `${width}x${height}` : prevMeta?.viewportSize;
-
-    const nextMeta = {
-      ...(prevMeta ?? {}),
-      // keep these aligned with what your UI expects
-      currentUrl: pageUrl ?? prevMeta?.currentUrl,
-      title: title ?? prevMeta?.title,
-      viewportSize: nextViewportSize,
-      pages: nextPages,
-
-      // you already have both; keeping metadata.lastSeenAt updated helps UIs reading it
-      lastSeenAt: now,
-    };
-
-    await ctx.db.patch(sessionId, {
-      lastSeenAt: now,
-      metadata: nextMeta,
-    });
-
-    // 3) Save snapshot row
     const id = await ctx.db.insert("sessionSnapshots", {
       organizationId,
       sessionId,
-      ts: now,
+      ts: Date.now(),
       pageUrl,
       title,
       width,
       height,
-      snapshot, // "v1" or small json
+      snapshot,
     });
 
-    // 4) Keep only last N snapshots
+    // ✅ prune: garde uniquement les derniers KEEP_LAST
     const existing = await ctx.db
       .query("sessionSnapshots")
       .withIndex("by_session", (q) => q.eq("sessionId", sessionId))

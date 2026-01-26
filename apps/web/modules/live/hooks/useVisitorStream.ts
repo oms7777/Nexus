@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import Pusher, { type Channel } from "pusher-js";
 import type { eventWithTime } from "rrweb/typings/types";
+import type { Id } from "@workspace/backend/_generated/dataModel";
 
 type Cursor = { x: number; y: number };
 
 export function useVisitorStream(opts: {
   orgId: string;
-  sessionId: string;
+  sessionId: string | Id<"contactSessions">;
   onRrweb?: (events: eventWithTime[]) => void;
   onSnapshot?: (events: eventWithTime[]) => void;
 }) {
@@ -19,6 +20,8 @@ export function useVisitorStream(opts: {
 
   useEffect(() => {
     if (!orgId || !sessionId) return;
+
+    const sid = String(sessionId);
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
@@ -32,7 +35,7 @@ export function useVisitorStream(opts: {
       },
     });
 
-    const chanName = `presence-org_${orgId}_session_${sessionId}`;
+    const chanName = `presence-org_${orgId}_session_${sid}`;
     const ch = pusher.subscribe(chanName) as Channel;
     chanRef.current = ch;
 

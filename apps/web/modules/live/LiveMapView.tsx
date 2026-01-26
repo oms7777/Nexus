@@ -1,12 +1,14 @@
+// apps/web/modules/live/LiveMapView.tsx (ou ton chemin exact)
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
-
 import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
+import { Id } from "@workspace/backend/_generated/dataModel";
+import { SnapshotsStrip } from "../dashboard/ui/components/SnapshotsStrip";
 
 function matches(v: Visitor, q: string) {
   if (!q) return true;
@@ -27,7 +29,14 @@ function matches(v: Visitor, q: string) {
     } catch {}
   }
 
-  const haystack = [v.name, v.email, v.city, v.countryCode, v.currentUrl, ...utm]
+  const haystack = [
+    v.name,
+    v.email,
+    v.city,
+    v.countryCode,
+    v.currentUrl,
+    ...utm,
+  ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -37,7 +46,7 @@ function matches(v: Visitor, q: string) {
 
 export default function LiveMapView() {
   const { organization } = useOrganization();
-  const orgId = organization?.id ?? "";
+  const orgId = organization?.id || "";
 
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | undefined>();
@@ -49,27 +58,26 @@ export default function LiveMapView() {
     [visitors, query],
   );
 
-  useEffect(() => {
-    if (!selectedId) return;
-    const stillThere = filtered.some((v) => v._id === selectedId);
-    if (!stillThere) setSelectedId(undefined);
-  }, [filtered, selectedId]);
-
   const selected = useMemo(
     () => filtered.find((v) => v._id === selectedId),
     [filtered, selectedId],
   );
 
-  // ✅ IMPORTANT: le channel Pusher côté embed utilise contactSessionId
-  const streamSessionId: string | null = (selected as any)?.contactSessionId
-    ? String((selected as any).contactSessionId)
+  // ✅ IMPORTANT: currentUrl doit venir du dernier snapshot (source of truth)
+  const selectedSessionId = selected?.contactSessionId
+    ? (selected.contactSessionId as Id<"contactSessions">)
     : null;
 
-  const pages: string[] = Array.isArray((selected as any)?.pages)
-    ? (((selected as any).pages as string[]) ?? []).filter(Boolean)
-    : [];
+  const latestSnap =
+    useQuery(
+      api.public.snapshots.listRecent,
+      selectedSessionId ? { sessionId: selectedSessionId, limit: 1 } : "skip",
+    ) ?? [];
 
-  const canShowRightPanel = Boolean(selected && streamSessionId && orgId);
+  const currentUrlFromSnap = latestSnap[0]?.pageUrl;
+
+  const headerUrl =
+    (currentUrlFromSnap ?? selected?.currentUrl ?? "").split("?")[0] || "—";
 
   return (
     <div className="flex h-full w-full">
@@ -83,13 +91,11 @@ export default function LiveMapView() {
             className="w-full rounded border px-3 py-2 text-sm"
           />
         </div>
-
         <div className="p-2 text-xs text-muted-foreground">
           {filtered.length} online
         </div>
-
         <div className="flex-1 overflow-auto">
-          {filtered.map((v: any) => (
+          {filtered.map((v) => (
             <button
               key={v._id}
               onClick={() => setSelectedId(v._id)}
@@ -99,12 +105,10 @@ export default function LiveMapView() {
               <div className="font-medium text-sm line-clamp-1">
                 {v.name || "Visitor"}
               </div>
-
               <div className="text-xs text-muted-foreground line-clamp-1">
                 {v.city}
                 {v.countryCode ? `, ${v.countryCode}` : ""}
               </div>
-
               {v.currentUrl && (
                 <div className="text-xs text-muted-foreground line-clamp-1">
                   {v.currentUrl}
@@ -120,73 +124,21 @@ export default function LiveMapView() {
         <LiveMap visitors={filtered as Visitor[]} selectedId={selectedId} />
       </div>
 
-      {/* Right panel */}
-      {canShowRightPanel && (
-        <aside className="w-[460px] border-l bg-background p-3 hidden xl:block overflow-auto">
+      {/* Right panel (live stream) */}
+      {selected && selectedSessionId && (
+        <aside className="w-[420px] border-l bg-background p-3 hidden xl:block">
           <div className="mb-2">
-            <div className="text-sm font-medium">
-              {(selected as any)?.name || "Visitor"}
-            </div>
+            <div className="text-sm font-medium">{selected.name || "Visitor"}</div>
             <div className="text-xs text-muted-foreground">
-              {(selected as any)?.city ?? "—"}
-              {(selected as any)?.countryCode
-                ? `, ${(selected as any).countryCode}`
-                : ""}
+              {selected.city ?? "—"}
+              {selected.countryCode ? `, ${selected.countryCode}` : ""} ·{" "}
+              {headerUrl}
             </div>
           </div>
 
-          <LiveVisitorView
-            orgId={orgId}
-            streamSessionId={streamSessionId!}
-            height={520}
-          />
+          <LiveVisitorView orgId={orgId} sessionId={selectedSessionId} />
 
-          {(selected as any)?.currentUrl ? (
-            <a
-              href={(selected as any).currentUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-3 mb-3 block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
-              title={(selected as any).currentUrl}
-            >
-              <div className="text-[11px] text-muted-foreground mb-1">
-                Current page
-              </div>
-              <div className="truncate font-medium">
-                {(selected as any).currentUrl}
-              </div>
-              {(selected as any)?.title ? (
-                <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                  {(selected as any).title}
-                </div>
-              ) : null}
-            </a>
-          ) : null}
-
-          <div className="mt-3">
-            <div className="text-xs font-medium text-muted-foreground mb-2">
-              Pages visited
-            </div>
-
-            {pages.length ? (
-              <div className="space-y-2">
-                {pages.slice(0, 10).map((url, idx) => (
-                  <a
-                    key={`${url}_${idx}`}
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
-                    title={url}
-                  >
-                    <div className="truncate">{url}</div>
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-muted-foreground">No pages yet</div>
-            )}
-          </div>
+          <SnapshotsStrip sessionId={selectedSessionId} limit={6} />
         </aside>
       )}
     </div>

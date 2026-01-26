@@ -451,14 +451,17 @@ export const ContactPanel = () => {
           </div>
 
           
-          <div className="mt-4">
+            <div className="mt-4">
+            {contactSession?.organizationId && contactSession?._id && (
             <LiveVisitorView
-              orgId={contactSession.organizationId}
-              streamSessionId={String(contactSession._id)}
-              height={360}
+            orgId={contactSession.organizationId}
+            sessionId={contactSession._id}
             />
+            )}
+
+
             <SnapshotsStrip sessionId={contactSession._id} limit={8} />
-          </div>
+            </div>
         </div>
       </div>
     </div>
