@@ -126,7 +126,7 @@ export default function LiveMapView() {
 
       {/* Right panel (live stream) */}
       {selected && selectedSessionId && (
-        <aside className="w-[420px] border-l bg-background p-3 hidden xl:block">
+        <aside className="w-[35vw] max-w-[650px] border-l bg-background p-3 hidden xl:block">
           <div className="mb-2">
             <div className="text-sm font-medium">{selected.name || "Visitor"}</div>
             <div className="text-xs text-muted-foreground">

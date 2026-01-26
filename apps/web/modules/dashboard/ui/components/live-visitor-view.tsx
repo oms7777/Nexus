@@ -336,7 +336,7 @@ export function LiveVisitorView({
   return (
     <div
       className="relative rounded-xl border overflow-hidden bg-black/5"
-      style={{ height: 360 }}
+      style={{ height: 520 }}
     >
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
