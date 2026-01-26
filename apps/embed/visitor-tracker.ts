@@ -41,9 +41,6 @@ const MAX_TOTAL_EVENTS = 25_000;
 const WATCHDOG_INTERVAL_MS = 30_000;
 const MAX_LONGTASKS_PER_WINDOW = 8;
 
-// fallback URL watcher (covers cases where router doesn't use history properly)
-const URL_WATCH_INTERVAL_MS = 500;
-
 // =======================
 // State
 // =======================
@@ -78,9 +75,6 @@ let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
 let urlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastRestartAt = 0;
-
-// fallback watcher
-let urlWatchTimer: ReturnType<typeof setInterval> | null = null;
 
 // perf watchdog
 let longTaskObserver: PerformanceObserver | null = null;
@@ -169,7 +163,8 @@ function persistSnapshotToDbDebounced(opts: {
     } catch {}
     snapshotAbort = new AbortController();
 
-    // ⚠️ IMPORTANT: keep payload minimal (avoid backend validation breaking URL/page updates)
+    const ctx = getPageContext();
+
     try {
       await fetch(SNAPSHOT_URL, {
         method: "POST",
@@ -178,7 +173,11 @@ function persistSnapshotToDbDebounced(opts: {
         body: JSON.stringify({
           organizationId: opts.orgId,
           sessionId: opts.sessionId,
+          // ✅ keep original field name
           events: opts.events,
+          // ✅ extra context (safe to ignore server-side if not used)
+          pageUrl: ctx.href,
+          title: ctx.title,
         }),
       });
     } catch {
@@ -261,32 +260,14 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         return;
       }
 
-      // =======================
-      // Idle gating (keep scroll/resize real-time)
-      // =======================
-      const type = (event as any)?.type;
-      const src = (event as any)?.data?.source;
-
-      const isIncremental = type === 3; // IncrementalSnapshot
-      const isScroll =
-        src === 3 ||
-        src === "scroll" ||
-        src === "Scroll" ||
-        src === "IncrementalSource.Scroll";
-      const isViewportResize =
-        src === 4 || src === "viewport-resize" || src === "ViewportResize";
-
-      // ✅ mark activity EARLY so scroll/resize exits idle
-      markActivity();
-
-      // ✅ if idle: only allow meta/full snapshot + scroll/resize incrementals
       if (shouldPauseHeavy()) {
-        const allow =
-          type === 4 || type === 2 || (isIncremental && (isScroll || isViewportResize));
-        if (!allow) return;
+        const t = (event as any)?.type;
+        if (t !== 4 && t !== 2) return;
       }
 
-      // rrweb meta
+      markActivity();
+
+      const type = (event as any)?.type;
       if (type === 4) lastMeta = event;
 
       const isFullSnapshot = type === 2;
@@ -340,7 +321,19 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       batch.push(event);
 
-      // ✅ flush immediate on scroll / resize (live follows position)
+      // ✅ Flush immediat sur scroll / resize (pour que le live suive la position)
+      const evType = (event as any)?.type; // 3 = IncrementalSnapshot
+      const src = (event as any)?.data?.source;
+
+      const isIncremental = evType === 3;
+      const isScroll =
+        src === 3 ||
+        src === "scroll" ||
+        src === "Scroll" ||
+        src === "IncrementalSource.Scroll";
+      const isViewportResize =
+        src === 4 || src === "viewport-resize" || src === "ViewportResize";
+
       if (isIncremental && (isScroll || isViewportResize)) {
         flushBatchNow();
         return;
@@ -411,25 +404,6 @@ function patchHistoryForUrlChanges(onChange: () => void) {
     window.removeEventListener("popstate", fire);
     window.removeEventListener("hashchange", fire);
   };
-}
-
-function startUrlWatcher(onChange: () => void) {
-  stopUrlWatcher();
-  urlWatchTimer = setInterval(() => {
-    try {
-      const href = location.href;
-      if (!href || href === lastHref) return;
-      onChange();
-    } catch {}
-  }, URL_WATCH_INTERVAL_MS);
-}
-
-function stopUrlWatcher() {
-  if (!urlWatchTimer) return;
-  try {
-    clearInterval(urlWatchTimer);
-  } catch {}
-  urlWatchTimer = null;
 }
 
 // =======================
@@ -559,8 +533,6 @@ function cleanup() {
   }
   unpatchHistory = null;
 
-  stopUrlWatcher();
-
   if (urlDebounceTimer) {
     try {
       clearTimeout(urlDebounceTimer);
@@ -679,24 +651,10 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   const channel = pusher.subscribe(channelName);
   channelRef = channel;
 
-  const handleUrlChange = () => {
-    const href = location.href;
-    if (!href || href === lastHref) return;
-
-    lastHref = href;
-    markActivity();
-
-    // ✅ push current page immediately (UI can update URL even before rrweb snapshot)
-    emitPageEvent();
-
-    if (!channelRef) return;
-    if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
-  };
-
   channel.bind("pusher:subscription_succeeded", () => {
     startPerfWatchdog();
 
-    // ✅ emit page context ASAP
+    // ✅ emit page context ASAP (utile pour current page / current url côté UI)
     emitPageEvent();
 
     const startedAt = now();
@@ -714,9 +672,19 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     setupCursor();
     startRrwebRecorder(orgId, sessionId);
 
-    // History patch + fallback watcher
-    unpatchHistory = patchHistoryForUrlChanges(handleUrlChange);
-    startUrlWatcher(handleUrlChange);
+    unpatchHistory = patchHistoryForUrlChanges(() => {
+      const href = location.href;
+      if (!href || href === lastHref) return;
+
+      lastHref = href;
+      markActivity();
+
+      // ✅ push current page immediately (en plus du restart snapshot)
+      emitPageEvent();
+
+      if (!channelRef) return;
+      if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
+    });
 
     attachUnloadHandlers();
   });
