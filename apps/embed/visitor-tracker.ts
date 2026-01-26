@@ -20,8 +20,8 @@ const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 const MAX_PAYLOAD_BYTES = 9_000;
 
 // batching
-const BATCH_INTERVAL_MS = 250;
-const MAX_BATCH_EVENTS = 25;
+const BATCH_INTERVAL_MS = 100;
+const MAX_BATCH_EVENTS = 10;
 
 // snapshot persist debounce
 const SNAPSHOT_DEBOUNCE_MS = 300;
