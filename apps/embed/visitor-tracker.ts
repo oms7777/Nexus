@@ -112,17 +112,6 @@ function isNonEmptyString(v: any): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
-function getPageContext() {
-  try {
-    return {
-      href: typeof location !== "undefined" ? location.href : undefined,
-      title: typeof document !== "undefined" ? document.title : undefined,
-    };
-  } catch {
-    return { href: undefined, title: undefined };
-  }
-}
-
 // =======================
 // Networking
 // =======================
@@ -163,8 +152,6 @@ function persistSnapshotToDbDebounced(opts: {
     } catch {}
     snapshotAbort = new AbortController();
 
-    const ctx = getPageContext();
-
     try {
       await fetch(SNAPSHOT_URL, {
         method: "POST",
@@ -173,11 +160,7 @@ function persistSnapshotToDbDebounced(opts: {
         body: JSON.stringify({
           organizationId: opts.orgId,
           sessionId: opts.sessionId,
-          // ✅ keep original field name
           events: opts.events,
-          // ✅ extra context (safe to ignore server-side if not used)
-          pageUrl: ctx.href,
-          title: ctx.title,
         }),
       });
     } catch {
@@ -211,20 +194,6 @@ function stopRrwebOnly() {
   recordStopFn = undefined;
 
   resetRecorderStateForNewPage();
-}
-
-function emitPageEvent() {
-  if (!channelRef) return;
-  const ctx = getPageContext();
-  if (!ctx.href) return;
-
-  try {
-    channelRef.trigger("client-page", {
-      href: ctx.href,
-      title: ctx.title,
-      ts: now(),
-    });
-  } catch {}
 }
 
 function startRrwebRecorder(orgId: string, sessionId: string) {
@@ -287,12 +256,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
           persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
           try {
-            const ctx = getPageContext();
-            channelRef?.trigger("client-snapshot", {
-              events: payloadEvents,
-              pageUrl: ctx.href,
-              title: ctx.title,
-            });
+            channelRef?.trigger("client-snapshot", { events: payloadEvents });
           } catch {}
 
           return;
@@ -302,12 +266,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
         persistSnapshotToDbDebounced({ orgId, sessionId, events: payloadEvents });
 
         try {
-          const ctx = getPageContext();
-          channelRef?.trigger("client-snapshot", {
-            events: payloadEvents,
-            pageUrl: ctx.href,
-            title: ctx.title,
-          });
+          channelRef?.trigger("client-snapshot", { events: payloadEvents });
         } catch {}
 
         return;
@@ -640,8 +599,6 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     channelAuthorization: {
       endpoint: PUSHER_AUTH_URL,
       transport: "ajax",
-      // ✅ garde ces params (même si ton auth peut parser le channelName, ça aide pour debug/future)
-      params: { orgId, sessionId },
     },
   });
 
@@ -653,9 +610,6 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
   channel.bind("pusher:subscription_succeeded", () => {
     startPerfWatchdog();
-
-    // ✅ emit page context ASAP (utile pour current page / current url côté UI)
-    emitPageEvent();
 
     const startedAt = now();
     sessionStopTimer = setInterval(() => {
@@ -678,9 +632,6 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
       lastHref = href;
       markActivity();
-
-      // ✅ push current page immediately (en plus du restart snapshot)
-      emitPageEvent();
 
       if (!channelRef) return;
       if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
