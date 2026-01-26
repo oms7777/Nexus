@@ -201,11 +201,7 @@ export default defineSchema({
     // ✅ NEW: stable external id coming from embed (uuid/string)
     externalSessionId: v.optional(v.string()),
 
-    // ✅ NEW: stable visitor id (dedupe / "one visitor online")
-    visitorId: v.optional(v.string()),
-
     expiresAt: v.number(),
-    lastSeenAt: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
     identifiedAt: v.optional(v.number()),
     metadata: v.optional(
@@ -236,7 +232,6 @@ export default defineSchema({
         // NEW: for anonymous tracking via widget
         visitorId: v.optional(v.string()),
         clientIp: v.optional(v.string()),
-        lastSeenAt: v.optional(v.number()),
 
         // NEW: rep choisi côté widget (visitor_choice)
         preferredRepUserId: v.optional(v.string()),
@@ -253,10 +248,8 @@ export default defineSchema({
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_expires_at", ["expiresAt"])
-    // ✅ find session by (org + externalSessionId)
-    .index("by_org_external_session", ["organizationId", "externalSessionId"])
-    // ✅ find session by (org + visitorId)  => dedupe visitors online
-    .index("by_org_visitor_id", ["organizationId", "visitorId"]),
+    // ✅ NEW: find session by (org + externalSessionId)
+    .index("by_org_external_session", ["organizationId", "externalSessionId"]),
 
 
 

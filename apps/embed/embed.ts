@@ -1,8 +1,7 @@
 // apps/embed/embed.ts
 import { EMBED_CONFIG } from "./config";
 import { chatBubbleIcon, closeIcon } from "./icons";
-import { destroyVisitorTracking, initVisitorTracking } from "./visitor-tracker";
-
+import { initVisitorTracking, destroyVisitorTracking } from "./visitor-tracker";
 
 const NUDGE_ENABLED = true;
 
@@ -47,15 +46,6 @@ type SuggestionsPayload = {
 };
 
 (function () {
-  try {
-    if (window.self !== window.top) return;
-  } catch {
-    return;
-  }
-
-  // ✅ 2) singleton lock: avoid double init if script is injected twice
-  if ((window as any).__NX_WIDGET_EMBED_LOADED__) return;
-  (window as any).__NX_WIDGET_EMBED_LOADED__ = true;
   // DOM
   let iframe: HTMLIFrameElement | null = null;
   let container: HTMLDivElement | null = null;
@@ -311,7 +301,7 @@ type SuggestionsPayload = {
       case "nexus:session-ready": {
         if (!organizationId) return;
 
-        const sid = payload?.contactSessionId;
+        const sid = payload?.sessionId;
         if (typeof sid !== "string" || sid.trim().length === 0) return;
 
         if (trackingStarted && trackingSessionId === sid) return;
@@ -321,16 +311,11 @@ type SuggestionsPayload = {
 
         initVisitorTracking({
           orgId: organizationId,
-          contactSessionId: sid,
+          sessionId: sid,
         });
-
-        // ✅ NEW: send an immediate snapshot/meta for Live panel
-        sendParentLocation();
 
         break;
       }
-
-
 
       default:
         break;
@@ -389,11 +374,8 @@ type SuggestionsPayload = {
   }
 
   function sendParentLocation() {
-    const href = location.href;
-    postToWidget({ type: "nexus:parent-location", href });
+    postToWidget({ type: "nexus:parent-location", href: location.href });
   }
-
-
 
   /* ---------------- Nudge ---------------- */
 

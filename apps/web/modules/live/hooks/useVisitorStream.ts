@@ -1,4 +1,3 @@
-// apps/web/modules/live/hooks/useVisitorStream.ts
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -9,20 +8,17 @@ type Cursor = { x: number; y: number };
 
 export function useVisitorStream(opts: {
   orgId: string;
-  sessionId: string; // MUST match embed contactSessionId
-  onCursor?: (cursor: Cursor) => void;
+  sessionId: string;
   onRrweb?: (events: eventWithTime[]) => void;
   onSnapshot?: (events: eventWithTime[]) => void;
 }) {
-  const { orgId, sessionId, onCursor, onRrweb, onSnapshot } = opts;
+  const { orgId, sessionId, onRrweb, onSnapshot } = opts;
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
-  const startedRef = useRef(false);
+  const chanRef = useRef<Channel | null>(null);
 
   useEffect(() => {
     if (!orgId || !sessionId) return;
-
-    startedRef.current = false;
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
@@ -33,70 +29,45 @@ export function useVisitorStream(opts: {
       channelAuthorization: {
         endpoint: "https://app.inboundless.co/api/realtime/pusher-auth",
         transport: "ajax",
-        params: { orgId, sessionId },
-      } as any,
+      },
     });
 
     const chanName = `presence-org_${orgId}_session_${sessionId}`;
     const ch = pusher.subscribe(chanName) as Channel;
+    chanRef.current = ch;
 
-    const handleCursor = (p: Cursor) => {
-      setCursor(p);
-      onCursor?.(p);
-    };
+    const onCursor = (p: Cursor) => setCursor(p);
 
-    const handleInc = (payload: any) => {
+    const onInc = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length) onRrweb?.(events);
+      if (events.length && onRrweb) onRrweb(events);
     };
 
-    const handleSnap = (payload: any) => {
+    const onSnap = (payload: any) => {
       const events = (payload?.events ?? []) as eventWithTime[];
-      if (events.length) onSnapshot?.(events);
+      if (events.length && onSnapshot) onSnapshot(events);
     };
 
-    ch.bind("client-cursor", handleCursor);
-    ch.bind("client-rrweb", handleInc);
-    ch.bind("client-snapshot", handleSnap);
-
-    const startRrweb = () => {
-      if (startedRef.current) return; // ✅ avoid multiple /rrweb start
-      startedRef.current = true;
-
-      fetch("/api/realtime/rrweb", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId, sessionId, action: "start" }),
-      }).catch(() => {});
-    };
-
-    // ✅ start only when we're actually subscribed
-    ch.bind("pusher:subscription_succeeded", startRrweb);
+    ch.bind("client-cursor", onCursor);
+    ch.bind("client-rrweb", onInc);
+    ch.bind("client-snapshot", onSnap);
 
     return () => {
-      // stop rrweb best-effort
-      fetch("/api/realtime/rrweb", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId, sessionId, action: "stop" }),
-      }).catch(() => {});
-
       try {
-        ch.unbind("pusher:subscription_succeeded", startRrweb);
-        ch.unbind("client-cursor", handleCursor);
-        ch.unbind("client-rrweb", handleInc);
-        ch.unbind("client-snapshot", handleSnap);
+        ch.unbind("client-cursor", onCursor);
+        ch.unbind("client-rrweb", onInc);
+        ch.unbind("client-snapshot", onSnap);
         ch.unbind_all();
       } catch {}
-
       try {
         pusher.unsubscribe(chanName);
       } catch {}
       try {
         pusher.disconnect();
       } catch {}
+      chanRef.current = null;
     };
-  }, [orgId, sessionId, onCursor, onRrweb, onSnapshot]);
+  }, [orgId, sessionId, onRrweb, onSnapshot]);
 
   return { cursor };
 }

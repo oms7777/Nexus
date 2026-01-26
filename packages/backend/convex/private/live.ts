@@ -1,4 +1,3 @@
-// packages/backend/convex/private/live.ts
 import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
 
@@ -22,6 +21,7 @@ export const getActiveVisitors = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .collect();
 
+    // 1) filter actives + has geo
     const active = sessions.filter(
       (s) =>
         (s.expiresAt ?? 0) > now &&
@@ -29,49 +29,38 @@ export const getActiveVisitors = query({
         typeof s.metadata?.lng === "number",
     );
 
-    // dedup by stable visitor key
+    // 2) dedup by stable visitor key (keep the most "alive" session)
     const bestByKey = new Map<string, (typeof active)[number]>();
 
-    const stableKeyFor = (s: any) => {
-      const md = s.metadata ?? {};
-      const vid =
-        (s.visitorId as string | undefined) ||
-        (md.visitorId as string | undefined);
-
-      if (vid && String(vid).trim()) return `v:${String(vid)}`;
-
-      const ext = s.externalSessionId as string | undefined;
-      if (ext && String(ext).trim()) return `e:${String(ext)}`;
-
-      return `id:${String(s._id)}`;
-    };
-
     for (const s of active) {
-      const key = stableKeyFor(s);
-      const prev = bestByKey.get(key);
+      const md = s.metadata ?? {};
+      const key =
+        (md.visitorId as string | undefined) ||
+        (s.externalSessionId as string | undefined) ||
+        String(s._id);
 
+      const prev = bestByKey.get(key);
       if (!prev) {
         bestByKey.set(key, s);
         continue;
       }
 
-      // keep the most alive
+      // keep the "most recent heartbeat" (expiresAt bumped)
       if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
     }
 
     const deduped = Array.from(bestByKey.values());
+
+    // 3) Override currentUrl/title using latest sessionSnapshots (source of truth)
     const results: any[] = [];
 
     for (const s of deduped) {
       const md = s.metadata ?? {};
+      const pages = Array.isArray(md.pages) ? (md.pages as string[]) : [];
 
-      const pages = Array.isArray((md as any).pages)
-        ? ((md as any).pages as string[]).filter(Boolean)
-        : [];
-
-      // latest snapshot
+      // latest snapshot by (sessionId, ts)
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
@@ -88,22 +77,17 @@ export const getActiveVisitors = query({
           snapTitle = latestSnap.title ?? undefined;
           snapTs = latestSnap.ts ?? undefined;
         }
-      } catch {}
+      } catch {
+        // if index not deployed yet, ignore
+      }
 
       const currentUrl =
         snapUrl || (md.currentUrl as string | undefined) || undefined;
+
       const title = snapTitle || (md.title as string | undefined) || undefined;
 
-      const lastSeen = (md as any).lastSeenAt || snapTs || s._creationTime;
-
-      // ✅ SINGLE SOURCE OF TRUTH for Pusher channel:
-      // presence-org_${orgId}_session_${contactSessionId}
-      const contactSessionId = String(s._id);
-      const streamSessionId = contactSessionId;
-
-      const externalSessionId = (s as any).externalSessionId as
-        | string
-        | undefined;
+      // lastSeen should be a real timestamp, not expiresAt (future)
+      const lastSeen = snapTs || now;
 
       results.push({
         _id: s._id,
@@ -117,21 +101,16 @@ export const getActiveVisitors = query({
 
         currentUrl,
         title,
-
         userAgent: md.userAgent as string | undefined,
         cookieEnabled: md.cookieEnabled as boolean | undefined,
         timezoneOffset: md.timezoneOffset as number | undefined,
 
-        pages,
         pageCount: pages.length,
-
         timeOnSiteMs: now - s._creationTime,
 
-        contactSessionId, // string
-        streamSessionId,  // ✅ same
-
-        externalSessionId: externalSessionId ?? null,
+        contactSessionId: s._id,
         conversationId: (s as any).conversationId ?? null,
+
         lastSeen,
       });
     }
