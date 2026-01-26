@@ -41,6 +41,9 @@ const MAX_TOTAL_EVENTS = 25_000;
 const WATCHDOG_INTERVAL_MS = 30_000;
 const MAX_LONGTASKS_PER_WINDOW = 8;
 
+// fallback URL watcher (covers cases where router doesn't use history properly)
+const URL_WATCH_INTERVAL_MS = 500;
+
 // =======================
 // State
 // =======================
@@ -75,6 +78,9 @@ let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
 let urlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastRestartAt = 0;
+
+// fallback watcher
+let urlWatchTimer: ReturnType<typeof setInterval> | null = null;
 
 // perf watchdog
 let longTaskObserver: PerformanceObserver | null = null;
@@ -163,8 +169,7 @@ function persistSnapshotToDbDebounced(opts: {
     } catch {}
     snapshotAbort = new AbortController();
 
-    const ctx = getPageContext();
-
+    // ⚠️ IMPORTANT: keep payload minimal (avoid backend validation breaking URL/page updates)
     try {
       await fetch(SNAPSHOT_URL, {
         method: "POST",
@@ -173,11 +178,7 @@ function persistSnapshotToDbDebounced(opts: {
         body: JSON.stringify({
           organizationId: opts.orgId,
           sessionId: opts.sessionId,
-          // ✅ keep original field name
           events: opts.events,
-          // ✅ extra context (safe to ignore server-side if not used)
-          pageUrl: ctx.href,
-          title: ctx.title,
         }),
       });
     } catch {
@@ -339,8 +340,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 
       batch.push(event);
 
-      // ✅ flush immediat sur scroll / resize (pour que le live suive la position)
-      // (on réutilise isIncremental/isScroll/isViewportResize calculés plus haut)
+      // ✅ flush immediate on scroll / resize (live follows position)
       if (isIncremental && (isScroll || isViewportResize)) {
         flushBatchNow();
         return;
@@ -411,6 +411,25 @@ function patchHistoryForUrlChanges(onChange: () => void) {
     window.removeEventListener("popstate", fire);
     window.removeEventListener("hashchange", fire);
   };
+}
+
+function startUrlWatcher(onChange: () => void) {
+  stopUrlWatcher();
+  urlWatchTimer = setInterval(() => {
+    try {
+      const href = location.href;
+      if (!href || href === lastHref) return;
+      onChange();
+    } catch {}
+  }, URL_WATCH_INTERVAL_MS);
+}
+
+function stopUrlWatcher() {
+  if (!urlWatchTimer) return;
+  try {
+    clearInterval(urlWatchTimer);
+  } catch {}
+  urlWatchTimer = null;
 }
 
 // =======================
@@ -540,6 +559,8 @@ function cleanup() {
   }
   unpatchHistory = null;
 
+  stopUrlWatcher();
+
   if (urlDebounceTimer) {
     try {
       clearTimeout(urlDebounceTimer);
@@ -658,10 +679,24 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   const channel = pusher.subscribe(channelName);
   channelRef = channel;
 
+  const handleUrlChange = () => {
+    const href = location.href;
+    if (!href || href === lastHref) return;
+
+    lastHref = href;
+    markActivity();
+
+    // ✅ push current page immediately (UI can update URL even before rrweb snapshot)
+    emitPageEvent();
+
+    if (!channelRef) return;
+    if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
+  };
+
   channel.bind("pusher:subscription_succeeded", () => {
     startPerfWatchdog();
 
-    // ✅ emit page context ASAP (utile pour current page / current url côté UI)
+    // ✅ emit page context ASAP
     emitPageEvent();
 
     const startedAt = now();
@@ -679,19 +714,9 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
     setupCursor();
     startRrwebRecorder(orgId, sessionId);
 
-    unpatchHistory = patchHistoryForUrlChanges(() => {
-      const href = location.href;
-      if (!href || href === lastHref) return;
-
-      lastHref = href;
-      markActivity();
-
-      // ✅ push current page immediately (en plus du restart snapshot)
-      emitPageEvent();
-
-      if (!channelRef) return;
-      if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
-    });
+    // History patch + fallback watcher
+    unpatchHistory = patchHistoryForUrlChanges(handleUrlChange);
+    startUrlWatcher(handleUrlChange);
 
     attachUnloadHandlers();
   });
