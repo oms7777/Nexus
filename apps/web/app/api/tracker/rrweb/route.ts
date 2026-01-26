@@ -1,4 +1,4 @@
-// apps/web/app/api/realtime/rrweb/route.ts
+// apps/web/app/api/tracker/rrweb/route.ts
 import { NextResponse } from "next/server";
 import Pusher from "pusher";
 
