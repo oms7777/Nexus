@@ -186,11 +186,16 @@ export default defineSchema({
       v.literal("escalated"),
       v.literal("resolved"),
     ),
+
+    // ✅ NEW: rep “owner” de la conversation (routé par rules/territories ou visitor_choice)
+    assignedRepUserId: v.optional(v.string()),
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_contact_session_id", ["contactSessionId"])
     .index("by_thread_id", ["threadId"])
-    .index("by_status_and_organization_id", ["status", "organizationId"]),
+    .index("by_status_and_organization_id", ["status", "organizationId"])
+    // ✅ NEW: pour panels “My conversations”
+    .index("by_org_assigned_rep", ["organizationId", "assignedRepUserId"]),
 
   contactSessions: defineTable({
     name: v.optional(v.string()),

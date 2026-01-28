@@ -1,5 +1,6 @@
 import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
+import type { Doc } from "../_generated/dataModel";
 
 export const getActiveVisitors = query({
   args: {},
@@ -45,7 +46,6 @@ export const getActiveVisitors = query({
         continue;
       }
 
-      // keep the "most recent heartbeat" (expiresAt bumped)
       if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
@@ -53,7 +53,49 @@ export const getActiveVisitors = query({
 
     const deduped = Array.from(bestByKey.values());
 
-    // 3) Override currentUrl/title using latest sessionSnapshots (source of truth)
+    // ✅ 3) Load conversations for these sessions (active/latest per session)
+    const convBySessionId = new Map<string, Doc<"conversations">>();
+
+    for (const s of deduped) {
+      const conv = await ctx.db
+        .query("conversations")
+        .withIndex("by_contact_session_id", (q) => q.eq("contactSessionId", s._id))
+        .order("desc")
+        .first();
+
+      if (conv && conv.organizationId === orgId && conv.status !== "resolved") {
+        convBySessionId.set(String(s._id), conv);
+      }
+    }
+
+    // ✅ 4) Collect unique rep ids from conversations
+    const repIds = Array.from(
+      new Set(
+        Array.from(convBySessionId.values())
+          .map((c) => c.assignedRepUserId)
+          .filter(Boolean) as string[],
+      ),
+    );
+
+    // ✅ 5) Load user profiles for reps (users table)
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_org", (q: any) => q.eq("organizationId", orgId))
+      .collect();
+
+    const userByExternalId = new Map<string, Doc<"users">>();
+    for (const u of users) userByExternalId.set(u.externalId, u);
+
+    // ✅ 6) Load reps presence (optional, but useful for role/regions/available)
+    const repPresence = await ctx.db
+      .query("repsPresence")
+      .withIndex("by_org", (q) => q.eq("organizationId", orgId))
+      .collect();
+
+    const presenceByUserId = new Map<string, Doc<"repsPresence">>();
+    for (const r of repPresence) presenceByUserId.set(r.userId, r);
+
+    // 7) Build results
     const results: any[] = [];
 
     for (const s of deduped) {
@@ -78,16 +120,39 @@ export const getActiveVisitors = query({
           snapTs = latestSnap.ts ?? undefined;
         }
       } catch {
-        // if index not deployed yet, ignore
+        // ignore
       }
 
-      const currentUrl =
-        snapUrl || (md.currentUrl as string | undefined) || undefined;
-
+      const currentUrl = snapUrl || (md.currentUrl as string | undefined) || undefined;
       const title = snapTitle || (md.title as string | undefined) || undefined;
 
       // lastSeen should be a real timestamp, not expiresAt (future)
       const lastSeen = snapTs || now;
+
+      const conv = convBySessionId.get(String(s._id));
+      const conversationId = conv?._id ?? null;
+
+      // ✅ Assigned rep object (profile + presence)
+      let assignedRep: any = null;
+
+      const repUserId = conv?.assignedRepUserId;
+      if (repUserId) {
+        const u = userByExternalId.get(repUserId);
+        const p = presenceByUserId.get(repUserId);
+
+        const avatar =
+          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
+
+        assignedRep = {
+          userId: repUserId,
+          name: u?.name ?? undefined,
+          avatarUrl: avatar,
+          title: u?.title ?? p?.title ?? undefined,
+          role: p?.role ?? "sales",
+          regions: p?.regions ?? [],
+          available: p?.available ?? undefined,
+        };
+      }
 
       results.push({
         _id: s._id,
@@ -109,7 +174,10 @@ export const getActiveVisitors = query({
         timeOnSiteMs: now - s._creationTime,
 
         contactSessionId: s._id,
-        conversationId: (s as any).conversationId ?? null,
+        conversationId,
+
+        // ✅ NEW: rep owner visible everywhere (LiveMap, panels, contactPanel, etc.)
+        assignedRep,
 
         lastSeen,
       });
