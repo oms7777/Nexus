@@ -1,23 +1,48 @@
-// packages/backend/convex/private/live.ts (ou public selon ton path réel)
+// packages/backend/convex/private/live.ts
 import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 
 export const getActiveVisitors = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     const orgId = (identity as any)?.orgId as string | undefined;
+    const myUserId = (identity as any)?.subject as string | undefined;
 
-    if (!orgId) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Organization not found",
-      });
+    if (!orgId || !myUserId) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
     }
 
     const now = Date.now();
 
+    // ✅ my presence => my territories
+    const myPresence = await ctx.db
+      .query("repsPresence")
+      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", myUserId))
+      .unique();
+
+    const myTerritories: string[] = Array.isArray(myPresence?.regions)
+      ? (myPresence!.regions as string[])
+      : [];
+
+    // ✅ territories mapping (countryCode -> territoryKey)
+    const territories = await ctx.db
+      .query("territories")
+      .withIndex("by_org", (q) => q.eq("organizationId", orgId))
+      .collect();
+
+    const countryToTerritory = new Map<string, string>();
+    for (const t of territories) {
+      const codes = Array.isArray(t.countryCodes) ? t.countryCodes : [];
+      for (const c of codes) {
+        if (typeof c === "string" && c.trim()) {
+          countryToTerritory.set(c.trim().toUpperCase(), t.key);
+        }
+      }
+    }
+
+    // sessions
     const sessions = await ctx.db
       .query("contactSessions")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
@@ -27,11 +52,11 @@ export const getActiveVisitors = query({
       (s) =>
         (s.expiresAt ?? 0) > now &&
         typeof s.metadata?.lat === "number" &&
-        typeof s.metadata?.lng === "number"
+        typeof s.metadata?.lng === "number",
     );
 
+    // dedupe
     const bestByKey = new Map<string, (typeof active)[number]>();
-
     for (const s of active) {
       const md = s.metadata ?? {};
       const key =
@@ -40,21 +65,14 @@ export const getActiveVisitors = query({
         String(s._id);
 
       const prev = bestByKey.get(key);
-      if (!prev) {
-        bestByKey.set(key, s);
-        continue;
-      }
-
-      if ((s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
+      if (!prev || (s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
         bestByKey.set(key, s);
       }
     }
-
     const deduped = Array.from(bestByKey.values());
 
-    // load latest active conv per session
+    // latest active conversation per session
     const convBySessionId = new Map<string, Doc<"conversations">>();
-
     for (const s of deduped) {
       const conv = await ctx.db
         .query("conversations")
@@ -91,42 +109,56 @@ export const getActiveVisitors = query({
       const md = s.metadata ?? {};
       const pages = Array.isArray(md.pages) ? (md.pages as string[]) : [];
 
+      // latest snapshot for URL/title
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
 
-      try {
-        const latestSnap = await ctx.db
-          .query("sessionSnapshots")
-          .withIndex("by_session_ts", (q) => q.eq("sessionId", s._id))
-          .order("desc")
-          .first();
+      const latestSnap = await ctx.db
+        .query("sessionSnapshots")
+        .withIndex("by_session_ts", (q) => q.eq("sessionId", s._id))
+        .order("desc")
+        .first();
 
-        if (latestSnap) {
-          snapUrl = latestSnap.pageUrl ?? undefined;
-          snapTitle = latestSnap.title ?? undefined;
-          snapTs = latestSnap.ts ?? undefined;
-        }
-      } catch {}
+      if (latestSnap) {
+        snapUrl = latestSnap.pageUrl ?? undefined;
+        snapTitle = latestSnap.title ?? undefined;
+        snapTs = latestSnap.ts ?? undefined;
+      }
 
       const currentUrl = snapUrl || (md.currentUrl as string | undefined) || undefined;
       const title = snapTitle || (md.title as string | undefined) || undefined;
-
       const lastSeen = snapTs || now;
 
       const conv = convBySessionId.get(String(s._id));
       const conversationId = conv?._id ?? null;
 
-      // ✅ rep: conversation first, else session assignment
+      // assignment sources
       const repUserId =
         (conv?.assignedRepUserId as string | undefined) ||
         (s.assignedRepUserId as string | undefined) ||
         undefined;
 
-      const territoryKey =
+      // ✅ territoryKey: conversation > session > fallback country mapping
+      let territoryKey =
         (conv?.assignedTerritoryKey as string | undefined) ||
         (s.assignedTerritoryKey as string | undefined) ||
         undefined;
+
+      if (!territoryKey) {
+        const cc = (md.countryCode as string | undefined)?.toUpperCase();
+        if (cc) territoryKey = countryToTerritory.get(cc);
+      }
+
+      // ✅ filter visibility
+      const isAssignedToMe = repUserId === myUserId;
+      const isInMyTerritory =
+        Boolean(territoryKey) && myTerritories.includes(String(territoryKey));
+
+      const canSee =
+        myTerritories.length > 0 ? (isInMyTerritory || isAssignedToMe) : isAssignedToMe;
+
+      if (!canSee) continue;
 
       let assignedRep: any = null;
       if (repUserId) {
@@ -134,14 +166,15 @@ export const getActiveVisitors = query({
         const p = presenceByUserId.get(repUserId);
 
         const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
+          typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
+            ? u.avatarUrl.trim()
+            : undefined;
 
         assignedRep = {
           userId: repUserId,
           name: u?.name ?? undefined,
           avatarUrl: avatar,
           title: u?.title ?? p?.title ?? undefined,
-          role: p?.role ?? "sales",
           regions: p?.regions ?? [],
           available: p?.available ?? undefined,
           territoryKey,
@@ -160,14 +193,11 @@ export const getActiveVisitors = query({
 
         currentUrl,
         title,
-        userAgent: md.userAgent as string | undefined,
-        cookieEnabled: md.cookieEnabled as boolean | undefined,
-        timezoneOffset: md.timezoneOffset as number | undefined,
 
         pageCount: pages.length,
         timeOnSiteMs: now - s._creationTime,
 
-        contactSessionId: s._id,
+        contactSessionId: s._id as Id<"contactSessions">,
         conversationId,
 
         assignedRep,
