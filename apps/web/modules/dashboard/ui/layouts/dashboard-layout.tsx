@@ -1,4 +1,3 @@
-// apps/web/modules/dashboard/ui/layouts/dashboard-layout.tsx
 "use client";
 
 import React, { useEffect } from "react";
@@ -21,8 +20,8 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
   useEffect(() => {
     if (!isLoaded || !orgId) return;
 
-    // présence du rep dès connexion (une fois org chargé)
-    ensurePresence({ role: "sales", available: true }).catch(() => {});
+    // ✅ presence rep on login (role removed)
+    ensurePresence({ available: true }).catch(() => {});
   }, [ensurePresence, isLoaded, orgId]);
 
   return (
