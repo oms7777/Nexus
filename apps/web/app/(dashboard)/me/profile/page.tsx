@@ -32,7 +32,8 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!organization || !user) return;
-    ensurePresence({ role: "sales", available: true }).catch(() => {});
+    // ✅ role removed (support/sales removed product-wise)
+    ensurePresence({ available: true }).catch(() => {});
   }, [organization, user, ensurePresence]);
 
   const slackInfo = useMemo(() => {
@@ -50,7 +51,6 @@ export default function ProfilePage() {
   const [jobTitle, setJobTitle] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // ✅ Display: Clerk first, then Convex fallback
   const displayAvatar =
     (userLoaded ? user?.imageUrl : undefined) || (me as any)?.avatarUrl || "";
 
@@ -67,10 +67,9 @@ export default function ProfilePage() {
     window.location.href = "/api/integrations/google/start";
   };
 
-  // ✅ Always sync name + avatar from Clerk when saving (so Convex is reliable for widget/header)
   const syncClerkToConvex = async () => {
     if (!user) return;
-    await user.reload(); // ✅ ensure imageUrl updated
+    await user.reload();
     const fullName =
       user.fullName ||
       [user.firstName, user.lastName].filter(Boolean).join(" ") ||
@@ -105,7 +104,7 @@ export default function ProfilePage() {
       if (!user) throw new Error("User not loaded");
 
       await user.setProfileImage({ file });
-      await user.reload(); // ✅ critical
+      await user.reload();
 
       await syncClerkToConvex();
       toast.success("Avatar updated");
