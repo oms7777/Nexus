@@ -30,6 +30,7 @@ async function upsertUserProfileBestEffort(
   const payload: any = {
     organizationId,
     externalId,
+    updatedAt: Date.now(),
   };
 
   if (profile.name !== undefined) payload.name = profile.name || undefined;
@@ -74,10 +75,9 @@ export const getRepForOrgUser = query({
 
 export const ensureRepPresenceForMe = mutation({
   args: {
-    role: v.optional(v.union(v.literal("sales"), v.literal("support"))),
     available: v.optional(v.boolean()),
   },
-  handler: async (ctx, { role, available }) => {
+  handler: async (ctx, { available }) => {
     const organizationId = await requireOrgId(ctx);
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
@@ -94,7 +94,7 @@ export const ensureRepPresenceForMe = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        role: role ?? existing.role,
+        role: "sales",
         available: available ?? existing.available,
         updatedAt: now,
       });
@@ -104,7 +104,7 @@ export const ensureRepPresenceForMe = mutation({
     return await ctx.db.insert("repsPresence", {
       organizationId,
       userId,
-      role: role ?? "sales",
+      role: "sales",
       regions: [],
       available: available ?? true,
       updatedAt: now,
@@ -143,7 +143,6 @@ export const getRepForVisitor = query({
 export const upsertRepPresence = mutation({
   args: {
     userId: v.string(),
-    role: v.union(v.literal("sales"), v.literal("support")),
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
     slackUserId: v.optional(v.string()),
@@ -156,7 +155,7 @@ export const upsertRepPresence = mutation({
       }),
     ),
   },
-  handler: async (ctx, { userId, role, regions, available, slackUserId, slackDmChannel, profile }) => {
+  handler: async (ctx, { userId, regions, available, slackUserId, slackDmChannel, profile }) => {
     const organizationId = await requireOrgId(ctx);
     if (!userId) throw new ConvexError({ code: "BAD_REQUEST", message: "userId is required" });
 
@@ -174,7 +173,7 @@ export const upsertRepPresence = mutation({
     const payload: any = {
       organizationId,
       userId,
-      role,
+      role: "sales",
       available,
       updatedAt: now,
       regions: Array.isArray(regions) ? regions : [],
@@ -209,7 +208,7 @@ export const connectRepSlack = mutation({
       .unique();
 
     if (existing) {
-      await ctx.db.patch(existing._id, { slackUserId, slackDmChannel, updatedAt: now });
+      await ctx.db.patch(existing._id, { slackUserId, slackDmChannel, updatedAt: now, role: "sales" });
       return existing._id;
     }
 

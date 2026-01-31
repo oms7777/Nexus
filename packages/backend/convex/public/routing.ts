@@ -37,6 +37,12 @@ function pickRandom<T>(arr: T[]): T | null {
   return arr[idx] ?? null;
 }
 
+/**
+ * listRepsForVisitor:
+ * ✅ Gate routingMode = visitor_choice
+ * ✅ V1 territory-only: on retourne des reps disponibles (tous rôles),
+ *    filtrés éventuellement par rules/territories, puis enrichis users.
+ */
 export const listRepsForVisitor = query({
   args: {
     organizationId: v.string(),
@@ -85,12 +91,10 @@ export const listRepsForVisitor = query({
       visitorCountry = normalizeCountryCode(visitorCountry);
       if (!visitorUtmSource) visitorUtmSource = extractUtmSourceFromUrl(visitorUrl);
 
-      // 2) Load reps (sales only for visitor choice)
+      // 2) Load reps (✅ V1 territory-only: ALL roles)
       const rawReps = await ctx.db
         .query("repsPresence")
-        .withIndex("by_org_role", (q) =>
-          q.eq("organizationId", organizationId).eq("role", "sales"),
-        )
+        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
         .collect();
 
       const availableReps = rawReps.filter((r) => r.available);
@@ -152,9 +156,13 @@ export const listRepsForVisitor = query({
         if (!ruleMatchesVisitor(rule as any)) continue;
 
         const rt = rule.routeTo;
-        let subset = availableReps.filter((r) => r.role === rt.role);
 
-        if (rt.repIds && rt.repIds.length) subset = subset.filter((r) => rt.repIds!.includes(r.userId));
+        // ✅ V1 territory-only: subset starts from availableReps (ignore rt.role)
+        let subset = availableReps;
+
+        if (rt.repIds && rt.repIds.length) {
+          subset = subset.filter((r) => rt.repIds!.includes(r.userId));
+        }
 
         if (rt.regions && rt.regions.length) {
           subset = subset.filter((r) => {
@@ -170,6 +178,7 @@ export const listRepsForVisitor = query({
         }
       }
 
+      // Territory fallback if no rule applied
       if (!ruleApplied && visitorTerritoryKeys.length > 0) {
         const geoFiltered = availableReps.filter((r) => {
           const repRegions: string[] = r.regions ?? [];
@@ -209,6 +218,11 @@ export const listRepsForVisitor = query({
   },
 });
 
+/**
+ * listCandidatesForAutoAssign:
+ * ✅ V1 territory-only: même logique que listRepsForVisitor,
+ *    mais appelé en auto_assign (pas de gate routingMode ici).
+ */
 export const listCandidatesForAutoAssign = query({
   args: {
     organizationId: v.string(),
@@ -244,12 +258,10 @@ export const listCandidatesForAutoAssign = query({
       visitorCountry = normalizeCountryCode(visitorCountry);
       if (!visitorUtmSource) visitorUtmSource = extractUtmSourceFromUrl(visitorUrl);
 
-      // 2) Load reps (sales only)
+      // 2) Load reps (✅ V1 territory-only: ALL roles)
       const rawReps = await ctx.db
         .query("repsPresence")
-        .withIndex("by_org_role", (q) =>
-          q.eq("organizationId", organizationId).eq("role", "sales"),
-        )
+        .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
         .collect();
 
       const availableReps = rawReps.filter((r) => r.available);
@@ -311,9 +323,13 @@ export const listCandidatesForAutoAssign = query({
         if (!ruleMatchesVisitor(rule as any)) continue;
 
         const rt = rule.routeTo;
-        let subset = availableReps.filter((r) => r.role === rt.role);
 
-        if (rt.repIds && rt.repIds.length) subset = subset.filter((r) => rt.repIds!.includes(r.userId));
+        // ✅ V1 territory-only: ignore rt.role
+        let subset = availableReps;
+
+        if (rt.repIds && rt.repIds.length) {
+          subset = subset.filter((r) => rt.repIds!.includes(r.userId));
+        }
 
         if (rt.regions && rt.regions.length) {
           subset = subset.filter((r) => {
@@ -368,6 +384,10 @@ export const listCandidatesForAutoAssign = query({
   },
 });
 
+/**
+ * pickRepForVisitor:
+ * ✅ V1 territory-only: ignore roles in routing decisions.
+ */
 export const pickRepForVisitor = query({
   args: {
     organizationId: v.string(),
@@ -384,19 +404,19 @@ export const pickRepForVisitor = query({
     const matchUtm =
       (session.metadata?.utmSource as string | undefined) ?? extractUtmSourceFromUrl(currentUrl);
 
-    // reps sales (source of truth)
+    // reps (source of truth)
     const reps = (await ctx.db
       .query("repsPresence")
       .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
       .collect()) as Doc<"repsPresence">[];
 
-    const availableSales = reps.filter((r) => r.available && r.role === "sales");
-    if (!availableSales.length) return null;
+    const availableReps = reps.filter((r) => r.available);
+    if (!availableReps.length) return null;
 
     // 1) preferred rep (visitor_choice)
     const preferred = session.metadata?.preferredRepUserId as string | undefined;
     if (preferred) {
-      const foundPref = availableSales.find((r) => r.userId === preferred);
+      const foundPref = availableReps.find((r) => r.userId === preferred);
       if (foundPref) {
         const u = await ctx.db
           .query("users")
@@ -420,7 +440,7 @@ export const pickRepForVisitor = query({
       }
     }
 
-    // 2) Apply routingRules by priority (same logic as routing.pickRepForSession)
+    // 2) Apply routingRules by priority
     const rules = (await ctx.db
       .query("routingRules")
       .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
@@ -457,8 +477,8 @@ export const pickRepForVisitor = query({
 
       const target = rule.routeTo;
 
-      // candidates: available + role
-      let candidates = reps.filter((r) => r.available && r.role === target.role);
+      // ✅ V1 territory-only: candidates = available only (ignore target.role)
+      let candidates = reps.filter((r) => r.available);
 
       if (target.repIds && target.repIds.length > 0) {
         candidates = candidates.filter((r) => target.repIds!.includes(r.userId));
@@ -507,7 +527,7 @@ export const pickRepForVisitor = query({
         .map((t) => t.key);
 
       if (territoryKeys.length > 0) {
-        const geoCandidates = availableSales.filter((r) => {
+        const geoCandidates = availableReps.filter((r) => {
           const repRegions = r.regions ?? [];
           return repRegions.some((reg) => territoryKeys.includes(reg));
         });
@@ -539,8 +559,8 @@ export const pickRepForVisitor = query({
       }
     }
 
-    // 4) fallback: any available sales
-    const chosen = pickRandom(availableSales);
+    // 4) fallback: any available rep
+    const chosen = pickRandom(availableReps);
     if (!chosen) return null;
 
     const u = await ctx.db

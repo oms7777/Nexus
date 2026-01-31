@@ -23,11 +23,18 @@ export type Visitor = {
   contactSessionId?: string;
   conversationId?: string | null;
   lastSeen?: number;
+
+  // ✅ routing / assignment
+  assignedTerritoryKey?: string;
+  assignedRepUserId?: string;
+  assignedRep?: { userId?: string; name?: string; avatarUrl?: string; title?: string } | null;
 };
 
 type Props = {
   visitors: Visitor[];
   selectedId?: string;
+  myUserId?: string;
+  onSelectId?: (id?: string) => void;
 };
 
 function fmt(ms?: number) {
@@ -38,24 +45,29 @@ function fmt(ms?: number) {
   return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
 }
 
-export default function LiveMap({ visitors, selectedId }: Props) {
+export default function LiveMap({ visitors, selectedId, myUserId, onSelectId }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
 
   const styleUrl = useMemo(() => {
-    // Prefer a full custom style url if provided
     const custom = process.env.NEXT_PUBLIC_MAPTILER_STYLE_URL;
     if (custom && custom.startsWith("http")) return custom;
 
-    // Fallback to the default MapTiler "streets" style with your key
     const key = process.env.NEXT_PUBLIC_MAPTILER_KEY;
     return `https://api.maptiler.com/maps/streets/style.json?key=${key}`;
   }, []);
 
+  const myVisitors = useMemo(() => {
+    if (!myUserId) return [];
+    return (visitors ?? []).filter((v) => {
+      const repId = v.assignedRepUserId ?? v.assignedRep?.userId;
+      return repId === myUserId;
+    });
+  }, [visitors, myUserId]);
 
   const geojson = useMemo(() => {
-    const feats = visitors
+    const feats = myVisitors
       .filter((v) => typeof v.lat === "number" && typeof v.lng === "number")
       .map((v) => ({
         type: "Feature" as const,
@@ -75,10 +87,11 @@ export default function LiveMap({ visitors, selectedId }: Props) {
           timeOnSiteMs: v.timeOnSiteMs ?? 0,
           contactSessionId: v.contactSessionId ?? "",
           conversationId: v.conversationId ?? "",
+          assignedTerritoryKey: v.assignedTerritoryKey ?? "",
         },
       }));
     return { type: "FeatureCollection" as const, features: feats };
-  }, [visitors]);
+  }, [myVisitors]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -116,6 +129,7 @@ export default function LiveMap({ visitors, selectedId }: Props) {
     const unclustered = "unclustered";
 
     const addLayers = () => {
+      // reset
       [clusters, clusterCount, unclustered].forEach((id) => {
         if (map.getLayer(id)) map.removeLayer(id);
       });
@@ -174,15 +188,14 @@ export default function LiveMap({ visitors, selectedId }: Props) {
         },
       });
 
-      // ⬇️ Fix 1: guard f or assert non-null
       map.on("click", clusters, (e) => {
         const features = map.queryRenderedFeatures(e.point, {
           layers: [clusters],
         }) as maplibregl.MapGeoJSONFeature[];
         if (!features?.length) return;
 
-        const f = features[0]; // type could be MapGeoJSONFeature | undefined
-        if (!f) return;        // <-- guard to satisfy TS
+        const f = features[0];
+        if (!f) return;
 
         const clusterId = (f.properties as any)?.cluster_id;
         if (clusterId == null) return;
@@ -190,15 +203,12 @@ export default function LiveMap({ visitors, selectedId }: Props) {
         const src = map.getSource(sourceId) as any;
         src.getClusterExpansionZoom(clusterId, (err: unknown, zoom: number) => {
           if (err) return;
-          const coords = (f.geometry as any)?.coordinates as
-            | [number, number]
-            | undefined;
+          const coords = (f.geometry as any)?.coordinates as [number, number] | undefined;
           if (!coords) return;
           map.easeTo({ center: coords, zoom });
         });
       });
 
-      // ⬇️ Fix 2: already guarded; keep as-is (or use non-null assertion)
       map.on("click", unclustered, (e) => {
         const features = map.queryRenderedFeatures(e.point, {
           layers: [unclustered],
@@ -209,9 +219,11 @@ export default function LiveMap({ visitors, selectedId }: Props) {
         if (!f) return;
 
         const p = (f.properties ?? {}) as any;
-        const coord = ((f.geometry as any)?.coordinates ??
-          []) as [number, number];
+        const coord = ((f.geometry as any)?.coordinates ?? []) as [number, number];
         if (!coord?.length) return;
+
+        // ✅ selection depuis la map
+        if (p?.id && onSelectId) onSelectId(String(p.id));
 
         const html = buildPopupHTML(p);
         if (popupRef.current) popupRef.current.remove();
@@ -229,17 +241,15 @@ export default function LiveMap({ visitors, selectedId }: Props) {
 
     if (map.isStyleLoaded()) addLayers();
     else map.once("load", addLayers);
-  }, [geojson]);
+  }, [geojson, onSelectId]);
 
+  // focus selected
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !selectedId) return;
 
-    const v = visitors.find(
-      (x) =>
-        x._id === selectedId &&
-        typeof x.lat === "number" &&
-        typeof x.lng === "number"
+    const v = myVisitors.find(
+      (x) => x._id === selectedId && typeof x.lat === "number" && typeof x.lng === "number",
     );
     if (!v) return;
 
@@ -247,6 +257,7 @@ export default function LiveMap({ visitors, selectedId }: Props) {
     map.easeTo({ center: coord, zoom: 6 });
 
     const p = {
+      id: v._id,
       name: v.name ?? "Visitor",
       email: v.email ?? "",
       city: v.city ?? "",
@@ -256,6 +267,7 @@ export default function LiveMap({ visitors, selectedId }: Props) {
       pageCount: v.pageCount ?? 0,
       timeOnSiteMs: v.timeOnSiteMs ?? 0,
       conversationId: v.conversationId ?? "",
+      assignedTerritoryKey: v.assignedTerritoryKey ?? "",
     };
 
     const html = buildPopupHTML(p);
@@ -264,13 +276,14 @@ export default function LiveMap({ visitors, selectedId }: Props) {
       .setLngLat(coord)
       .setHTML(html)
       .addTo(map);
-  }, [selectedId, visitors]);
+  }, [selectedId, myVisitors]);
 
+  // fit bounds (my visitors only)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    const coords = visitors
+    const coords = myVisitors
       .filter((v) => typeof v.lat === "number" && typeof v.lng === "number")
       .map((v) => [v.lng as number, v.lat as number]);
 
@@ -282,13 +295,10 @@ export default function LiveMap({ visitors, selectedId }: Props) {
 
     const bounds = coords.reduce(
       (b, c) => b.extend(c as [number, number]),
-      new maplibregl.LngLatBounds(
-        coords[0] as [number, number],
-        coords[0] as [number, number]
-      )
+      new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number]),
     );
     map.fitBounds(bounds, { padding: 64, maxZoom: 7, duration: 500 });
-  }, [visitors]);
+  }, [myVisitors]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
@@ -299,6 +309,7 @@ function buildPopupHTML(p: any) {
       <div style="font-weight:600;margin-bottom:4px">${p.name || "Visitor"}</div>
       ${p.email ? `<div>${p.email}</div>` : ""}
       ${p.city ? `<div>${p.city}${p.countryCode ? `, ${p.countryCode}` : ""}</div>` : ""}
+      ${p.assignedTerritoryKey ? `<div style="opacity:.8">Territory: ${p.assignedTerritoryKey}</div>` : ""}
       ${p.title ? `<div style="opacity:.8">${p.title}</div>` : ""}
       ${p.url ? `<div style="margin:6px 0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.url}</div>` : ""}
       <div style="display:flex;gap:8px;opacity:.8">

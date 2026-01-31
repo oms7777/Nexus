@@ -1,4 +1,4 @@
-// convex/public/conversations.ts
+// packages/backend/convex/public/conversations.ts
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { paginationOptsValidator } from "convex/server";
@@ -6,7 +6,82 @@ import { api, components, internal } from "../_generated/api";
 import { supportAgent } from "../system/ai/agents/supportAgent";
 import { saveMessage, type MessageDoc } from "@convex-dev/agent";
 
-type RoutingMode = "auto_assign" | "visitor_choice";
+export const getMany = query({
+  args: {
+    contactSessionId: v.id("contactSessions"),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const contactSession = await ctx.db.get(args.contactSessionId);
+
+    if (!contactSession || contactSession.expiresAt < Date.now()) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
+    }
+
+    const conversations = await ctx.db
+      .query("conversations")
+      .withIndex("by_contact_session_id", (q) => q.eq("contactSessionId", args.contactSessionId))
+      .order("desc")
+      .paginate(args.paginationOpts);
+
+    const page = await Promise.all(
+      conversations.page.map(async (conversation) => {
+        let lastMessage: MessageDoc | null = null;
+
+        const messages = await supportAgent.listMessages(ctx, {
+          threadId: conversation.threadId,
+          paginationOpts: { numItems: 1, cursor: null },
+        });
+
+        if (messages.page.length > 0) lastMessage = messages.page[0] ?? null;
+
+        return {
+          _id: conversation._id,
+          _creationTime: conversation._creationTime,
+          status: conversation.status,
+          organizationId: conversation.organizationId,
+          threadId: conversation.threadId,
+          lastMessage,
+          assignedRepUserId: conversation.assignedRepUserId ?? null,
+          assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
+        };
+      })
+    );
+
+    return { ...conversations, page };
+  },
+});
+
+export const getOne = query({
+  args: {
+    conversationId: v.id("conversations"),
+    contactSessionId: v.id("contactSessions"),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.contactSessionId);
+
+    if (!session || session.expiresAt < Date.now()) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
+    }
+
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
+    }
+
+    if (conversation.contactSessionId !== session._id) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Incorrect session" });
+    }
+
+    return {
+      _id: conversation._id,
+      status: conversation.status,
+      threadId: conversation.threadId,
+      assignedRepUserId: conversation.assignedRepUserId ?? null,
+      assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
+    };
+  },
+});
 
 export const create = mutation({
   args: {
@@ -26,14 +101,6 @@ export const create = mutation({
       contactSessionId: args.contactSessionId,
     });
 
-    // Load widget settings (needed for greet + routingMode)
-    const widgetSettings = await ctx.db
-      .query("widgetSettings")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
-      .unique();
-
-    const routingMode: RoutingMode = (widgetSettings?.routingMode ?? "auto_assign") as RoutingMode;
-
     // Reuse existing active (idempotent)
     const existingActive = await ctx.db
       .query("conversations")
@@ -41,21 +108,25 @@ export const create = mutation({
       .order("desc")
       .first();
 
+    const sessionAssignedRep =
+      (session.assignedRepUserId as string | undefined) ||
+      (session.preferredRepUserId as string | undefined) ||
+      ((session.metadata as any)?.preferredRepUserId as string | undefined) ||
+      undefined;
+
+    const sessionTerritory = (session.assignedTerritoryKey as string | undefined) || undefined;
+
     if (
       existingActive &&
       existingActive.organizationId === args.organizationId &&
       existingActive.status !== "resolved"
     ) {
-      // ✅ If we’re in auto_assign and the old conv has no rep owner yet, backfill it once
-      if (routingMode === "auto_assign" && !existingActive.assignedRepUserId) {
-        const picked = await ctx.runQuery(api.public.routing.pickRepForVisitor, {
-          organizationId: args.organizationId,
-          contactSessionId: args.contactSessionId,
+      // ✅ if session got assigned but conversation isn't, patch it once
+      if (!existingActive.assignedRepUserId && sessionAssignedRep) {
+        await ctx.db.patch(existingActive._id, {
+          assignedRepUserId: sessionAssignedRep,
+          assignedTerritoryKey: sessionTerritory,
         });
-
-        if (picked?.userId) {
-          await ctx.db.patch(existingActive._id, { assignedRepUserId: picked.userId });
-        }
       }
 
       await ctx.runMutation(api.public.analytics.log, {
@@ -67,6 +138,8 @@ export const create = mutation({
           threadId: existingActive.threadId,
           reused: true,
           suppressGreet: !!args.suppressGreet,
+          assignedRepUserId: existingActive.assignedRepUserId ?? sessionAssignedRep ?? null,
+          assignedTerritoryKey: existingActive.assignedTerritoryKey ?? sessionTerritory ?? null,
         },
       });
 
@@ -81,25 +154,12 @@ export const create = mutation({
       return { conversationId: existingActive._id, threadId: existingActive.threadId };
     }
 
-    // ✅ Decide assigned rep for this conversation
-    // visitor_choice => owner = preferredRepUserId (if any), otherwise undefined (no auto)
-    // auto_assign    => owner = routing.pickRepForVisitor (rules/territories/presence)
-    let assignedRepUserId: string | undefined;
+    const widgetSettings = await ctx.db
+      .query("widgetSettings")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
+      .unique();
 
-    if (routingMode === "visitor_choice") {
-      const preferred = session.metadata?.preferredRepUserId as string | undefined;
-      if (preferred && preferred.trim()) assignedRepUserId = preferred.trim();
-    } else {
-      const picked = await ctx.runQuery(api.public.routing.pickRepForVisitor, {
-        organizationId: args.organizationId,
-        contactSessionId: args.contactSessionId,
-      });
-      if (picked?.userId) assignedRepUserId = picked.userId;
-    }
-
-    const { threadId } = await supportAgent.createThread(ctx, {
-      userId: args.organizationId,
-    });
+    const { threadId } = await supportAgent.createThread(ctx, { userId: args.organizationId });
 
     if (!args.suppressGreet) {
       await saveMessage(ctx, components.agent, {
@@ -117,8 +177,9 @@ export const create = mutation({
       organizationId: args.organizationId,
       threadId,
 
-      // ✅ persist owner
-      assignedRepUserId,
+      // ✅ carry assignment
+      assignedRepUserId: sessionAssignedRep,
+      assignedTerritoryKey: sessionTerritory,
     });
 
     await ctx.runMutation(api.public.analytics.log, {
@@ -126,7 +187,12 @@ export const create = mutation({
       type: "experience_shown",
       sessionId: args.contactSessionId,
       conversationId,
-      meta: { threadId, suppressGreet: !!args.suppressGreet, assignedRepUserId },
+      meta: {
+        threadId,
+        suppressGreet: !!args.suppressGreet,
+        assignedRepUserId: sessionAssignedRep ?? null,
+        assignedTerritoryKey: sessionTerritory ?? null,
+      },
     });
 
     await ctx.runMutation(api.public.analytics.log, {
@@ -134,7 +200,12 @@ export const create = mutation({
       type: "conversation_created",
       sessionId: args.contactSessionId,
       conversationId,
-      meta: { threadId, suppressGreet: !!args.suppressGreet, assignedRepUserId },
+      meta: {
+        threadId,
+        suppressGreet: !!args.suppressGreet,
+        assignedRepUserId: sessionAssignedRep ?? null,
+        assignedTerritoryKey: sessionTerritory ?? null,
+      },
     });
 
     return { conversationId, threadId };

@@ -110,31 +110,24 @@ export default function TeamPage() {
   const ent = useEntitlements();
   const isStarter = ent.plan === "starter";
 
-  // ✅ policy produit
-  // Starter: pas de territoires + pas d'auto-assign, donc pas besoin de routing avancé UI.
-  const canUseTerritoriesUi = !isStarter; // (tu peux aussi le lier à canUseAdvancedRouting)
-  const canUseRoutingModeUi = !isStarter; // Starter => toujours visitor_choice
+  const canUseTerritoriesUi = !isStarter;
+  const canUseRoutingModeUi = !isStarter;
 
   const [inviteOpen, setInviteOpen] = useState(false);
 
-  // ✅ Admin-only: redirect silencieux
   useEffect(() => {
     if (!isLoaded) return;
     if (!organization) return;
     if (!isAdmin) router.replace("/");
   }, [isLoaded, organization, isAdmin, router]);
 
-  // ✅ force l'onglet Members quand on ouvre
   useEffect(() => {
     if (!inviteOpen) return;
-    if (typeof window !== "undefined") {
-      window.location.hash = "members";
-    }
+    if (typeof window !== "undefined") window.location.hash = "members";
   }, [inviteOpen]);
 
   const canQuery = Boolean(organization && isAdmin);
 
-  // 🔹 Widget settings
   const widgetSettings = useQuery(
     api.private.widgetSettings.getOne,
     canQuery ? ({} as any) : ("skip" as any),
@@ -142,19 +135,17 @@ export default function TeamPage() {
 
   const setRoutingMode = useMutation(api.private.widgetSettings.setRoutingMode);
 
-  // ✅ Starter: force visitor_choice (hard policy)
   useEffect(() => {
     if (!canQuery) return;
     if (!isStarter) return;
-    if (widgetSettings === undefined) return; // loading
+    if (widgetSettings === undefined) return;
     const current = widgetSettings?.routingMode ?? "auto_assign";
     if (current !== "visitor_choice") {
-      // pas de toast, on force silencieusement
       setRoutingMode({ routingMode: "visitor_choice" } as any).catch(() => {});
     }
   }, [canQuery, isStarter, widgetSettings, setRoutingMode]);
 
-  // 🔹 Territories
+  // Territories
   const territories = useQuery(
     api.private.territories.listForOrg,
     canQuery && canUseTerritoriesUi
@@ -178,7 +169,7 @@ export default function TeamPage() {
     [territories],
   );
 
-  // 🔁 Routing mode toggle
+  // Routing mode UI
   const [autoRouting, setAutoRouting] = useState(true);
 
   useEffect(() => {
@@ -187,7 +178,25 @@ export default function TeamPage() {
     setAutoRouting(mode === "auto_assign");
   }, [widgetSettings]);
 
-  // 🔹 Load Clerk Members (admin only)
+  const handleToggleRouting = async (checked: boolean) => {
+    if (isStarter) return;
+
+    const nextAuto = Boolean(checked);
+    setAutoRouting(nextAuto);
+
+    try {
+      await setRoutingMode({
+        routingMode: nextAuto ? "auto_assign" : "visitor_choice",
+      } as any);
+      toast.success("Routing mode updated");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to update routing mode");
+      setAutoRouting(!nextAuto);
+    }
+  };
+
+  // Load Clerk members
   const [members, setMembers] = useState<Membership[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
@@ -232,7 +241,7 @@ export default function TeamPage() {
     };
   }, [organization, isAdmin]);
 
-  // 🔹 repsPresence
+  // repsPresence
   const reps = useQuery(
     api.team.listRepsForOrg,
     canQuery ? ({} as any) : ("skip" as any),
@@ -241,7 +250,6 @@ export default function TeamPage() {
         _id: string;
         organizationId: string;
         userId: string;
-        role: "sales" | "support";
         regions?: string[];
         available: boolean;
         slackUserId?: string;
@@ -254,6 +262,7 @@ export default function TeamPage() {
 
   const rows = useMemo(() => {
     if (!organization) return [];
+
     const byUserId =
       reps?.reduce<Record<string, (typeof reps)[number]>>((acc, rep) => {
         acc[rep.userId] = rep;
@@ -264,7 +273,6 @@ export default function TeamPage() {
       const rep = byUserId[m.userId];
       return {
         member: m,
-        role: (rep?.role as "sales" | "support" | undefined) ?? "sales",
         regions: (rep?.regions as string[] | undefined) ?? [],
         available: rep?.available ?? false,
         slackUserId: rep?.slackUserId,
@@ -275,7 +283,6 @@ export default function TeamPage() {
 
   const handleSaveRep = async (row: {
     member: Membership;
-    role: "sales" | "support";
     regions: string[];
     available: boolean;
     slackUserId?: string;
@@ -286,7 +293,6 @@ export default function TeamPage() {
     try {
       await upsertRep({
         userId: row.member.userId,
-        role: row.role,
         regions: row.regions,
         available: row.available,
         slackUserId: row.slackUserId,
@@ -299,36 +305,7 @@ export default function TeamPage() {
     }
   };
 
-  // Fonction de basculement entre les modes de routage
-  const handleToggleRouting = async (checked: boolean) => {
-    // Si c'est un plan "starter", on ne permet pas le changement de mode de routage
-    if (isStarter) return;
-
-    const nextAuto = Boolean(checked);
-    setAutoRouting(nextAuto);
-
-    try {
-      // Enregistrer la modification dans les paramètres de routage
-      await setRoutingMode({
-        routingMode: nextAuto ? "auto_assign" : "visitor_choice",
-      } as any);
-      toast.success("Routing mode updated");
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to update routing mode");
-      setAutoRouting(!nextAuto); // Revert to previous state on error
-    }
-  };
-
-  // Changement de l'état de l'auto-routing selon le mode actuel
-  useEffect(() => {
-    if (!widgetSettings) return;
-    const mode: RoutingMode = widgetSettings.routingMode ?? "auto_assign";
-    setAutoRouting(mode === "auto_assign");  // Si mode est auto_assign, on active le mode automatique
-  }, [widgetSettings]);
-
-
-  // 🔹 Territories form state
+  // Territories form
   const [territoryLabel, setTerritoryLabel] = useState("");
   const [territoryKey, setTerritoryKey] = useState("");
   const [countryCodesRaw, setCountryCodesRaw] = useState("");
@@ -476,15 +453,12 @@ export default function TeamPage() {
                         organizationProfileDeleteOrganization: "hidden",
                         organizationProfileLeaveOrganizationAction: "hidden",
                         organizationProfileDeleteOrganizationAction: "hidden",
-
                         organizationProfilePage: "p-0",
                         organizationProfileSectionTitle: "hidden",
                         organizationProfileSectionContent: "p-0",
-
                         navbar: "hidden",
                         navbarMobileMenuButton: "hidden",
                         navbarButtons: "hidden",
-
                         rootBox: "w-full h-full max-w-none",
                         card: "w-full h-full max-w-none border-0 shadow-none rounded-none",
                         pageScrollBox: "w-full h-full max-w-none",
@@ -503,7 +477,7 @@ export default function TeamPage() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Routing mode</p>
                   <p className="text-xs text-muted-foreground">
-                    Switch between <span className="font-medium">auto-assign</span> (rules + presence + territories)
+                    Switch between <span className="font-medium">auto-assign</span> (presence + territories)
                     or letting visitors <span className="font-medium">choose a rep</span>.
                   </p>
                 </div>
@@ -533,9 +507,7 @@ export default function TeamPage() {
                 <thead className="bg-muted/60">
                   <tr>
                     <th className="px-4 py-3 text-left font-medium">User</th>
-                    <th className="px-4 py-3 text-left font-medium">Role</th>
 
-                    {/* Starter: hide territories column entirely */}
                     {!isStarter ? (
                       <th className="px-4 py-3 text-left font-medium">Territories</th>
                     ) : null}
@@ -566,7 +538,7 @@ export default function TeamPage() {
                     <tr>
                       <td
                         className="px-4 py-6 text-center text-muted-foreground"
-                        colSpan={isStarter ? 4 : 5}
+                        colSpan={isStarter ? 3 : 4}
                       >
                         No members found in this organization.
                       </td>
@@ -578,7 +550,7 @@ export default function TeamPage() {
 
             {!isStarter ? (
               <p className="text-xs text-muted-foreground">
-                Routing uses these settings together with your rules (geo, URL, UTM…) and territories to pick the right rep.
+                Visitors are assigned based on territories (country → territory → rep regions).
               </p>
             ) : null}
           </div>
@@ -618,7 +590,6 @@ export default function TeamPage() {
                         </Select>
                         <p className="text-xs text-muted-foreground">
                           Pick a region (MENA, Europe…) to auto-configure label & key.
-                          Leave country codes empty to use the built-in mapping.
                         </p>
                       </div>
 
@@ -636,10 +607,6 @@ export default function TeamPage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        <p className="text-xs text-muted-foreground">
-                          This fills the country codes field with one ISO code (FR, DE, …).
-                          You can still edit it.
-                        </p>
                       </div>
                     </div>
 
@@ -664,9 +631,6 @@ export default function TeamPage() {
                           value={territoryKey}
                           onChange={(e) => setTerritoryKey(e.target.value)}
                         />
-                        <p className="text-xs text-muted-foreground">
-                          Used internally to link reps & routing rules (ex: <code className="font-mono">mena</code>).
-                        </p>
                       </div>
 
                       <div className="space-y-1">
@@ -676,9 +640,6 @@ export default function TeamPage() {
                           value={countryCodesRaw}
                           onChange={(e) => setCountryCodesRaw(e.target.value)}
                         />
-                        <p className="text-xs text-muted-foreground">
-                          Comma-separated ISO codes. Leave empty to use the preset mapping.
-                        </p>
                       </div>
                     </div>
 
@@ -752,7 +713,6 @@ function TeamRow({
 }: {
   row: {
     member: Membership;
-    role: "sales" | "support";
     regions: string[];
     available: boolean;
     slackUserId?: string;
@@ -762,19 +722,17 @@ function TeamRow({
   hideTerritories?: boolean;
   onSave: (row: {
     member: Membership;
-    role: "sales" | "support";
     regions: string[];
     available: boolean;
   }) => void;
 }) {
-  const [role, setRole] = useState<"sales" | "support">(row.role);
   const [regions, setRegions] = useState<string[]>(row.regions || []);
   const [available, setAvailable] = useState(row.available);
   const [saving, setSaving] = useState(false);
 
   const handleClickSave = async () => {
     setSaving(true);
-    await onSave({ member: row.member, role, regions: hideTerritories ? [] : regions, available });
+    await onSave({ member: row.member, regions: hideTerritories ? [] : regions, available });
     setSaving(false);
   };
 
@@ -785,18 +743,6 @@ function TeamRow({
           <span className="font-medium">{row.member.name || row.member.email}</span>
           <span className="text-xs text-muted-foreground">{row.member.email}</span>
         </div>
-      </td>
-
-      <td className="px-4 py-3 align-middle">
-        <Select value={role} onValueChange={(v) => setRole(v as "sales" | "support")}>
-          <SelectTrigger className="w-[120px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="sales">Sales</SelectItem>
-            <SelectItem value="support">Support</SelectItem>
-          </SelectContent>
-        </Select>
       </td>
 
       {!hideTerritories ? (

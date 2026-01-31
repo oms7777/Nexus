@@ -3,7 +3,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization, useAuth } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import LiveMap, { Visitor } from "./components/LiveMap";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
@@ -29,14 +29,7 @@ function matches(v: Visitor, q: string) {
     } catch {}
   }
 
-  const haystack = [
-    v.name,
-    v.email,
-    v.city,
-    v.countryCode,
-    v.currentUrl,
-    ...utm,
-  ]
+  const haystack = [v.name, v.email, v.city, v.countryCode, v.currentUrl, v.assignedTerritoryKey, ...utm]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -46,38 +39,43 @@ function matches(v: Visitor, q: string) {
 
 export default function LiveMapView() {
   const { organization } = useOrganization();
+  const { userId } = useAuth();
+
   const orgId = organization?.id || "";
+  const myUserId = userId || "";
 
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | undefined>();
 
-  const visitors = useQuery(api.private.live.getActiveVisitors, {}) ?? [];
+  const visitors = (useQuery(api.private.live.getActiveVisitors, {}) ?? []) as Visitor[];
 
-  const filtered = useMemo(
-    () => visitors.filter((v) => matches(v as Visitor, query)),
-    [visitors, query],
-  );
+  // ✅ 1) assignment filter (rep sees only his territory)
+  const mine = useMemo(() => {
+    if (!myUserId) return [];
+    return visitors.filter((v) => {
+      const repId = v.assignedRepUserId ?? v.assignedRep?.userId;
+      return repId === myUserId;
+    });
+  }, [visitors, myUserId]);
 
-  const selected = useMemo(
-    () => filtered.find((v) => v._id === selectedId),
-    [filtered, selectedId],
-  );
+  // ✅ 2) search filter after assignment
+  const filtered = useMemo(() => mine.filter((v) => matches(v, query)), [mine, query]);
 
-  // ✅ IMPORTANT: currentUrl doit venir du dernier snapshot (source of truth)
+  const selected = useMemo(() => filtered.find((v) => v._id === selectedId), [filtered, selectedId]);
+
+  // currentUrl source of truth from last snapshot
   const selectedSessionId = selected?.contactSessionId
     ? (selected.contactSessionId as Id<"contactSessions">)
     : null;
 
   const latestSnap =
-    useQuery(
+    (useQuery(
       api.public.snapshots.listRecent,
       selectedSessionId ? { sessionId: selectedSessionId, limit: 1 } : "skip",
-    ) ?? [];
+    ) as any[]) ?? [];
 
   const currentUrlFromSnap = latestSnap[0]?.pageUrl;
-
-  const headerUrl =
-    (currentUrlFromSnap ?? selected?.currentUrl ?? "").split("?")[0] || "—";
+  const headerUrl = (currentUrlFromSnap ?? selected?.currentUrl ?? "").split("?")[0] || "—";
 
   return (
     <div className="flex h-full w-full">
@@ -91,9 +89,11 @@ export default function LiveMapView() {
             className="w-full rounded border px-3 py-2 text-sm"
           />
         </div>
+
         <div className="p-2 text-xs text-muted-foreground">
-          {filtered.length} online
+          {filtered.length} online (your territory)
         </div>
+
         <div className="flex-1 overflow-auto">
           {filtered.map((v) => (
             <button
@@ -102,26 +102,34 @@ export default function LiveMapView() {
               className="w-full text-left px-3 py-3 hover:bg-accent border-b"
               title={v.currentUrl || ""}
             >
-              <div className="font-medium text-sm line-clamp-1">
-                {v.name || "Visitor"}
-              </div>
+              <div className="font-medium text-sm line-clamp-1">{v.name || "Visitor"}</div>
               <div className="text-xs text-muted-foreground line-clamp-1">
                 {v.city}
-                {v.countryCode ? `, ${v.countryCode}` : ""}
+                {v.countryCode ? `, ${v.countryCode}` : ""}{" "}
+                {v.assignedTerritoryKey ? `· ${v.assignedTerritoryKey}` : ""}
               </div>
               {v.currentUrl && (
-                <div className="text-xs text-muted-foreground line-clamp-1">
-                  {v.currentUrl}
-                </div>
+                <div className="text-xs text-muted-foreground line-clamp-1">{v.currentUrl}</div>
               )}
             </button>
           ))}
+
+          {filtered.length === 0 && (
+            <div className="p-4 text-sm text-muted-foreground">
+              No active visitors assigned to your territory right now.
+            </div>
+          )}
         </div>
       </div>
 
       {/* Map */}
       <div className="flex-1">
-        <LiveMap visitors={filtered as Visitor[]} selectedId={selectedId} />
+        <LiveMap
+          visitors={visitors}
+          myUserId={myUserId}
+          selectedId={selectedId}
+          onSelectId={(id) => setSelectedId(id)}
+        />
       </div>
 
       {/* Right panel (live stream) */}
@@ -131,8 +139,8 @@ export default function LiveMapView() {
             <div className="text-sm font-medium">{selected.name || "Visitor"}</div>
             <div className="text-xs text-muted-foreground">
               {selected.city ?? "—"}
-              {selected.countryCode ? `, ${selected.countryCode}` : ""} ·{" "}
-              {headerUrl}
+              {selected.countryCode ? `, ${selected.countryCode}` : ""} · {headerUrl}
+              {selected.assignedTerritoryKey ? ` · ${selected.assignedTerritoryKey}` : ""}
             </div>
           </div>
 

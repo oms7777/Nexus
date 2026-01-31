@@ -1,4 +1,4 @@
-// LiveVisitorView.tsx (ton fichier actuel) — version FIX live scroll
+// LiveVisitorView.tsx — MAJ: reset on sessionId change (important)
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";
@@ -157,6 +157,12 @@ export function LiveVisitorView({
     lastAppliedRef.current = "";
   }, [stopRAF]);
 
+  // ✅ MAJ: reset hard when session changes
+  useEffect(() => {
+    destroyReplayer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
   const bootFromEvents = useCallback(
     (events: eventWithTime[]) => {
       const stage = ensureStage();
@@ -182,7 +188,6 @@ export function LiveVisitorView({
       stage.style.height = `${height}px`;
 
       try {
-        // ✅ CRITICAL: liveMode => scroll + mutations apply instantly on addEvent
         const replayer = new Replayer(events, {
           root: stage,
           mouseTail: false as any,
@@ -191,7 +196,6 @@ export function LiveVisitorView({
 
         replayerRef.current = replayer;
 
-        // ✅ use startLive when available, else fallback
         const anyR: any = replayer;
         if (typeof anyR.startLive === "function") anyR.startLive();
         else replayer.play();
@@ -256,12 +260,10 @@ export function LiveVisitorView({
       while (queueRef.current.length && count < MAX_PER_FRAME) {
         const e = queueRef.current.shift()!;
         try {
-          // ignore full snapshot in incremental stream
           if ((e as any)?.type === 2) continue;
 
           r.addEvent(e);
 
-          // if viewport changed, layout can change
           const t = (e as any)?.type;
           const src = (e as any)?.data?.source;
           const isMetaOrResize =
@@ -277,11 +279,8 @@ export function LiveVisitorView({
         count++;
       }
 
-      if (queueRef.current.length) {
-        rafRef.current = requestAnimationFrame(tick);
-      } else {
-        processingRef.current = false;
-      }
+      if (queueRef.current.length) rafRef.current = requestAnimationFrame(tick);
+      else processingRef.current = false;
     };
 
     rafRef.current = requestAnimationFrame(tick);
@@ -292,10 +291,7 @@ export function LiveVisitorView({
       if (!replayerRef.current) return;
 
       if (queueRef.current.length > MAX_QUEUE) {
-        queueRef.current.splice(
-          0,
-          queueRef.current.length - Math.floor(MAX_QUEUE / 2),
-        );
+        queueRef.current.splice(0, queueRef.current.length - Math.floor(MAX_QUEUE / 2));
       }
 
       queueRef.current.push(...events);
@@ -334,10 +330,7 @@ export function LiveVisitorView({
   }
 
   return (
-    <div
-      className="relative rounded-xl border overflow-hidden bg-black/5"
-      style={{ height: 520 }}
-    >
+    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height: 520 }}>
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
       {cursorPx && (

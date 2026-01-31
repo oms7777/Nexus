@@ -31,11 +31,10 @@ const MetadataSchema = v.object({
   lat: v.optional(v.number()),
   lng: v.optional(v.number()),
 
-  // tracking (kept in metadata only, as per schema)
   visitorId: v.optional(v.string()),
   clientIp: v.optional(v.string()),
 
-  // visitor_choice
+  // legacy visitor_choice in metadata (keep)
   preferredRepUserId: v.optional(v.string()),
 });
 
@@ -141,7 +140,7 @@ async function ensureSessionStartedLogged(
       | "setCurrentUrl"
       | "ensure_external_existing"
       | "ensure_external_new";
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("analyticsEvents")
@@ -181,12 +180,18 @@ export const create = mutation({
       ? (args.metadata as Metadata)
       : undefined;
 
+    const preferredRepUserId =
+      safeIncoming?.preferredRepUserId && typeof safeIncoming.preferredRepUserId === "string"
+        ? safeIncoming.preferredRepUserId
+        : undefined;
+
     const id = await ctx.db.insert("contactSessions", {
       name: args.name,
       email: args.email,
       organizationId: args.organizationId,
       expiresAt,
       metadata: safeIncoming,
+      preferredRepUserId,
     });
 
     await ensureSessionStartedLogged(ctx, {
@@ -211,9 +216,12 @@ export const ensure = mutation({
   handler: async (ctx, { organizationId, sessionId, metadata }) => {
     const expiresAt = Date.now() + SESSION_DURATION_MS;
 
-    const safeIncoming = isPlainObject(metadata)
-      ? (metadata as Metadata)
-      : undefined;
+    const safeIncoming = isPlainObject(metadata) ? (metadata as Metadata) : undefined;
+
+    const incomingPreferred =
+      safeIncoming?.preferredRepUserId && typeof safeIncoming.preferredRepUserId === "string"
+        ? safeIncoming.preferredRepUserId
+        : undefined;
 
     // 1) reuse existing by sessionId
     if (sessionId) {
@@ -225,6 +233,7 @@ export const ensure = mutation({
         await ctx.db.patch(sessionId, {
           expiresAt,
           metadata: newMd,
+          preferredRepUserId: incomingPreferred ?? cur.preferredRepUserId,
         });
 
         await ensureSessionStartedLogged(ctx, {
@@ -244,6 +253,7 @@ export const ensure = mutation({
       organizationId,
       expiresAt,
       metadata: safeIncoming,
+      preferredRepUserId: incomingPreferred,
     });
 
     await ensureSessionStartedLogged(ctx, {
@@ -270,9 +280,12 @@ export const touch = mutation({
 
     const expiresAt = Date.now() + SESSION_DURATION_MS;
 
-    const safeIncoming = isPlainObject(metadata)
-      ? (metadata as Metadata)
-      : undefined;
+    const safeIncoming = isPlainObject(metadata) ? (metadata as Metadata) : undefined;
+
+    const incomingPreferred =
+      safeIncoming?.preferredRepUserId && typeof safeIncoming.preferredRepUserId === "string"
+        ? safeIncoming.preferredRepUserId
+        : undefined;
 
     const oldMd = (cur.metadata ?? {}) as Metadata;
     const newMd = mergeMetadata(oldMd, safeIncoming);
@@ -280,6 +293,7 @@ export const touch = mutation({
     await ctx.db.patch(sessionId, {
       expiresAt,
       metadata: newMd,
+      preferredRepUserId: incomingPreferred ?? cur.preferredRepUserId,
     });
 
     await ensureSessionStartedLogged(ctx, {
@@ -309,7 +323,6 @@ export const setCurrentUrl = mutation({
     const md = (cur.metadata ?? {}) as Metadata;
     const pages = Array.isArray(md.pages) ? md.pages.slice() : [];
 
-    // move-to-end dedupe
     const idx = pages.indexOf(url);
     if (idx >= 0) pages.splice(idx, 1);
     pages.push(url);
@@ -345,15 +358,13 @@ export const validate = mutation({
   handler: async (ctx, args) => {
     const s = await ctx.db.get(args.contactSessionId);
     if (!s) return { valid: false, reason: "Contact session not found" };
-    if (s.expiresAt < Date.now())
-      return { valid: false, reason: "Contact session expired" };
+    if (s.expiresAt < Date.now()) return { valid: false, reason: "Contact session expired" };
     return { valid: true, contactSession: s };
   },
 });
 
 /** -------------------------------------------------------------
  * ensureByExternalId — embed sends a stable string id
- * Dedup by (org + externalSessionId) only (aligns schema indexes)
  * ----------------------------------------------------------- */
 export const ensureByExternalId = mutation({
   args: {
@@ -364,15 +375,17 @@ export const ensureByExternalId = mutation({
   handler: async (ctx, { organizationId, externalSessionId, metadata }) => {
     const expiresAt = Date.now() + SESSION_DURATION_MS;
 
-    const safeIncoming = isPlainObject(metadata)
-      ? (metadata as Metadata)
-      : undefined;
+    const safeIncoming = isPlainObject(metadata) ? (metadata as Metadata) : undefined;
 
-    // 1) reuse by (org + externalSessionId)
+    const incomingPreferred =
+      safeIncoming?.preferredRepUserId && typeof safeIncoming.preferredRepUserId === "string"
+        ? safeIncoming.preferredRepUserId
+        : undefined;
+
     const existingByExternal = await ctx.db
       .query("contactSessions")
       .withIndex("by_org_external_session", (q: any) =>
-        q.eq("organizationId", organizationId).eq("externalSessionId", externalSessionId),
+        q.eq("organizationId", organizationId).eq("externalSessionId", externalSessionId)
       )
       .order("desc")
       .first();
@@ -385,6 +398,7 @@ export const ensureByExternalId = mutation({
         expiresAt,
         metadata: newMd,
         externalSessionId,
+        preferredRepUserId: incomingPreferred ?? existingByExternal.preferredRepUserId,
       });
 
       await ensureSessionStartedLogged(ctx, {
@@ -396,7 +410,6 @@ export const ensureByExternalId = mutation({
       return existingByExternal._id;
     }
 
-    // 2) create
     const id = await ctx.db.insert("contactSessions", {
       name: "Visitor",
       email: "",
@@ -404,6 +417,7 @@ export const ensureByExternalId = mutation({
       externalSessionId,
       expiresAt,
       metadata: safeIncoming,
+      preferredRepUserId: incomingPreferred,
     });
 
     await ensureSessionStartedLogged(ctx, {

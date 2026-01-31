@@ -86,6 +86,10 @@ function extractUtmSourceFromUrl(url?: string): string | undefined {
 /**
  * Choisit UN rep pour une session donnée.
  * Retourne son userId (Clerk) ou null.
+ *
+ * ✅ V1 territory-only:
+ * - On ignore totalement r.role dans le routing.
+ * - On garde uniquement: available + (repIds?) + (regions/territories?)
  */
 export const pickRepForSession = query({
   args: {
@@ -119,9 +123,10 @@ export const pickRepForSession = query({
     // 3) Si le visiteur a explicitement choisi un rep côté widget
     const preferredRepUserId = session.metadata?.preferredRepUserId as string | undefined;
 
+    // ✅ V1 territory-only: on vérifie seulement "available"
     if (preferredRepUserId) {
       const preferred = reps.find((r) => r.userId === preferredRepUserId);
-      if (preferred && preferred.available && preferred.role === "sales") {
+      if (preferred && preferred.available) {
         return preferred.userId;
       }
     }
@@ -139,8 +144,8 @@ export const pickRepForSession = query({
 
       const target = rule.routeTo;
 
-      // candidats: reps dispo + bon rôle
-      let candidates = reps.filter((r) => r.available && r.role === target.role);
+      // ✅ V1 territory-only: candidats = dispo uniquement (ignore target.role)
+      let candidates = reps.filter((r) => r.available);
 
       // filtre repIds si défini
       if (target.repIds && target.repIds.length > 0) {
@@ -169,7 +174,7 @@ export const pickRepForSession = query({
 
       if (territoryKeys.length > 0) {
         const geoCandidates = reps.filter((r) => {
-          if (!r.available || r.role !== "sales") return false;
+          if (!r.available) return false;
           const repRegions = r.regions ?? [];
           return repRegions.some((reg) => territoryKeys.includes(reg));
         });
@@ -179,11 +184,7 @@ export const pickRepForSession = query({
       }
     }
 
-    // 6) fallback : n'importe quel sales dispo
-    const sales = reps.filter((r) => r.available && r.role === "sales");
-    if (sales.length) return pickRandom(sales)!.userId;
-
-    // 7) dernier fallback : n'importe quel rep dispo
+    // 6) fallback : n'importe quel rep dispo
     const available = reps.filter((r) => r.available);
     if (available.length) return pickRandom(available)!.userId;
 

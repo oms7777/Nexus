@@ -1,3 +1,4 @@
+// packages/backend/convex/schema.ts
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -6,55 +7,37 @@ export default defineSchema({
   subscriptions: defineTable({
     organizationId: v.string(),
 
-    plan: v.union(
-      v.literal("starter"),
-      v.literal("growth"),
-      v.literal("enterprise"),
-    ),
+    plan: v.union(v.literal("starter"), v.literal("growth"), v.literal("enterprise")),
 
-    enterpriseTier: v.optional(
-      v.union(
-        v.literal("light"),
-        v.literal("core"),
-        v.literal("heavy"),
-      ),
-    ),
+    enterpriseTier: v.optional(v.union(v.literal("light"), v.literal("core"), v.literal("heavy"))),
 
-    status: v.union(
-      v.literal("active"),
-      v.literal("paused"),
-      v.literal("trial"),
-    ),
+    status: v.union(v.literal("active"), v.literal("paused"), v.literal("trial")),
 
     addons: v.object({
-      extraWebsites: v.number(),       // +150€ / site / mois
-      highVolumeTraffic: v.boolean(),  // +500€ / mois
+      extraWebsites: v.number(),
+      highVolumeTraffic: v.boolean(),
 
-      salesforce: v.boolean(),         // +300€ / mois
+      salesforce: v.boolean(),
 
       // ✅ NEW (canonical)
-      voice: v.boolean(),              // voice enabled
-      voiceHighVolume: v.boolean(),    // voice high volume
+      voice: v.boolean(),
+      voiceHighVolume: v.boolean(),
 
       // ✅ OLD (backward compat)
-      voiceAi: v.optional(v.boolean()),            // legacy
-      voiceAiHighVolume: v.optional(v.boolean()),  // legacy
+      voiceAi: v.optional(v.boolean()),
+      voiceAiHighVolume: v.optional(v.boolean()),
 
-      sso: v.boolean(),                // +500€ / mois
-      securityPackPlus: v.boolean(),   // +1 000€ / mois
-      compliancePack: v.boolean(),     // +500€ / mois
-
-      advancedAnalytics: v.boolean(),  // +500–1 000€ / mois
+      sso: v.boolean(),
+      securityPackPlus: v.boolean(),
+      compliancePack: v.boolean(),
+      advancedAnalytics: v.boolean(),
     }),
 
     limits: v.object({
       websites: v.number(),
       reps: v.number(),
-
       monthlyEvents: v.number(),
       aiTokens: v.number(),
-
-      // ✅ non-optional (0 si non inclus)
       voiceMinutes: v.number(),
       snapshotsGb: v.number(),
     }),
@@ -69,16 +52,9 @@ export default defineSchema({
 
   websites: defineTable({
     organizationId: v.string(),
-
-    // ex: "acme.com" / "app.acme.com"
     domain: v.string(),
-
-    // label interne
     name: v.optional(v.string()),
-
-    // actif ou non (si client arrête un site)
     active: v.boolean(),
-
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -87,17 +63,13 @@ export default defineSchema({
 
   usageMonthly: defineTable({
     organizationId: v.string(),
-    month: v.string(), // "YYYY-MM"
-
-    // Compteurs
+    month: v.string(),
     events: v.number(),
     aiTokens: v.number(),
     voiceMinutes: v.number(),
-
     updatedAt: v.number(),
-  })
-    .index("by_org_month", ["organizationId", "month"]),
-    
+  }).index("by_org_month", ["organizationId", "month"]),
+
   widgetSettings: defineTable({
     organizationId: v.string(),
     greetMessage: v.string(),
@@ -110,10 +82,9 @@ export default defineSchema({
       v.object({
         assistantId: v.optional(v.string()),
         phoneNumber: v.optional(v.string()),
-      }),
+      })
     ),
 
-    // Optional marketing/branding
     teamAvatars: v.optional(v.array(v.string())),
     brandLogoUrl: v.optional(v.string()),
 
@@ -125,29 +96,16 @@ export default defineSchema({
         secondaryTextColor: v.optional(v.string()),
         nudgeBackgroundColor: v.optional(v.string()),
         chatBubbleColor: v.optional(v.string()),
-      }),
+      })
     ),
 
-    routingMode: v.optional(
-      v.union(v.literal("auto_assign"), v.literal("visitor_choice")),
-    ),
+    routingMode: v.optional(v.union(v.literal("auto_assign"), v.literal("visitor_choice"))),
 
-    // ✅ UPDATED: 3 modes
-    // "llm_only"      -> LLM sans KB
-    // "llm_plus_kb"   -> LLM + KB (RAG)
-    // "kb_only"       -> KB uniquement, sinon escalation
     knowledgeMode: v.optional(
-      v.union(
-        v.literal("llm_only"),
-        v.literal("llm_plus_kb"),
-        v.literal("kb_only"),
-      ),
+      v.union(v.literal("llm_only"), v.literal("llm_plus_kb"), v.literal("kb_only"))
     ),
 
-    // ✅ NEW: choix du LLM (pour chat + vapi si tu veux)
-    llmProvider: v.optional(
-      v.union(v.literal("openai"), v.literal("google")),
-    ),
+    llmProvider: v.optional(v.union(v.literal("openai"), v.literal("google"))),
     llmModel: v.optional(v.string()),
 
     privacyUrl: v.optional(v.string()),
@@ -162,11 +120,9 @@ export default defineSchema({
         linkMode: v.optional(v.union(v.literal("link"), v.literal("modal"))),
         privacyUrl: v.optional(v.string()),
         modalContent: v.optional(v.string()),
-      }),
+      })
     ),
   }).index("by_organization_id", ["organizationId"]),
-
-
 
   plugins: defineTable({
     organizationId: v.string(),
@@ -181,20 +137,17 @@ export default defineSchema({
     threadId: v.string(),
     organizationId: v.string(),
     contactSessionId: v.id("contactSessions"),
-    status: v.union(
-      v.literal("unresolved"),
-      v.literal("escalated"),
-      v.literal("resolved"),
-    ),
+    status: v.union(v.literal("unresolved"), v.literal("escalated"), v.literal("resolved")),
 
-    // ✅ NEW: rep “owner” de la conversation (routé par rules/territories ou visitor_choice)
+    // ✅ rep “owner” de la conversation
     assignedRepUserId: v.optional(v.string()),
+    // ✅ DEBUG / analytics
+    assignedTerritoryKey: v.optional(v.string()),
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_contact_session_id", ["contactSessionId"])
     .index("by_thread_id", ["threadId"])
     .index("by_status_and_organization_id", ["status", "organizationId"])
-    // ✅ NEW: pour panels “My conversations”
     .index("by_org_assigned_rep", ["organizationId", "assignedRepUserId"]),
 
   contactSessions: defineTable({
@@ -203,8 +156,14 @@ export default defineSchema({
     phone: v.optional(v.string()),
     organizationId: v.string(),
 
-    // ✅ NEW: stable external id coming from embed (uuid/string)
     externalSessionId: v.optional(v.string()),
+
+    // ✅ NEW: visitor_choice rep (top-level)
+    preferredRepUserId: v.optional(v.string()),
+
+    // ✅ NEW: stable assignment (territory routing)
+    assignedRepUserId: v.optional(v.string()),
+    assignedTerritoryKey: v.optional(v.string()),
 
     expiresAt: v.number(),
     isAnonymous: v.optional(v.boolean()),
@@ -225,22 +184,19 @@ export default defineSchema({
         currentUrl: v.optional(v.string()),
         utmSource: v.optional(v.string()),
         title: v.optional(v.string()),
-        // GEO
         ip: v.optional(v.string()),
         city: v.optional(v.string()),
         countryCode: v.optional(v.string()),
         lat: v.optional(v.number()),
         lng: v.optional(v.number()),
-        // simple analytics
         pages: v.optional(v.array(v.string())),
 
-        // NEW: for anonymous tracking via widget
         visitorId: v.optional(v.string()),
         clientIp: v.optional(v.string()),
 
-        // NEW: rep choisi côté widget (visitor_choice)
+        // legacy / keep for backward compat
         preferredRepUserId: v.optional(v.string()),
-      }),
+      })
     ),
     consent: v.optional(
       v.object({
@@ -248,15 +204,14 @@ export default defineSchema({
         ts: v.number(),
         privacyUrl: v.optional(v.string()),
         version: v.optional(v.string()),
-      }),
+      })
     ),
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_expires_at", ["expiresAt"])
-    // ✅ NEW: find session by (org + externalSessionId)
-    .index("by_org_external_session", ["organizationId", "externalSessionId"]),
-
-
+    .index("by_org_external_session", ["organizationId", "externalSessionId"])
+    // ✅ NEW: panels "my visitors" / filtering
+    .index("by_org_assigned_rep", ["organizationId", "assignedRepUserId"]),
 
   /* ---------- Cache IP -> geo ---------- */
   ipGeoCache: defineTable({
@@ -271,9 +226,9 @@ export default defineSchema({
   /* ---------- Territories dynamiques ---------- */
   territories: defineTable({
     organizationId: v.string(),
-    key: v.string(), // slug stable, ex: "france", "emea_enterprise"
-    label: v.string(), // label humain: "France", "EMEA Enterprise"
-    countryCodes: v.optional(v.array(v.string())), // ["FR", "BE", ...]
+    key: v.string(),
+    label: v.string(),
+    countryCodes: v.optional(v.array(v.string())),
     sortOrder: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -284,30 +239,24 @@ export default defineSchema({
   /* ---------- Reps presence ---------- */
   repsPresence: defineTable({
     organizationId: v.string(),
-    userId: v.string(), // Clerk userId
+    userId: v.string(),
     role: v.union(v.literal("sales"), v.literal("support")),
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
-
-    // NEW: titre affiché dans le widget (Solutions Engineer EMEA, Customer Success, …)
     title: v.optional(v.string()),
-
-    // Slack DM par rep
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
-
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId"])
     .index("by_org_role", ["organizationId", "role"])
     .index("by_org_user", ["organizationId", "userId"]),
 
-
   /* ---------- Routing rules ---------- */
   routingRules: defineTable({
     organizationId: v.string(),
     name: v.string(),
-    priority: v.number(), // 1 = highest
+    priority: v.number(),
     match: v.object({
       countries: v.optional(v.array(v.string())),
       urlIncludes: v.optional(v.array(v.string())),
@@ -315,7 +264,6 @@ export default defineSchema({
     }),
     routeTo: v.object({
       role: v.union(v.literal("sales"), v.literal("support")),
-      // ici aussi on utilisera des keys de territories
       regions: v.optional(v.array(v.string())),
       repIds: v.optional(v.array(v.string())),
     }),
@@ -344,17 +292,14 @@ export default defineSchema({
     timezone: v.optional(v.string()),
     durationMin: v.number(),
     bufferMin: v.optional(v.number()),
-    meetingLinkType: v.union(
-      v.literal("google_meet"),
-      v.literal("manual"),
-    ),
+    meetingLinkType: v.union(v.literal("google_meet"), v.literal("manual")),
     manualUrl: v.optional(v.string()),
     weekly: v.array(
       v.object({
-        day: v.number(), // 1=Mon … 7=Sun
-        start: v.string(), // "09:00"
-        end: v.string(), // "17:00"
-      }),
+        day: v.number(),
+        start: v.string(),
+        end: v.string(),
+      })
     ),
     updatedAt: v.number(),
   })
@@ -379,7 +324,7 @@ export default defineSchema({
         role: v.optional(v.string()),
         phone: v.optional(v.string()),
         description: v.optional(v.string()),
-      }),
+      })
     ),
     createdAt: v.number(),
   })
@@ -389,10 +334,10 @@ export default defineSchema({
 
   /* ---------- User notification prefs ---------- */
   userNotificationPrefs: defineTable({
-    userId: v.string(), // Clerk user id (identity.subject)
-    showBadges: v.boolean(), // Show badges on new leads
-    playSound: v.boolean(), // Play sound on new lead / meeting
-    autoOpenConversation: v.boolean(), // Auto-open conversation panel
+    userId: v.string(),
+    showBadges: v.boolean(),
+    playSound: v.boolean(),
+    autoOpenConversation: v.boolean(),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
 
@@ -426,7 +371,7 @@ export default defineSchema({
 
   analyticsDaily: defineTable({
     organizationId: v.string(),
-    day: v.string(), // "YYYY-MM-DD"
+    day: v.string(),
     metrics: v.object({
       sessions: v.number(),
       experiences: v.number(),
@@ -453,7 +398,6 @@ export default defineSchema({
     .index("by_session_ts", ["sessionId", "ts"])
     .index("by_org_ts", ["organizationId", "ts"]),
 
-
   /* ---------- Promos contextuelles ---------- */
   promos: defineTable({
     organizationId: v.string(),
@@ -469,74 +413,40 @@ export default defineSchema({
       body: v.string(),
       badgeText: v.optional(v.string()),
     }),
-
-    // CTA legacy (toujours supportés)
     primaryCta: v.object({
-      kind: v.union(
-        v.literal("open_chat"),
-        v.literal("open_booking"),
-        v.literal("open_url"),
-      ),
+      kind: v.union(v.literal("open_chat"), v.literal("open_booking"), v.literal("open_url")),
       label: v.string(),
       url: v.optional(v.string()),
     }),
     secondaryCta: v.optional(
       v.object({
-        kind: v.union(
-          v.literal("open_chat"),
-          v.literal("open_booking"),
-          v.literal("open_url"),
-        ),
+        kind: v.union(v.literal("open_chat"), v.literal("open_booking"), v.literal("open_url")),
         label: v.string(),
         url: v.optional(v.string()),
-      }),
+      })
     ),
-
-    // Nouveau : liste complète de CTAs (multi-boutons)
     ctaList: v.optional(
       v.array(
         v.object({
-          kind: v.union(
-            v.literal("open_chat"),
-            v.literal("open_booking"),
-            v.literal("open_url"),
-          ),
+          kind: v.union(v.literal("open_chat"), v.literal("open_booking"), v.literal("open_url")),
           label: v.string(),
           url: v.optional(v.string()),
-        }),
-      ),
+        })
+      )
     ),
-
-    // ✅ NEW: CTA emphasis (persisted)
     ctaEmphasisMode: v.optional(
       v.union(
         v.literal("first_primary"),
         v.literal("last_primary"),
         v.literal("all_primary"),
-        v.literal("none_primary"),
-      ),
+        v.literal("none_primary")
+      )
     ),
-
-
-    // cible sales / support
-    targetRole: v.optional(
-      v.union(v.literal("sales"), v.literal("support")),
-    ),
-
-    // identité visuelle (logo / avatars / auto)
-    identityMode: v.optional(
-      v.union(
-        v.literal("auto"),
-        v.literal("logo"),
-        v.literal("avatars"),
-      ),
-    ),
-
+    targetRole: v.optional(v.union(v.literal("sales"), v.literal("support"))),
+    identityMode: v.optional(v.union(v.literal("auto"), v.literal("logo"), v.literal("avatars"))),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
-
-
 
   /* ---------- Slack Integrations ---------- */
   slackIntegrations: defineTable({
@@ -549,17 +459,16 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_organization_id", ["organizationId"]),
 
-  /* ---------- Salesforce App Configs (per Inboundless org) ---------- */
+  /* ---------- Salesforce ---------- */
   salesforceAppConfigs: defineTable({
     organizationId: v.string(),
     clientId: v.string(),
     clientSecret: v.string(),
-    loginUrl: v.string(), // https://login.salesforce.com | https://test.salesforce.com
+    loginUrl: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organization_id", ["organizationId"]),
 
-  /* ---------- Salesforce Integrations (tokens per Inboundless org) ---------- */
   salesforceIntegrations: defineTable({
     organizationId: v.string(),
     accessToken: v.string(),
@@ -568,7 +477,4 @@ export default defineSchema({
     connectedAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organization_id", ["organizationId"]),
-
 });
-
-
