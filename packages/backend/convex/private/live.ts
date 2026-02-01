@@ -22,6 +22,12 @@ function resolveTerritoryKeyFromCountry(
   return undefined;
 }
 
+/**
+ * Visibility rules (STRICT, same spirit as conversations):
+ * - If assignedRepUserId exists => ONLY that rep sees it (no territory leak)
+ * - Else => territory-based visibility only (must match my regions)
+ * - If I have no regions => I see only explicitly assigned ones (handled by above)
+ */
 export const getActiveVisitors = query({
   args: {},
   handler: async (ctx) => {
@@ -145,7 +151,7 @@ export const getActiveVisitors = query({
       const conv = convBySessionId.get(String(s._id));
       const conversationId = conv?._id ?? null;
 
-      // ✅ assignment
+      // ✅ assignment (conversation overrides session)
       const repUserId =
         (conv?.assignedRepUserId as string | undefined) ||
         (s.assignedRepUserId as string | undefined) ||
@@ -156,16 +162,15 @@ export const getActiveVisitors = query({
         (s.assignedTerritoryKey as string | undefined) ||
         resolveTerritoryKeyFromCountry(md.countryCode as string | undefined, territoryList);
 
-      // ✅ VISIBILITY RULES (IMPORTANT)
-      // 1) If the conversation/session is explicitly assigned to me => I see it
-      const isMine = repUserId === meUserId;
-
-      // 2) Else I see it ONLY if territoryKey is in my regions
-      const inMyTerritory =
-        !!territoryKey && myRegions.includes(territoryKey);
-
-      // If no territories configured for me, I only see explicitly assigned ones.
-      if (!isMine && !inMyTerritory) continue;
+      // ✅ STRICT VISIBILITY (fix double-visibility)
+      if (repUserId) {
+        // assigned => only owner sees
+        if (repUserId !== meUserId) continue;
+      } else {
+        // not assigned => territory-based only
+        const inMyTerritory = !!territoryKey && myRegions.includes(territoryKey);
+        if (!inMyTerritory) continue;
+      }
 
       let assignedRep: any = null;
       if (repUserId) {

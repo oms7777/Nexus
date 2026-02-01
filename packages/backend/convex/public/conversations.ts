@@ -101,28 +101,37 @@ export const create = mutation({
       contactSessionId: args.contactSessionId,
     });
 
-    // Reuse existing active (idempotent)
     const existingActive = await ctx.db
       .query("conversations")
       .withIndex("by_contact_session_id", (q) => q.eq("contactSessionId", session._id))
       .order("desc")
       .first();
 
+    // ✅ assignment should come from top-level (stable)
     const sessionAssignedRep =
       (session.assignedRepUserId as string | undefined) ||
       (session.preferredRepUserId as string | undefined) ||
       ((session.metadata as any)?.preferredRepUserId as string | undefined) ||
       undefined;
 
-    const sessionTerritory = (session.assignedTerritoryKey as string | undefined) || undefined;
+    const sessionTerritory =
+      (session.assignedTerritoryKey as string | undefined) ||
+      ((session.metadata as any)?.assignedTerritoryKey as string | undefined) ||
+      undefined;
 
     if (
       existingActive &&
       existingActive.organizationId === args.organizationId &&
       existingActive.status !== "resolved"
     ) {
-      // ✅ if session got assigned but conversation isn't, patch it once
-      if (!existingActive.assignedRepUserId && sessionAssignedRep) {
+      // ✅ If mismatch, patch it (important)
+      const needsPatch =
+        (sessionAssignedRep && existingActive.assignedRepUserId !== sessionAssignedRep) ||
+        (sessionTerritory && existingActive.assignedTerritoryKey !== sessionTerritory) ||
+        (!existingActive.assignedRepUserId && !!sessionAssignedRep) ||
+        (!existingActive.assignedTerritoryKey && !!sessionTerritory);
+
+      if (needsPatch) {
         await ctx.db.patch(existingActive._id, {
           assignedRepUserId: sessionAssignedRep,
           assignedTerritoryKey: sessionTerritory,
@@ -138,8 +147,8 @@ export const create = mutation({
           threadId: existingActive.threadId,
           reused: true,
           suppressGreet: !!args.suppressGreet,
-          assignedRepUserId: existingActive.assignedRepUserId ?? sessionAssignedRep ?? null,
-          assignedTerritoryKey: existingActive.assignedTerritoryKey ?? sessionTerritory ?? null,
+          assignedRepUserId: sessionAssignedRep ?? existingActive.assignedRepUserId ?? null,
+          assignedTerritoryKey: sessionTerritory ?? existingActive.assignedTerritoryKey ?? null,
         },
       });
 
@@ -177,7 +186,6 @@ export const create = mutation({
       organizationId: args.organizationId,
       threadId,
 
-      // ✅ carry assignment
       assignedRepUserId: sessionAssignedRep,
       assignedTerritoryKey: sessionTerritory,
     });

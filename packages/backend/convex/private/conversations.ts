@@ -6,6 +6,52 @@ import { MessageDoc } from "@convex-dev/agent";
 import { paginationOptsValidator, PaginationResult } from "convex/server";
 import { Doc } from "../_generated/dataModel";
 
+function requireIdentity(identity: any) {
+  if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+
+  const orgId = (identity as any).orgId as string | undefined;
+  const meUserId = (identity as any).subject as string | undefined;
+
+  if (!orgId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+  if (!meUserId) throw new ConvexError({ code: "UNAUTHORIZED", message: "User not found" });
+
+  return { orgId, meUserId };
+}
+
+async function getMyRegions(ctx: any, orgId: string, meUserId: string): Promise<string[]> {
+  const presence = await ctx.db
+    .query("repsPresence")
+    .withIndex("by_org_user", (q: any) => q.eq("organizationId", orgId).eq("userId", meUserId))
+    .unique();
+
+  return Array.isArray(presence?.regions) ? (presence.regions as string[]) : [];
+}
+
+/**
+ * Visibility rules (single source of truth):
+ * 1) If assignedRepUserId exists => ONLY that rep can see
+ * 2) If not assigned => visible only if assignedTerritoryKey matches my regions
+ * 3) If I have no regions => I see only explicitly assigned to me
+ */
+function canSeeConversation(params: {
+  meUserId: string;
+  myRegions: string[];
+  conversationAssignedRep?: string;
+  territoryKey?: string | null;
+}) {
+  const { meUserId, myRegions, conversationAssignedRep, territoryKey } = params;
+
+  if (conversationAssignedRep) {
+    return conversationAssignedRep === meUserId;
+  }
+
+  // Not assigned => territory visibility only
+  if (!myRegions.length) return false;
+
+  if (!territoryKey) return false;
+  return myRegions.includes(territoryKey);
+}
+
 export const updateStatus = mutation({
   args: {
     conversationId: v.id("conversations"),
@@ -13,30 +59,9 @@ export const updateStatus = mutation({
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+    const { orgId, meUserId } = requireIdentity(identity);
 
-    const orgId = (identity as any).orgId as string | undefined;
-    if (!orgId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-
-    const conversation = await ctx.db.get(args.conversationId);
-    if (!conversation) throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
-
-    if (conversation.organizationId !== orgId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Organization ID" });
-    }
-
-    await ctx.db.patch(args.conversationId, { status: args.status });
-  },
-});
-
-export const getOne = query({
-  args: { conversationId: v.id("conversations") },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
-
-    const orgId = (identity as any).orgId as string | undefined;
-    if (!orgId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+    const myRegions = await getMyRegions(ctx, orgId, meUserId);
 
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
@@ -48,11 +73,65 @@ export const getOne = query({
     const contactSession = await ctx.db.get(conversation.contactSessionId);
     if (!contactSession) throw new ConvexError({ code: "NOT_FOUND", message: "Contact Session not found" });
 
+    const territoryKey =
+      (conversation.assignedTerritoryKey as string | undefined) ||
+      (contactSession.assignedTerritoryKey as string | undefined) ||
+      null;
+
+    const ok = canSeeConversation({
+      meUserId,
+      myRegions,
+      conversationAssignedRep: conversation.assignedRepUserId as string | undefined,
+      territoryKey,
+    });
+
+    if (!ok) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Not allowed" });
+    }
+
+    await ctx.db.patch(args.conversationId, { status: args.status });
+  },
+});
+
+export const getOne = query({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    const { orgId, meUserId } = requireIdentity(identity);
+
+    const myRegions = await getMyRegions(ctx, orgId, meUserId);
+
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
+
+    if (conversation.organizationId !== orgId) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Organization ID" });
+    }
+
+    const contactSession = await ctx.db.get(conversation.contactSessionId);
+    if (!contactSession) throw new ConvexError({ code: "NOT_FOUND", message: "Contact Session not found" });
+
+    const territoryKey =
+      (conversation.assignedTerritoryKey as string | undefined) ||
+      (contactSession.assignedTerritoryKey as string | undefined) ||
+      null;
+
+    const ok = canSeeConversation({
+      meUserId,
+      myRegions,
+      conversationAssignedRep: conversation.assignedRepUserId as string | undefined,
+      territoryKey,
+    });
+
+    if (!ok) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Not allowed" });
+    }
+
     return {
       ...conversation,
       contactSession,
       assignedRepUserId: conversation.assignedRepUserId ?? null,
-      assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
+      assignedTerritoryKey: territoryKey,
     };
   },
 });
@@ -64,10 +143,9 @@ export const getMany = query({
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+    const { orgId, meUserId } = requireIdentity(identity);
 
-    const orgId = (identity as any).orgId as string | undefined;
-    if (!orgId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+    const myRegions = await getMyRegions(ctx, orgId, meUserId);
 
     let conversations: PaginationResult<Doc<"conversations">>;
 
@@ -87,18 +165,30 @@ export const getMany = query({
         .paginate(args.paginationOpts);
     }
 
-    const conversationsWithAdditionalData = await Promise.all(
+    const page = await Promise.all(
       conversations.page.map(async (conversation) => {
-        let lastMessage: MessageDoc | null = null;
-
         const contactSession = await ctx.db.get(conversation.contactSessionId);
         if (!contactSession) return null;
 
+        const territoryKey =
+          (conversation.assignedTerritoryKey as string | undefined) ||
+          (contactSession.assignedTerritoryKey as string | undefined) ||
+          null;
+
+        const ok = canSeeConversation({
+          meUserId,
+          myRegions,
+          conversationAssignedRep: conversation.assignedRepUserId as string | undefined,
+          territoryKey,
+        });
+
+        if (!ok) return null;
+
+        let lastMessage: MessageDoc | null = null;
         const messages = await supportAgent.listMessages(ctx, {
           threadId: conversation.threadId,
           paginationOpts: { numItems: 1, cursor: null },
         });
-
         if (messages.page.length > 0) lastMessage = messages.page[0] ?? null;
 
         return {
@@ -106,18 +196,13 @@ export const getMany = query({
           lastMessage,
           contactSession,
           assignedRepUserId: conversation.assignedRepUserId ?? null,
-          assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
+          assignedTerritoryKey: territoryKey,
         };
       })
     );
 
-    const validConversations = conversationsWithAdditionalData.filter(
-      (conv): conv is NonNullable<typeof conv> => conv !== null
-    );
+    const filtered = page.filter((x): x is NonNullable<typeof x> => x !== null);
 
-    return {
-      ...conversations,
-      page: validConversations,
-    };
+    return { ...conversations, page: filtered };
   },
 });
