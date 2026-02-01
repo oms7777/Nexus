@@ -909,12 +909,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="truncate font-medium">{p.name}</div>
 
-                {p.targetRole && (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
-                    {p.targetRole === "sales" ? "Sales" : "Support"}
-                  </span>
-                )}
-
                 {p.identityMode && (
                   <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-500">
                     {p.identityMode === "logo"
@@ -984,7 +978,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       card: p.card,
                       primaryCta: p.primaryCta,
                       secondaryCta: p.secondaryCta,
-                      targetRole: p.targetRole,
                       identityMode: p.identityMode ?? "auto",
                       ctaList: p.ctaList,
                       ctaEmphasisMode: p.ctaEmphasisMode ?? "first_primary",
