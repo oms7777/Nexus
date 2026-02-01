@@ -440,6 +440,7 @@ export default defineSchema({
         v.literal("none_primary")
       )
     ),
+    targetRole: v.optional(v.string()),
     identityMode: v.optional(v.union(v.literal("auto"), v.literal("logo"), v.literal("avatars"))),
     createdAt: v.number(),
     updatedAt: v.number(),
