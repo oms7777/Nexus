@@ -7,7 +7,6 @@ export type PublicRep = {
   userId: string;
   name?: string;
   avatarUrl?: string;
-  role: "sales" | "support";
   regions: string[];
   available: boolean;
   title?: string;
@@ -206,7 +205,6 @@ export const listRepsForVisitor = query({
           name: (u?.name as string | undefined) ?? undefined,
           avatarUrl: avatar,
           title: (u?.title as string | undefined) ?? undefined,
-          role: rep.role,
           regions: rep.regions ?? [],
           available: rep.available,
         };
@@ -372,7 +370,6 @@ export const listCandidatesForAutoAssign = query({
           name: (u?.name as string | undefined) ?? undefined,
           avatarUrl: avatar,
           title: (u?.title as string | undefined) ?? undefined,
-          role: rep.role,
           regions: rep.regions ?? [],
           available: rep.available,
         };
@@ -433,7 +430,6 @@ export const pickRepForVisitor = query({
           name: u?.name ?? undefined,
           avatarUrl: avatar,
           title: u?.title ?? undefined,
-          role: foundPref.role,
           regions: foundPref.regions ?? [],
           available: foundPref.available,
         };
@@ -508,7 +504,6 @@ export const pickRepForVisitor = query({
           name: u?.name ?? undefined,
           avatarUrl: avatar,
           title: u?.title ?? undefined,
-          role: chosen.role,
           regions: chosen.regions ?? [],
           available: chosen.available,
         };
@@ -551,7 +546,6 @@ export const pickRepForVisitor = query({
             name: u?.name ?? undefined,
             avatarUrl: avatar,
             title: u?.title ?? undefined,
-            role: chosen.role,
             regions: chosen.regions ?? [],
             available: chosen.available,
           };
@@ -578,7 +572,6 @@ export const pickRepForVisitor = query({
       name: u?.name ?? undefined,
       avatarUrl: avatar,
       title: u?.title ?? undefined,
-      role: chosen.role,
       regions: chosen.regions ?? [],
       available: chosen.available,
     };

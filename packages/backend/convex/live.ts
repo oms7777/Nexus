@@ -129,26 +129,32 @@ async function resolveTerritoryKey(ctx: any, organizationId: string, countryCode
 async function pickRepForTerritory(ctx: any, organizationId: string, territoryKey?: string) {
   const reps = await ctx.db
     .query("repsPresence")
-    .withIndex("by_org_role", (q: any) => q.eq("organizationId", organizationId).eq("role", "sales"))
+    .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
     .collect();
 
   const available = reps.filter((r: any) => r.available === true);
-
   if (!available.length) return undefined;
 
+  // territory match first
   if (territoryKey) {
     const byTerritory = available.filter((r: any) => {
       const regions = Array.isArray(r.regions) ? (r.regions as string[]) : [];
       return regions.includes(territoryKey);
     });
+
     if (byTerritory.length) return byTerritory[0].userId as string;
   }
 
-  // fallback: first available sales rep
+  // fallback: first available rep
   return available[0].userId as string;
 }
 
-async function preferredRepMatchesTerritory(ctx: any, organizationId: string, repUserId: string, territoryKey?: string) {
+async function preferredRepMatchesTerritory(
+  ctx: any,
+  organizationId: string,
+  repUserId: string,
+  territoryKey?: string,
+) {
   const presence = await ctx.db
     .query("repsPresence")
     .withIndex("by_org_user", (q: any) => q.eq("organizationId", organizationId).eq("userId", repUserId))
@@ -156,13 +162,14 @@ async function preferredRepMatchesTerritory(ctx: any, organizationId: string, re
 
   if (!presence) return false;
   if (presence.available !== true) return false;
-  if (presence.role !== "sales") return false;
 
+  // no territory => ok if rep is available
   if (!territoryKey) return true;
 
   const regions = Array.isArray(presence.regions) ? (presence.regions as string[]) : [];
   return regions.includes(territoryKey);
 }
+
 
 /** Upsert heartbeat + enrich metadata + bump session TTL + territory assign */
 export const upsertHeartbeat = internalMutation({
