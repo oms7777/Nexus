@@ -1,4 +1,3 @@
-// packages/backend/convex/team.ts
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 
@@ -94,7 +93,6 @@ export const ensureRepPresenceForMe = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        role: "sales",
         available: available ?? existing.available,
         updatedAt: now,
       });
@@ -104,7 +102,6 @@ export const ensureRepPresenceForMe = mutation({
     return await ctx.db.insert("repsPresence", {
       organizationId,
       userId,
-      role: "sales",
       regions: [],
       available: available ?? true,
       updatedAt: now,
@@ -173,7 +170,6 @@ export const upsertRepPresence = mutation({
     const payload: any = {
       organizationId,
       userId,
-      role: "sales",
       available,
       updatedAt: now,
       regions: Array.isArray(regions) ? regions : [],
@@ -208,14 +204,13 @@ export const connectRepSlack = mutation({
       .unique();
 
     if (existing) {
-      await ctx.db.patch(existing._id, { slackUserId, slackDmChannel, updatedAt: now, role: "sales" });
+      await ctx.db.patch(existing._id, { slackUserId, slackDmChannel, updatedAt: now });
       return existing._id;
     }
 
     return await ctx.db.insert("repsPresence", {
       organizationId,
       userId,
-      role: "sales",
       regions: [],
       available: true,
       slackUserId,

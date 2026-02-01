@@ -28,7 +28,14 @@ function matches(v: Visitor, q: string) {
     } catch {}
   }
 
-  const haystack = [v.name, v.email, v.city, v.countryCode, v.currentUrl, ...utm]
+  const haystack = [
+    v.name,
+    v.email,
+    v.city,
+    v.countryCode,
+    v.currentUrl,
+    ...utm,
+  ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -43,7 +50,7 @@ export default function LiveMapView() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | undefined>();
 
-  // ✅ Backend already filters to "my territory"
+  // ✅ IMPORTANT: backend already filters by rep territories
   const visitors = (useQuery(api.private.live.getActiveVisitors, {}) ?? []) as Visitor[];
 
   const filtered = useMemo(
@@ -67,7 +74,8 @@ export default function LiveMapView() {
     ) ?? [];
 
   const currentUrlFromSnap = latestSnap[0]?.pageUrl;
-  const headerUrl = (currentUrlFromSnap ?? selected?.currentUrl ?? "").split("?")[0] || "—";
+  const headerUrl =
+    (currentUrlFromSnap ?? selected?.currentUrl ?? "").split("?")[0] || "—";
 
   return (
     <div className="flex h-full w-full">
@@ -86,42 +94,35 @@ export default function LiveMapView() {
           {filtered.length} online (your territory)
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="px-3 py-4 text-sm text-muted-foreground">
-            No active visitors assigned to your territory right now.
-            <div className="mt-2 text-xs">
-              If this stays empty, check that:
-              <ul className="list-disc pl-4 mt-1">
-                <li>Your rep has at least one territory in Team &amp; Territories.</li>
-                <li>Visitors are getting an assignedTerritoryKey (routing working).</li>
-              </ul>
+        <div className="flex-1 overflow-auto">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              No active visitors assigned to your territory right now.
             </div>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-auto">
-            {filtered.map((v) => (
-              <button
-                key={v._id}
-                onClick={() => setSelectedId(v._id)}
-                className="w-full text-left px-3 py-3 hover:bg-accent border-b"
-                title={v.currentUrl || ""}
-              >
-                <div className="font-medium text-sm line-clamp-1">
-                  {v.name || "Visitor"}
-                </div>
+          ) : null}
+
+          {filtered.map((v) => (
+            <button
+              key={v._id}
+              onClick={() => setSelectedId(v._id)}
+              className="w-full text-left px-3 py-3 hover:bg-accent border-b"
+              title={v.currentUrl || ""}
+            >
+              <div className="font-medium text-sm line-clamp-1">
+                {v.name || "Visitor"}
+              </div>
+              <div className="text-xs text-muted-foreground line-clamp-1">
+                {v.city}
+                {v.countryCode ? `, ${v.countryCode}` : ""}
+              </div>
+              {v.currentUrl && (
                 <div className="text-xs text-muted-foreground line-clamp-1">
-                  {v.city}
-                  {v.countryCode ? `, ${v.countryCode}` : ""}
+                  {v.currentUrl}
                 </div>
-                {v.currentUrl && (
-                  <div className="text-xs text-muted-foreground line-clamp-1">
-                    {v.currentUrl}
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Map */}
@@ -129,7 +130,7 @@ export default function LiveMapView() {
         <LiveMap visitors={filtered} selectedId={selectedId} />
       </div>
 
-      {/* Right panel (live stream) */}
+      {/* Right panel */}
       {selected && selectedSessionId && (
         <aside className="w-[35vw] max-w-[650px] border-l bg-background p-3 hidden xl:block">
           <div className="mb-2">

@@ -1,48 +1,60 @@
 // packages/backend/convex/private/live.ts
 import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Doc } from "../_generated/dataModel";
+
+function normalizeCC(cc?: string) {
+  const s = (cc || "").trim().toUpperCase();
+  return s.length ? s : undefined;
+}
+
+function resolveTerritoryKeyFromCountry(
+  countryCode: string | undefined,
+  territories: { key: string; countryCodes?: string[] }[],
+) {
+  const cc = normalizeCC(countryCode);
+  if (!cc) return undefined;
+
+  for (const t of territories) {
+    const codes = Array.isArray(t.countryCodes) ? t.countryCodes : [];
+    if (codes.map((x) => String(x).toUpperCase()).includes(cc)) return t.key;
+  }
+  return undefined;
+}
 
 export const getActiveVisitors = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     const orgId = (identity as any)?.orgId as string | undefined;
-    const myUserId = (identity as any)?.subject as string | undefined;
+    const meUserId = (identity as any)?.subject as string | undefined;
 
-    if (!orgId || !myUserId) {
+    if (!orgId || !meUserId) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
     }
 
     const now = Date.now();
 
-    // ✅ my presence => my territories
+    // ✅ Load my rep presence => territories allowed
     const myPresence = await ctx.db
       .query("repsPresence")
-      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", myUserId))
+      .withIndex("by_org_user", (q) => q.eq("organizationId", orgId).eq("userId", meUserId))
       .unique();
 
-    const myTerritories: string[] = Array.isArray(myPresence?.regions)
-      ? (myPresence!.regions as string[])
-      : [];
+    const myRegions = Array.isArray(myPresence?.regions) ? myPresence!.regions : [];
 
-    // ✅ territories mapping (countryCode -> territoryKey)
+    // ✅ Load territories for org (for country -> territory mapping)
     const territories = await ctx.db
       .query("territories")
       .withIndex("by_org", (q) => q.eq("organizationId", orgId))
       .collect();
 
-    const countryToTerritory = new Map<string, string>();
-    for (const t of territories) {
-      const codes = Array.isArray(t.countryCodes) ? t.countryCodes : [];
-      for (const c of codes) {
-        if (typeof c === "string" && c.trim()) {
-          countryToTerritory.set(c.trim().toUpperCase(), t.key);
-        }
-      }
-    }
+    const territoryList = territories.map((t) => ({
+      key: t.key,
+      countryCodes: t.countryCodes ?? [],
+    }));
 
-    // sessions
+    // ✅ sessions (geo required)
     const sessions = await ctx.db
       .query("contactSessions")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
@@ -55,7 +67,7 @@ export const getActiveVisitors = query({
         typeof s.metadata?.lng === "number",
     );
 
-    // dedupe
+    // ✅ dedupe visitor
     const bestByKey = new Map<string, (typeof active)[number]>();
     for (const s of active) {
       const md = s.metadata ?? {};
@@ -65,13 +77,11 @@ export const getActiveVisitors = query({
         String(s._id);
 
       const prev = bestByKey.get(key);
-      if (!prev || (s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) {
-        bestByKey.set(key, s);
-      }
+      if (!prev || (s.expiresAt ?? 0) > (prev.expiresAt ?? 0)) bestByKey.set(key, s);
     }
     const deduped = Array.from(bestByKey.values());
 
-    // latest active conversation per session
+    // ✅ load latest active conv per session
     const convBySessionId = new Map<string, Doc<"conversations">>();
     for (const s of deduped) {
       const conv = await ctx.db
@@ -85,7 +95,7 @@ export const getActiveVisitors = query({
       }
     }
 
-    // users in org
+    // ✅ users in org
     const users = await ctx.db
       .query("users")
       .withIndex("by_org", (q: any) => q.eq("organizationId", orgId))
@@ -94,7 +104,7 @@ export const getActiveVisitors = query({
     const userByExternalId = new Map<string, Doc<"users">>();
     for (const u of users) userByExternalId.set(u.externalId, u);
 
-    // repsPresence
+    // ✅ repsPresence
     const repPresence = await ctx.db
       .query("repsPresence")
       .withIndex("by_org", (q) => q.eq("organizationId", orgId))
@@ -109,22 +119,24 @@ export const getActiveVisitors = query({
       const md = s.metadata ?? {};
       const pages = Array.isArray(md.pages) ? (md.pages as string[]) : [];
 
-      // latest snapshot for URL/title
+      // latest snapshot for url/title
       let snapUrl: string | undefined;
       let snapTitle: string | undefined;
       let snapTs: number | undefined;
 
-      const latestSnap = await ctx.db
-        .query("sessionSnapshots")
-        .withIndex("by_session_ts", (q) => q.eq("sessionId", s._id))
-        .order("desc")
-        .first();
+      try {
+        const latestSnap = await ctx.db
+          .query("sessionSnapshots")
+          .withIndex("by_session_ts", (q) => q.eq("sessionId", s._id))
+          .order("desc")
+          .first();
 
-      if (latestSnap) {
-        snapUrl = latestSnap.pageUrl ?? undefined;
-        snapTitle = latestSnap.title ?? undefined;
-        snapTs = latestSnap.ts ?? undefined;
-      }
+        if (latestSnap) {
+          snapUrl = latestSnap.pageUrl ?? undefined;
+          snapTitle = latestSnap.title ?? undefined;
+          snapTs = latestSnap.ts ?? undefined;
+        }
+      } catch {}
 
       const currentUrl = snapUrl || (md.currentUrl as string | undefined) || undefined;
       const title = snapTitle || (md.title as string | undefined) || undefined;
@@ -133,32 +145,27 @@ export const getActiveVisitors = query({
       const conv = convBySessionId.get(String(s._id));
       const conversationId = conv?._id ?? null;
 
-      // assignment sources
+      // ✅ assignment
       const repUserId =
         (conv?.assignedRepUserId as string | undefined) ||
         (s.assignedRepUserId as string | undefined) ||
         undefined;
 
-      // ✅ territoryKey: conversation > session > fallback country mapping
-      let territoryKey =
+      const territoryKey =
         (conv?.assignedTerritoryKey as string | undefined) ||
         (s.assignedTerritoryKey as string | undefined) ||
-        undefined;
+        resolveTerritoryKeyFromCountry(md.countryCode as string | undefined, territoryList);
 
-      if (!territoryKey) {
-        const cc = (md.countryCode as string | undefined)?.toUpperCase();
-        if (cc) territoryKey = countryToTerritory.get(cc);
-      }
+      // ✅ VISIBILITY RULES (IMPORTANT)
+      // 1) If the conversation/session is explicitly assigned to me => I see it
+      const isMine = repUserId === meUserId;
 
-      // ✅ filter visibility
-      const isAssignedToMe = repUserId === myUserId;
-      const isInMyTerritory =
-        Boolean(territoryKey) && myTerritories.includes(String(territoryKey));
+      // 2) Else I see it ONLY if territoryKey is in my regions
+      const inMyTerritory =
+        !!territoryKey && myRegions.includes(territoryKey);
 
-      const canSee =
-        myTerritories.length > 0 ? (isInMyTerritory || isAssignedToMe) : isAssignedToMe;
-
-      if (!canSee) continue;
+      // If no territories configured for me, I only see explicitly assigned ones.
+      if (!isMine && !inMyTerritory) continue;
 
       let assignedRep: any = null;
       if (repUserId) {
@@ -166,9 +173,7 @@ export const getActiveVisitors = query({
         const p = presenceByUserId.get(repUserId);
 
         const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
-            ? u.avatarUrl.trim()
-            : undefined;
+          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
 
         assignedRep = {
           userId: repUserId,
@@ -193,11 +198,14 @@ export const getActiveVisitors = query({
 
         currentUrl,
         title,
+        userAgent: md.userAgent as string | undefined,
+        cookieEnabled: md.cookieEnabled as boolean | undefined,
+        timezoneOffset: md.timezoneOffset as number | undefined,
 
         pageCount: pages.length,
         timeOnSiteMs: now - s._creationTime,
 
-        contactSessionId: s._id as Id<"contactSessions">,
+        contactSessionId: s._id,
         conversationId,
 
         assignedRep,

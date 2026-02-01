@@ -47,7 +47,6 @@ export const setMyAvailability = mutation({
     return await ctx.db.insert("repsPresence", {
       organizationId,
       userId,
-      role: "sales",
       regions: [],
       available,
       updatedAt: now,

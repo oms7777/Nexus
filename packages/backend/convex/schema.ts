@@ -240,7 +240,6 @@ export default defineSchema({
   repsPresence: defineTable({
     organizationId: v.string(),
     userId: v.string(),
-    role: v.union(v.literal("sales"), v.literal("support")),
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
     title: v.optional(v.string()),
@@ -249,8 +248,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId"])
-    .index("by_org_role", ["organizationId", "role"])
     .index("by_org_user", ["organizationId", "userId"]),
+
 
   /* ---------- Routing rules ---------- */
   routingRules: defineTable({
@@ -263,7 +262,6 @@ export default defineSchema({
       utmSource: v.optional(v.array(v.string())),
     }),
     routeTo: v.object({
-      role: v.union(v.literal("sales"), v.literal("support")),
       regions: v.optional(v.array(v.string())),
       repIds: v.optional(v.array(v.string())),
     }),
@@ -442,7 +440,6 @@ export default defineSchema({
         v.literal("none_primary")
       )
     ),
-    targetRole: v.optional(v.union(v.literal("sales"), v.literal("support"))),
     identityMode: v.optional(v.union(v.literal("auto"), v.literal("logo"), v.literal("avatars"))),
     createdAt: v.number(),
     updatedAt: v.number(),

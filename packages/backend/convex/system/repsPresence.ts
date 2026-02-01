@@ -26,7 +26,6 @@ export const listAvailableForOrg = internalQuery({
 
       out.push({
         userId: p.userId,
-        role: p.role,
         regions: p.regions ?? [],
         available: p.available,
         name: user?.name ?? undefined,
@@ -60,7 +59,6 @@ export const setAvailability = internalMutation({
       await ctx.db.insert("repsPresence", {
         organizationId,
         userId,
-        role: "sales",
         regions: [],
         available,
         updatedAt: now,
