@@ -45,7 +45,6 @@ const PromoSchema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   badgeText: z.string().optional(),
-  targetRole: z.enum(["sales", "support"]).optional(),
   identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
 
   // ✅ persisted
@@ -118,7 +117,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathPrefix: "",
       urlIncludes: "",
       utmSource: "",
-      targetRole: "sales",
       identityMode: "auto",
       ctaEmphasisMode: "first_primary",
       ctas: [
@@ -147,7 +145,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathPrefix: form.getValues("pathPrefix") || "",
       urlIncludes: form.getValues("urlIncludes") || "",
       utmSource: form.getValues("utmSource") || "",
-      targetRole: form.getValues("targetRole") ?? "sales",
       identityMode: form.getValues("identityMode") ?? "auto",
       ctaEmphasisMode: form.getValues("ctaEmphasisMode") ?? "first_primary",
       ctas:
@@ -172,7 +169,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathPrefix: form.getValues("pathPrefix") || "",
       urlIncludes: form.getValues("urlIncludes") || "",
       utmSource: form.getValues("utmSource") || "",
-      targetRole: "sales",
       identityMode: form.getValues("identityMode") ?? "auto",
       ctaEmphasisMode: form.getValues("ctaEmphasisMode") ?? "first_primary",
       ctas:
@@ -243,7 +239,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         },
         primaryCta,
         secondaryCta,
-        targetRole: values.targetRole,
         identityMode: values.identityMode ?? "auto",
         ctaList: ctaList.length ? ctaList : undefined,
 
@@ -272,7 +267,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathPrefix: "",
       urlIncludes: "",
       utmSource: "",
-      targetRole: "sales",
       identityMode: "auto",
       ctaEmphasisMode: "first_primary",
       ctas: [
@@ -334,7 +328,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathPrefix: p.rules?.pathPrefix ?? "",
       urlIncludes: (p.rules?.urlIncludes ?? []).join(","),
       utmSource: (p.rules?.utmSource ?? []).join(","),
-      targetRole: (p.targetRole as "sales" | "support") ?? "sales",
       identityMode: (p.identityMode as "auto" | "logo" | "avatars") ?? "auto",
       ctaEmphasisMode:
         (p.ctaEmphasisMode as PromoForm["ctaEmphasisMode"]) ?? "first_primary",
@@ -515,30 +508,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         />
                       </div>
 
-                      <div>
-                        <Label>Target team</Label>
-                        <Select
-                          value={form.watch("targetRole") ?? "sales"}
-                          onValueChange={(v) =>
-                            form.setValue(
-                              "targetRole",
-                              v as "sales" | "support",
-                            )
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Choose team…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="sales">Sales</SelectItem>
-                            <SelectItem value="support">Support</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Determines which reps (sales or support) can receive
-                          this promo’s leads.
-                        </p>
-                      </div>
 
                       <div className="md:col-span-2 md:flex md:items-center md:gap-3">
                         <div className="flex-1">

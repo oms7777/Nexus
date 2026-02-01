@@ -60,7 +60,6 @@ const cardV = v.object({
   badgeText: v.optional(v.string()),
 });
 
-const targetRoleV = v.union(v.literal("sales"), v.literal("support"));
 
 const identityModeV = v.union(
   v.literal("auto"),
@@ -97,7 +96,6 @@ export const upsert = mutation({
     card: cardV,
     primaryCta: ctaV,
     secondaryCta: v.optional(ctaV),
-    targetRole: v.optional(targetRoleV),
     identityMode: v.optional(identityModeV),
 
     ctaList: v.optional(v.array(ctaV)),
