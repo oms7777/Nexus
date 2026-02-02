@@ -120,16 +120,19 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
 
   const handleLogoFile = async (file?: File) => {
     if (!file) return;
+
     try {
       setUploadingLogo(true);
       const bytes = await file.arrayBuffer();
 
-      const { url } = await addFile({
+      const res = await addFile({
         filename: file.name,
         mimeType: file.type || "application/octet-stream",
         bytes,
         category: "brand_logo",
       });
+
+      const url = (res as any)?.url as string | undefined;
 
       if (!url) {
         toast.error("Upload failed (no URL returned)");
@@ -236,28 +239,20 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                 <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)]">
                   {/* LEFT */}
                   <div className="space-y-6">
+                    {/* ✅ Logo upload only (URL hidden) */}
                     <FormField
                       control={form.control as any}
                       name="brandLogoUrl"
-                      render={({ field }) => (
+                      render={() => (
                         <FormItem className="space-y-3">
-                          <FormLabel>Logo URL</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              placeholder="https://yourdomain.com/logo.svg"
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Used in the chat header and promo nudge. PNG/SVG
-                            recommended.
-                          </FormDescription>
-                          <FormMessage />
+                          <FormLabel>Logo</FormLabel>
 
-                          <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                             <div className="space-y-1 text-xs text-muted-foreground">
-                              <p>Or upload a logo from your computer.</p>
-                              <p>We’ll store it securely and reuse it across promos.</p>
+                              <p>Shown in the chat header and promo nudge.</p>
+                              <p>
+                                Upload a PNG/SVG — stored securely and reused across promos.
+                              </p>
                             </div>
 
                             <div className="flex items-center gap-3">
@@ -265,9 +260,13 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 <img
                                   src={logoUrl}
                                   alt="Logo preview"
-                                  className="h-10 w-10 rounded-full border bg-white object-contain"
+                                  className="h-10 w-10 rounded-full border bg-white object-contain p-1"
                                 />
-                              ) : null}
+                              ) : (
+                                <div className="flex h-10 w-10 items-center justify-center rounded-full border bg-white">
+                                  <MessageCircle className="h-4 w-4 text-slate-500" />
+                                </div>
+                              )}
 
                               <input
                                 ref={logoFileInputRef}
@@ -275,7 +274,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 accept="image/*"
                                 className="hidden"
                                 onChange={(e) =>
-                                  handleLogoFile(e.target.files?.[0] || undefined)
+                                  handleLogoFile(
+                                    e.target.files?.[0] || undefined,
+                                  )
                                 }
                               />
 
@@ -286,10 +287,14 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 disabled={uploadingLogo}
                                 onClick={() => logoFileInputRef.current?.click()}
                               >
-                                {uploadingLogo ? "Uploading…" : "Upload logo"}
+                                {uploadingLogo
+                                  ? "Uploading…"
+                                  : logoUrl
+                                    ? "Replace logo"
+                                    : "Upload logo"}
                               </Button>
 
-                              {logoUrl && (
+                              {logoUrl ? (
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -303,9 +308,11 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 >
                                   Remove
                                 </Button>
-                              )}
+                              ) : null}
                             </div>
                           </div>
+
+                          <FormMessage />
                         </FormItem>
                       )}
                     />
@@ -355,7 +362,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
                             </div>
-                            <FormDescription>Text color for primary CTA buttons.</FormDescription>
+                            <FormDescription>
+                              Text color for primary CTA buttons.
+                            </FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -403,7 +412,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
                             </div>
-                            <FormDescription>Text color for secondary CTA buttons.</FormDescription>
+                            <FormDescription>
+                              Text color for secondary CTA buttons.
+                            </FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -426,7 +437,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
                             </div>
-                            <FormDescription>Background of the promo nudge card.</FormDescription>
+                            <FormDescription>
+                              Background of the promo nudge card.
+                            </FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -479,7 +492,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                     <img
                                       src={logoUrl}
                                       alt="Logo"
-                                      className="h-9 w-9 rounded-full border bg-white object-contain"
+                                      className="h-9 w-9 rounded-full border bg-white object-contain p-1"
                                     />
                                   ) : (
                                     <div className="flex -space-x-1">
@@ -551,7 +564,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                     <img
                                       src={logoUrl}
                                       alt="Logo"
-                                      className="h-7 w-7 rounded-full border bg-white object-contain"
+                                      className="h-7 w-7 rounded-full border bg-white object-contain p-1"
                                     />
                                   ) : (
                                     <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100">
@@ -612,6 +625,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
               </CardContent>
             </Card>
 
+            {/* ---------- General Chat Settings ---------- */}
             <Card>
               <CardHeader>
                 <CardTitle>General Chat Settings</CardTitle>
@@ -794,11 +808,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                       <FormItem className="md:col-span-2">
                         <FormLabel>Intro</FormLabel>
                         <FormControl>
-                          <Textarea
-                            rows={2}
-                            {...field}
-                            disabled={!consentEnabled}
-                          />
+                          <Textarea rows={2} {...field} disabled={!consentEnabled} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -812,11 +822,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                       <FormItem className="md:col-span-2">
                         <FormLabel>Body (before the “here” link)</FormLabel>
                         <FormControl>
-                          <Textarea
-                            rows={2}
-                            {...field}
-                            disabled={!consentEnabled}
-                          />
+                          <Textarea rows={2} {...field} disabled={!consentEnabled} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

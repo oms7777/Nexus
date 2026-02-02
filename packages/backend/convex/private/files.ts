@@ -1,11 +1,12 @@
-import { ConvexError, convexToJson, v } from "convex/values";
+// packages/backend/convex/private/files.ts
+
+import { ConvexError } from "convex/values";
 import {
   contentHashFromArrayBuffer,
   Entry,
   EntryId,
   guessMimeTypeFromContents,
   guessMimeTypeFromExtension,
-  RAG,
   vEntryId,
 } from "@convex-dev/rag";
 import { action, mutation, query, QueryCtx } from "../_generated/server";
@@ -14,6 +15,9 @@ import rag from "../system/ai/rag";
 import { Id } from "../_generated/dataModel";
 import { paginationOptsValidator } from "convex/server";
 import { internal } from "../_generated/api";
+import { v } from "convex/values";
+
+/* ----------------------------- Helpers ----------------------------- */
 
 function guessMimeType(filename: string, bytes: ArrayBuffer): string {
   return (
@@ -22,6 +26,68 @@ function guessMimeType(filename: string, bytes: ArrayBuffer): string {
     "application/octet-stream"
   );
 }
+
+/**
+ * Sanitize/normalize MIME types coming from the browser.
+ * Fixes common bad values like "text-plain" and handles SVG properly.
+ */
+function sanitizeMimeType(
+  mime: string | undefined,
+  filename: string,
+  bytes: ArrayBuffer,
+): string {
+  const name = (filename || "").toLowerCase();
+
+  let safe = (mime || "").trim();
+
+  // Very common mistake: "text-plain" instead of "text/plain"
+  if (safe && safe.includes("-") && !safe.includes("/")) {
+    safe = safe.replace("-", "/");
+  }
+
+  // SVG often arrives as text/plain or empty
+  if (name.endsWith(".svg")) return "image/svg+xml";
+
+  // If still invalid, guess from filename / contents
+  if (!safe || !safe.includes("/")) {
+    safe = guessMimeType(filename, bytes);
+  }
+
+  // Some browsers can send weird "application/xml" for svg etc.
+  // Keep it simple: accept safe as-is now that it's normalized.
+  return safe;
+}
+
+/**
+ * Best-effort URL: prefer ctx.storage.getUrl, fallback to a direct Convex storage path.
+ * (The fallback is useful if getUrl returns null temporarily.)
+ */
+function buildStorageFallbackUrl(storageId: Id<"_storage">): string | null {
+  const deployment = process.env.CONVEX_DEPLOYMENT;
+  if (!deployment) return null;
+  return `https://${deployment}.convex.cloud/api/storage/${storageId}`;
+}
+
+/* ----------------------------- Types ----------------------------- */
+
+type EntryMetadata = {
+  storageId: Id<"_storage">;
+  uploadedBy: string;
+  filename: string;
+  category: string | null;
+};
+
+export type PublicFile = {
+  id: EntryId;
+  name: string;
+  type: string;
+  size: string;
+  status: "ready" | "processing" | "error";
+  url: string | null;
+  category?: string;
+};
+
+/* ----------------------------- Mutations ----------------------------- */
 
 export const deleteFile = mutation({
   args: {
@@ -85,6 +151,8 @@ export const deleteFile = mutation({
   },
 });
 
+/* ----------------------------- Actions ----------------------------- */
+
 export const addFile = action({
   args: {
     filename: v.string(),
@@ -128,16 +196,41 @@ export const addFile = action({
     const { bytes, filename } = args;
     const category = args.category ?? "kb";
 
-    const mimeType = args.mimeType || guessMimeType(filename, bytes);
-    const blob = new Blob([bytes], { type: mimeType });
+    // ✅ Sanitize MIME to avoid "text-plain" and other invalid values
+    const safeMimeType = sanitizeMimeType(args.mimeType, filename, bytes);
 
+    const blob = new Blob([bytes], { type: safeMimeType });
     const storageId = await ctx.storage.store(blob);
 
+    /**
+     * ✅ SIMPLE OPTION: brand_logo should NOT go through extractTextContent + RAG.
+     * It only needs a stable URL for UI usage.
+     */
+    if (category === "brand_logo") {
+      const urlFromConvex = await ctx.storage.getUrl(storageId);
+      const url = urlFromConvex ?? buildStorageFallbackUrl(storageId);
+
+      if (!url) {
+        // Extremely rare, but we prefer an explicit error instead of returning null.
+        throw new ConvexError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to generate URL for uploaded logo",
+        });
+      }
+
+      return {
+        url,
+        storageId,
+        // no entryId for logo uploads (not in KB)
+      };
+    }
+
+    // ---- KB/RAG normal flow (your existing behavior)
     const text = await extractTextContent(ctx, {
       storageId,
       filename,
       bytes,
-      mimeType,
+      mimeType: safeMimeType,
     });
 
     const { entryId, created } = await rag.add(ctx, {
@@ -147,7 +240,7 @@ export const addFile = action({
       title: filename,
       metadata: {
         storageId,
-        uploadedBy: orgId, // important for deletion
+        uploadedBy: orgId,
         filename,
         category,
       } as EntryMetadata,
@@ -159,12 +252,17 @@ export const addFile = action({
       await ctx.storage.delete(storageId);
     }
 
+    const url = await ctx.storage.getUrl(storageId);
+
     return {
-      url: await ctx.storage.getUrl(storageId),
+      url,
       entryId,
+      storageId,
     };
   },
 });
+
+/* ----------------------------- Queries ----------------------------- */
 
 export const list = query({
   args: {
@@ -226,22 +324,7 @@ export const list = query({
   },
 });
 
-export type PublicFile = {
-  id: EntryId;
-  name: string;
-  type: string;
-  size: string;
-  status: "ready" | "processing" | "error";
-  url: string | null;
-  category?: string;
-};
-
-type EntryMetadata = {
-  storageId: Id<"_storage">;
-  uploadedBy: string;
-  filename: string;
-  category: string | null;
-};
+/* ----------------------------- Mappers ----------------------------- */
 
 async function converEntryToPublicFile(
   ctx: QueryCtx,
@@ -287,9 +370,7 @@ async function converEntryToPublicFile(
 }
 
 function formatFileSize(bytes: number): string {
-  if (bytes === 0) {
-    return "0 B";
-  }
+  if (bytes === 0) return "0 B";
 
   const k = 1024;
   const sizes = ["B", "KB", "MG", "GB"];
