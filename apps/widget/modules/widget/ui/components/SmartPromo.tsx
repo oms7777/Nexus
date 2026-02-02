@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -54,22 +54,22 @@ export default function SmartPromo() {
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
   const createConversation = useMutation(api.public.conversations.create);
 
-  // IMPORTANT: sent flags
-  const sentPromoRef = useRef(false);
-  const sentSuggestionsRef = useRef(false);
-
   const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
 
-  // ---- DATA (CONVEX)
+  // ---- DATA
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
     orgId ? { organizationId: orgId } : "skip"
   );
 
+  // IMPORTANT: this arrives async => DON'T send starter before it's known
   const publicPlan = useQuery(
     api.public.entitlements.getPublicPlan,
     orgId ? { organizationId: orgId } : "skip"
   );
+
+  // ✅ plan readiness
+  const planReady = publicPlan !== undefined && publicPlan !== null;
 
   const canUseAdvancedPromos = !!(publicPlan as any)?.canUseAdvancedPromos;
   const canUseVoice = !!publicPlan?.canUseVoice;
@@ -80,7 +80,7 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
-  // ✅ CURRENT URL: use referrer in iframe (host page), no parent messaging needed
+  // Current URL (iframe): you had referrer approach – keep it
   const currentUrl =
     typeof window !== "undefined"
       ? (isEmbedded ? document.referrer || undefined : window.location.href)
@@ -94,7 +94,7 @@ export default function SmartPromo() {
   const promos =
     useQuery(
       api.public.promos.listForPage,
-      canUseAdvancedPromos && orgId && currentUrl
+      planReady && canUseAdvancedPromos && orgId && currentUrl
         ? { organizationId: orgId, currentUrl, utmSource: utm }
         : "skip"
     ) ?? [];
@@ -160,7 +160,7 @@ export default function SmartPromo() {
     }
   };
 
-  // ✅ listen ONLY commands from parent (open / run cta). No URL syncing.
+  // listen commands
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
@@ -276,9 +276,18 @@ export default function SmartPromo() {
     };
   };
 
-  // ✅ SEND PROMO (ONCE)
+  // ✅ Send flags (reset when org changes)
+  const sentPromoRef = useRef(false);
+  const sentSuggestionsRef = useRef(false);
+  useEffect(() => {
+    sentPromoRef.current = false;
+    sentSuggestionsRef.current = false;
+  }, [orgId]);
+
+  // ✅ SEND PROMO (ONLY after planReady)
   useEffect(() => {
     if (!isEmbedded) return;
+    if (!planReady) return;
     if (!canUseAdvancedPromos) return;
     if (sentPromoRef.current) return;
 
@@ -286,13 +295,15 @@ export default function SmartPromo() {
     if (!payload) return;
 
     sentPromoRef.current = true;
+    // ✅ tells parent “promo is the winner”
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbedded, canUseAdvancedPromos, promo, memberAvatars, ws, canUseVoice]);
+  }, [isEmbedded, planReady, canUseAdvancedPromos, promo, memberAvatars, ws, canUseVoice]);
 
-  // ✅ SEND SUGGESTIONS (ONCE)
+  // ✅ SEND SUGGESTIONS (ONLY after planReady and only if not advanced promos)
   useEffect(() => {
     if (!isEmbedded) return;
+    if (!planReady) return;
     if (canUseAdvancedPromos) return;
     if (sentSuggestionsRef.current) return;
 
@@ -302,9 +313,9 @@ export default function SmartPromo() {
     sentSuggestionsRef.current = true;
     window.parent?.postMessage({ type: "nexus:suggestions", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbedded, canUseAdvancedPromos, ws, canUseVoice]);
+  }, [isEmbedded, planReady, canUseAdvancedPromos, ws, canUseVoice]);
 
-  // PREVIEW INTERNE (unchanged)
+  // Internal preview unchanged
   const showInternal = !!promo && !isEmbedded && canUseAdvancedPromos;
   if (!showInternal) return null;
 
