@@ -16,6 +16,11 @@ function isPrivateOrLoopback(ip: string) {
   return false;
 }
 
+function normCC(cc?: string) {
+  const s = (cc || "").trim().toUpperCase();
+  return s.length ? s : undefined;
+}
+
 /** TTL du cache IP (24h) */
 const GEO_TTL_MS = 24 * 60 * 60 * 1000;
 /** Visiteur "actif" pendant ~90s après le dernier heartbeat */
@@ -109,69 +114,49 @@ export const lookupIp = internalAction({
  * Territory routing helpers
  * ----------------------------------------------------------- */
 async function resolveTerritoryKey(ctx: any, organizationId: string, countryCode?: string) {
-  if (!countryCode) return undefined;
-
-  const cc = String(countryCode).toUpperCase();
+  const cc = normCC(countryCode);
+  if (!cc) return undefined;
 
   const territories = await ctx.db
     .query("territories")
     .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
     .collect();
 
-  // match by countryCodes includes
   const match = territories.find((t: any) =>
-    Array.isArray(t.countryCodes) ? t.countryCodes.map((x: string) => x.toUpperCase()).includes(cc) : false
+    Array.isArray(t.countryCodes)
+      ? t.countryCodes.map((x: string) => String(x).toUpperCase()).includes(cc)
+      : false
   );
 
   return match?.key as string | undefined;
 }
 
+/**
+ * Pick an online rep for a given territory.
+ * Important: repPresence.userId MUST match users.externalId (clerk subject).
+ */
 async function pickRepForTerritory(ctx: any, organizationId: string, territoryKey?: string) {
   const reps = await ctx.db
     .query("repsPresence")
     .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
     .collect();
 
-  const available = reps.filter((r: any) => r.available === true);
-  if (!available.length) return undefined;
+  const online = reps.filter((r: any) => r.available === true);
+  if (!online.length) return undefined;
 
-  // territory match first
   if (territoryKey) {
-    const byTerritory = available.filter((r: any) => {
+    const matches = online.filter((r: any) => {
       const regions = Array.isArray(r.regions) ? (r.regions as string[]) : [];
       return regions.includes(territoryKey);
     });
 
-    if (byTerritory.length) return byTerritory[0].userId as string;
+    if (matches.length) return matches[0].userId as string;
   }
 
-  // fallback: first available rep
-  return available[0].userId as string;
+  return online[0].userId as string;
 }
 
-async function preferredRepMatchesTerritory(
-  ctx: any,
-  organizationId: string,
-  repUserId: string,
-  territoryKey?: string,
-) {
-  const presence = await ctx.db
-    .query("repsPresence")
-    .withIndex("by_org_user", (q: any) => q.eq("organizationId", organizationId).eq("userId", repUserId))
-    .unique();
-
-  if (!presence) return false;
-  if (presence.available !== true) return false;
-
-  // no territory => ok if rep is available
-  if (!territoryKey) return true;
-
-  const regions = Array.isArray(presence.regions) ? (presence.regions as string[]) : [];
-  return regions.includes(territoryKey);
-}
-
-
-/** Upsert heartbeat + enrich metadata + bump session TTL + territory assign */
+/** Upsert heartbeat + enrich metadata + bump session TTL + territory assign (NON-STICKY) */
 export const upsertHeartbeat = internalMutation({
   args: {
     organizationId: v.string(),
@@ -196,13 +181,15 @@ export const upsertHeartbeat = internalMutation({
     const session = await ctx.db.get(args.contactSessionId);
     if (!session || session.organizationId !== args.organizationId) return;
 
+    const now = Date.now();
     const prevMetadata = session.metadata ?? {};
+
     const minimalUpdate: Record<string, any> = {
-      expiresAt: Date.now() + SESSION_TTL_MS,
+      expiresAt: now + SESSION_TTL_MS,
     };
 
+    // --- metadata update (pages history) ---
     const urlChanged = args.currentUrl && args.currentUrl !== prevMetadata.currentUrl;
-
     const geoDataAvailable = args.city || args.countryCode || args.lat || args.lng;
 
     if (urlChanged || geoDataAvailable) {
@@ -240,35 +227,24 @@ export const upsertHeartbeat = internalMutation({
       };
     }
 
-    // ✅ TERRITORY ASSIGNMENT (only if not already assigned)
-    const hasAssigned = typeof session.assignedRepUserId === "string" && session.assignedRepUserId.length > 0;
+    // --- NON-STICKY territory routing ---
+    // We recompute assignment when we have a country code.
+    // This makes changes in Team & Territories take effect immediately (next heartbeat).
+    const cc = normCC((args.countryCode ?? (prevMetadata as any)?.countryCode) as string | undefined);
 
-    // resolve countryCode (prefer new arg, else metadata)
-    const cc =
-      (args.countryCode ?? (prevMetadata as any)?.countryCode ?? undefined) as string | undefined;
-
-    if (!hasAssigned && cc) {
+    if (cc) {
       const territoryKey = await resolveTerritoryKey(ctx, args.organizationId, cc);
+      const chosenRepUserId = await pickRepForTerritory(ctx, args.organizationId, territoryKey);
 
-      // preferred rep: prefer top-level then metadata legacy
-      const preferredRepUserId =
-        (session.preferredRepUserId as string | undefined) ||
-        ((prevMetadata as any)?.preferredRepUserId as string | undefined);
+      // Patch only if changed (avoid write spam)
+      const prevAssignedRep = (session.assignedRepUserId as string | undefined) || undefined;
+      const prevTerritory = (session.assignedTerritoryKey as string | undefined) || undefined;
 
-      let chosenRepUserId: string | undefined;
-
-      if (preferredRepUserId) {
-        const ok = await preferredRepMatchesTerritory(ctx, args.organizationId, preferredRepUserId, territoryKey);
-        if (ok) chosenRepUserId = preferredRepUserId;
-      }
-
-      if (!chosenRepUserId) {
-        chosenRepUserId = await pickRepForTerritory(ctx, args.organizationId, territoryKey);
-      }
-
-      if (chosenRepUserId) {
-        minimalUpdate.assignedRepUserId = chosenRepUserId;
+      if (territoryKey !== prevTerritory) {
         minimalUpdate.assignedTerritoryKey = territoryKey;
+      }
+      if (chosenRepUserId && chosenRepUserId !== prevAssignedRep) {
+        minimalUpdate.assignedRepUserId = chosenRepUserId;
       }
     }
 
@@ -304,7 +280,6 @@ export const heartbeatHttp = internalAction({
       const pick =
         fromXff ||
         args.x_real_ip ||
-        args.cf_connecting_ip ||
         args.cf_connecting_ip ||
         args.x_vercel_forwarded_for ||
         args.remote_addr;
