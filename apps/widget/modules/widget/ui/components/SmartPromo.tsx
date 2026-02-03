@@ -57,7 +57,7 @@ export default function SmartPromo() {
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
-  // ✅ NEW: parent URL comes from embed.ts via postMessage
+  // ✅ Parent URL provided by embed.ts via postMessage
   const [parentHref, setParentHref] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,7 +66,6 @@ export default function SmartPromo() {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      // embed.ts sends this reliably even if Referrer-Policy strips path
       if (t === "nexus:parent-location") {
         const href = e.data?.href;
         if (typeof href === "string" && href.trim().length > 0) {
@@ -82,12 +81,12 @@ export default function SmartPromo() {
   // ---- DATA
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip",
+    orgId ? { organizationId: orgId } : "skip"
   );
 
   const publicPlan = useQuery(
     api.public.entitlements.getPublicPlan,
-    orgId ? { organizationId: orgId } : "skip",
+    orgId ? { organizationId: orgId } : "skip"
   );
 
   const planReady = publicPlan !== undefined && publicPlan !== null;
@@ -106,14 +105,19 @@ export default function SmartPromo() {
   const memberAvatars =
     useQuery(
       api.public.users.listOrgAvatars,
-      orgId ? { organizationId: orgId, limit: 3 } : "skip",
+      orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
-  // ✅ FIX: use parentHref first, fallback to referrer (best effort), else window.href
+  /**
+   * ✅ IMPORTANT:
+   * In embedded mode, DO NOT use document.referrer fallback.
+   * Wait for parentHref so we always have the real pathname (/pricing, etc.)
+   */
   const currentUrl =
     typeof window !== "undefined"
-      ? parentHref ||
-        (isEmbedded ? document.referrer || undefined : window.location.href)
+      ? isEmbedded
+        ? parentHref || undefined
+        : window.location.href
       : undefined;
 
   const utm =
@@ -121,18 +125,18 @@ export default function SmartPromo() {
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
       : undefined;
 
-  // ✅ IMPORTANT: only query promos when we have a usable URL
+  // ✅ Query promos only when we have the true URL in embedded mode
   const promos =
     useQuery(
       api.public.promos.listForPage,
       planReady && canUseAdvancedPromos && orgId && currentUrl
         ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip",
+        : "skip"
     ) ?? [];
 
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos],
+    [promos]
   );
 
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
@@ -191,7 +195,7 @@ export default function SmartPromo() {
     }
   };
 
-  // listen commands (existing)
+  // listen commands
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
@@ -307,48 +311,59 @@ export default function SmartPromo() {
     };
   };
 
-  // ✅ Send flags (reset when org changes)
-  const sentPromoRef = useRef(false);
-  const sentSuggestionsRef = useRef(false);
+  /**
+   * ✅ Replace "send only once" by "send when promo changes"
+   */
+  const lastSentPromoIdRef = useRef<string | null>(null);
+  const lastSentSuggestionsRef = useRef<boolean>(false);
+
+  // Reset when org changes
   useEffect(() => {
-    sentPromoRef.current = false;
-    sentSuggestionsRef.current = false;
+    lastSentPromoIdRef.current = null;
+    lastSentSuggestionsRef.current = false;
   }, [orgId]);
 
-  // ✅ SEND PROMO (Growth/Enterprise ONLY, and only if promo exists)
+  // ✅ SEND PROMO when it changes (Growth/Enterprise only)
   useEffect(() => {
     if (!isEmbedded) return;
     if (!planReady) return;
     if (!canUseAdvancedPromos) return;
-    if (sentPromoRef.current) return;
+
+    // In embedded mode, wait for parentHref so targeting works
+    if (!currentUrl) return;
 
     const payload = makePromoPayload();
     if (!payload) return;
 
-    sentPromoRef.current = true;
+    const nextId = promo?._id ? String(promo._id) : "__noid__";
+
+    if (lastSentPromoIdRef.current === nextId) return;
+    lastSentPromoIdRef.current = nextId;
+
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isEmbedded,
     planReady,
     canUseAdvancedPromos,
+    currentUrl,
     promo,
     memberAvatars,
     ws,
     canUseVoice,
   ]);
 
-  // ✅ SEND SUGGESTIONS (Starter ONLY)
+  // ✅ SEND SUGGESTIONS (Starter only) once
   useEffect(() => {
     if (!isEmbedded) return;
     if (!planReady) return;
     if (!isStarterPlan) return;
-    if (sentSuggestionsRef.current) return;
+    if (lastSentSuggestionsRef.current) return;
 
     const payload = makeSuggestionsPayload();
     if (!payload) return;
 
-    sentSuggestionsRef.current = true;
+    lastSentSuggestionsRef.current = true;
     window.parent?.postMessage({ type: "nexus:suggestions", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEmbedded, planReady, isStarterPlan, ws, canUseVoice]);
