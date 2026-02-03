@@ -57,8 +57,8 @@ export default function SmartPromo() {
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
-  // ✅ NEW: parent page URL comes reliably from embed (nexus:parent-location)
-  const [parentHref, setParentHref] = useState<string | undefined>(undefined);
+  // ✅ NEW: parent URL comes from embed.ts via postMessage
+  const [parentHref, setParentHref] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isEmbedded) return;
@@ -66,9 +66,12 @@ export default function SmartPromo() {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
 
-      if (t === "nexus:parent-location" && typeof e.data?.href === "string") {
-        const href = e.data.href.trim();
-        if (href.length > 0) setParentHref(href);
+      // embed.ts sends this reliably even if Referrer-Policy strips path
+      if (t === "nexus:parent-location") {
+        const href = e.data?.href;
+        if (typeof href === "string" && href.trim().length > 0) {
+          setParentHref(href);
+        }
       }
     };
 
@@ -82,19 +85,16 @@ export default function SmartPromo() {
     orgId ? { organizationId: orgId } : "skip",
   );
 
-  // IMPORTANT: arrives async => DON'T send anything until known
   const publicPlan = useQuery(
     api.public.entitlements.getPublicPlan,
     orgId ? { organizationId: orgId } : "skip",
   );
 
-  // ✅ plan readiness
   const planReady = publicPlan !== undefined && publicPlan !== null;
 
   const canUseAdvancedPromos = !!(publicPlan as any)?.canUseAdvancedPromos;
   const canUseVoice = !!(publicPlan as any)?.canUseVoice;
 
-  // ✅ Plan name (required for Starter-only suggestions)
   const planName = (publicPlan as any)?.plan as
     | "starter"
     | "growth"
@@ -109,12 +109,11 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip",
     ) ?? [];
 
-  // ✅ Current URL: prefer explicit parentHref, fallback to referrer
+  // ✅ FIX: use parentHref first, fallback to referrer (best effort), else window.href
   const currentUrl =
     typeof window !== "undefined"
-      ? isEmbedded
-        ? parentHref || document.referrer || undefined
-        : window.location.href
+      ? parentHref ||
+        (isEmbedded ? document.referrer || undefined : window.location.href)
       : undefined;
 
   const utm =
@@ -122,7 +121,7 @@ export default function SmartPromo() {
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
       : undefined;
 
-  // ✅ promos only queried for growth/enterprise (advanced promos)
+  // ✅ IMPORTANT: only query promos when we have a usable URL
   const promos =
     useQuery(
       api.public.promos.listForPage,
@@ -192,7 +191,7 @@ export default function SmartPromo() {
     }
   };
 
-  // listen commands
+  // listen commands (existing)
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
@@ -339,7 +338,7 @@ export default function SmartPromo() {
     canUseVoice,
   ]);
 
-  // ✅ SEND SUGGESTIONS (Starter ONLY) — no fallback for Growth/Enterprise
+  // ✅ SEND SUGGESTIONS (Starter ONLY)
   useEffect(() => {
     if (!isEmbedded) return;
     if (!planReady) return;
