@@ -92,6 +92,7 @@ export const upsert = mutation({
     _id: v.optional(v.id("promos")),
     name: v.string(),
     active: v.boolean(),
+    showNudge: v.optional(v.boolean()),
     rules: rulesV,
     card: cardV,
     primaryCta: ctaV,

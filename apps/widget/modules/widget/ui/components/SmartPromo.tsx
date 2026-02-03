@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -54,7 +54,8 @@ export default function SmartPromo() {
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
   const createConversation = useMutation(api.public.conversations.create);
 
-  const isEmbedded = typeof window !== "undefined" ? window.parent !== window : false;
+  const isEmbedded =
+    typeof window !== "undefined" ? window.parent !== window : false;
 
   // ---- DATA
   const ws = useQuery(
@@ -62,7 +63,7 @@ export default function SmartPromo() {
     orgId ? { organizationId: orgId } : "skip"
   );
 
-  // IMPORTANT: this arrives async => DON'T send starter before it's known
+  // IMPORTANT: arrives async => DON'T send anything until known
   const publicPlan = useQuery(
     api.public.entitlements.getPublicPlan,
     orgId ? { organizationId: orgId } : "skip"
@@ -72,7 +73,16 @@ export default function SmartPromo() {
   const planReady = publicPlan !== undefined && publicPlan !== null;
 
   const canUseAdvancedPromos = !!(publicPlan as any)?.canUseAdvancedPromos;
-  const canUseVoice = !!publicPlan?.canUseVoice;
+  const canUseVoice = !!(publicPlan as any)?.canUseVoice;
+
+  // ✅ Plan name (required for Starter-only suggestions)
+  const planName = (publicPlan as any)?.plan as
+    | "starter"
+    | "growth"
+    | "enterprise"
+    | undefined;
+
+  const isStarterPlan = planName === "starter";
 
   const memberAvatars =
     useQuery(
@@ -80,10 +90,12 @@ export default function SmartPromo() {
       orgId ? { organizationId: orgId, limit: 3 } : "skip"
     ) ?? [];
 
-  // Current URL (iframe): you had referrer approach – keep it
+  // Current URL (iframe): keep referrer approach
   const currentUrl =
     typeof window !== "undefined"
-      ? (isEmbedded ? document.referrer || undefined : window.location.href)
+      ? isEmbedded
+        ? document.referrer || undefined
+        : window.location.href
       : undefined;
 
   const utm =
@@ -91,6 +103,7 @@ export default function SmartPromo() {
       ? new URL(currentUrl).searchParams.get("utm_source") || undefined
       : undefined;
 
+  // ✅ promos only queried for growth/enterprise (advanced promos)
   const promos =
     useQuery(
       api.public.promos.listForPage,
@@ -284,7 +297,7 @@ export default function SmartPromo() {
     sentSuggestionsRef.current = false;
   }, [orgId]);
 
-  // ✅ SEND PROMO (ONLY after planReady)
+  // ✅ SEND PROMO (Growth/Enterprise ONLY, and only if promo exists)
   useEffect(() => {
     if (!isEmbedded) return;
     if (!planReady) return;
@@ -295,16 +308,15 @@ export default function SmartPromo() {
     if (!payload) return;
 
     sentPromoRef.current = true;
-    // ✅ tells parent “promo is the winner”
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEmbedded, planReady, canUseAdvancedPromos, promo, memberAvatars, ws, canUseVoice]);
 
-  // ✅ SEND SUGGESTIONS (ONLY after planReady and only if not advanced promos)
+  // ✅ SEND SUGGESTIONS (Starter ONLY) — no fallback for Growth/Enterprise
   useEffect(() => {
     if (!isEmbedded) return;
     if (!planReady) return;
-    if (canUseAdvancedPromos) return;
+    if (!isStarterPlan) return;
     if (sentSuggestionsRef.current) return;
 
     const payload = makeSuggestionsPayload();
@@ -313,7 +325,7 @@ export default function SmartPromo() {
     sentSuggestionsRef.current = true;
     window.parent?.postMessage({ type: "nexus:suggestions", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbedded, planReady, canUseAdvancedPromos, ws, canUseVoice]);
+  }, [isEmbedded, planReady, isStarterPlan, ws, canUseVoice]);
 
   // Internal preview unchanged
   const showInternal = !!promo && !isEmbedded && canUseAdvancedPromos;

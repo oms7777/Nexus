@@ -401,6 +401,7 @@ export default defineSchema({
     organizationId: v.string(),
     name: v.string(),
     active: v.boolean(),
+    showNudge: v.optional(v.boolean()),
     rules: v.object({
       pathPrefix: v.optional(v.string()),
       urlIncludes: v.optional(v.array(v.string())),

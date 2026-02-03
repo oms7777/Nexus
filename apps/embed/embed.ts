@@ -388,15 +388,20 @@ type NudgeKind = "promo" | "suggestions" | null;
   function applyThemeToFab() {
     if (!button) return;
 
-    const bubbleColor =
-      theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
+    // Always reveal once button exists
+    if (!fabRevealed) {
+      fabRevealed = true;
+      button.style.opacity = "1";
+      button.style.pointerEvents = "auto";
+    }
+
+    const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
     const textColor = theme?.primaryTextColor || "#ffffff";
 
     button.style.background = bubbleColor;
     button.style.color = textColor;
 
-    revealFabIfNeeded();
-
+    // When open, keep close icon (don't override)
     if (isOpen) return;
 
     if (brandLogoUrl) {
@@ -419,6 +424,9 @@ type NudgeKind = "promo" | "suggestions" | null;
       button.innerHTML = chatBubbleIcon;
     }
   }
+
+
+
 
   function postToWidget(msg: any) {
     if (!iframeLoaded || !iframe?.contentWindow) return;

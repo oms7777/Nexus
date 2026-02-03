@@ -113,11 +113,12 @@ export const listForPage = query({
         .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
         .collect();
 
-      const active = all.filter((p) => p.active);
+      const active = all.filter((p) => p.active && p.showNudge === true);
 
       const matched = active.filter((p) =>
         matches(currentUrl, utmSource, p.rules as Rules),
       );
+
 
       matched.sort(
         (a, b) =>
