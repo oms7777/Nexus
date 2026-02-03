@@ -96,12 +96,9 @@ export const listForPage = query({
     try {
       if (!organizationId || !currentUrl) return [];
 
-      // ✅ gate plan/status
       const sub = await ctx.db
         .query("subscriptions")
-        .withIndex("by_organization_id", (q) =>
-          q.eq("organizationId", organizationId),
-        )
+        .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
         .unique();
 
       if (!canUseAdvancedPromos(sub)) {
@@ -113,12 +110,12 @@ export const listForPage = query({
         .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
         .collect();
 
-      const active = all.filter((p) => p.active && p.showNudge === true);
+      // ✅ FIX: showNudge defaults to true when undefined
+      const active = all.filter((p) => p.active && p.showNudge !== false);
 
       const matched = active.filter((p) =>
         matches(currentUrl, utmSource, p.rules as Rules),
       );
-
 
       matched.sort(
         (a, b) =>

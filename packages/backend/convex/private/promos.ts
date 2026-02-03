@@ -87,6 +87,7 @@ export const listByOrg = query({
   },
 });
 
+
 export const upsert = mutation({
   args: {
     _id: v.optional(v.id("promos")),
@@ -98,7 +99,6 @@ export const upsert = mutation({
     primaryCta: ctaV,
     secondaryCta: v.optional(ctaV),
     identityMode: v.optional(identityModeV),
-
     ctaList: v.optional(v.array(ctaV)),
     ctaEmphasisMode: v.optional(ctaEmphasisModeV),
   },
@@ -106,29 +106,41 @@ export const upsert = mutation({
     const identity = await ctx.auth.getUserIdentity();
     const organizationId = requireOrgId(identity);
 
-    // ✅ hard gate
     await requireAdvancedPromos(ctx, organizationId);
 
     const now = Date.now();
 
+    // ✅ DEFAULT only for inserts
+    const insertShowNudge = args.showNudge ?? true;
+
     if (args._id) {
       const { _id, ...rest } = args;
-      await ctx.db.patch(_id, {
+
+      // ✅ Important: do NOT force showNudge to true on patch if user didn't send it
+      const patchPayload: any = {
         ...rest,
         organizationId,
         updatedAt: now,
-      });
+      };
+
+      if (typeof args.showNudge === "boolean") {
+        patchPayload.showNudge = args.showNudge;
+      }
+
+      await ctx.db.patch(_id, patchPayload);
       return _id;
     }
 
     return await ctx.db.insert("promos", {
       organizationId,
       ...args,
+      showNudge: insertShowNudge,
       createdAt: now,
       updatedAt: now,
     });
   },
 });
+
 
 export const remove = mutation({
   args: { _id: v.id("promos") },

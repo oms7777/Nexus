@@ -156,7 +156,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     // FAB
     button = document.createElement("button");
     button.id = "nexus-widget-button";
-    button.innerHTML = chatBubbleIcon;
+    button.innerHTML = "";
 
     button.style.cssText = `
       all: unset;
@@ -388,18 +388,14 @@ type NudgeKind = "promo" | "suggestions" | null;
   function applyThemeToFab() {
     if (!button) return;
 
-    // Always reveal once button exists
-    if (!fabRevealed) {
-      fabRevealed = true;
-      button.style.opacity = "1";
-      button.style.pointerEvents = "auto";
-    }
 
     const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
     const textColor = theme?.primaryTextColor || "#ffffff";
 
     button.style.background = bubbleColor;
     button.style.color = textColor;
+
+    revealFabIfNeeded();
 
     // When open, keep close icon (don't override)
     if (isOpen) return;

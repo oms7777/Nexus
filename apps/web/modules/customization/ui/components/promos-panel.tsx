@@ -39,6 +39,7 @@ const PromoSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1),
   active: z.boolean(),
+  showNudge: z.boolean().optional(),
   pathPrefix: z.string().optional(),
   urlIncludes: z.string().optional(),
   utmSource: z.string().optional(),
@@ -111,6 +112,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     defaultValues: {
       name: "Dual CTA • Chat or Book",
       active: true,
+      showNudge: true,
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
       badgeText: "Live",
@@ -231,6 +233,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         _id: (values.id as any) || undefined,
         name: values.name,
         active: values.active,
+        showNudge: values.showNudge ?? true,
         rules,
         card: {
           title: values.title,
@@ -322,6 +325,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       id: p._id as string,
       name: p.name ?? "",
       active: !!p.active,
+      showNudge: p.showNudge !== false,
       title: p.card?.title ?? "",
       body: p.card?.body ?? "",
       badgeText: p.card?.badgeText ?? "",
@@ -449,6 +453,14 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           onCheckedChange={(v) => form.setValue("active", v)}
                         />
                       </div>
+                      <div className="flex items-center gap-2 pt-6">
+                        <Label className="text-xs text-muted-foreground">Show nudge</Label>
+                        <Switch
+                          checked={form.watch("showNudge") ?? true}
+                          onCheckedChange={(v) => form.setValue("showNudge", v)}
+                        />
+                      </div>
+
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -943,6 +955,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       _id: p._id as any,
                       name: p.name,
                       active: v,
+                      showNudge: p.showNudge !== false,
                       rules: p.rules,
                       card: p.card,
                       primaryCta: p.primaryCta,
