@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -57,16 +57,35 @@ export default function SmartPromo() {
   const isEmbedded =
     typeof window !== "undefined" ? window.parent !== window : false;
 
+  // ✅ NEW: parent page URL comes reliably from embed (nexus:parent-location)
+  const [parentHref, setParentHref] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isEmbedded) return;
+
+    const onMsg = (e: MessageEvent) => {
+      const t = e.data?.type as string | undefined;
+
+      if (t === "nexus:parent-location" && typeof e.data?.href === "string") {
+        const href = e.data.href.trim();
+        if (href.length > 0) setParentHref(href);
+      }
+    };
+
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [isEmbedded]);
+
   // ---- DATA
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip"
+    orgId ? { organizationId: orgId } : "skip",
   );
 
   // IMPORTANT: arrives async => DON'T send anything until known
   const publicPlan = useQuery(
     api.public.entitlements.getPublicPlan,
-    orgId ? { organizationId: orgId } : "skip"
+    orgId ? { organizationId: orgId } : "skip",
   );
 
   // ✅ plan readiness
@@ -87,14 +106,14 @@ export default function SmartPromo() {
   const memberAvatars =
     useQuery(
       api.public.users.listOrgAvatars,
-      orgId ? { organizationId: orgId, limit: 3 } : "skip"
+      orgId ? { organizationId: orgId, limit: 3 } : "skip",
     ) ?? [];
 
-  // Current URL (iframe): keep referrer approach
+  // ✅ Current URL: prefer explicit parentHref, fallback to referrer
   const currentUrl =
     typeof window !== "undefined"
       ? isEmbedded
-        ? document.referrer || undefined
+        ? parentHref || document.referrer || undefined
         : window.location.href
       : undefined;
 
@@ -109,12 +128,12 @@ export default function SmartPromo() {
       api.public.promos.listForPage,
       planReady && canUseAdvancedPromos && orgId && currentUrl
         ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip"
+        : "skip",
     ) ?? [];
 
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos]
+    [promos],
   );
 
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
@@ -310,7 +329,15 @@ export default function SmartPromo() {
     sentPromoRef.current = true;
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbedded, planReady, canUseAdvancedPromos, promo, memberAvatars, ws, canUseVoice]);
+  }, [
+    isEmbedded,
+    planReady,
+    canUseAdvancedPromos,
+    promo,
+    memberAvatars,
+    ws,
+    canUseVoice,
+  ]);
 
   // ✅ SEND SUGGESTIONS (Starter ONLY) — no fallback for Growth/Enterprise
   useEffect(() => {
