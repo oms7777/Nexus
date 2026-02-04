@@ -19,6 +19,7 @@ import {
   DropzoneEmptyState,
 } from "@workspace/ui/components/dropzone";
 import { api } from "@workspace/backend/_generated/api";
+import { toast } from "sonner";
 
 interface UploadDialogProps {
   open: boolean;
@@ -26,18 +27,22 @@ interface UploadDialogProps {
   onFileUploaded?: () => void;
 }
 
-export const UploadDialog = ({
-  open,
-  onOpenChange,
-  onFileUploaded,
-}: UploadDialogProps) => {
+function withTimeout<T>(p: Promise<T>, ms: number) {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Upload timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
+export const UploadDialog = ({ open, onOpenChange, onFileUploaded }: UploadDialogProps) => {
   const addFile = useAction(api.private.files.addFile);
 
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-
   const [uploadForm, setUploadForm] = useState({
-    kbCategory: "", // ✅ user-facing folder/category
+    category: "",
     filename: "",
   });
 
@@ -60,20 +65,26 @@ export const UploadDialog = ({
 
       const filename = uploadForm.filename?.trim() || blob.name;
 
-      // ✅ IMPORTANT: internal kind is ALWAYS "kb" from this dialog
-      // ✅ kbCategory is the customer classification
-      await addFile({
-        bytes: await blob.arrayBuffer(),
-        filename,
-        mimeType: blob.type || "application/octet-stream",
-        category: "kb",
-        kbCategory: uploadForm.kbCategory?.trim() || undefined,
-      } as any);
+      // category optional => backend will default to "kb"
+      const category = uploadForm.category?.trim() || undefined;
 
+      await withTimeout(
+        addFile({
+          bytes: await blob.arrayBuffer(),
+          filename,
+          mimeType: blob.type || "application/octet-stream",
+          category,
+        }),
+        45000, // ✅ UI timeout (45s)
+      );
+
+      toast.success("File uploaded");
       onFileUploaded?.();
       handleCancel();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      toast.error(error?.message || "Upload failed");
+      // keep dialog open so user can retry
     } finally {
       setIsUploading(false);
     }
@@ -82,10 +93,7 @@ export const UploadDialog = ({
   const handleCancel = () => {
     onOpenChange(false);
     setUploadedFiles([]);
-    setUploadForm({
-      kbCategory: "",
-      filename: "",
-    });
+    setUploadForm({ category: "", filename: "" });
   };
 
   return (
@@ -94,49 +102,40 @@ export const UploadDialog = ({
         <DialogHeader>
           <DialogTitle>Upload Document</DialogTitle>
           <DialogDescription>
-            Upload documents to your knowledge base for AI-powered search and retrieval.
+            Upload documents to your knowledge base for AI-powered search and retrieval
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* ✅ User-facing classification */}
           <div className="space-y-2">
-            <Label htmlFor="kbCategory">
-              Folder / Category
-              <span className="text-muted-foreground text-xs"> (optional)</span>
-            </Label>
+            <Label htmlFor="category">Folder / Category <span className="text-muted-foreground text-xs">(optional)</span></Label>
             <Input
               className="w-full"
-              id="kbCategory"
+              id="category"
               onChange={(e) =>
-                setUploadForm((prev) => ({
-                  ...prev,
-                  kbCategory: e.target.value,
-                }))
+                setUploadForm((prev) => ({ ...prev, category: e.target.value }))
               }
               placeholder="e.g., Sales, Support, Pricing…"
               type="text"
-              value={uploadForm.kbCategory}
+              value={uploadForm.category}
+              disabled={isUploading}
             />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="filename">
-              Filename
-              <span className="text-muted-foreground text-xs"> (optional)</span>
+              Filename <span className="text-muted-foreground text-xs">(optional)</span>
             </Label>
             <Input
               className="w-full"
               id="filename"
               onChange={(e) =>
-                setUploadForm((prev) => ({
-                  ...prev,
-                  filename: e.target.value,
-                }))
+                setUploadForm((prev) => ({ ...prev, filename: e.target.value }))
               }
               placeholder="Override default filename"
               type="text"
               value={uploadForm.filename}
+              disabled={isUploading}
             />
           </div>
 
@@ -144,13 +143,10 @@ export const UploadDialog = ({
             accept={{
               "application/pdf": [".pdf"],
               "text/csv": [".csv"],
-              "text/plain": [".txt"], // ✅ fixed
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                [".docx"],
-              "image/png": [".png"],
-              "image/jpeg": [".jpg", ".jpeg"],
-              "image/webp": [".webp"],
-              "image/gif": [".gif"],
+              "text/plain": [".txt"],
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+                ".docx",
+              ],
             }}
             disabled={isUploading}
             maxFiles={1}
@@ -166,11 +162,7 @@ export const UploadDialog = ({
           <Button disabled={isUploading} onClick={handleCancel} variant="outline">
             Cancel
           </Button>
-
-          <Button
-            onClick={handleUpload}
-            disabled={uploadedFiles.length === 0 || isUploading}
-          >
+          <Button onClick={handleUpload} disabled={uploadedFiles.length === 0 || isUploading}>
             {isUploading ? "Uploading..." : "Upload"}
           </Button>
         </DialogFooter>
