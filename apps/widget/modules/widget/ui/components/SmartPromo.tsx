@@ -65,7 +65,6 @@ export default function SmartPromo() {
 
     const onMsg = (e: MessageEvent) => {
       const t = e.data?.type as string | undefined;
-
       if (t === "nexus:parent-location") {
         const href = e.data?.href;
         if (typeof href === "string" && href.trim().length > 0) {
@@ -81,12 +80,12 @@ export default function SmartPromo() {
   // ---- DATA
   const ws = useQuery(
     api.public.widgetSettings.getByOrganizationId,
-    orgId ? { organizationId: orgId } : "skip"
+    orgId ? { organizationId: orgId } : "skip",
   );
 
   const publicPlan = useQuery(
     api.public.entitlements.getPublicPlan,
-    orgId ? { organizationId: orgId } : "skip"
+    orgId ? { organizationId: orgId } : "skip",
   );
 
   const planReady = publicPlan !== undefined && publicPlan !== null;
@@ -105,7 +104,7 @@ export default function SmartPromo() {
   const memberAvatars =
     useQuery(
       api.public.users.listOrgAvatars,
-      orgId ? { organizationId: orgId, limit: 3 } : "skip"
+      orgId ? { organizationId: orgId, limit: 3 } : "skip",
     ) ?? [];
 
   /**
@@ -120,23 +119,18 @@ export default function SmartPromo() {
         : window.location.href
       : undefined;
 
-  const utm =
-    typeof window !== "undefined" && currentUrl
-      ? new URL(currentUrl).searchParams.get("utm_source") || undefined
-      : undefined;
-
-  // ✅ Query promos only when we have the true URL in embedded mode
+  // ✅ Promos: only query when we have the true URL in embedded mode
   const promos =
     useQuery(
       api.public.promos.listForPage,
       planReady && canUseAdvancedPromos && orgId && currentUrl
-        ? { organizationId: orgId, currentUrl, utmSource: utm }
-        : "skip"
+        ? { organizationId: orgId, currentUrl }
+        : "skip",
     ) ?? [];
 
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
-    [promos]
+    [promos],
   );
 
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
@@ -312,7 +306,7 @@ export default function SmartPromo() {
   };
 
   /**
-   * ✅ Replace "send only once" by "send when promo changes"
+   * ✅ Send when promo changes (instead of "only once")
    */
   const lastSentPromoIdRef = useRef<string | null>(null);
   const lastSentSuggestionsRef = useRef<boolean>(false);
@@ -336,22 +330,12 @@ export default function SmartPromo() {
     if (!payload) return;
 
     const nextId = promo?._id ? String(promo._id) : "__noid__";
-
     if (lastSentPromoIdRef.current === nextId) return;
-    lastSentPromoIdRef.current = nextId;
 
+    lastSentPromoIdRef.current = nextId;
     window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isEmbedded,
-    planReady,
-    canUseAdvancedPromos,
-    currentUrl,
-    promo,
-    memberAvatars,
-    ws,
-    canUseVoice,
-  ]);
+  }, [isEmbedded, planReady, canUseAdvancedPromos, currentUrl, promo, memberAvatars, ws, canUseVoice]);
 
   // ✅ SEND SUGGESTIONS (Starter only) once
   useEffect(() => {

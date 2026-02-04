@@ -2,8 +2,14 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 
+type PathMode = "prefix" | "exact";
+
 type Rules = {
   pathPrefix?: string;
+  pathMode?: PathMode;
+
+  // legacy fields kept for compatibility with existing docs,
+  // but we intentionally ignore them in matching to keep it simple.
   urlIncludes?: string[];
   utmSource?: string[];
 };
@@ -23,7 +29,7 @@ function canUseAdvancedPromos(sub: any) {
 /* -------------------- Normalisation helpers -------------------- */
 
 function normalizePathPrefix(input?: string | null): string | undefined {
-  if (!input) return undefined;
+  if (input == null) return undefined;
 
   let s = input.trim();
   if (!s) return undefined;
@@ -49,66 +55,47 @@ function normalizePathPrefix(input?: string | null): string | undefined {
   return s;
 }
 
-function normalizeList(list?: string[] | null): string[] | undefined {
-  const out =
-    list?.map((x) => (x ?? "").trim()).filter(Boolean) ?? undefined;
-  return out && out.length ? out : undefined;
-}
+function normalizeRules(raw?: Rules | null): { pathPrefix: string; pathMode: PathMode } {
+  const prefix = normalizePathPrefix(raw?.pathPrefix);
+  const mode: PathMode = (raw?.pathMode as PathMode) ?? "prefix";
 
-function normalizeRules(rules?: Rules | null): Rules | undefined {
-  if (!rules) return undefined;
-
-  const pathPrefix = normalizePathPrefix(rules.pathPrefix);
-  const urlIncludes = normalizeList(rules.urlIncludes);
-  const utmSource = normalizeList(rules.utmSource);
-
-  if (!pathPrefix && !urlIncludes && !utmSource) return undefined;
-  return { pathPrefix, urlIncludes, utmSource };
+  // ✅ Important: empty path = match all (same as "/" prefix)
+  return {
+    pathPrefix: prefix ?? "/",
+    pathMode: mode,
+  };
 }
 
 /* -------------------- Matching -------------------- */
 
 function normalizePathname(pathname: string): string {
   let p = pathname || "/";
-  // remove trailing slash except root
   if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
-  // normalize repeated slashes
   p = p.replace(/\/{2,}/g, "/");
   return p;
 }
 
-function matches(url: string, utm: string | undefined, rawRules?: Rules) {
+function matches(url: string, rawRules?: Rules) {
   const rules = normalizeRules(rawRules);
-  if (!rules) return true;
 
   try {
     const u = new URL(url);
     const pathname = normalizePathname(u.pathname);
-    const search = u.search || "";
 
-    // ✅ pathPrefix
-    if (rules.pathPrefix) {
-      // "/" means match all
-      if (rules.pathPrefix !== "/") {
-        const pref = rules.pathPrefix;
-        if (!pathname.startsWith(pref)) return false;
-      }
-    }
+    const pref = rules.pathPrefix;
+    const mode = rules.pathMode;
 
-    // ✅ urlIncludes: checks pathname OR querystring
-    if (rules.urlIncludes?.length) {
-      const hit = rules.urlIncludes.some(
-        (s) => pathname.includes(s) || search.includes(s),
-      );
-      if (!hit) return false;
-    }
+    // "/" in prefix mode => match all pages
+    if (pref === "/" && mode === "prefix") return true;
 
-    // ✅ utmSource
-    if (rules.utmSource?.length) {
-      if (!utm || !rules.utmSource.includes(utm)) return false;
-    }
+    // "/" in exact mode => homepage only
+    if (pref === "/" && mode === "exact") return pathname === "/";
 
-    return true;
+    // exact mode => only this page
+    if (mode === "exact") return pathname === pref;
+
+    // prefix mode
+    return pathname.startsWith(pref);
   } catch (err) {
     console.error("promos.matches – invalid URL", url, err);
     return false;
@@ -118,17 +105,19 @@ function matches(url: string, utm: string | undefined, rawRules?: Rules) {
 /* -------------------- Specificity ranking -------------------- */
 
 function ruleSpecificity(rawRules?: Rules | null): number {
+  // ✅ Use normalized rules so empty path behaves like "/"
   const rules = normalizeRules(rawRules);
-  if (!rules) return 0;
 
-  let score = 0;
+  // Longer prefix = more specific.
+  // Exact gets a big boost so:
+  // "/" exact (homepage only) beats "/" prefix (all pages)
+  // "/pricing" exact beats "/pricing" prefix
+  const exactBoost = rules.pathMode === "exact" ? 1000 : 0;
 
-  // prefer longer prefixes (more specific)
-  if (rules.pathPrefix) score += rules.pathPrefix.length * 10;
-  if (rules.urlIncludes?.length) score += rules.urlIncludes.length * 5;
-  if (rules.utmSource?.length) score += rules.utmSource.length * 3;
+  // Special-case: "/" prefix is the least specific possible
+  const baseLen = rules.pathPrefix === "/" ? 0 : rules.pathPrefix.length;
 
-  return score;
+  return exactBoost + baseLen * 10;
 }
 
 /* -------------------- Query principale -------------------- */
@@ -137,42 +126,34 @@ export const listForPage = query({
   args: {
     organizationId: v.optional(v.string()),
     currentUrl: v.optional(v.string()),
+
+    // legacy arg kept for compatibility with existing callers
     utmSource: v.optional(v.string()),
   },
-  handler: async (ctx, { organizationId, currentUrl, utmSource }) => {
+  handler: async (ctx, { organizationId, currentUrl }) => {
     try {
       if (!organizationId || !currentUrl) return [];
 
-      // ✅ gate plan/status
       const sub = await ctx.db
         .query("subscriptions")
-        .withIndex("by_organization_id", (q) =>
-          q.eq("organizationId", organizationId),
-        )
+        .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
         .unique();
 
-      if (!canUseAdvancedPromos(sub)) {
-        return [];
-      }
+      if (!canUseAdvancedPromos(sub)) return [];
 
       const all = await ctx.db
         .query("promos")
         .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
         .collect();
 
-      // showNudge defaults to true when undefined
       const active = all.filter((p) => p.active && p.showNudge !== false);
 
-      const matched = active.filter((p) =>
-        matches(currentUrl, utmSource, p.rules as Rules),
-      );
+      const matched = active.filter((p) => matches(currentUrl, p.rules as Rules));
 
       matched.sort(
-        (a, b) =>
-          ruleSpecificity(b.rules as Rules) - ruleSpecificity(a.rules as Rules),
+        (a, b) => ruleSpecificity(b.rules as Rules) - ruleSpecificity(a.rules as Rules),
       );
 
-      // ✅ debug: helps catch prefix mismatch instantly
       let pathname = "";
       try {
         pathname = new URL(currentUrl).pathname;
@@ -182,12 +163,12 @@ export const listForPage = query({
         org: organizationId,
         currentUrl,
         pathname,
-        utmSource,
         total: all.length,
         active: active.length,
         matched: matched.length,
         chosen: matched[0]?._id,
         chosenRules: matched[0]?.rules,
+        chosenSpecificity: matched[0]?.rules ? ruleSpecificity(matched[0].rules as Rules) : null,
       });
 
       return matched;

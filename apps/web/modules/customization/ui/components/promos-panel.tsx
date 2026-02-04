@@ -8,31 +8,14 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
 import { Button } from "@workspace/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card";
 import { Input } from "@workspace/ui/components/input";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { Label } from "@workspace/ui/components/label";
 import { Switch } from "@workspace/ui/components/switch";
 import { Separator } from "@workspace/ui/components/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@workspace/ui/components/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@workspace/ui/components/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select";
 import { toast } from "sonner";
 
 const PromoSchema = z.object({
@@ -40,9 +23,11 @@ const PromoSchema = z.object({
   name: z.string().min(1),
   active: z.boolean(),
   showNudge: z.boolean().optional(),
+
+  // ✅ simplified targeting
   pathPrefix: z.string().optional(),
-  urlIncludes: z.string().optional(),
-  utmSource: z.string().optional(),
+  pathMode: z.enum(["prefix", "exact"]).optional(),
+
   title: z.string().min(1),
   body: z.string().min(1),
   badgeText: z.string().optional(),
@@ -83,20 +68,14 @@ interface PromosPanelProps {
 function getPrimaryIndex(mode: PromoForm["ctaEmphasisMode"], len: number) {
   if (!len) return 0;
   if (mode === "last_primary") return Math.max(0, len - 1);
-  // first_primary | all_primary | none_primary => legacy primary index = 0
   return 0;
 }
 
-function isPrimaryButton(
-  mode: PromoForm["ctaEmphasisMode"],
-  index: number,
-  len: number,
-) {
+function isPrimaryButton(mode: PromoForm["ctaEmphasisMode"], index: number, len: number) {
   const m = mode ?? "first_primary";
   if (m === "all_primary") return true;
   if (m === "none_primary") return false;
   if (m === "last_primary") return index === Math.max(0, len - 1);
-  // default: first_primary
   return index === 0;
 }
 
@@ -116,9 +95,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
       badgeText: "Live",
-      pathPrefix: "",
-      urlIncludes: "",
-      utmSource: "",
+      pathPrefix: "/",
+      pathMode: "prefix", // "/" + prefix = all pages
       identityMode: "auto",
       ctaEmphasisMode: "first_primary",
       ctas: [
@@ -141,12 +119,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       id: form.getValues("id"),
       name: "Dual CTA • Chat or Book",
       active: true,
+      showNudge: form.getValues("showNudge") ?? true,
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
       badgeText: "Live",
-      pathPrefix: form.getValues("pathPrefix") || "",
-      urlIncludes: form.getValues("urlIncludes") || "",
-      utmSource: form.getValues("utmSource") || "",
+      pathPrefix: form.getValues("pathPrefix") || "/",
+      pathMode: form.getValues("pathMode") ?? "prefix",
       identityMode: form.getValues("identityMode") ?? "auto",
       ctaEmphasisMode: form.getValues("ctaEmphasisMode") ?? "first_primary",
       ctas:
@@ -165,12 +143,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       id: form.getValues("id"),
       name: "Sales CTA",
       active: true,
+      showNudge: form.getValues("showNudge") ?? true,
       title: "Scale freely, adapt quickly",
       body: "Book a short call to learn how we help teams like yours.",
       badgeText: "Promo",
-      pathPrefix: form.getValues("pathPrefix") || "",
-      urlIncludes: form.getValues("urlIncludes") || "",
-      utmSource: form.getValues("utmSource") || "",
+      pathPrefix: form.getValues("pathPrefix") || "/",
+      pathMode: form.getValues("pathMode") ?? "prefix",
       identityMode: form.getValues("identityMode") ?? "auto",
       ctaEmphasisMode: form.getValues("ctaEmphasisMode") ?? "first_primary",
       ctas:
@@ -183,29 +161,26 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     });
   };
 
+  const quickSetAllPages = () => {
+    form.setValue("pathPrefix", "/");
+    form.setValue("pathMode", "prefix"); // "/" + prefix = all pages
+  };
+
+  const quickSetHomepageOnly = () => {
+    form.setValue("pathPrefix", "/");
+    form.setValue("pathMode", "exact"); // "/" + exact = homepage only
+  };
+
   /* ----------------- Submit ----------------- */
 
   const onSubmit: SubmitHandler<PromoForm> = async (values) => {
     const rules = {
       pathPrefix: values.pathPrefix || undefined,
-      urlIncludes: values.urlIncludes
-        ? values.urlIncludes
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : undefined,
-      utmSource: values.utmSource
-        ? values.utmSource
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : undefined,
+      pathMode: values.pathMode ?? "prefix",
     };
 
     const rawCtas =
-      (values.ctas || []).filter(
-        (c) => c && c.label && c.label.trim().length > 0,
-      ) || [];
+      (values.ctas || []).filter((c) => c && c.label && c.label.trim().length > 0) || [];
 
     const ctaList = rawCtas.map((c) => ({
       kind: c.kind,
@@ -224,9 +199,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       } as const);
 
     const secondaryCta =
-      ctaList.length > 1
-        ? ctaList.find((_, idx) => idx !== primaryIndex)
-        : undefined;
+      ctaList.length > 1 ? ctaList.find((_, idx) => idx !== primaryIndex) : undefined;
 
     try {
       await upsert({
@@ -244,8 +217,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         secondaryCta,
         identityMode: values.identityMode ?? "auto",
         ctaList: ctaList.length ? ctaList : undefined,
-
-        // ✅ persisted
         ctaEmphasisMode: mode,
       } as any);
 
@@ -264,12 +235,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       id: undefined,
       name: "Dual CTA • Chat or Book",
       active: true,
+      showNudge: true,
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
       badgeText: "Live",
-      pathPrefix: "",
-      urlIncludes: "",
-      utmSource: "",
+      pathPrefix: "/",
+      pathMode: "prefix",
       identityMode: "auto",
       ctaEmphasisMode: "first_primary",
       ctas: [
@@ -292,28 +263,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         ? existingList
         : [
             p.primaryCta
-              ? {
-                  kind: p.primaryCta.kind,
-                  label: p.primaryCta.label,
-                  url: p.primaryCta.url,
-                }
+              ? { kind: p.primaryCta.kind, label: p.primaryCta.label, url: p.primaryCta.url }
               : undefined,
             p.secondaryCta
-              ? {
-                  kind: p.secondaryCta.kind,
-                  label: p.secondaryCta.label,
-                  url: p.secondaryCta.url,
-                }
+              ? { kind: p.secondaryCta.kind, label: p.secondaryCta.label, url: p.secondaryCta.url }
               : undefined,
           ]
     ).filter(
-      (
-        c,
-      ): c is {
-        kind: "open_chat" | "open_booking" | "open_url";
-        label: string;
-        url?: string;
-      } => !!c && typeof c.label === "string" && c.label.length > 0,
+      (c): c is { kind: "open_chat" | "open_booking" | "open_url"; label: string; url?: string } =>
+        !!c && typeof c.label === "string" && c.label.length > 0,
     );
 
     const ctasForForm: PromoForm["ctas"] =
@@ -329,12 +287,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       title: p.card?.title ?? "",
       body: p.card?.body ?? "",
       badgeText: p.card?.badgeText ?? "",
-      pathPrefix: p.rules?.pathPrefix ?? "",
-      urlIncludes: (p.rules?.urlIncludes ?? []).join(","),
-      utmSource: (p.rules?.utmSource ?? []).join(","),
+      pathPrefix: p.rules?.pathPrefix ?? "/",
+      pathMode: (p.rules?.pathMode as "prefix" | "exact") ?? "prefix",
       identityMode: (p.identityMode as "auto" | "logo" | "avatars") ?? "auto",
-      ctaEmphasisMode:
-        (p.ctaEmphasisMode as PromoForm["ctaEmphasisMode"]) ?? "first_primary",
+      ctaEmphasisMode: (p.ctaEmphasisMode as PromoForm["ctaEmphasisMode"]) ?? "first_primary",
       ctas: ctasForForm,
     });
 
@@ -344,17 +300,17 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   /* ----------------- Preview values ----------------- */
 
   const previewTitle = form.watch("title") || "Get help fast or schedule time";
-  const previewBody =
-    form.watch("body") || "Talk to the assistant now or book a 15-min demo.";
+  const previewBody = form.watch("body") || "Talk to the assistant now or book a 15-min demo.";
   const previewBadge = form.watch("badgeText") || "Live";
 
   const rawPreviewCtas = form.watch("ctas") || [];
-  const previewCtas = rawPreviewCtas.filter(
-    (c) => c && c.label && c.label.trim().length > 0,
-  );
+  const previewCtas = rawPreviewCtas.filter((c) => c && c.label && c.label.trim().length > 0);
 
   const identityMode = form.watch("identityMode") ?? "auto";
   const emphasisMode = form.watch("ctaEmphasisMode") ?? "first_primary";
+
+  const pathMode = form.watch("pathMode") ?? "prefix";
+  const pathPrefix = form.watch("pathPrefix") ?? "/";
 
   const primaryColor = theme?.primaryColor || "#0ea5e9";
   const primaryTextColor = theme?.primaryTextColor || "#ffffff";
@@ -364,10 +320,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const chatBubbleColor = theme?.chatBubbleColor || primaryColor;
 
   const showLogo =
-    (identityMode === "logo" && !!brandLogoUrl) ||
-    (identityMode === "auto" && !!brandLogoUrl);
-  const showAvatars =
-    identityMode === "avatars" || (identityMode === "auto" && !brandLogoUrl);
+    (identityMode === "logo" && !!brandLogoUrl) || (identityMode === "auto" && !!brandLogoUrl);
+  const showAvatars = identityMode === "avatars" || (identityMode === "auto" && !brandLogoUrl);
 
   const effectivePreviewCtas =
     previewCtas.length > 0
@@ -376,8 +330,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           { kind: "open_chat" as const, label: "Chat with AI Assistant" },
           { kind: "open_booking" as const, label: "Book a meeting" },
         ];
-
-  /* ----------------- Render ----------------- */
 
   return (
     <Card>
@@ -438,21 +390,18 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         </Label>
                         <div>
                           <Label>Name</Label>
-                          <Input
-                            {...form.register("name")}
-                            placeholder="Internal name"
-                          />
+                          <Input {...form.register("name")} placeholder="Internal name" />
                         </div>
                       </div>
+
                       <div className="flex items-center gap-2 pt-6">
-                        <Label className="text-xs text-muted-foreground">
-                          Active
-                        </Label>
+                        <Label className="text-xs text-muted-foreground">Active</Label>
                         <Switch
                           checked={!!form.watch("active")}
                           onCheckedChange={(v) => form.setValue("active", v)}
                         />
                       </div>
+
                       <div className="flex items-center gap-2 pt-6">
                         <Label className="text-xs text-muted-foreground">Show nudge</Label>
                         <Switch
@@ -460,27 +409,14 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           onCheckedChange={(v) => form.setValue("showNudge", v)}
                         />
                       </div>
-
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        Start from a preset:
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={applyPresetDual}
-                      >
+                      <span className="text-xs text-muted-foreground">Start from a preset:</span>
+                      <Button type="button" variant="outline" size="sm" onClick={applyPresetDual}>
                         Chat + Book
                       </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={applyPresetSales}
-                      >
+                      <Button type="button" variant="outline" size="sm" onClick={applyPresetSales}>
                         Sales push
                       </Button>
                     </div>
@@ -493,33 +429,47 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         Targeting
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        Control when and for which team this promo appears.
+                        Control on which pages this promo appears.
                       </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={quickSetAllPages}>
+                        All pages
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={quickSetHomepageOnly}>
+                        Homepage only
+                      </Button>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div>
-                        <Label>Path prefix (optional)</Label>
-                        <Input
-                          {...form.register("pathPrefix")}
-                          placeholder="/pricing"
-                        />
-                      </div>
-                      <div>
-                        <Label>URL includes (comma)</Label>
-                        <Input
-                          {...form.register("urlIncludes")}
-                          placeholder="pricing,plans"
-                        />
-                      </div>
-                      <div>
-                        <Label>UTM source (comma)</Label>
-                        <Input
-                          {...form.register("utmSource")}
-                          placeholder="ads,newsletter"
-                        />
+                        <Label>Path</Label>
+                        <Input {...form.register("pathPrefix")} placeholder="/pricing" />
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Examples: <code>/pricing</code>, <code>/blog</code>, <code>/</code>
+                        </p>
                       </div>
 
+                      <div>
+                        <Label>Match mode</Label>
+                        <Select
+                          value={pathMode}
+                          onValueChange={(v) => form.setValue("pathMode", v as "prefix" | "exact")}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Prefix" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="prefix">Prefix (matches /pricing/*)</SelectItem>
+                            <SelectItem value="exact">Exact (only this page)</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          <b>Exact</b> is the key to make <code>/</code> = homepage only.
+                        </p>
+                      </div>
 
                       <div className="md:col-span-2 md:flex md:items-center md:gap-3">
                         <div className="flex-1">
@@ -527,32 +477,33 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           <Select
                             value={identityMode}
                             onValueChange={(v) =>
-                              form.setValue(
-                                "identityMode",
-                                v as "auto" | "logo" | "avatars",
-                              )
+                              form.setValue("identityMode", v as "auto" | "logo" | "avatars")
                             }
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Auto" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="auto">
-                                Auto (logo if set, otherwise reps)
-                              </SelectItem>
-                              <SelectItem value="logo">
-                                Always use logo
-                              </SelectItem>
-                              <SelectItem value="avatars">
-                                Use team avatars only
-                              </SelectItem>
+                              <SelectItem value="auto">Auto (logo if set, otherwise reps)</SelectItem>
+                              <SelectItem value="logo">Always use logo</SelectItem>
+                              <SelectItem value="avatars">Use team avatars only</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground md:w-1/2">
-                          Choose whether the nudge shows your company logo or
-                          the 3 sales avatars.
+                          Choose whether the nudge shows your company logo or the 3 sales avatars.
                         </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg bg-background px-3 py-2 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-muted-foreground">
+                          Current targeting:{" "}
+                          <code>
+                            {pathPrefix} ({pathMode})
+                          </code>
+                        </div>
                       </div>
                     </div>
                   </section>
@@ -564,8 +515,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         Message & buttons
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        This is the content visitors will see in the promo
-                        nudge.
+                        This is the content visitors will see in the promo nudge.
                       </p>
                     </div>
 
@@ -580,20 +530,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </div>
                       <div className="max-w-xs">
                         <Label>Badge (optional)</Label>
-                        <Input
-                          {...form.register("badgeText")}
-                          placeholder="Live"
-                        />
+                        <Input {...form.register("badgeText")} placeholder="Live" />
                       </div>
                     </div>
 
-                    {/* ✅ CTA emphasis (persisted) */}
+                    {/* CTA emphasis */}
                     <div className="rounded-lg bg-background px-3 py-2 text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <p className="font-medium text-slate-700">
-                            CTA emphasis
-                          </p>
+                          <p className="font-medium text-slate-700">CTA emphasis</p>
                           <p className="text-[11px] text-muted-foreground">
                             Choose which button is highlighted (primary style).
                           </p>
@@ -610,15 +555,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                               key={opt.k}
                               type="button"
                               size="sm"
-                              variant={
-                                emphasisMode === opt.k ? "default" : "outline"
-                              }
+                              variant={emphasisMode === opt.k ? "default" : "outline"}
                               className="h-7 rounded-full px-3 text-[11px]"
                               onClick={() =>
-                                form.setValue(
-                                  "ctaEmphasisMode",
-                                  opt.k as PromoForm["ctaEmphasisMode"],
-                                )
+                                form.setValue("ctaEmphasisMode", opt.k as PromoForm["ctaEmphasisMode"])
                               }
                             >
                               {opt.label}
@@ -643,13 +583,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() =>
-                            append({
-                              kind: "open_chat",
-                              label: "New CTA",
-                              url: "",
-                            })
-                          }
+                          onClick={() => append({ kind: "open_chat", label: "New CTA", url: "" })}
                         >
                           Add CTA
                         </Button>
@@ -657,9 +591,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
                       <div className="space-y-3">
                         {fields.length === 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            No CTA yet. Add at least one.
-                          </p>
+                          <p className="text-xs text-muted-foreground">No CTA yet. Add at least one.</p>
                         )}
 
                         {fields.map((field, index) => (
@@ -673,11 +605,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                   CTA #{index + 1}
                                 </span>
 
-                                {isPrimaryButton(
-                                  emphasisMode,
-                                  index,
-                                  fields.length,
-                                ) && (
+                                {isPrimaryButton(emphasisMode, index, fields.length) && (
                                   <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
                                     Primary
                                   </span>
@@ -701,10 +629,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                               <div className="md:w-40">
                                 <Label className="text-xs">Type</Label>
                                 <Select
-                                  value={
-                                    form.watch(`ctas.${index}.kind`) ||
-                                    "open_chat"
-                                  }
+                                  value={form.watch(`ctas.${index}.kind`) || "open_chat"}
                                   onValueChange={(v) =>
                                     form.setValue(
                                       `ctas.${index}.kind`,
@@ -716,15 +641,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="open_chat">
-                                      Open chat
-                                    </SelectItem>
-                                    <SelectItem value="open_booking">
-                                      Open booking
-                                    </SelectItem>
-                                    <SelectItem value="open_url">
-                                      Open URL
-                                    </SelectItem>
+                                    <SelectItem value="open_chat">Open chat</SelectItem>
+                                    <SelectItem value="open_booking">Open booking</SelectItem>
+                                    <SelectItem value="open_url">Open URL</SelectItem>
                                   </SelectContent>
                                 </Select>
                               </div>
@@ -733,9 +652,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                 <Label className="text-xs">Label</Label>
                                 <Input
                                   className="h-8 text-sm"
-                                  {...form.register(
-                                    `ctas.${index}.label` as const,
-                                  )}
+                                  {...form.register(`ctas.${index}.label` as const)}
                                   placeholder="Button label"
                                 />
                               </div>
@@ -746,9 +663,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                 <Label className="text-xs">URL</Label>
                                 <Input
                                   className="h-8 text-sm"
-                                  {...form.register(
-                                    `ctas.${index}.url` as const,
-                                  )}
+                                  {...form.register(`ctas.${index}.url` as const)}
                                   placeholder="https://…"
                                 />
                               </div>
@@ -759,9 +674,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     </div>
 
                     <div className="flex justify-end border-t pt-3">
-                      <Button type="submit">
-                        {form.watch("id") ? "Update promo" : "Save promo"}
-                      </Button>
+                      <Button type="submit">{form.watch("id") ? "Update promo" : "Save promo"}</Button>
                     </div>
                   </section>
                 </form>
@@ -797,10 +710,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       {!showLogo && !showAvatars && (
                         <div
                           className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
-                          style={{
-                            backgroundColor: chatBubbleColor,
-                            color: primaryTextColor,
-                          }}
+                          style={{ backgroundColor: chatBubbleColor, color: primaryTextColor }}
                         >
                           AI
                         </div>
@@ -810,10 +720,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         {previewBadge && (
                           <div
                             className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                            style={{
-                              backgroundColor: `${primaryColor}1A`,
-                              color: primaryColor,
-                            }}
+                            style={{ backgroundColor: `${primaryColor}1A`, color: primaryColor }}
                           >
                             {previewBadge}
                           </div>
@@ -824,29 +731,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </div>
                     </div>
 
-                    <p className="text-xs leading-relaxed text-slate-600">
-                      {previewBody}
-                    </p>
+                    <p className="text-xs leading-relaxed text-slate-600">{previewBody}</p>
 
                     <div className="space-y-2">
                       {effectivePreviewCtas.map((cta, index) => {
-                        const primary = isPrimaryButton(
-                          emphasisMode,
-                          index,
-                          effectivePreviewCtas.length,
-                        );
+                        const primary = isPrimaryButton(emphasisMode, index, effectivePreviewCtas.length);
 
                         const style = primary
-                          ? {
-                              backgroundColor: primaryColor,
-                              color: primaryTextColor,
-                              borderColor: primaryColor,
-                            }
-                          : {
-                              backgroundColor: secondaryColor,
-                              color: secondaryTextColor,
-                              borderColor: primaryColor,
-                            };
+                          ? { backgroundColor: primaryColor, color: primaryTextColor, borderColor: primaryColor }
+                          : { backgroundColor: secondaryColor, color: secondaryTextColor, borderColor: primaryColor };
 
                         return (
                           <Button
@@ -863,9 +756,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       })}
                     </div>
 
-                    <p className="text-[10px] text-slate-400">
-                      Preview uses your branding colors.
-                    </p>
+                    <p className="text-[10px] text-slate-400">Preview uses your branding colors.</p>
                   </div>
                 </div>
               </div>
@@ -877,9 +768,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       <CardContent className="space-y-4">
         <Separator />
 
-        {!list?.length && (
-          <p className="text-sm text-muted-foreground">No promos yet.</p>
-        )}
+        {!list?.length && <p className="text-sm text-muted-foreground">No promos yet.</p>}
 
         {list?.map((p) => (
           <div
@@ -892,11 +781,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
                 {p.identityMode && (
                   <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                    {p.identityMode === "logo"
-                      ? "Logo"
-                      : p.identityMode === "avatars"
-                        ? "Avatars"
-                        : "Auto"}
+                    {p.identityMode === "logo" ? "Logo" : p.identityMode === "avatars" ? "Avatars" : "Auto"}
                   </span>
                 )}
 
@@ -923,25 +808,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                 {p.card?.title} — {p.card?.body}
               </div>
 
-              {(p.rules?.pathPrefix ||
-                p.rules?.urlIncludes?.length ||
-                p.rules?.utmSource?.length) && (
+              {(p.rules?.pathPrefix || p.rules?.pathMode) && (
                 <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
                   {p.rules?.pathPrefix && (
                     <span className="rounded bg-slate-50 px-1.5 py-0.5">
                       path: <code>{p.rules.pathPrefix}</code>
                     </span>
                   )}
-                  {p.rules?.urlIncludes?.length ? (
-                    <span className="rounded bg-slate-50 px-1.5 py-0.5">
-                      url: {p.rules.urlIncludes.join(", ")}
-                    </span>
-                  ) : null}
-                  {p.rules?.utmSource?.length ? (
-                    <span className="rounded bg-slate-50 px-1.5 py-0.5">
-                      utm: {p.rules.utmSource.join(", ")}
-                    </span>
-                  ) : null}
+                  <span className="rounded bg-slate-50 px-1.5 py-0.5">
+                    mode: <code>{p.rules?.pathMode ?? "prefix"}</code>
+                  </span>
                 </div>
               )}
             </div>
@@ -956,7 +832,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       name: p.name,
                       active: v,
                       showNudge: p.showNudge !== false,
-                      rules: p.rules,
+                      rules: p.rules, // contains pathMode now
                       card: p.card,
                       primaryCta: p.primaryCta,
                       secondaryCta: p.secondaryCta,

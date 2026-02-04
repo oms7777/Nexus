@@ -404,6 +404,11 @@ export default defineSchema({
     showNudge: v.optional(v.boolean()),
     rules: v.object({
       pathPrefix: v.optional(v.string()),
+
+      // ✅ NEW: exact vs prefix
+      pathMode: v.optional(v.union(v.literal("prefix"), v.literal("exact"))),
+
+      // ✅ legacy fields kept optional for backward compat
       urlIncludes: v.optional(v.array(v.string())),
       utmSource: v.optional(v.array(v.string())),
     }),
@@ -445,6 +450,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
+
 
   /* ---------- Slack Integrations ---------- */
   slackIntegrations: defineTable({

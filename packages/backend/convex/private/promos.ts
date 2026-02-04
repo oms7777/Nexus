@@ -3,6 +3,7 @@ import { mutation, query } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
 
 type Plan = "starter" | "growth" | "enterprise";
+type PathMode = "prefix" | "exact";
 
 function requireOrgId(identity: any) {
   const orgId = identity?.orgId as string | undefined;
@@ -38,8 +39,14 @@ async function requireAdvancedPromos(ctx: any, organizationId: string) {
   }
 }
 
+const pathModeV = v.union(v.literal("prefix"), v.literal("exact"));
+
 const rulesV = v.object({
   pathPrefix: v.optional(v.string()),
+  pathMode: v.optional(pathModeV),
+
+  // legacy fields kept optional so older payloads won't break,
+  // but the UI no longer uses them.
   urlIncludes: v.optional(v.array(v.string())),
   utmSource: v.optional(v.array(v.string())),
 });
@@ -59,7 +66,6 @@ const cardV = v.object({
   body: v.string(),
   badgeText: v.optional(v.string()),
 });
-
 
 const identityModeV = v.union(
   v.literal("auto"),
@@ -86,7 +92,6 @@ export const listByOrg = query({
       .collect();
   },
 });
-
 
 export const upsert = mutation({
   args: {
@@ -116,13 +121,13 @@ export const upsert = mutation({
     if (args._id) {
       const { _id, ...rest } = args;
 
-      // ✅ Important: do NOT force showNudge to true on patch if user didn't send it
       const patchPayload: any = {
         ...rest,
         organizationId,
         updatedAt: now,
       };
 
+      // ✅ Do not force showNudge if not provided
       if (typeof args.showNudge === "boolean") {
         patchPayload.showNudge = args.showNudge;
       }
@@ -141,14 +146,12 @@ export const upsert = mutation({
   },
 });
 
-
 export const remove = mutation({
   args: { _id: v.id("promos") },
   handler: async (ctx, { _id }) => {
     const identity = await ctx.auth.getUserIdentity();
     const organizationId = requireOrgId(identity);
 
-    // ✅ hard gate
     await requireAdvancedPromos(ctx, organizationId);
 
     await ctx.db.delete(_id);
