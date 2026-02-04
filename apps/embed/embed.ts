@@ -225,6 +225,7 @@ type NudgeKind = "promo" | "suggestions" | null;
 
       postToWidget({ type: "nexus:embed-ready" });
       sendParentLocation();
+      setTimeout(sendParentLocation, 300);
 
       // start SPA listener after iframe ready
       if (!unpatchHistory) {
