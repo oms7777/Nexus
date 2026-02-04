@@ -1,3 +1,5 @@
+// packages/backend/convex/private/files.ts
+
 import { ConvexError } from "convex/values";
 import {
   contentHashFromArrayBuffer,
@@ -25,10 +27,6 @@ function guessMimeType(filename: string, bytes: ArrayBuffer): string {
   );
 }
 
-/**
- * Sanitize/normalize MIME types coming from the browser.
- * Fixes common bad values like "text-plain" and handles SVG properly.
- */
 function sanitizeMimeType(
   mime: string | undefined,
   filename: string,
@@ -37,15 +35,13 @@ function sanitizeMimeType(
   const name = (filename || "").toLowerCase();
   let safe = (mime || "").trim();
 
-  // Very common mistake: "text-plain" instead of "text/plain"
+  // "text-plain" -> "text/plain"
   if (safe && safe.includes("-") && !safe.includes("/")) {
     safe = safe.replace("-", "/");
   }
 
-  // SVG often arrives as text/plain or empty
   if (name.endsWith(".svg")) return "image/svg+xml";
 
-  // If still invalid, guess from filename / contents
   if (!safe || !safe.includes("/")) {
     safe = guessMimeType(filename, bytes);
   }
@@ -53,9 +49,6 @@ function sanitizeMimeType(
   return safe;
 }
 
-/**
- * Best-effort URL: prefer ctx.storage.getUrl, fallback to a direct Convex storage path.
- */
 function buildStorageFallbackUrl(storageId: Id<"_storage">): string | null {
   const deployment = process.env.CONVEX_DEPLOYMENT;
   if (!deployment) return null;
@@ -67,8 +60,9 @@ function buildStorageFallbackUrl(storageId: Id<"_storage">): string | null {
 type EntryMetadata = {
   storageId: Id<"_storage">;
   uploadedBy: string;
-  filename: string;
-  category: string | null;
+  filename: string; // display name (human)
+  category: string | null; // folder/category
+  originalFilename?: string; // optional
 };
 
 export type PublicFile = {
@@ -147,21 +141,18 @@ export const addFile = action({
       throw new ConvexError({ code: "BAD_REQUEST", message: "Missing subscription" });
     }
 
-    const { bytes, filename } = args;
+    const { bytes } = args;
+    const filename = args.filename?.trim() || "document";
+    const category = (args.category?.trim() || "kb") as string;
 
-    // ✅ IMPORTANT: default KB category
-    const category = (args.category?.trim() ? args.category.trim() : "kb");
-
-    // ✅ Sanitize MIME to avoid "text-plain" and other invalid values
+    // ✅ normalize mime
     const safeMimeType = sanitizeMimeType(args.mimeType, filename, bytes);
 
+    // store blob
     const blob = new Blob([bytes], { type: safeMimeType });
     const storageId = await ctx.storage.store(blob);
 
-    /**
-     * ✅ brand_logo: do NOT extract text / do NOT index in RAG
-     * Only return a stable URL for UI usage.
-     */
+    // ✅ Logo uploads: no RAG
     if (category === "brand_logo") {
       const urlFromConvex = await ctx.storage.getUrl(storageId);
       const url = urlFromConvex ?? buildStorageFallbackUrl(storageId);
@@ -176,39 +167,38 @@ export const addFile = action({
       return { url, storageId };
     }
 
-    // ---- KB/RAG normal flow (robust)
-    let text = "";
-    try {
-      text = await extractTextContent(ctx, {
-        storageId,
-        filename,
-        bytes,
-        mimeType: safeMimeType,
-      });
-    } catch (err) {
-      console.error("extractTextContent failed:", err);
-      // ✅ fallback: do not block uploads forever; index minimal content
-      text = `Document uploaded: ${filename}\n\n[Text extraction failed for this file.]`;
-    }
+    // ✅ compute hash early
+    const contentHash = await contentHashFromArrayBuffer(bytes);
 
-    const { entryId, created } = await rag.add(ctx, {
+    /**
+     * ✅ CRITICAL FIX:
+     * Make the RAG key UNIQUE per upload so we never "dedupe" silently
+     * when user re-uploads with same filename ("KB.pdf").
+     */
+    const uniqueKey = `${orgId}/${category}/${Date.now()}-${filename}`;
+
+    // extract text
+    const text = await extractTextContent(ctx, {
+      storageId,
+      filename,
+      bytes,
+      mimeType: safeMimeType,
+    });
+
+    const { entryId } = await rag.add(ctx, {
       namespace: orgId,
       text,
-      key: filename,
-      title: filename,
+      key: uniqueKey,       // ✅ unique per upload
+      title: filename,      // ✅ what you show in UI
       metadata: {
         storageId,
         uploadedBy: orgId,
-        filename,
+        filename,           // display name
         category,
+        originalFilename: filename,
       } as EntryMetadata,
-      contentHash: await contentHashFromArrayBuffer(bytes),
+      contentHash,
     });
-
-    if (!created) {
-      console.debug("entry already exists, skipping upload metadata");
-      await ctx.storage.delete(storageId);
-    }
 
     const url = await ctx.storage.getUrl(storageId);
 
@@ -248,16 +238,14 @@ export const list = query({
       results.page.map((entry) => converEntryToPublicFile(ctx, entry)),
     );
 
-    const filteredFiles = files.filter((file) => {
-      // Toujours cacher les logos de marque dans la vue KB
+    const filtered = files.filter((file) => {
       if (file.category === "brand_logo") return false;
-
       if (args.category) return file.category === args.category;
       return true;
     });
 
     return {
-      page: filteredFiles,
+      page: filtered,
       isDone: results.isDone,
       continueCursor: results.continueCursor,
     };
@@ -274,17 +262,28 @@ async function converEntryToPublicFile(
   const storageId = metadata?.storageId;
 
   let fileSize = "unknown";
+
   if (storageId) {
     try {
       const storageMetadata = await ctx.db.system.get(storageId);
-      if (storageMetadata) fileSize = formatFileSize(storageMetadata.size);
+      if (storageMetadata) {
+        fileSize = formatFileSize(storageMetadata.size);
+      }
     } catch (error) {
       console.error("Failed to get storage metadata: ", error);
     }
   }
 
-  const filename = entry.key || "Unknown";
-  const extension = filename.split(".").pop()?.toLowerCase() || "txt";
+  // ✅ Show title if present, else fallback to metadata.filename, else key
+  const displayName =
+    (entry.title as string | undefined) ||
+    metadata?.filename ||
+    entry.key ||
+    "Unknown";
+
+  const extension =
+    displayName.split(".").pop()?.toLowerCase() ||
+    (entry.key?.split(".").pop()?.toLowerCase() ?? "txt");
 
   let status: "ready" | "processing" | "error" = "error";
   if (entry.status === "ready") status = "ready";
@@ -294,7 +293,7 @@ async function converEntryToPublicFile(
 
   return {
     id: entry.entryId,
-    name: filename,
+    name: displayName,
     type: extension,
     size: fileSize,
     status,
