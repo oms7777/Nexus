@@ -50,10 +50,17 @@ export const FilesView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
 
-  // ✅ KB ONLY
+  /**
+   * ✅ IMPORTANT:
+   * Do NOT filter by { category: "kb" }.
+   * Because users can set a folder/category (e.g. "Presentation"),
+   * and then it wouldn't show up in the list.
+   *
+   * Backend already hides brand_logo from KB list, so we can list all KB docs safely.
+   */
   const files = usePaginatedQuery(
     api.private.files.list,
-    { category: "kb" },
+    {}, // ✅ show all knowledge documents (any folder/category)
     { initialNumItems: 10 }
   );
 
@@ -75,14 +82,18 @@ export const FilesView = () => {
 
   const [savingAi, setSavingAi] = useState(false);
 
+  // Local UI state (hydrated from settings)
   const [knowledgeMode, setKnowledgeMode] =
     useState<KnowledgeMode>("llm_plus_kb");
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("openai");
 
+  // Hydrate from DB
   useEffect(() => {
     if (!widgetSettings) return;
+
     const km = (widgetSettings.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode;
     setKnowledgeMode(km);
+
     const prov = (widgetSettings.llmProvider ?? "openai") as LlmProvider;
     setLlmProvider(prov);
   }, [widgetSettings]);
@@ -101,7 +112,12 @@ export const FilesView = () => {
   const handleSaveAiSettings = async () => {
     try {
       setSavingAi(true);
-      await upsertWidgetSettings({ knowledgeMode, llmProvider } as any);
+
+      await upsertWidgetSettings({
+        knowledgeMode,
+        llmProvider,
+      } as any);
+
       toast.success("AI settings saved");
     } catch (e) {
       console.error(e);
@@ -111,6 +127,7 @@ export const FilesView = () => {
     }
   };
 
+  // Small helper UX: when provider changes, keep things simple (no model field)
   const handleProviderChange = (value: LlmProvider) => {
     setLlmProvider(value);
   };
@@ -134,15 +151,7 @@ export const FilesView = () => {
         file={selectedFile}
         onDeleted={handleFileDeleted}
       />
-
-      <UploadDialog
-        onOpenChange={setUploadDialogOpen}
-        open={uploadDialogOpen}
-        onFileUploaded={() => {
-          // Optional: force refresh by re-opening query via rerender
-          // Convex usually updates automatically.
-        }}
-      />
+      <UploadDialog onOpenChange={setUploadDialogOpen} open={uploadDialogOpen} />
 
       <div className="flex min-h-screen flex-col bg-muted p-8">
         <div className="mx-auto w-full max-w-screen-xl space-y-6">
@@ -159,11 +168,13 @@ export const FilesView = () => {
               <div className="space-y-1">
                 <p className="text-sm font-medium">AI Settings</p>
                 <p className="text-xs text-muted-foreground">
-                  Control how the assistant uses your Knowledge Base and which LLM provider it runs on.
+                  Control how the assistant uses your Knowledge Base and which
+                  LLM provider it runs on.
                 </p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
+                {/* Knowledge mode */}
                 <div className="space-y-2">
                   <Label>Knowledge mode</Label>
                   <Select
@@ -174,13 +185,24 @@ export const FilesView = () => {
                       <SelectValue placeholder="Select mode" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="llm_plus_kb">LLM + KB (recommended)</SelectItem>
+                      <SelectItem value="llm_plus_kb">
+                        LLM + KB (recommended)
+                      </SelectItem>
                       <SelectItem value="kb_only">KB only (strict)</SelectItem>
                       <SelectItem value="llm_only">LLM only (no KB)</SelectItem>
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {knowledgeMode === "llm_plus_kb" &&
+                      "Uses the KB when helpful, otherwise answers with the LLM."}
+                    {knowledgeMode === "kb_only" &&
+                      "Answers only if the KB contains the information (otherwise offers human help)."}
+                    {knowledgeMode === "llm_only" &&
+                      "Ignores the KB entirely (useful if your docs aren’t ready yet)."}
+                  </p>
                 </div>
 
+                {/* Provider */}
                 <div className="space-y-2">
                   <Label>LLM provider</Label>
                   <Select
@@ -195,6 +217,10 @@ export const FilesView = () => {
                       <SelectItem value="google">Google (Gemini)</SelectItem>
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">
+                    This applies to the chat assistant (and can also drive voice
+                    if you map Vapi assistants accordingly).
+                  </p>
                 </div>
               </div>
 
@@ -212,9 +238,13 @@ export const FilesView = () => {
           <div className="rounded-lg border bg-background">
             <div className="flex items-center justify-between border-b px-6 py-4">
               <div className="text-sm text-muted-foreground">
-                These documents are indexed and used by your assistant to answer product and support questions.
+                These documents are indexed and used by your assistant to answer
+                product and support questions.
               </div>
-              <Button onClick={() => setUploadDialogOpen(true)} disabled={!kbEnabled}>
+              <Button
+                onClick={() => setUploadDialogOpen(true)}
+                disabled={!kbEnabled}
+              >
                 <PlusIcon className="mr-2 h-4 w-4" />
                 Add document
               </Button>
@@ -222,26 +252,37 @@ export const FilesView = () => {
 
             {!kbEnabled ? (
               <div className="px-6 py-8 text-center text-sm text-muted-foreground">
-                The knowledge base is currently disabled (LLM only). Switch to “LLM + KB” or “KB only” to upload and use documents.
+                The knowledge base is currently disabled (LLM only). Switch to
+                “LLM + KB” or “KB only” to upload and use documents.
               </div>
             ) : (
               <>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="px-6 py-4 font-medium">Name</TableHead>
-                      <TableHead className="px-6 py-4 font-medium">Type</TableHead>
-                      <TableHead className="px-6 py-4 font-medium">Size</TableHead>
-                      <TableHead className="px-6 py-4 font-medium">Actions</TableHead>
+                      <TableHead className="px-6 py-4 font-medium">
+                        Name
+                      </TableHead>
+                      <TableHead className="px-6 py-4 font-medium">
+                        Type
+                      </TableHead>
+                      <TableHead className="px-6 py-4 font-medium">
+                        Size
+                      </TableHead>
+                      <TableHead className="px-6 py-4 font-medium">
+                        Actions
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
-
                   <TableBody>
                     {(() => {
                       if (isLoadingFirstPage) {
                         return (
                           <TableRow>
-                            <TableCell className="h-24 text-center text-sm text-muted-foreground" colSpan={4}>
+                            <TableCell
+                              className="h-24 text-center text-sm text-muted-foreground"
+                              colSpan={4}
+                            >
                               Loading files…
                             </TableCell>
                           </TableRow>
@@ -251,8 +292,12 @@ export const FilesView = () => {
                       if (files.results.length === 0) {
                         return (
                           <TableRow>
-                            <TableCell className="h-24 text-center text-sm text-muted-foreground" colSpan={4}>
-                              No knowledge documents yet. Start by uploading a PDF, DOCX, or TXT file.
+                            <TableCell
+                              className="h-24 text-center text-sm text-muted-foreground"
+                              colSpan={4}
+                            >
+                              No knowledge documents yet. Start by uploading a
+                              PDF, DOCX, or TXT file.
                             </TableCell>
                           </TableRow>
                         );
@@ -264,30 +309,33 @@ export const FilesView = () => {
                             <div className="flex items-center gap-2">
                               <FileIcon className="h-4 w-4 text-muted-foreground" />
                               <div className="min-w-0">
-                                <div className="truncate text-sm font-medium">{file.name}</div>
-                                {file.folder ? (
-                                  <div className="text-xs text-muted-foreground">
-                                    Folder: {file.folder}
+                                <div className="truncate text-sm font-medium">
+                                  {file.name}
+                                </div>
+                                {file.category ? (
+                                  <div className="truncate text-xs text-muted-foreground">
+                                    Folder: {file.category}
                                   </div>
                                 ) : null}
                               </div>
                             </div>
                           </TableCell>
-
                           <TableCell className="px-6 py-4">
                             <Badge className="uppercase" variant="outline">
                               {file.type}
                             </Badge>
                           </TableCell>
-
                           <TableCell className="px-6 py-4 text-sm text-muted-foreground">
                             {file.size}
                           </TableCell>
-
                           <TableCell className="px-6 py-4">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button className="size-8 p-0" size="sm" variant="ghost">
+                                <Button
+                                  className="size-8 p-0"
+                                  size="sm"
+                                  variant="ghost"
+                                >
                                   <MoreHorizontalIcon className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
