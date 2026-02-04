@@ -50,9 +50,17 @@ export const FilesView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
 
+  /**
+   * ✅ IMPORTANT:
+   * Do NOT filter by { category: "kb" }.
+   * Because users can set a folder/category (e.g. "Presentation"),
+   * and then it wouldn't show up in the list.
+   *
+   * Backend already hides brand_logo from KB list, so we can list all KB docs safely.
+   */
   const files = usePaginatedQuery(
     api.private.files.list,
-    { category: "kb" },
+    {}, // ✅ show all knowledge documents (any folder/category)
     { initialNumItems: 10 }
   );
 
@@ -143,10 +151,7 @@ export const FilesView = () => {
         file={selectedFile}
         onDeleted={handleFileDeleted}
       />
-      <UploadDialog
-        onOpenChange={setUploadDialogOpen}
-        open={uploadDialogOpen}
-      />
+      <UploadDialog onOpenChange={setUploadDialogOpen} open={uploadDialogOpen} />
 
       <div className="flex min-h-screen flex-col bg-muted p-8">
         <div className="mx-auto w-full max-w-screen-xl space-y-6">
@@ -303,9 +308,16 @@ export const FilesView = () => {
                           <TableCell className="px-6 py-4">
                             <div className="flex items-center gap-2">
                               <FileIcon className="h-4 w-4 text-muted-foreground" />
-                              <span className="truncate text-sm font-medium">
-                                {file.name}
-                              </span>
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium">
+                                  {file.name}
+                                </div>
+                                {file.category ? (
+                                  <div className="truncate text-xs text-muted-foreground">
+                                    Folder: {file.category}
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell className="px-6 py-4">
