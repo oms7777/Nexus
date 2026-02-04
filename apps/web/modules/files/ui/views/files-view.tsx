@@ -50,17 +50,18 @@ export const FilesView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
 
-  /**
-   * ✅ IMPORTANT:
-   * Do NOT filter by { category: "kb" }.
-   * Because users can set a folder/category (e.g. "Presentation"),
-   * and then it wouldn't show up in the list.
-   *
-   * Backend already hides brand_logo from KB list, so we can list all KB docs safely.
-   */
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<PublicFile | null>(null);
+  const [savingAi, setSavingAi] = useState(false);
+
+  // ✅ Used to force re-run of the query after upload
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  // ✅ SINGLE source of truth for files
   const files = usePaginatedQuery(
     api.private.files.list,
-    {}, // ✅ show all knowledge documents (any folder/category)
+    { refreshToken }, // ✅ force rerun after upload
     { initialNumItems: 10 }
   );
 
@@ -75,12 +76,6 @@ export const FilesView = () => {
     loadMore: files.loadMore,
     loadSize: 10,
   });
-
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<PublicFile | null>(null);
-
-  const [savingAi, setSavingAi] = useState(false);
 
   // Local UI state (hydrated from settings)
   const [knowledgeMode, setKnowledgeMode] =
@@ -127,7 +122,6 @@ export const FilesView = () => {
     }
   };
 
-  // Small helper UX: when provider changes, keep things simple (no model field)
   const handleProviderChange = (value: LlmProvider) => {
     setLlmProvider(value);
   };
@@ -151,7 +145,12 @@ export const FilesView = () => {
         file={selectedFile}
         onDeleted={handleFileDeleted}
       />
-      <UploadDialog onOpenChange={setUploadDialogOpen} open={uploadDialogOpen} />
+
+      <UploadDialog
+        open={uploadDialogOpen}
+        onOpenChange={setUploadDialogOpen}
+        onFileUploaded={() => setRefreshToken((x) => x + 1)}
+      />
 
       <div className="flex min-h-screen flex-col bg-muted p-8">
         <div className="mx-auto w-full max-w-screen-xl space-y-6">
@@ -174,7 +173,6 @@ export const FilesView = () => {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                {/* Knowledge mode */}
                 <div className="space-y-2">
                   <Label>Knowledge mode</Label>
                   <Select
@@ -202,7 +200,6 @@ export const FilesView = () => {
                   </p>
                 </div>
 
-                {/* Provider */}
                 <div className="space-y-2">
                   <Label>LLM provider</Label>
                   <Select
@@ -260,18 +257,10 @@ export const FilesView = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="px-6 py-4 font-medium">
-                        Name
-                      </TableHead>
-                      <TableHead className="px-6 py-4 font-medium">
-                        Type
-                      </TableHead>
-                      <TableHead className="px-6 py-4 font-medium">
-                        Size
-                      </TableHead>
-                      <TableHead className="px-6 py-4 font-medium">
-                        Actions
-                      </TableHead>
+                      <TableHead className="px-6 py-4 font-medium">Name</TableHead>
+                      <TableHead className="px-6 py-4 font-medium">Type</TableHead>
+                      <TableHead className="px-6 py-4 font-medium">Size</TableHead>
+                      <TableHead className="px-6 py-4 font-medium">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -312,9 +301,9 @@ export const FilesView = () => {
                                 <div className="truncate text-sm font-medium">
                                   {file.name}
                                 </div>
-                                {file.category ? (
+                                {file.folder ? (
                                   <div className="truncate text-xs text-muted-foreground">
-                                    Folder: {file.category}
+                                    Folder: {file.folder}
                                   </div>
                                 ) : null}
                               </div>
@@ -331,11 +320,7 @@ export const FilesView = () => {
                           <TableCell className="px-6 py-4">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button
-                                  className="size-8 p-0"
-                                  size="sm"
-                                  variant="ghost"
-                                >
+                                <Button className="size-8 p-0" size="sm" variant="ghost">
                                   <MoreHorizontalIcon className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>

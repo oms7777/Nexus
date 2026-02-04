@@ -48,7 +48,7 @@ export const UploadDialog = ({ open, onOpenChange, onFileUploaded }: UploadDialo
     }
   };
 
-  const handleCancel = () => {
+  const resetAndClose = () => {
     onOpenChange(false);
     setUploadedFiles([]);
     setUploadForm({ folder: "", filename: "" });
@@ -67,13 +67,15 @@ export const UploadDialog = ({ open, onOpenChange, onFileUploaded }: UploadDialo
         bytes: await blob.arrayBuffer(),
         filename,
         mimeType: blob.type || "application/octet-stream",
-        category: "kb",     // ✅ force KB
-        folder,             // ✅ optional UI folder
+
+        // ✅ IMPORTANT: no "category" here (évite toute confusion)
+        kind: "kb",
+        folder, // ✅ free text classification
       });
 
       toast.success("File uploaded");
-      onFileUploaded?.();
-      handleCancel();
+      onFileUploaded?.(); // ✅ déclenche refresh côté page
+      resetAndClose();
     } catch (error) {
       console.error(error);
       toast.error("Upload failed");
@@ -145,7 +147,7 @@ export const UploadDialog = ({ open, onOpenChange, onFileUploaded }: UploadDialo
         </div>
 
         <DialogFooter>
-          <Button disabled={isUploading} onClick={handleCancel} variant="outline">
+          <Button disabled={isUploading} onClick={resetAndClose} variant="outline">
             Cancel
           </Button>
           <Button onClick={handleUpload} disabled={uploadedFiles.length === 0 || isUploading}>

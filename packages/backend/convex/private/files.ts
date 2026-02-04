@@ -34,12 +34,10 @@ function sanitizeMimeType(
   const name = (filename || "").toLowerCase();
   let safe = (mime || "").trim();
 
-  // Fix common bug: "text-plain" -> "text/plain"
   if (safe && safe.includes("-") && !safe.includes("/")) {
     safe = safe.replace("-", "/");
   }
 
-  // SVG often arrives as text/plain or empty
   if (name.endsWith(".svg")) return "image/svg+xml";
 
   if (!safe || !safe.includes("/")) {
@@ -57,23 +55,32 @@ function buildStorageFallbackUrl(storageId: Id<"_storage">): string | null {
 
 /* ----------------------------- Types ----------------------------- */
 
+type SystemKind = "kb" | "brand_logo" | "avatar";
+
 type EntryMetadata = {
   storageId: Id<"_storage">;
   uploadedBy: string;
   filename: string;
 
   /**
-   * ✅ System category:
-   * - "kb" => indexed & shown in KB page
-   * - "brand_logo" / "avatar" => assets only (not indexed, not shown in KB)
+   * ✅ system kind:
+   * - kb: indexed and listed on /files
+   * - brand_logo/avatar: assets only (not indexed, not listed)
+   *
+   * NOTE: old data might have used `category` for folder. We keep backward compatibility.
    */
-  category: "kb" | "brand_logo" | "avatar";
+  kind?: SystemKind;
 
   /**
-   * ✅ Optional UI folder for KB classification (Pricing, Support, etc.)
-   * Only meaningful when category === "kb"
+   * ✅ folder = user classification for KB (“Presentation”, “Support”…)
+   * Old version stored folder into `category`. We still read it.
    */
   folder?: string | null;
+
+  /**
+   * Old field (folder in the old version)
+   */
+  category?: string | null;
 };
 
 export type PublicFile = {
@@ -83,9 +90,7 @@ export type PublicFile = {
   size: string;
   status: "ready" | "processing" | "error";
   url: string | null;
-
-  // For UI display
-  category?: string;
+  kind?: SystemKind;
   folder?: string;
 };
 
@@ -129,23 +134,28 @@ export const deleteFile = mutation({
 
 /* ----------------------------- Actions ----------------------------- */
 
+/**
+ * ✅ Backward compatible:
+ * - old UI sends `category: "Presentation"` -> treated as folder (KB)
+ * - old UI sends `category: "brand_logo"` -> treated as asset kind
+ *
+ * ✅ New UI should send:
+ * - kind: "kb" + folder?: "Presentation"
+ * - kind: "brand_logo" or "avatar"
+ */
 export const addFile = action({
   args: {
     filename: v.string(),
     mimeType: v.string(),
     bytes: v.bytes(),
 
-    /**
-     * ✅ category is SYSTEM category:
-     * - omitted => KB upload by default
-     * - "brand_logo" / "avatar" => assets only (no indexing)
-     */
-    category: v.optional(v.union(v.literal("brand_logo"), v.literal("avatar"), v.literal("kb"))),
+    // old param (string). We keep it to avoid breaking existing UI.
+    category: v.optional(v.string()),
 
-    /**
-     * ✅ folder is for KB classification only (optional)
-     * ex: "Pricing", "Support", "Sales"
-     */
+    // new param (system kind)
+    kind: v.optional(v.union(v.literal("kb"), v.literal("brand_logo"), v.literal("avatar"))),
+
+    // new param (folder)
     folder: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -159,10 +169,21 @@ export const addFile = action({
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
     }
 
-    // ✅ subscription check only required for KB indexing
-    const wantedCategory = (args.category ?? "kb") as "kb" | "brand_logo" | "avatar";
+    // ✅ Resolve kind (system) with backward compatibility
+    const legacyCategory = (args.category ?? "").trim();
+    let kind: SystemKind = (args.kind ?? "kb") as SystemKind;
 
-    if (wantedCategory === "kb") {
+    if (!args.kind && legacyCategory) {
+      // legacy behavior:
+      // - brand_logo/avatar => system kind
+      // - anything else => folder (kb)
+      if (legacyCategory === "brand_logo") kind = "brand_logo";
+      else if (legacyCategory === "avatar") kind = "avatar";
+      else kind = "kb";
+    }
+
+    // ✅ subscription check only required for KB indexing
+    if (kind === "kb") {
       const subscription = await ctx.runQuery(
         internal.system.subscriptions.getByOrganizationId,
         { organizationId: orgId },
@@ -173,14 +194,15 @@ export const addFile = action({
       }
     }
 
-    const { bytes, filename } = args;
+    const bytes = args.bytes;
+    const filename = args.filename?.trim() || "document";
     const safeMimeType = sanitizeMimeType(args.mimeType, filename, bytes);
 
     const blob = new Blob([bytes], { type: safeMimeType });
     const storageId = await ctx.storage.store(blob);
 
-    // ✅ ASSET MODE (logo/avatar): store only, return stable URL, no RAG indexing
-    if (wantedCategory === "brand_logo" || wantedCategory === "avatar") {
+    // ✅ Assets: store only, return URL
+    if (kind === "brand_logo" || kind === "avatar") {
       const urlFromConvex = await ctx.storage.getUrl(storageId);
       const url = urlFromConvex ?? buildStorageFallbackUrl(storageId);
 
@@ -194,7 +216,12 @@ export const addFile = action({
       return { url, storageId };
     }
 
-    // ✅ KB MODE: extract text + index in RAG
+    // ✅ KB folder (new folder > legacy category > null)
+    const folder =
+      (args.folder?.trim() || "") ||
+      (legacyCategory && legacyCategory !== "kb" ? legacyCategory : "") ||
+      "";
+
     const text = await extractTextContent(ctx, {
       storageId,
       filename,
@@ -202,27 +229,28 @@ export const addFile = action({
       mimeType: safeMimeType,
     });
 
-    const folder = (args.folder ?? "").trim() || null;
+    const contentHash = await contentHashFromArrayBuffer(bytes);
 
-    const { entryId, created } = await rag.add(ctx, {
+    /**
+     * ✅ IMPORTANT (same as your old "critical fix"):
+     * Always make key unique so uploads don't silently dedupe/hide.
+     */
+    const uniqueKey = `${orgId}/kb/${Date.now()}-${filename}`;
+
+    const { entryId } = await rag.add(ctx, {
       namespace: orgId,
       text,
-      key: filename,
+      key: uniqueKey,
       title: filename,
       metadata: {
         storageId,
         uploadedBy: orgId,
         filename,
-        category: "kb",
-        folder,
+        kind: "kb",
+        folder: folder || null,
       } as EntryMetadata,
-      contentHash: await contentHashFromArrayBuffer(bytes),
+      contentHash,
     });
-
-    // If duplicate content, clean storage
-    if (!created) {
-      await ctx.storage.delete(storageId);
-    }
 
     const url = await ctx.storage.getUrl(storageId);
 
@@ -234,8 +262,8 @@ export const addFile = action({
 
 export const list = query({
   args: {
-    category: v.optional(v.string()), // usually "kb"
     paginationOpts: paginationOptsValidator,
+    refreshToken: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -262,21 +290,17 @@ export const list = query({
       results.page.map((entry) => convertEntryToPublicFile(ctx, entry)),
     );
 
-    // ✅ KB page should only show KB docs (never assets)
-    const filteredFiles = files.filter((file) => {
-      const cat = file.category;
-
-      // Always hide assets from KB list
-      if (cat === "brand_logo" || cat === "avatar") return false;
-
-      if (args.category) {
-        return cat === args.category;
-      }
-      return true;
+    /**
+     * ✅ Only KB docs in /files.
+     * Hide assets completely.
+     */
+    const filtered = files.filter((f) => {
+      const kind = f.kind ?? "kb";
+      return kind === "kb";
     });
 
     return {
-      page: filteredFiles,
+      page: filtered,
       isDone: results.isDone,
       continueCursor: results.continueCursor,
     };
@@ -290,20 +314,24 @@ async function convertEntryToPublicFile(ctx: QueryCtx, entry: Entry): Promise<Pu
   const storageId = metadata?.storageId;
 
   let fileSize = "unknown";
-
   if (storageId) {
     try {
       const storageMetadata = await ctx.db.system.get(storageId);
-      if (storageMetadata) {
-        fileSize = formatFileSize(storageMetadata.size);
-      }
+      if (storageMetadata) fileSize = formatFileSize(storageMetadata.size);
     } catch {
       // ignore
     }
   }
 
-  const filename = entry.key || "Unknown";
-  const extension = filename.split(".").pop()?.toLowerCase() || "txt";
+  const displayName =
+    (entry.title as string | undefined) ||
+    metadata?.filename ||
+    entry.key ||
+    "Unknown";
+
+  const extension =
+    displayName.split(".").pop()?.toLowerCase() ||
+    (entry.key?.split(".").pop()?.toLowerCase() ?? "txt");
 
   let status: "ready" | "processing" | "error" = "error";
   if (entry.status === "ready") status = "ready";
@@ -311,15 +339,19 @@ async function convertEntryToPublicFile(ctx: QueryCtx, entry: Entry): Promise<Pu
 
   const url = storageId ? await ctx.storage.getUrl(storageId) : null;
 
+  // ✅ kind + folder (compat with old `category`)
+  const kind = (metadata?.kind as SystemKind | undefined) ?? "kb";
+  const folder = (metadata?.folder ?? metadata?.category ?? "") || undefined;
+
   return {
     id: entry.entryId,
-    name: filename,
+    name: displayName,
     type: extension,
     size: fileSize,
     status,
     url,
-    category: metadata?.category || undefined,
-    folder: metadata?.folder || undefined,
+    kind,
+    folder,
   };
 }
 
