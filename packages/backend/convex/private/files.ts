@@ -1,6 +1,5 @@
 // packages/backend/convex/private/files.ts
-
-import { ConvexError } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   contentHashFromArrayBuffer,
   Entry,
@@ -15,7 +14,6 @@ import rag from "../system/ai/rag";
 import { Id } from "../_generated/dataModel";
 import { paginationOptsValidator } from "convex/server";
 import { internal } from "../_generated/api";
-import { v } from "convex/values";
 
 /* ----------------------------- Helpers ----------------------------- */
 
@@ -53,14 +51,11 @@ function sanitizeMimeType(
     safe = guessMimeType(filename, bytes);
   }
 
-  // Some browsers can send weird "application/xml" for svg etc.
-  // Keep it simple: accept safe as-is now that it's normalized.
   return safe;
 }
 
 /**
  * Best-effort URL: prefer ctx.storage.getUrl, fallback to a direct Convex storage path.
- * (The fallback is useful if getUrl returns null temporarily.)
  */
 function buildStorageFallbackUrl(storageId: Id<"_storage">): string | null {
   const deployment = process.env.CONVEX_DEPLOYMENT;
@@ -74,7 +69,18 @@ type EntryMetadata = {
   storageId: Id<"_storage">;
   uploadedBy: string;
   filename: string;
-  category: string | null;
+
+  /**
+   * ✅ INTERNAL TYPE (do not use for customer classification)
+   * Examples: "kb", "brand_logo"
+   */
+  category: string;
+
+  /**
+   * ✅ CUSTOMER CLASSIFICATION (folder/grouping for KB)
+   * Examples: "Sales", "Support", "Pricing"
+   */
+  kbCategory?: string;
 };
 
 export type PublicFile = {
@@ -84,7 +90,12 @@ export type PublicFile = {
   size: string;
   status: "ready" | "processing" | "error";
   url: string | null;
+
+  // internal kind
   category?: string;
+
+  // customer folder/category
+  kbCategory?: string;
 };
 
 /* ----------------------------- Mutations ----------------------------- */
@@ -95,59 +106,35 @@ export const deleteFile = mutation({
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-
     if (identity === null) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Identity not found",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
     }
 
     const orgId = identity.orgId as string;
-
     if (!orgId) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Organization not found",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
     }
 
-    const namespace = await rag.getNamespace(ctx, {
-      namespace: orgId,
-    });
-
+    const namespace = await rag.getNamespace(ctx, { namespace: orgId });
     if (!namespace) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Invalid namespace",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid namespace" });
     }
 
-    const entry = await rag.getEntry(ctx, {
-      entryId: args.entryId,
-    });
-
+    const entry = await rag.getEntry(ctx, { entryId: args.entryId });
     if (!entry) {
-      throw new ConvexError({
-        code: "NOT_FOUND",
-        message: "Entry not found",
-      });
+      throw new ConvexError({ code: "NOT_FOUND", message: "Entry not found" });
     }
 
-    if (entry.metadata?.uploadedBy !== orgId) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Invalid Organization ID",
-      });
+    if ((entry.metadata as any)?.uploadedBy !== orgId) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Organization ID" });
     }
 
-    if (entry.metadata?.storageId) {
-      await ctx.storage.delete(entry.metadata.storageId as Id<"_storage">);
+    const meta = entry.metadata as EntryMetadata | undefined;
+    if (meta?.storageId) {
+      await ctx.storage.delete(meta.storageId as Id<"_storage">);
     }
 
-    await rag.deleteAsync(ctx, {
-      entryId: args.entryId,
-    });
+    await rag.deleteAsync(ctx, { entryId: args.entryId });
   },
 });
 
@@ -158,43 +145,43 @@ export const addFile = action({
     filename: v.string(),
     mimeType: v.string(),
     bytes: v.bytes(),
+
+    /**
+     * ✅ INTERNAL TYPE ONLY
+     * Examples: "kb", "brand_logo"
+     */
     category: v.optional(v.string()),
+
+    /**
+     * ✅ Customer folder/classification for KB docs
+     * (ignored for brand_logo)
+     */
+    kbCategory: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-
     if (identity === null) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Identity not found",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
     }
 
     const orgId = identity.orgId as string;
-
     if (!orgId) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Organization not found",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
     }
 
     const subscription = await ctx.runQuery(
       internal.system.subscriptions.getByOrganizationId,
-      {
-        organizationId: orgId,
-      },
+      { organizationId: orgId },
     );
 
     if (subscription?.status !== "active") {
-      throw new ConvexError({
-        code: "BAD_REQUEST",
-        message: "Missing subscription",
-      });
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Missing subscription" });
     }
 
     const { bytes, filename } = args;
-    const category = args.category ?? "kb";
+
+    // ✅ INTERNAL TYPE: default to "kb"
+    const internalCategory = (args.category ?? "kb").trim() || "kb";
 
     // ✅ Sanitize MIME to avoid "text-plain" and other invalid values
     const safeMimeType = sanitizeMimeType(args.mimeType, filename, bytes);
@@ -203,29 +190,24 @@ export const addFile = action({
     const storageId = await ctx.storage.store(blob);
 
     /**
-     * ✅ SIMPLE OPTION: brand_logo should NOT go through extractTextContent + RAG.
-     * It only needs a stable URL for UI usage.
+     * ✅ brand_logo: do not index in RAG
+     * only return a stable URL for UI usage.
      */
-    if (category === "brand_logo") {
+    if (internalCategory === "brand_logo") {
       const urlFromConvex = await ctx.storage.getUrl(storageId);
       const url = urlFromConvex ?? buildStorageFallbackUrl(storageId);
 
       if (!url) {
-        // Extremely rare, but we prefer an explicit error instead of returning null.
         throw new ConvexError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to generate URL for uploaded logo",
         });
       }
 
-      return {
-        url,
-        storageId,
-        // no entryId for logo uploads (not in KB)
-      };
+      return { url, storageId };
     }
 
-    // ---- KB/RAG normal flow (your existing behavior)
+    // ---- KB/RAG normal flow
     const text = await extractTextContent(ctx, {
       storageId,
       filename,
@@ -242,7 +224,12 @@ export const addFile = action({
         storageId,
         uploadedBy: orgId,
         filename,
-        category,
+
+        // ✅ internal kind
+        category: internalCategory,
+
+        // ✅ customer classification (only meaningful for kb)
+        kbCategory: args.kbCategory?.trim() || undefined,
       } as EntryMetadata,
       contentHash: await contentHashFromArrayBuffer(bytes),
     });
@@ -254,11 +241,7 @@ export const addFile = action({
 
     const url = await ctx.storage.getUrl(storageId);
 
-    return {
-      url,
-      entryId,
-      storageId,
-    };
+    return { url, entryId, storageId };
   },
 });
 
@@ -266,32 +249,25 @@ export const addFile = action({
 
 export const list = query({
   args: {
+    /**
+     * ✅ Filter by INTERNAL category (type)
+     * Example: { category: "kb" } to list KB docs
+     */
     category: v.optional(v.string()),
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-
     if (identity === null) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Identity not found",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
     }
 
     const orgId = identity.orgId as string;
-
     if (!orgId) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Organization not found",
-      });
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
     }
 
-    const namespace = await rag.getNamespace(ctx, {
-      namespace: orgId,
-    });
-
+    const namespace = await rag.getNamespace(ctx, { namespace: orgId });
     if (!namespace) {
       return { page: [], isDone: true, continueCursor: "" };
     }
@@ -306,7 +282,7 @@ export const list = query({
     );
 
     const filteredFiles = files.filter((file) => {
-      // Toujours cacher les logos de marque dans la vue KB
+      // Always hide brand logos from KB view
       if (file.category === "brand_logo") return false;
 
       if (args.category) {
@@ -350,11 +326,8 @@ async function converEntryToPublicFile(
   const extension = filename.split(".").pop()?.toLowerCase() || "txt";
 
   let status: "ready" | "processing" | "error" = "error";
-  if (entry.status === "ready") {
-    status = "ready";
-  } else if (entry.status === "pending") {
-    status = "processing";
-  }
+  if (entry.status === "ready") status = "ready";
+  else if (entry.status === "pending") status = "processing";
 
   const url = storageId ? await ctx.storage.getUrl(storageId) : null;
 
@@ -365,7 +338,12 @@ async function converEntryToPublicFile(
     size: fileSize,
     status,
     url,
-    category: metadata?.category || undefined,
+
+    // internal kind
+    category: metadata?.category,
+
+    // customer folder
+    kbCategory: metadata?.kbCategory,
   };
 }
 
@@ -373,7 +351,7 @@ function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 B";
 
   const k = 1024;
-  const sizes = ["B", "KB", "MG", "GB"];
+  const sizes = ["B", "KB", "MB", "GB"]; // ✅ fix typo MG -> MB
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
   return `${Number.parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
