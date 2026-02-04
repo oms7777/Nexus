@@ -27,73 +27,59 @@ interface UploadDialogProps {
   onFileUploaded?: () => void;
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number) {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`Upload timed out after ${ms}ms`)), ms),
-    ),
-  ]);
-}
-
 export const UploadDialog = ({ open, onOpenChange, onFileUploaded }: UploadDialogProps) => {
   const addFile = useAction(api.private.files.addFile);
 
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+
   const [uploadForm, setUploadForm] = useState({
-    category: "",
+    folder: "",
     filename: "",
   });
 
   const handleFileDrop = (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
-    if (file) {
-      setUploadedFiles([file]);
-      if (!uploadForm.filename) {
-        setUploadForm((prev) => ({ ...prev, filename: file.name }));
-      }
-    }
-  };
+    if (!file) return;
 
-  const handleUpload = async () => {
-    setIsUploading(true);
-
-    try {
-      const blob = uploadedFiles[0];
-      if (!blob) return;
-
-      const filename = uploadForm.filename?.trim() || blob.name;
-
-      // category optional => backend will default to "kb"
-      const category = uploadForm.category?.trim() || undefined;
-
-      await withTimeout(
-        addFile({
-          bytes: await blob.arrayBuffer(),
-          filename,
-          mimeType: blob.type || "application/octet-stream",
-          category,
-        }),
-        45000, // ✅ UI timeout (45s)
-      );
-
-      toast.success("File uploaded");
-      onFileUploaded?.();
-      handleCancel();
-    } catch (error: any) {
-      console.error(error);
-      toast.error(error?.message || "Upload failed");
-      // keep dialog open so user can retry
-    } finally {
-      setIsUploading(false);
+    setUploadedFiles([file]);
+    if (!uploadForm.filename) {
+      setUploadForm((prev) => ({ ...prev, filename: file.name }));
     }
   };
 
   const handleCancel = () => {
     onOpenChange(false);
     setUploadedFiles([]);
-    setUploadForm({ category: "", filename: "" });
+    setUploadForm({ folder: "", filename: "" });
+  };
+
+  const handleUpload = async () => {
+    const blob = uploadedFiles[0];
+    if (!blob) return;
+
+    setIsUploading(true);
+    try {
+      const filename = uploadForm.filename?.trim() || blob.name;
+      const folder = uploadForm.folder?.trim() || undefined;
+
+      await addFile({
+        bytes: await blob.arrayBuffer(),
+        filename,
+        mimeType: blob.type || "application/octet-stream",
+        category: "kb",     // ✅ force KB
+        folder,             // ✅ optional UI folder
+      });
+
+      toast.success("File uploaded");
+      onFileUploaded?.();
+      handleCancel();
+    } catch (error) {
+      console.error(error);
+      toast.error("Upload failed");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -108,16 +94,18 @@ export const UploadDialog = ({ open, onOpenChange, onFileUploaded }: UploadDialo
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="category">Folder / Category <span className="text-muted-foreground text-xs">(optional)</span></Label>
+            <Label htmlFor="folder">
+              Folder / Category <span className="text-muted-foreground text-xs">(optional)</span>
+            </Label>
             <Input
               className="w-full"
-              id="category"
+              id="folder"
               onChange={(e) =>
-                setUploadForm((prev) => ({ ...prev, category: e.target.value }))
+                setUploadForm((prev) => ({ ...prev, folder: e.target.value }))
               }
-              placeholder="e.g., Sales, Support, Pricing…"
+              placeholder="e.g., Pricing, Support, Sales..."
               type="text"
-              value={uploadForm.category}
+              value={uploadForm.folder}
               disabled={isUploading}
             />
           </div>
@@ -144,9 +132,7 @@ export const UploadDialog = ({ open, onOpenChange, onFileUploaded }: UploadDialo
               "application/pdf": [".pdf"],
               "text/csv": [".csv"],
               "text/plain": [".txt"],
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
-                ".docx",
-              ],
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
             }}
             disabled={isUploading}
             maxFiles={1}
