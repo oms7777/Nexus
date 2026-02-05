@@ -15,14 +15,6 @@ export const escalateConversation = createTool({
             threadId: ctx.threadId,
         })
 
-        await supportAgent.saveMessage(ctx, {
-            threadId: ctx.threadId,
-            message: {
-                role: "assistant",
-                content: "Conversation escalated to a human operator.",
-            }
-        })
-
         return "Conversation escalated to a human operator."
     }
 })

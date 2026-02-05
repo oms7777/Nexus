@@ -486,29 +486,52 @@ export const WidgetChatScreen = () => {
 
   const fallbackTimerRef = useRef<any>(null);
   const fallbackShownRef = useRef(false);
+  const escalatedSinceRef = useRef<number | null>(null);
+
 
   useEffect(() => {
     // reset if no conversation
     if (!conversationId) {
       fallbackShownRef.current = false;
+      escalatedSinceRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       return;
     }
 
     const isResolved = conversation?.status === "resolved";
+    const isEscalated = conversation?.status === "escalated";
     const humanAlreadyReplied = hasRepStarted === true;
 
-    // stop fallback if resolved OR human replied OR not idle
-    if (isResolved || humanAlreadyReplied || step !== "idle") {
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+    // If not escalated, we do NOT run the human-wait fallback
+    if (!isEscalated || isResolved) {
       fallbackShownRef.current = false;
+      escalatedSinceRef.current = null;
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       return;
     }
 
-    // already shown => don't spam
-    if (fallbackShownRef.current) return;
+    // stop if human replied or not idle
+    if (humanAlreadyReplied || step !== "idle") {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+      return;
+    }
 
-    // arm timer
+    // mark the moment we entered "escalated"
+    const backendEscalatedAt =
+      (conversation as any)?.escalatedAt ? Number((conversation as any).escalatedAt) : null;
+
+    // fallback only if backend doesn't provide it yet
+    if (!backendEscalatedAt && !escalatedSinceRef.current) {
+      escalatedSinceRef.current = Date.now();
+    }
+
+    const startedAt = backendEscalatedAt ?? escalatedSinceRef.current ?? Date.now();
+
+    // compute remaining time precisely
+    const elapsedMs = Date.now() - startedAt;
+    const remainingMs = Math.max(0, HUMAN_FALLBACK_SECONDS * 1000 - elapsedMs);
+
+
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
 
     fallbackTimerRef.current = setTimeout(() => {
@@ -524,12 +547,13 @@ export const WidgetChatScreen = () => {
             `Click “Book a meeting” to pick a slot.`,
         },
       ]);
-    }, HUMAN_FALLBACK_SECONDS * 1000);
+    }, remainingMs);
 
     return () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     };
   }, [conversationId, conversation?.status, hasRepStarted, step]);
+
 
 
 
@@ -1027,17 +1051,17 @@ export const WidgetChatScreen = () => {
             })}
 
             {/* ✅ Fallback booking CTA after X seconds if escalated & no human reply */}
-            {conversationId &&
+            {conversation?.status === "escalated" &&
               hasRepStarted !== true &&
               fallbackShownRef.current &&
-              step === "idle" &&
-              conversation?.status !== "resolved" && (
+              step === "idle" && (
                 <div className="p-3">
                   <Button className="w-full" onClick={startBookingLikePromo}>
                     Book a meeting
                   </Button>
                 </div>
               )}
+
 
 
               {step === "auto_assign_wait" && (

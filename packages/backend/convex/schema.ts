@@ -138,7 +138,8 @@ export default defineSchema({
     organizationId: v.string(),
     contactSessionId: v.id("contactSessions"),
     status: v.union(v.literal("unresolved"), v.literal("escalated"), v.literal("resolved")),
-
+    escalatedAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
     // ✅ rep “owner” de la conversation
     assignedRepUserId: v.optional(v.string()),
     // ✅ DEBUG / analytics

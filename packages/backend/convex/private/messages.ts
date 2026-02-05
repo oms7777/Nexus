@@ -141,7 +141,11 @@ export const create = mutation({
 
     // 2) Auto escalate (business rule)
     if (conversation.status === "unresolved") {
-      await ctx.db.patch(args.conversationId, { status: "escalated" });
+      await ctx.db.patch(args.conversationId, {
+        status: "escalated",
+        escalatedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
     }
 
     // 3) Save operator message

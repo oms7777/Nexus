@@ -77,9 +77,11 @@ export const getOne = query({
       _id: conversation._id,
       status: conversation.status,
       threadId: conversation.threadId,
+      escalatedAt: (conversation as any).escalatedAt ?? null, // ✅ NEW
       assignedRepUserId: conversation.assignedRepUserId ?? null,
       assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
     };
+
   },
 });
 

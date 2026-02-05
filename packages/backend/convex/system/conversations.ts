@@ -1,6 +1,7 @@
 // packages/backend/convex/system/conversations.ts
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
+import { internal } from "../_generated/api";
 
 export const escalate = internalMutation({
   args: { threadId: v.string() },
@@ -14,8 +15,36 @@ export const escalate = internalMutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
-    await ctx.db.patch(conversation._id, { status: "escalated" });
+    const now = Date.now();
+
+    // ✅ If no assigned rep yet, pick the first AVAILABLE rep
+    let assignedRepUserId = conversation.assignedRepUserId ?? null;
+
+    if (!assignedRepUserId) {
+      const available =
+        (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
+          organizationId: conversation.organizationId,
+        })) ?? [];
+
+      assignedRepUserId = available?.[0]?.userId ?? null;
+    }
+
+    await ctx.db.patch(conversation._id, {
+      status: "escalated",
+      escalatedAt: (conversation as any).escalatedAt ?? now, // keep first escalatedAt
+      updatedAt: now,
+      ...(assignedRepUserId ? { assignedRepUserId } : {}),
+    });
+
+    // ✅ Optional but recommended: also persist assignment on the session for stability
+    if (assignedRepUserId) {
+      await ctx.db.patch(conversation.contactSessionId, {
+        assignedRepUserId,
+        assignedTerritoryKey: conversation.assignedTerritoryKey ?? undefined,
+      });
+    }
   },
+
 });
 
 export const resolve = internalMutation({
