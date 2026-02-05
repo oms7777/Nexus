@@ -15,7 +15,7 @@ import {
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import {
   Sidebar,
@@ -32,6 +32,8 @@ import {
 
 import { cn } from "@workspace/ui/lib/utils";
 import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { useQuery } from "convex/react";
+import { api } from "@workspace/backend/_generated/api";
 
 function BrandHeader() {
   const labelClass = "group-data-[collapsible=icon]:hidden";
@@ -51,6 +53,25 @@ function BrandHeader() {
   );
 }
 
+function playBeep() {
+  try {
+    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AudioCtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880;
+    g.gain.value = 0.06;
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    setTimeout(() => {
+      o.stop();
+      ctx.close();
+    }, 120);
+  } catch {}
+}
+
 export const DashboardSidebar = () => {
   const pathname = usePathname();
   const { membership } = useOrganization();
@@ -64,26 +85,39 @@ export const DashboardSidebar = () => {
   const canSeeIntegrations = !!(f.canUseSlack || f.canUseSalesforce);
   const canUseVoice = !!f.canUseVoice;
   const canUseBooking = !!f.canUseBooking;
-
-  // ✅ Standard vs Advanced Analytics
   const canUseAdvancedAnalytics = !!f.canUseAdvancedAnalytics;
+
+  // ✅ NEW: count escalated conversations for THIS rep (badge + sound)
+  const escalatedCount = useQuery(api.private.conversations.countMineByStatus, {
+    status: "escalated",
+  });
+
+  const prevCountRef = useRef<number>(0);
+  useEffect(() => {
+    const next = Number(escalatedCount ?? 0);
+    const prev = prevCountRef.current;
+
+    // sound only when increases and not first load
+    if (prev !== 0 && next > prev) {
+      playBeep();
+    }
+
+    prevCountRef.current = next;
+  }, [escalatedCount]);
 
   const pipelineItems = [
     { title: "Live Map", url: "/live", icon: MapIcon },
-    { title: "Conversations", url: "/conversations", icon: InboxIcon },
+    { title: "Conversations", url: "/conversations", icon: InboxIcon, badge: Number(escalatedCount ?? 0) },
   ];
 
-  // ✅ Starter: only Overview
   const analyticsItems = useMemo(() => {
     const base = [{ title: "Overview", url: "/analytics/overview", icon: BarChart3 }];
-
     if (canUseAdvancedAnalytics) {
       base.push(
         { title: "Funnel", url: "/analytics/funnel", icon: Filter },
         { title: "Signals", url: "/analytics/signals", icon: Activity },
       );
     }
-
     return base;
   }, [canUseAdvancedAnalytics]);
 
@@ -92,29 +126,19 @@ export const DashboardSidebar = () => {
       { title: "Account", url: "/me/profile", icon: UserIcon },
       { title: "Notifications", url: "/me/notifications", icon: BellIcon },
     ];
-
     if (canUseBooking) {
-      base.splice(1, 0, {
-        title: "Calendar",
-        url: "/me/calendar",
-        icon: CalendarIcon,
-      });
+      base.splice(1, 0, { title: "Calendar", url: "/me/calendar", icon: CalendarIcon });
     }
     return base;
   }, [canUseBooking]);
 
   const configurationItems = useMemo(() => {
     if (ent.isLoading) return [];
-
     return [
       { title: "Team & Territories", url: "/team", icon: Users },
       { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen },
       { title: "Widget Customization", url: "/customization", icon: SlidersHorizontal },
-      canSeeIntegrations && {
-        title: "Integrations",
-        url: "/integrations",
-        icon: InboxIcon,
-      },
+      canSeeIntegrations && { title: "Integrations", url: "/integrations", icon: InboxIcon },
       canUseVoice && { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
     ].filter(Boolean) as { title: string; url: string; icon: any }[];
   }, [ent.isLoading, canSeeIntegrations, canUseVoice]);
@@ -145,6 +169,18 @@ export const DashboardSidebar = () => {
                   >
                     <item.icon className={iconClass} />
                     <span className={labelClass}>{item.title}</span>
+
+                    {/* ✅ badge */}
+                    {!!item.badge && item.badge > 0 && (
+                      <span
+                        className={cn(
+                          "ml-auto rounded-full bg-red-600 text-white text-[11px] px-2 py-0.5",
+                          "group-data-[collapsible=icon]:hidden"
+                        )}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
                   </Link>
                 </SidebarMenuItem>
               ))}
@@ -163,7 +199,7 @@ export const DashboardSidebar = () => {
                     className={cn(
                       itemClass,
                       isActive(item.url) &&
-                        "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground!",
+                        "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground!"
                     )}
                     title={item.title}
                   >
@@ -173,7 +209,6 @@ export const DashboardSidebar = () => {
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
-
           </SidebarGroupContent>
         </SidebarGroup>
 
@@ -199,9 +234,7 @@ export const DashboardSidebar = () => {
 
         {isAdmin && configurationItems.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel className={labelClass}>
-              Configuration
-            </SidebarGroupLabel>
+            <SidebarGroupLabel className={labelClass}>Configuration</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {configurationItems.map((item) => (

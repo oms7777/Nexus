@@ -11,7 +11,7 @@ export type QualifyStep =
   | "ask_company"
   | "ask_role"
   | "pick_rep"
-  | "auto_assign_wait" // ✅ NEW
+  | "auto_assign_wait"
   | "picking"
   | "done";
 
@@ -21,10 +21,7 @@ export type QualifyData = {
   phone?: string;
   company?: string;
   role?: string;
-
-  // ✅ qualification description / use case
   description?: string;
-
   region?: "EMEA" | "NA" | "LATAM" | "APAC";
 };
 

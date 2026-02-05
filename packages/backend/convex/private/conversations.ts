@@ -152,3 +152,26 @@ export const getMany = query({
     };
   },
 });
+
+export const countMineByStatus = query({
+  args: {
+    status: v.union(v.literal("unresolved"), v.literal("escalated"), v.literal("resolved")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+
+    const orgId = (identity as any).orgId as string | undefined;
+    const meUserId = (identity as any).subject as string | undefined;
+    if (!orgId || !meUserId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    // ✅ fast path if you have by_org_assigned_rep index
+    // but need status filter => do it in memory unless you add compound index
+    const base = await ctx.db
+      .query("conversations")
+      .withIndex("by_org_assigned_rep", (q) => q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId))
+      .collect();
+
+    return base.filter((c) => c.status === args.status).length;
+  },
+});

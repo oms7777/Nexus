@@ -398,8 +398,8 @@ export const WidgetChatScreen = () => {
   const [consentGiven, setConsentGiven] = useAtom(consentGivenAtom);
   const [, setAssignedRep] = useAtom(assignedRepAtom);
 
-  const consentRequired = consentCfg?.enabled !== false;
-  const mustAcceptConsent = consentRequired && !consentGiven;
+  const consentEnabled = !!consentCfg && consentCfg.enabled !== false;
+  const mustAcceptConsent = consentEnabled && !consentGiven;
 
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
   // plan public (no auth) pour gating voice
@@ -488,30 +488,24 @@ export const WidgetChatScreen = () => {
   const fallbackShownRef = useRef(false);
 
   useEffect(() => {
-    // reset si pas de conversation
+    // reset if no conversation
     if (!conversationId) {
       fallbackShownRef.current = false;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       return;
     }
 
-    const isEscalated = conversation?.status === "escalated";
+    const isResolved = conversation?.status === "resolved";
     const humanAlreadyReplied = hasRepStarted === true;
 
-    // humain a répondu => stop
-    if (humanAlreadyReplied) {
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-      return;
-    }
-
-    // pas escalated => stop
-    if (!isEscalated) {
+    // stop fallback if resolved OR human replied OR not idle
+    if (isResolved || humanAlreadyReplied || step !== "idle") {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackShownRef.current = false;
       return;
     }
 
-    // déjà montré => ne pas spam
+    // already shown => don't spam
     if (fallbackShownRef.current) return;
 
     // arm timer
@@ -519,8 +513,6 @@ export const WidgetChatScreen = () => {
 
     fallbackTimerRef.current = setTimeout(() => {
       if (fallbackShownRef.current) return;
-
-      // encore escalated et toujours pas d'humain?
       fallbackShownRef.current = true;
 
       setLocalMsgs((m) => [
@@ -537,7 +529,8 @@ export const WidgetChatScreen = () => {
     return () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     };
-  }, [conversationId, conversation?.status, hasRepStarted]);
+  }, [conversationId, conversation?.status, hasRepStarted, step]);
+
 
 
   // local messages + booking
@@ -613,8 +606,9 @@ export const WidgetChatScreen = () => {
 
     setBookingIntent("book");
 
-    const nextStep = consentGiven ? "ask_name" : "consent";
+    const nextStep = (!consentEnabled || consentGiven) ? "ask_name" : "consent";
     setStep(nextStep as any);
+
 
     // on reste sur chat UI
     setScreen("chat");
@@ -867,20 +861,19 @@ export const WidgetChatScreen = () => {
     if (step === "idle" && /book|demo|meeting/i.test(text)) {
       setLocalMsgs((m) => [...m, { role: "user", text }]);
       setBookingIntent("book");
-      if (consentCfg?.enabled === false) {
+
+      if (!consentEnabled || consentGiven) {
         setStep("ask_name");
         setLocalMsgs((m) => [
           ...m,
-          {
-            role: "assistant",
-            text: "Great! To book a demo, fill in these quick details.",
-          },
+          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
         ]);
       } else {
         setStep("consent");
       }
       return;
     }
+
 
     if (!contactSessionId || !organizationId) return;
 
@@ -1034,16 +1027,18 @@ export const WidgetChatScreen = () => {
             })}
 
             {/* ✅ Fallback booking CTA after X seconds if escalated & no human reply */}
-            {conversation?.status === "escalated" &&
-              hasRepStarted === false &&
+            {conversationId &&
+              hasRepStarted !== true &&
               fallbackShownRef.current &&
-              step === "idle" && (
+              step === "idle" &&
+              conversation?.status !== "resolved" && (
                 <div className="p-3">
                   <Button className="w-full" onClick={startBookingLikePromo}>
                     Book a meeting
                   </Button>
                 </div>
               )}
+
 
               {step === "auto_assign_wait" && (
                 <div className="p-3 text-sm text-muted-foreground">
