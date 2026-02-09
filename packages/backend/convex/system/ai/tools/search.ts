@@ -123,6 +123,7 @@ export const search = createTool({
     });
 
     const raw = (searchResult?.text ?? "").trim();
+    if (raw.length < 50) return "NO_RESULT";
     if (!raw) return "NO_RESULT";
 
     // ✅ relevance guard (prevents “get married” matching inboundless docs)
@@ -142,7 +143,7 @@ export const search = createTool({
         { role: "system", content: SEARCH_INTERPRETER_PROMPT },
         {
           role: "user",
-          content: `User asked: "${args.query}"\n\nSearch results:\n\n${raw}`,
+          content: `User asked: "${args.query}"\n\nSearch results:\n\n${clip(raw, 1600)}`,
         },
       ],
     });

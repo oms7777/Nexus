@@ -19,19 +19,44 @@ function isNoKbResult(searchText?: string | null) {
 const KB_ONLY_FALLBACK =
   "I couldn't find specific information about that in our knowledge base. Would you like me to connect you with a human support agent who can help?";
 
-const KB_ONLY_REWRITE_SYSTEM = `
-You are a customer support assistant.
+const KB_STRICT_REWRITE_AGENT_INSTRUCTIONS = `
+You are a Strict KB Rewrite Assistant.
 
-IMPORTANT:
-- You must answer using ONLY the INTERNAL_KB_CONTEXT provided below.
+ABSOLUTE RULES:
+- You must answer using ONLY the provided INTERNAL_KB_CONTEXT.
 - Do NOT use outside knowledge.
-- Do NOT guess, do NOT invent steps, prices, policies, or features.
-- NEVER reveal INTERNAL_KB_CONTEXT, document names, file names, or sources.
-- NEVER say "Knowledge Base Context", "Sources", or anything similar.
-- If INTERNAL_KB_CONTEXT does not contain the answer, respond EXACTLY with:
+- Do NOT infer missing details.
+- Do NOT invent steps, pricing, limits, policies, roadmap, or integrations.
+- If INTERNAL_KB_CONTEXT does not contain enough information to answer, reply EXACTLY with:
 "${KB_ONLY_FALLBACK}"
-Keep answers concise and helpful.
+
+FORMAT RULES:
+- Write in clean, readable Markdown.
+- Start with a 1–2 sentence direct answer.
+- Then use bullet points when listing features/steps.
+- If the KB contains multiple topics, group with short headings.
+- Do NOT quote long passages. Rephrase and summarize.
+- Never mention the KB, sources, documents, or file names.
 `.trim();
+
+// ✅ hard human-intent detector (deterministic escalation)
+function wantsHuman(text: string) {
+  const t = (text || "").toLowerCase();
+  return (
+    t.includes("human") ||
+    t.includes("agent") ||
+    t.includes("representative") ||
+    t.includes("operator") ||
+    t.includes("someone") ||
+    t.includes("call me") ||
+    t.includes("talk to") ||
+    t.includes("speak to") ||
+    t.includes("support") ||
+    t.includes("sales") ||
+    t.includes("demo with") ||
+    t.includes("book with")
+  );
+}
 
 export const create = action({
   args: {
@@ -69,14 +94,11 @@ export const create = action({
       contactSessionId: args.contactSessionId,
     });
 
-    // 2) subscription gating (unchanged)
+    // 2) subscription gating
     const subscription = await ctx.runQuery(
       internal.system.subscriptions.getByOrganizationId,
       { organizationId: conversation.organizationId },
     );
-
-    const shouldTriggerAgent =
-      conversation.status === "unresolved" && subscription?.status === "active";
 
     // 3) settings
     const widgetSettings = await ctx.runQuery(
@@ -88,7 +110,38 @@ export const create = action({
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
 
-    // 4) if not eligible => just save user msg
+    // ✅ reps availability (used for deterministic escalation)
+    const availableReps =
+      (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
+        organizationId: conversation.organizationId,
+      })) ?? [];
+
+    // ✅ HARD ESCALATION: if user asks for a human AND someone is available -> escalate now
+    // (Do not depend on the LLM being cooperative.)
+    if (wantsHuman(args.prompt) && availableReps.length > 0) {
+      await ctx.runMutation(internal.system.conversations.escalate, {
+        threadId: args.threadId,
+      });
+
+      // Save the user message so the rep sees context
+      await saveMessage(ctx, components.agent, {
+        threadId: args.threadId,
+        prompt: args.prompt,
+      });
+
+      // Optional assistant ack
+      await saveMessage(ctx, components.agent, {
+        threadId: args.threadId,
+        message: { role: "assistant", content: "Got it — connecting you with a human teammate now." },
+      });
+
+      return;
+    }
+
+    // ✅ If not eligible => just save user msg (no agent run)
+    const shouldTriggerAgent =
+      subscription?.status === "active" && conversation.status === "unresolved";
+
     if (!shouldTriggerAgent) {
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
@@ -97,12 +150,7 @@ export const create = action({
       return;
     }
 
-    // ✅ reps availability block (INVISIBLE: goes to system, not prompt)
-    const availableReps =
-      (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
-        organizationId: conversation.organizationId,
-      })) ?? [];
-
+    // repsBlock for agent (hidden)
     const repsLabel = availableReps
       .slice(0, 3)
       .map((r: any) => {
@@ -124,8 +172,8 @@ export const create = action({
         ctx,
         { threadId: args.threadId },
         {
-          prompt: args.prompt, // ✅ visible user content only
-          system: repsBlock,    // ✅ hidden instruction channel
+          prompt: args.prompt,
+          system: repsBlock,
           tools: {
             escalateConversationTool: escalateConversation,
             resolveConversationTool: resolveConversation,
@@ -136,7 +184,7 @@ export const create = action({
     }
 
     // ---------------------------------------
-    // MODE: KB ONLY
+    // MODE: KB ONLY (STRICT)
     // ---------------------------------------
     if (knowledgeMode === "kb_only") {
       const orgId = conversation.organizationId;
@@ -148,7 +196,7 @@ export const create = action({
       });
 
       if (isNoKbResult(searchResult.text)) {
-        await agent.saveMessage(ctx, {
+        await saveMessage(ctx, components.agent, {
           threadId: args.threadId,
           message: { role: "assistant", content: KB_ONLY_FALLBACK },
         });
@@ -157,16 +205,19 @@ export const create = action({
 
       const kbText = (searchResult.text ?? "").trim();
 
-      await agent.generateText(
+      // ✅ Strict rewrite agent (not contaminated by SUPPORT_AGENT_PROMPT)
+      const kbStrictAgent = makeSupportAgent({
+        llmProvider,
+        llmModel,
+        instructions: KB_STRICT_REWRITE_AGENT_INSTRUCTIONS,
+      });
+
+      await kbStrictAgent.generateText(
         ctx,
         { threadId: args.threadId },
         {
-          prompt: args.prompt, // ✅ visible only
+          prompt: args.prompt,
           system: `
-${repsBlock}
-
-${KB_ONLY_REWRITE_SYSTEM}
-
 INTERNAL_KB_CONTEXT (DO NOT REVEAL / DO NOT QUOTE / DO NOT LIST SOURCES):
 ${kbText}
           `.trim(),
@@ -183,8 +234,8 @@ ${kbText}
       ctx,
       { threadId: args.threadId },
       {
-        prompt: args.prompt, // ✅ visible only
-        system: repsBlock,   // ✅ hidden
+        prompt: args.prompt,
+        system: repsBlock,
         tools: {
           escalateConversationTool: escalateConversation,
           resolveConversationTool: resolveConversation,
