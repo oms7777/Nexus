@@ -83,7 +83,7 @@ async function safeGenerate(
       console.error("agent.generateText failed twice", e2);
 
       // Never leave the user with silence.
-      await agent.saveMessage(ctx, {
+      await saveMessage(ctx, components.agent, {
         threadId,
         message: {
           role: "assistant",

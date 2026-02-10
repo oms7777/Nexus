@@ -142,6 +142,7 @@ function SlotsByDay({
       </div>
     );
   }
+  
 
   // ✔ Plus d'undefined ici !
   const safeIndex = Math.min(activeIndex, dayOrder.length - 1);
@@ -467,7 +468,8 @@ export const WidgetChatScreen = () => {
     return null;
   }
 
-  const effectiveThreadId = threadIdRef.current ?? conversation?.threadId ?? localThreadId;
+  const effectiveThreadId = conversation?.threadId ?? localThreadId ?? null;
+
 
 
   const messages = useThreadMessages(
@@ -623,6 +625,42 @@ export const WidgetChatScreen = () => {
   // analytics & conversation bootstrap
   const logEvent = useMutation(api.public.analytics.log);
   const createConversation = useMutation(api.public.conversations.create);
+  const bootstrappedRef = useRef(false);
+
+  useEffect(() => {
+    // Bootstrap conversation dès que le widget est prêt (idle chat)
+    if (!organizationId || !contactSessionId) return;
+    if (conversationId) return;
+    if (bootstrappedRef.current) return;
+
+    // Ne pas bootstrap si on est dans un flow (booking / consent / etc.)
+    if (bookingIntent !== "none") return;
+    if (step !== "idle") return;
+    if (mustAcceptConsent) return;
+
+    bootstrappedRef.current = true;
+
+    (async () => {
+      try {
+        const res = await createConversation({ organizationId, contactSessionId } as any);
+        setConversationId(res.conversationId);
+        setLocalThreadId(res.threadId);
+        threadIdRef.current = res.threadId; // important
+      } catch {
+        bootstrappedRef.current = false;
+      }
+    })();
+  }, [
+    organizationId,
+    contactSessionId,
+    conversationId,
+    bookingIntent,
+    step,
+    mustAcceptConsent,
+    createConversation,
+    setConversationId,
+  ]);
+
   const firstMessageSentRef = useRef(false);
 
   // ✅ NEW: book handler identique à SmartPromo.ensureAndStart("book")
@@ -902,48 +940,30 @@ export const WidgetChatScreen = () => {
 
     if (!contactSessionId || !organizationId) return;
 
-    // Ensure a conversation exists
-    // Ensure a conversation exists
-    let cid = conversationId;
-    let createdThreadId: string | null = null;
+    // --- Ensure threadId exists (bootstrap should have done it, but fallback here) ---
+    let thr =
+      conversation?.threadId ??
+      localThreadId ??
+      threadIdRef.current ??
+      (await waitForThreadId());
 
-    try {
-      if (!cid || !conversation) {
+    if (!thr) {
+      try {
         const res = await createConversation({ organizationId, contactSessionId } as any);
-        cid = res.conversationId;
-        createdThreadId = res.threadId;
-        threadIdRef.current = res.threadId;
         setConversationId(res.conversationId);
         setLocalThreadId(res.threadId);
+        threadIdRef.current = res.threadId;
+        thr = res.threadId;
+      } catch {
+        setLocalMsgs((m) => [
+          ...m,
+          { role: "assistant", text: "One sec… ready now. Please resend your message." },
+        ]);
+        return;
       }
-    } catch {
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "assistant", text: "One sec… ready now. Please resend your message." },
-      ]);
-      return;
-    }
-
-    // Wait for threadId to be ready, then send
-    const thr =
-      threadIdRef.current ??
-      conversation?.threadId ??
-      createdThreadId ??
-      localThreadId ??
-      (await waitForThreadId());
-    if (!thr) {
-      setLocalMsgs((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text: "Preparing the chat… please resend your message in a moment.",
-        },
-      ]);
-      return;
     }
 
     try {
-      setLocalMsgs((m) => [...m, { role: "user", text }]);
       await createMessage({
         threadId: thr,
         prompt: text,
@@ -952,13 +972,10 @@ export const WidgetChatScreen = () => {
     } catch {
       setLocalMsgs((m) => [
         ...m,
-        {
-          role: "assistant",
-          text: "Network hiccup—please try again.",
-        },
+        { role: "assistant", text: "Network hiccup—please try again." },
       ]);
     }
-  };
+  }
 
   /* -------- MESSAGES + GREET -------- */
   const backendMsgs = toUIMessages(messages.results ?? [])
