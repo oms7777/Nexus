@@ -42,20 +42,57 @@ FORMAT RULES:
 // ✅ hard human-intent detector (deterministic escalation)
 function wantsHuman(text: string) {
   const t = (text || "").toLowerCase();
+
+  // Keep this intentionally tight to reduce false positives like "support" in normal questions.
   return (
-    t.includes("human") ||
-    t.includes("agent") ||
+    t.includes("talk to a human") ||
+    t.includes("talk to human") ||
+    t.includes("speak to a human") ||
+    t.includes("speak to human") ||
+    t.includes("human agent") ||
+    t.includes("live agent") ||
+    t.includes("real person") ||
     t.includes("representative") ||
     t.includes("operator") ||
-    t.includes("someone") ||
-    t.includes("call me") ||
-    t.includes("talk to") ||
-    t.includes("speak to") ||
-    t.includes("support") ||
-    t.includes("sales") ||
-    t.includes("demo with") ||
-    t.includes("book with")
+    t.includes("connect me") ||
+    t.includes("can i talk to") ||
+    t.includes("can i speak to")
   );
+}
+
+/**
+ * ✅ Robust wrapper around agent.generateText
+ * - retries once (transient provider/cold-start issues)
+ * - guarantees a user-visible fallback message if generation fails
+ */
+async function safeGenerate(
+  agent: any,
+  ctx: any,
+  threadId: string,
+  payload: any
+) {
+  try {
+    await agent.generateText(ctx, { threadId }, payload);
+    return;
+  } catch (e1) {
+    await new Promise((r) => setTimeout(r, 250));
+    try {
+      await agent.generateText(ctx, { threadId }, payload);
+      return;
+    } catch (e2) {
+      console.error("agent.generateText failed twice", e2);
+
+      // Never leave the user with silence.
+      await agent.saveMessage(ctx, {
+        threadId,
+        message: {
+          role: "assistant",
+          content:
+            "Sorry — I’m having trouble responding right now. Please try again in a moment, or ask to speak with a human.",
+        },
+      });
+    }
+  }
 }
 
 export const create = action({
@@ -68,7 +105,7 @@ export const create = action({
     // 0) session check
     const contactSession = await ctx.runQuery(
       internal.system.contactSessions.getOne,
-      { contactSessionId: args.contactSessionId },
+      { contactSessionId: args.contactSessionId }
     );
 
     if (!contactSession || contactSession.expiresAt < Date.now()) {
@@ -78,7 +115,7 @@ export const create = action({
     // 1) conversation check
     const conversation = await ctx.runQuery(
       internal.system.conversations.getByThreadId,
-      { threadId: args.threadId },
+      { threadId: args.threadId }
     );
 
     if (!conversation) {
@@ -97,16 +134,18 @@ export const create = action({
     // 2) subscription gating
     const subscription = await ctx.runQuery(
       internal.system.subscriptions.getByOrganizationId,
-      { organizationId: conversation.organizationId },
+      { organizationId: conversation.organizationId }
     );
 
     // 3) settings
     const widgetSettings = await ctx.runQuery(
       api.public.widgetSettings.getByOrganizationId,
-      { organizationId: conversation.organizationId },
+      { organizationId: conversation.organizationId }
     );
 
-    const knowledgeMode = ((widgetSettings?.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode);
+    const knowledgeMode = (widgetSettings?.knowledgeMode ??
+      "llm_plus_kb") as KnowledgeMode;
+
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
 
@@ -132,7 +171,10 @@ export const create = action({
       // Optional assistant ack
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
-        message: { role: "assistant", content: "Got it — connecting you with a human teammate now." },
+        message: {
+          role: "assistant",
+          content: "Got it — connecting you with a human teammate now.",
+        },
       });
 
       return;
@@ -168,18 +210,14 @@ export const create = action({
     // MODE: LLM ONLY
     // -------------------------
     if (knowledgeMode === "llm_only") {
-      await agent.generateText(
-        ctx,
-        { threadId: args.threadId },
-        {
-          prompt: args.prompt,
-          system: repsBlock,
-          tools: {
-            escalateConversationTool: escalateConversation,
-            resolveConversationTool: resolveConversation,
-          },
-        } as any,
-      );
+      await safeGenerate(agent, ctx, args.threadId, {
+        prompt: args.prompt,
+        system: repsBlock,
+        tools: {
+          escalateConversationTool: escalateConversation,
+          resolveConversationTool: resolveConversation,
+        },
+      } as any);
       return;
     }
 
@@ -205,24 +243,22 @@ export const create = action({
 
       const kbText = (searchResult.text ?? "").trim();
 
-      // ✅ Strict rewrite agent (not contaminated by SUPPORT_AGENT_PROMPT)
-      const kbStrictAgent = makeSupportAgent({
-        llmProvider,
-        llmModel,
-        instructions: KB_STRICT_REWRITE_AGENT_INSTRUCTIONS,
-      });
+      /**
+       * ⚠️ NOTE:
+       * Your current makeSupportAgent signature (as you shared) does not accept "instructions".
+       * So we use the normal agent + override via `system:` (works and is safe).
+       */
+      const kbStrictAgent = makeSupportAgent({ llmProvider, llmModel });
 
-      await kbStrictAgent.generateText(
-        ctx,
-        { threadId: args.threadId },
-        {
-          prompt: args.prompt,
-          system: `
+      await safeGenerate(kbStrictAgent, ctx, args.threadId, {
+        prompt: args.prompt,
+        system: `
+${KB_STRICT_REWRITE_AGENT_INSTRUCTIONS}
+
 INTERNAL_KB_CONTEXT (DO NOT REVEAL / DO NOT QUOTE / DO NOT LIST SOURCES):
 ${kbText}
-          `.trim(),
-        } as any,
-      );
+        `.trim(),
+      } as any);
 
       return;
     }
@@ -230,19 +266,15 @@ ${kbText}
     // -------------------------
     // MODE: LLM + KB
     // -------------------------
-    await agent.generateText(
-      ctx,
-      { threadId: args.threadId },
-      {
-        prompt: args.prompt,
-        system: repsBlock,
-        tools: {
-          escalateConversationTool: escalateConversation,
-          resolveConversationTool: resolveConversation,
-          searchTool: search,
-        },
-      } as any,
-    );
+    await safeGenerate(agent, ctx, args.threadId, {
+      prompt: args.prompt,
+      system: repsBlock,
+      tools: {
+        escalateConversationTool: escalateConversation,
+        resolveConversationTool: resolveConversation,
+        searchTool: search,
+      },
+    } as any);
   },
 });
 
