@@ -468,9 +468,7 @@ export const WidgetChatScreen = () => {
     return null;
   }
 
-  const effectiveThreadId = conversation?.threadId ?? localThreadId ?? null;
-
-
+  const effectiveThreadId = threadIdRef.current ?? conversation?.threadId ?? localThreadId ?? null;
 
   const messages = useThreadMessages(
     api.public.messages.getMany,
@@ -942,10 +940,11 @@ export const WidgetChatScreen = () => {
 
     // --- Ensure threadId exists (bootstrap should have done it, but fallback here) ---
     let thr =
-      conversation?.threadId ??
-      localThreadId ??
       threadIdRef.current ??
+      localThreadId ??
+      conversation?.threadId ??
       (await waitForThreadId());
+
 
     if (!thr) {
       try {
