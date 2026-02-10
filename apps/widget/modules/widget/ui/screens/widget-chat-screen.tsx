@@ -467,7 +467,8 @@ export const WidgetChatScreen = () => {
     return null;
   }
 
-  const effectiveThreadId = conversation?.threadId ?? localThreadId;
+  const effectiveThreadId = threadIdRef.current ?? conversation?.threadId ?? localThreadId;
+
 
   const messages = useThreadMessages(
     api.public.messages.getMany,
@@ -911,7 +912,7 @@ export const WidgetChatScreen = () => {
         const res = await createConversation({ organizationId, contactSessionId } as any);
         cid = res.conversationId;
         createdThreadId = res.threadId;
-
+        threadIdRef.current = res.threadId;
         setConversationId(res.conversationId);
         setLocalThreadId(res.threadId);
       }
@@ -925,6 +926,7 @@ export const WidgetChatScreen = () => {
 
     // Wait for threadId to be ready, then send
     const thr =
+      threadIdRef.current ??
       conversation?.threadId ??
       createdThreadId ??
       localThreadId ??
@@ -941,6 +943,7 @@ export const WidgetChatScreen = () => {
     }
 
     try {
+      setLocalMsgs((m) => [...m, { role: "user", text }]);
       await createMessage({
         threadId: thr,
         prompt: text,
