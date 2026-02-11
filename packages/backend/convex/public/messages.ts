@@ -185,12 +185,24 @@ export const create = action({
       subscription?.status === "active" && conversation.status === "unresolved";
 
     if (!shouldTriggerAgent) {
+      // Save user message
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         prompt: args.prompt,
       });
+
+      // Fallback assistant reply so user never sees silence
+      await saveMessage(ctx, components.agent, {
+        threadId: args.threadId,
+        message: {
+          role: "assistant",
+          content: "One moment — preparing the conversation…",
+        },
+      });
+
       return;
     }
+
 
     // repsBlock for agent (hidden)
     const repsLabel = availableReps
