@@ -446,6 +446,39 @@ export const WidgetChatScreen = () => {
     threadIdRef.current = conversation?.threadId ?? localThreadId ?? null;
   }, [conversation?.threadId, localThreadId]);
 
+  // ✅ Mutex: prevents double conversation/thread creation (fixes “needs 2 messages” bug)
+  const ensureConvPromiseRef = useRef<
+    Promise<{ conversationId: any; threadId: string }> | null
+  >(null);
+
+  const ensureConversation = async () => {
+    // already have a usable thread
+    const existingThreadId =
+      threadIdRef.current ?? conversation?.threadId ?? localThreadId ?? null;
+
+    if (conversationId && existingThreadId) {
+      return { conversationId, threadId: existingThreadId };
+    }
+
+    // one in-flight create at a time
+    if (ensureConvPromiseRef.current) return ensureConvPromiseRef.current;
+
+    ensureConvPromiseRef.current = (async () => {
+      const res = await createConversation({ organizationId, contactSessionId } as any);
+
+      setConversationId(res.conversationId);
+      setLocalThreadId(res.threadId);
+      threadIdRef.current = res.threadId;
+
+      return res;
+    })().finally(() => {
+      ensureConvPromiseRef.current = null;
+    });
+
+    return ensureConvPromiseRef.current;
+  };
+
+
   const brandLogoUrl =
   (widgetSettings as any)?.brandLogoUrl ??
   "https://app.inboundless.co/logo.svg";
@@ -626,7 +659,6 @@ export const WidgetChatScreen = () => {
   const bootstrappedRef = useRef(false);
 
   useEffect(() => {
-    // Bootstrap conversation dès que le widget est prêt (idle chat)
     if (!organizationId || !contactSessionId) return;
     if (conversationId) return;
     if (bootstrappedRef.current) return;
@@ -640,10 +672,7 @@ export const WidgetChatScreen = () => {
 
     (async () => {
       try {
-        const res = await createConversation({ organizationId, contactSessionId } as any);
-        setConversationId(res.conversationId);
-        setLocalThreadId(res.threadId);
-        threadIdRef.current = res.threadId; // important
+        await ensureConversation(); // ✅ single source of truth
       } catch {
         bootstrappedRef.current = false;
       }
@@ -655,9 +684,8 @@ export const WidgetChatScreen = () => {
     bookingIntent,
     step,
     mustAcceptConsent,
-    createConversation,
-    setConversationId,
   ]);
+
 
   const firstMessageSentRef = useRef(false);
 
@@ -938,33 +966,22 @@ export const WidgetChatScreen = () => {
 
     if (!contactSessionId || !organizationId) return;
 
-    // --- Ensure threadId exists (bootstrap should have done it, but fallback here) ---
-    let thr =
-      threadIdRef.current ??
-      localThreadId ??
-      conversation?.threadId ??
-      (await waitForThreadId());
-
-
-    if (!thr) {
-      try {
-        const res = await createConversation({ organizationId, contactSessionId } as any);
-        setConversationId(res.conversationId);
-        setLocalThreadId(res.threadId);
-        threadIdRef.current = res.threadId;
-        thr = res.threadId;
-      } catch {
-        setLocalMsgs((m) => [
-          ...m,
-          { role: "assistant", text: "One sec… ready now. Please resend your message." },
-        ]);
-        return;
-      }
+    // ✅ Ensure we have EXACTLY ONE conversation/thread (no race)
+    let threadId: string;
+    try {
+      const res = await ensureConversation();
+      threadId = res.threadId;
+    } catch {
+      setLocalMsgs((m) => [
+        ...m,
+        { role: "assistant", text: "One sec… ready now. Please resend your message." },
+      ]);
+      return;
     }
 
     try {
       await createMessage({
-        threadId: thr,
+        threadId,
         prompt: text,
         contactSessionId,
       });
