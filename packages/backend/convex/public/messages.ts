@@ -58,15 +58,18 @@ function wantsHuman(text: string) {
   );
 }
 
-// ✅ makes “What is Inboundless” behave like a question (without forcing punctuation always)
+/**
+ * ✅ Normalise les prompts “question-like” pour éviter le cas
+ * où l’agent ne répond qu’après un second message ("?").
+ */
 function normalizeQuestionPrompt(p: string) {
   const t = (p || "").trim();
   if (!t) return t;
 
-  // already ends with punctuation
+  // Si ça finit déjà par une ponctuation, on ne touche pas
   if (/[?.!…]$/.test(t)) return t;
 
-  // English question openers
+  // Question openers (EN)
   if (
     /^(what|why|how|when|where|who|which|can|could|would|should|do|does|is|are|am|tell me|explain)\b/i.test(
       t
@@ -75,7 +78,7 @@ function normalizeQuestionPrompt(p: string) {
     return t + "?";
   }
 
-  // French question openers
+  // Question openers (FR)
   if (
     /^(c'?est quoi|pourquoi|comment|quand|où|qui|quel|quelle|quels|quelles|peux-tu|pouvez-vous|est-ce que)\b/i.test(
       t
@@ -84,67 +87,35 @@ function normalizeQuestionPrompt(p: string) {
     return t + " ?";
   }
 
+  // Sinon, on laisse tel quel (ex: “for more inbound leads”)
   return t;
 }
 
 /**
  * ✅ Robust wrapper around agent.generateText
  * - retries once (transient provider/cold-start issues)
- * - guarantees a user-visible fallback message if generation fails OR produces no visible assistant message
+ * - guarantees a user-visible fallback message if generation fails
  */
-async function safeGenerate(
-  agent: any,
-  ctx: any,
-  threadId: string,
-  payload: any
-) {
-  const FALLBACK =
-    "Sorry — I’m having trouble responding right now. Please try again in a moment, or ask to speak with a human.";
-
-  async function ensureAssistantVisible() {
-    // Check last messages – if last assistant message is missing/empty, write fallback
-    try {
-      const res = await agent.listMessages(ctx, {
-        threadId,
-        paginationOpts: { numItems: 10, cursor: null },
-      });
-
-      const msgs = (res?.page ?? res?.results ?? res?.items ?? []) as Array<any>;
-      const last = msgs[msgs.length - 1];
-      const lastRole = last?.role ?? last?.message?.role;
-      const lastContent =
-        (last?.content ?? last?.message?.content ?? "").toString().trim();
-
-      if (lastRole !== "assistant" || !lastContent) {
-        await saveMessage(ctx, components.agent, {
-          threadId,
-          message: { role: "assistant", content: FALLBACK },
-        });
-      }
-    } catch {
-      // If even check fails, still write fallback
-      await saveMessage(ctx, components.agent, {
-        threadId,
-        message: { role: "assistant", content: FALLBACK },
-      });
-    }
-  }
-
+async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any) {
   try {
     await agent.generateText(ctx, { threadId }, payload);
-    await ensureAssistantVisible();
     return;
   } catch (e1) {
     await new Promise((r) => setTimeout(r, 250));
     try {
       await agent.generateText(ctx, { threadId }, payload);
-      await ensureAssistantVisible();
       return;
     } catch (e2) {
       console.error("agent.generateText failed twice", e2);
+
+      // Never leave the user with silence.
       await saveMessage(ctx, components.agent, {
         threadId,
-        message: { role: "assistant", content: FALLBACK },
+        message: {
+          role: "assistant",
+          content:
+            "Sorry — I’m having trouble responding right now. Please try again in a moment, or ask to speak with a human.",
+        },
       });
     }
   }
@@ -157,24 +128,22 @@ export const create = action({
     contactSessionId: v.id("contactSessions"),
   },
   handler: async (ctx, args) => {
-    // ✅ normalize prompt once, use everywhere
+    // ✅ normalize prompt INSIDE handler (args exists here)
     const prompt = normalizeQuestionPrompt(args.prompt);
 
     // 0) session check
-    const contactSession = await ctx.runQuery(
-      internal.system.contactSessions.getOne,
-      { contactSessionId: args.contactSessionId }
-    );
+    const contactSession = await ctx.runQuery(internal.system.contactSessions.getOne, {
+      contactSessionId: args.contactSessionId,
+    });
 
     if (!contactSession || contactSession.expiresAt < Date.now()) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
     // 1) conversation check
-    const conversation = await ctx.runQuery(
-      internal.system.conversations.getByThreadId,
-      { threadId: args.threadId }
-    );
+    const conversation = await ctx.runQuery(internal.system.conversations.getByThreadId, {
+      threadId: args.threadId,
+    });
 
     if (!conversation) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
@@ -190,19 +159,16 @@ export const create = action({
     });
 
     // 2) subscription gating
-    const subscription = await ctx.runQuery(
-      internal.system.subscriptions.getByOrganizationId,
-      { organizationId: conversation.organizationId }
-    );
+    const subscription = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
+      organizationId: conversation.organizationId,
+    });
 
     // 3) settings
-    const widgetSettings = await ctx.runQuery(
-      api.public.widgetSettings.getByOrganizationId,
-      { organizationId: conversation.organizationId }
-    );
+    const widgetSettings = await ctx.runQuery(api.public.widgetSettings.getByOrganizationId, {
+      organizationId: conversation.organizationId,
+    });
 
-    const knowledgeMode = (widgetSettings?.knowledgeMode ??
-      "llm_plus_kb") as KnowledgeMode;
+    const knowledgeMode = (widgetSettings?.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode;
 
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
@@ -225,7 +191,7 @@ export const create = action({
         prompt,
       });
 
-      // assistant ack
+      // Optional assistant ack
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         message: {
