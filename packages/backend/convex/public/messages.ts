@@ -42,8 +42,6 @@ FORMAT RULES:
 // ✅ hard human-intent detector (deterministic escalation)
 function wantsHuman(text: string) {
   const t = (text || "").toLowerCase();
-
-  // Keep this intentionally tight to reduce false positives like "support" in normal questions.
   return (
     t.includes("talk to a human") ||
     t.includes("talk to human") ||
@@ -60,15 +58,15 @@ function wantsHuman(text: string) {
   );
 }
 
-// ✅ Normalize "question-like" prompts so the model answers immediately
+// ✅ makes “What is Inboundless” behave like a question (without forcing punctuation always)
 function normalizeQuestionPrompt(p: string) {
   const t = (p || "").trim();
   if (!t) return t;
 
-  // If it already ends with punctuation, keep it.
+  // already ends with punctuation
   if (/[?.!…]$/.test(t)) return t;
 
-  // Detect common question openers (EN + FR). Add more if needed.
+  // English question openers
   if (
     /^(what|why|how|when|where|who|which|can|could|would|should|do|does|is|are|am|tell me|explain)\b/i.test(
       t
@@ -76,6 +74,8 @@ function normalizeQuestionPrompt(p: string) {
   ) {
     return t + "?";
   }
+
+  // French question openers
   if (
     /^(c'?est quoi|pourquoi|comment|quand|où|qui|quel|quelle|quels|quelles|peux-tu|pouvez-vous|est-ce que)\b/i.test(
       t
@@ -90,7 +90,7 @@ function normalizeQuestionPrompt(p: string) {
 /**
  * ✅ Robust wrapper around agent.generateText
  * - retries once (transient provider/cold-start issues)
- * - guarantees a user-visible fallback message if generation fails
+ * - guarantees a user-visible fallback message if generation fails OR produces no visible assistant message
  */
 async function safeGenerate(
   agent: any,
@@ -98,25 +98,53 @@ async function safeGenerate(
   threadId: string,
   payload: any
 ) {
+  const FALLBACK =
+    "Sorry — I’m having trouble responding right now. Please try again in a moment, or ask to speak with a human.";
+
+  async function ensureAssistantVisible() {
+    // Check last messages – if last assistant message is missing/empty, write fallback
+    try {
+      const res = await agent.listMessages(ctx, {
+        threadId,
+        paginationOpts: { numItems: 10, cursor: null },
+      });
+
+      const msgs = (res?.page ?? res?.results ?? res?.items ?? []) as Array<any>;
+      const last = msgs[msgs.length - 1];
+      const lastRole = last?.role ?? last?.message?.role;
+      const lastContent =
+        (last?.content ?? last?.message?.content ?? "").toString().trim();
+
+      if (lastRole !== "assistant" || !lastContent) {
+        await saveMessage(ctx, components.agent, {
+          threadId,
+          message: { role: "assistant", content: FALLBACK },
+        });
+      }
+    } catch {
+      // If even check fails, still write fallback
+      await saveMessage(ctx, components.agent, {
+        threadId,
+        message: { role: "assistant", content: FALLBACK },
+      });
+    }
+  }
+
   try {
     await agent.generateText(ctx, { threadId }, payload);
+    await ensureAssistantVisible();
     return;
   } catch (e1) {
     await new Promise((r) => setTimeout(r, 250));
     try {
       await agent.generateText(ctx, { threadId }, payload);
+      await ensureAssistantVisible();
       return;
     } catch (e2) {
       console.error("agent.generateText failed twice", e2);
-
-      // Never leave the user with silence.
       await saveMessage(ctx, components.agent, {
         threadId,
-        message: {
-          role: "assistant",
-          content:
-            "Sorry — I’m having trouble responding right now. Please try again in a moment, or ask to speak with a human.",
-        },
+        message: { role: "assistant", content: FALLBACK },
       });
     }
   }
@@ -129,7 +157,7 @@ export const create = action({
     contactSessionId: v.id("contactSessions"),
   },
   handler: async (ctx, args) => {
-    // ✅ FIX: args only exists here -> normalize here
+    // ✅ normalize prompt once, use everywhere
     const prompt = normalizeQuestionPrompt(args.prompt);
 
     // 0) session check
@@ -186,7 +214,6 @@ export const create = action({
       })) ?? [];
 
     // ✅ HARD ESCALATION: if user asks for a human AND someone is available -> escalate now
-    // (Do not depend on the LLM being cooperative.)
     if (wantsHuman(prompt) && availableReps.length > 0) {
       await ctx.runMutation(internal.system.conversations.escalate, {
         threadId: args.threadId,
@@ -198,7 +225,7 @@ export const create = action({
         prompt,
       });
 
-      // Optional assistant ack
+      // assistant ack
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         message: {
@@ -215,13 +242,11 @@ export const create = action({
       subscription?.status === "active" && conversation.status === "unresolved";
 
     if (!shouldTriggerAgent) {
-      // Save user message
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         prompt,
       });
 
-      // Fallback assistant reply so user never sees silence
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         message: {
@@ -283,10 +308,6 @@ export const create = action({
       }
 
       const kbText = (searchResult.text ?? "").trim();
-
-      /**
-       * We use the normal agent + override via `system:`
-       */
       const kbStrictAgent = makeSupportAgent({ llmProvider, llmModel });
 
       await safeGenerate(kbStrictAgent, ctx, args.threadId, {
