@@ -60,6 +60,33 @@ function wantsHuman(text: string) {
   );
 }
 
+// ✅ Normalize "question-like" prompts so the model answers immediately
+function normalizeQuestionPrompt(p: string) {
+  const t = (p || "").trim();
+  if (!t) return t;
+
+  // If it already ends with punctuation, keep it.
+  if (/[?.!…]$/.test(t)) return t;
+
+  // Detect common question openers (EN + FR). Add more if needed.
+  if (
+    /^(what|why|how|when|where|who|which|can|could|would|should|do|does|is|are|am|tell me|explain)\b/i.test(
+      t
+    )
+  ) {
+    return t + "?";
+  }
+  if (
+    /^(c'?est quoi|pourquoi|comment|quand|où|qui|quel|quelle|quels|quelles|peux-tu|pouvez-vous|est-ce que)\b/i.test(
+      t
+    )
+  ) {
+    return t + " ?";
+  }
+
+  return t;
+}
+
 /**
  * ✅ Robust wrapper around agent.generateText
  * - retries once (transient provider/cold-start issues)
@@ -102,6 +129,9 @@ export const create = action({
     contactSessionId: v.id("contactSessions"),
   },
   handler: async (ctx, args) => {
+    // ✅ FIX: args only exists here -> normalize here
+    const prompt = normalizeQuestionPrompt(args.prompt);
+
     // 0) session check
     const contactSession = await ctx.runQuery(
       internal.system.contactSessions.getOne,
@@ -157,7 +187,7 @@ export const create = action({
 
     // ✅ HARD ESCALATION: if user asks for a human AND someone is available -> escalate now
     // (Do not depend on the LLM being cooperative.)
-    if (wantsHuman(args.prompt) && availableReps.length > 0) {
+    if (wantsHuman(prompt) && availableReps.length > 0) {
       await ctx.runMutation(internal.system.conversations.escalate, {
         threadId: args.threadId,
       });
@@ -165,7 +195,7 @@ export const create = action({
       // Save the user message so the rep sees context
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
-        prompt: args.prompt,
+        prompt,
       });
 
       // Optional assistant ack
@@ -188,7 +218,7 @@ export const create = action({
       // Save user message
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
-        prompt: args.prompt,
+        prompt,
       });
 
       // Fallback assistant reply so user never sees silence
@@ -202,7 +232,6 @@ export const create = action({
 
       return;
     }
-
 
     // repsBlock for agent (hidden)
     const repsLabel = availableReps
@@ -223,7 +252,7 @@ export const create = action({
     // -------------------------
     if (knowledgeMode === "llm_only") {
       await safeGenerate(agent, ctx, args.threadId, {
-        prompt: args.prompt,
+        prompt,
         system: repsBlock,
         tools: {
           escalateConversationTool: escalateConversation,
@@ -241,7 +270,7 @@ export const create = action({
 
       const searchResult = await rag.search(ctx, {
         namespace: orgId,
-        query: args.prompt,
+        query: prompt,
         limit: 5,
       });
 
@@ -256,14 +285,12 @@ export const create = action({
       const kbText = (searchResult.text ?? "").trim();
 
       /**
-       * ⚠️ NOTE:
-       * Your current makeSupportAgent signature (as you shared) does not accept "instructions".
-       * So we use the normal agent + override via `system:` (works and is safe).
+       * We use the normal agent + override via `system:`
        */
       const kbStrictAgent = makeSupportAgent({ llmProvider, llmModel });
 
       await safeGenerate(kbStrictAgent, ctx, args.threadId, {
-        prompt: args.prompt,
+        prompt,
         system: `
 ${KB_STRICT_REWRITE_AGENT_INSTRUCTIONS}
 
@@ -279,7 +306,7 @@ ${kbText}
     // MODE: LLM + KB
     // -------------------------
     await safeGenerate(agent, ctx, args.threadId, {
-      prompt: args.prompt,
+      prompt,
       system: repsBlock,
       tools: {
         escalateConversationTool: escalateConversation,
