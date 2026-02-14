@@ -450,6 +450,7 @@ export const WidgetChatScreen = () => {
   const ensureConvPromiseRef = useRef<
     Promise<{ conversationId: any; threadId: string }> | null
   >(null);
+  const createConversation = useMutation(api.public.conversations.create);
 
   const ensureConversation = async () => {
     // already have a usable thread
@@ -483,25 +484,10 @@ export const WidgetChatScreen = () => {
   (widgetSettings as any)?.brandLogoUrl ??
   "https://app.inboundless.co/logo.svg";
 
-  // Wait helper: resolve once threadId exists (short poll)
-  async function waitForThreadId(opts: {
-    timeoutMs?: number;
-    intervalMs?: number;
-  } = {}) {
-    const timeoutMs = opts.timeoutMs ?? 4000;
-    const intervalMs = opts.intervalMs ?? 150;
-    const start = Date.now();
 
-    if (threadIdRef.current) return threadIdRef.current;
+  const effectiveThreadId =
+  conversation?.threadId ?? localThreadId ?? threadIdRef.current ?? null;
 
-    while (Date.now() - start < timeoutMs) {
-      if (threadIdRef.current) return threadIdRef.current;
-      await new Promise((r) => setTimeout(r, intervalMs));
-    }
-    return null;
-  }
-
-  const effectiveThreadId = threadIdRef.current ?? conversation?.threadId ?? localThreadId ?? null;
 
   const messages = useThreadMessages(
     api.public.messages.getMany,
@@ -655,7 +641,7 @@ export const WidgetChatScreen = () => {
 
   // analytics & conversation bootstrap
   const logEvent = useMutation(api.public.analytics.log);
-  const createConversation = useMutation(api.public.conversations.create);
+  
   const bootstrappedRef = useRef(false);
 
   useEffect(() => {
@@ -663,7 +649,6 @@ export const WidgetChatScreen = () => {
     if (conversationId) return;
     if (bootstrappedRef.current) return;
 
-    // Ne pas bootstrap si on est dans un flow (booking / consent / etc.)
     if (bookingIntent !== "none") return;
     if (step !== "idle") return;
     if (mustAcceptConsent) return;
@@ -672,19 +657,12 @@ export const WidgetChatScreen = () => {
 
     (async () => {
       try {
-        await ensureConversation(); // ✅ single source of truth
+        await ensureConversation();
       } catch {
         bootstrappedRef.current = false;
       }
     })();
-  }, [
-    organizationId,
-    contactSessionId,
-    conversationId,
-    bookingIntent,
-    step,
-    mustAcceptConsent,
-  ]);
+  }, [organizationId, contactSessionId, conversationId, bookingIntent, step, mustAcceptConsent]);
 
 
   const firstMessageSentRef = useRef(false);
@@ -715,20 +693,9 @@ export const WidgetChatScreen = () => {
     // réutiliser la conversation si déjà là
     if (conversationId) return;
 
-    // sinon créer une conversation (suppressGreet pour booking)
     try {
-      const res = await createConversation({
-        contactSessionId: sessionId,
-        organizationId,
-        suppressGreet: true,
-      } as any);
-
-      setConversationId(res.conversationId);
-      setLocalThreadId(res.threadId);
-
-    } catch {
-      // safe: le chat screen pourra en recréer plus tard si nécessaire
-    }
+      await ensureConversation();
+    } catch {}
   };
   // log widget load
   useEffect(() => {
@@ -767,18 +734,7 @@ export const WidgetChatScreen = () => {
     if (bookingIntent === "chat") {
       (async () => {
         try {
-          if (!conversation && organizationId && contactSessionId) {
-            const res = await createConversation({
-              organizationId,
-              contactSessionId,
-            });
-
-            // ✅ createConversation retourne { conversationId, threadId }
-            setConversationId(res.conversationId);
-
-            // (optionnel mais recommandé si tu utilises localThreadId)
-            setLocalThreadId(res.threadId);
-          }
+          await ensureConversation();
         } catch {}
         setStep("idle");
         setBookingIntent("none");
@@ -966,11 +922,11 @@ export const WidgetChatScreen = () => {
 
     if (!contactSessionId || !organizationId) return;
 
-    // ✅ Ensure we have EXACTLY ONE conversation/thread (no race)
-    let threadId: string;
+    // --- Ensure threadId exists (bootstrap should have done it, but fallback here) ---
+    let thr: string;
     try {
       const res = await ensureConversation();
-      threadId = res.threadId;
+      thr = res.threadId;
     } catch {
       setLocalMsgs((m) => [
         ...m,
@@ -981,7 +937,7 @@ export const WidgetChatScreen = () => {
 
     try {
       await createMessage({
-        threadId,
+        threadId: thr,
         prompt: text,
         contactSessionId,
       });
@@ -991,6 +947,7 @@ export const WidgetChatScreen = () => {
         { role: "assistant", text: "Network hiccup—please try again." },
       ]);
     }
+
   }
 
   /* -------- MESSAGES + GREET -------- */
@@ -1200,19 +1157,7 @@ export const WidgetChatScreen = () => {
                           ]);
                         } else {
                           try {
-                            if (
-                              !conversation &&
-                              organizationId &&
-                              contactSessionId
-                            ) {
-                              const res = await createConversation({
-                                organizationId,
-                                contactSessionId,
-                              } as any);
-
-                              setConversationId(res.conversationId);
-                              setLocalThreadId(res.threadId);
-                            }
+                            await ensureConversation();
                           } catch {}
                           setStep("idle");
                         }
