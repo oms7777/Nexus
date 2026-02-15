@@ -12,8 +12,13 @@ import rag from "../system/ai/rag";
 
 type KnowledgeMode = "llm_only" | "llm_plus_kb" | "kb_only";
 
+/**
+ * KB strict heuristics:
+ * - Some KB answers can be short but valid.
+ * - Keep threshold low to avoid false "no kb".
+ */
 function isNoKbResult(searchText?: string | null) {
-  return !searchText || searchText.trim().length < 50;
+  return !searchText || searchText.trim().length < 20;
 }
 
 const KB_ONLY_FALLBACK =
@@ -39,6 +44,7 @@ FORMAT RULES:
 - Never mention the KB, sources, documents, or file names.
 `.trim();
 
+/** deterministic escalation detector */
 function wantsHuman(text: string) {
   const t = (text || "").toLowerCase();
   return (
@@ -57,6 +63,10 @@ function wantsHuman(text: string) {
   );
 }
 
+/**
+ * Normalise "question-like" prompts:
+ * - helps some LLMs behave consistently for short prompts
+ */
 function normalizeQuestionPrompt(p: string) {
   const t = (p || "").trim();
   if (!t) return t;
@@ -81,40 +91,41 @@ function normalizeQuestionPrompt(p: string) {
   return t;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
+/**
+ * Retry wrapper: avoids provider cold-start flakiness.
+ * IMPORTANT: Do NOT write the user-visible "Sorry I didn't generate" here.
+ * We handle visibility AFTER generation with a short poll.
+ */
 async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any) {
   try {
     await agent.generateText(ctx, { threadId }, payload);
     return { ok: true as const };
-  } catch (e1: any) {
-    console.error("agent.generateText failed (first try)", e1?.message ?? e1);
-    await sleep(250);
+  } catch (e1) {
+    await new Promise((r) => setTimeout(r, 250));
     try {
       await agent.generateText(ctx, { threadId }, payload);
       return { ok: true as const };
-    } catch (e2: any) {
-      console.error("agent.generateText failed (second try)", e2?.message ?? e2);
-
-      await saveMessage(ctx, components.agent, {
-        threadId,
-        message: {
-          role: "assistant",
-          content:
-            "I can help — could you rephrase your question or share 1–2 more details? If you prefer, I can also connect you with a human teammate.",
-        },
-      });
-
-      return { ok: false as const };
+    } catch (e2) {
+      console.error("agent.generateText failed twice", e2);
+      return { ok: false as const, error: e2 };
     }
   }
 }
 
-async function ensureAssistantReplyVisible(ctx: any, agent: any, threadId: string) {
-  const MAX_ATTEMPTS = 6;
-  const WAIT_MS = 200;
+/**
+ * ✅ FIX KEY:
+ * Wait briefly for the assistant message to actually be persisted,
+ * instead of writing a fallback immediately (which creates the "needs 2nd message" bug).
+ *
+ * We ensure there is an assistant message newer than the user prompt time.
+ */
+async function waitForAssistantAfter(ctx: any, threadId: string, afterTs: number) {
+  const agent = makeSupportAgent({ llmProvider: "openai", llmModel: "gpt-4o-mini" });
 
-  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+  const tries = 10;
+  const delayMs = 200;
+
+  for (let i = 0; i < tries; i++) {
     try {
       const msgs = await agent.listMessages(ctx, {
         threadId,
@@ -122,26 +133,37 @@ async function ensureAssistantReplyVisible(ctx: any, agent: any, threadId: strin
       });
 
       const page = msgs?.page ?? [];
-      const hasAssistant = page.some((m: any) => {
+
+      // depending on ordering, scan all returned
+      const hasFreshAssistant = page.some((m: any) => {
         const role = m?.message?.role ?? m?.role;
         const content = (m?.message?.content ?? m?.content ?? "").toString().trim();
-        return role === "assistant" && content.length > 0;
+        const ts = Number(m?._creationTime ?? m?.message?._creationTime ?? 0);
+        return role === "assistant" && content.length > 0 && ts >= afterTs;
       });
 
-      if (hasAssistant) return;
-    } catch (e: any) {
-      console.error("ensureAssistantReplyVisible: listMessages error", e?.message ?? e);
+      if (hasFreshAssistant) return true;
+    } catch (e) {
+      // ignore transient read errors, keep polling
     }
 
-    await sleep(WAIT_MS);
+    await new Promise((r) => setTimeout(r, delayMs));
   }
 
+  return false;
+}
+
+/**
+ * If after waiting we still don't see an assistant reply, write a helpful fallback.
+ * (avoid the super-negative "I didn't manage to generate" tone)
+ */
+async function writeGenerationFallback(ctx: any, threadId: string) {
   await saveMessage(ctx, components.agent, {
     threadId,
     message: {
       role: "assistant",
       content:
-        "I can help — could you rephrase your question or give a bit more context? If you want, I can also connect you with a human teammate.",
+        "I’m not seeing my reply come through. Please send your question again, or ask to speak with a human.",
     },
   });
 }
@@ -173,7 +195,6 @@ export const create = action({
       throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
-    // ✅ only block resolved (don’t block “new/open/pending”)
     if (conversation.status === "resolved") {
       throw new ConvexError({ code: "BAD_REQUEST", message: "Conversation resolved" });
     }
@@ -197,17 +218,22 @@ export const create = action({
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
 
+    // available reps for deterministic escalation
     const availableReps =
       (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
         organizationId: conversation.organizationId,
       })) ?? [];
 
-    if (wantsHuman(prompt) && availableReps.length > 0) {
-      await ctx.runMutation(internal.system.conversations.escalate, {
-        threadId: args.threadId,
-      });
+    // Always persist the user's message first (stable UX + rep context)
+    const userPromptTs = Date.now();
+    await saveMessage(ctx, components.agent, {
+      threadId: args.threadId,
+      prompt,
+    });
 
-      await saveMessage(ctx, components.agent, { threadId: args.threadId, prompt });
+    // HARD escalation if user asks AND someone available
+    if (wantsHuman(prompt) && availableReps.length > 0) {
+      await ctx.runMutation(internal.system.conversations.escalate, { threadId: args.threadId });
 
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
@@ -217,23 +243,23 @@ export const create = action({
       return;
     }
 
-    // ✅ FIX: do NOT depend on conversation.status === "unresolved"
-    const shouldTriggerAgent = subscription?.status === "active";
+    const shouldTriggerAgent =
+      subscription?.status === "active" && conversation.status === "unresolved";
 
     if (!shouldTriggerAgent) {
-      await saveMessage(ctx, components.agent, { threadId: args.threadId, prompt });
-
+      // Keep it informative (no dead-end)
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         message: {
           role: "assistant",
-          content: "One moment — preparing the conversation…",
+          content:
+            "One moment — the assistant is not active on this workspace right now. You can ask to speak with a human.",
         },
       });
-
       return;
     }
 
+    // reps block (internal)
     const repsLabel = availableReps
       .slice(0, 3)
       .map((r: any) => {
@@ -247,8 +273,9 @@ export const create = action({
 
     const agent = makeSupportAgent({ llmProvider, llmModel });
 
+    // MODE: LLM ONLY
     if (knowledgeMode === "llm_only") {
-      await safeGenerate(agent, ctx, args.threadId, {
+      const gen = await safeGenerate(agent, ctx, args.threadId, {
         prompt,
         system: repsBlock,
         tools: {
@@ -257,10 +284,12 @@ export const create = action({
         },
       } as any);
 
-      await ensureAssistantReplyVisible(ctx, agent, args.threadId);
+      const ok = gen.ok ? await waitForAssistantAfter(ctx, args.threadId, userPromptTs) : false;
+      if (!ok) await writeGenerationFallback(ctx, args.threadId);
       return;
     }
 
+    // MODE: KB ONLY (STRICT)
     if (knowledgeMode === "kb_only") {
       const orgId = conversation.organizationId;
 
@@ -281,7 +310,7 @@ export const create = action({
       const kbText = (searchResult.text ?? "").trim();
       const kbStrictAgent = makeSupportAgent({ llmProvider, llmModel });
 
-      await safeGenerate(kbStrictAgent, ctx, args.threadId, {
+      const gen = await safeGenerate(kbStrictAgent, ctx, args.threadId, {
         prompt,
         system: `
 ${KB_STRICT_REWRITE_AGENT_INSTRUCTIONS}
@@ -291,11 +320,13 @@ ${kbText}
         `.trim(),
       } as any);
 
-      await ensureAssistantReplyVisible(ctx, kbStrictAgent, args.threadId);
+      const ok = gen.ok ? await waitForAssistantAfter(ctx, args.threadId, userPromptTs) : false;
+      if (!ok) await writeGenerationFallback(ctx, args.threadId);
       return;
     }
 
-    await safeGenerate(agent, ctx, args.threadId, {
+    // MODE: LLM + KB
+    const gen = await safeGenerate(agent, ctx, args.threadId, {
       prompt,
       system: repsBlock,
       tools: {
@@ -305,7 +336,8 @@ ${kbText}
       },
     } as any);
 
-    await ensureAssistantReplyVisible(ctx, agent, args.threadId);
+    const ok = gen.ok ? await waitForAssistantAfter(ctx, args.threadId, userPromptTs) : false;
+    if (!ok) await writeGenerationFallback(ctx, args.threadId);
   },
 });
 
@@ -322,20 +354,10 @@ export const getMany = query({
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
-    const conversation = await ctx.runQuery(internal.system.conversations.getByThreadId, {
-      threadId: args.threadId,
+    const agent = makeSupportAgent({
+      llmProvider: "openai",
+      llmModel: "gpt-4o-mini",
     });
-
-    const widgetSettings = conversation
-      ? await ctx.runQuery(api.public.widgetSettings.getByOrganizationId, {
-          organizationId: conversation.organizationId,
-        })
-      : null;
-
-    const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
-    const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
-
-    const agent = makeSupportAgent({ llmProvider, llmModel });
 
     return agent.listMessages(ctx, {
       threadId: args.threadId,
