@@ -424,6 +424,7 @@ export const WidgetChatScreen = () => {
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [localThreadId, setLocalThreadId] = useState<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
   useEffect(() => {
     if (routingMode === "visitor_choice") {
@@ -469,7 +470,9 @@ export const WidgetChatScreen = () => {
 
       setConversationId(res.conversationId);
       setLocalThreadId(res.threadId);
+      setActiveThreadId(res.threadId);
       threadIdRef.current = res.threadId;
+      
 
       return res;
     })().finally(() => {
@@ -927,6 +930,7 @@ export const WidgetChatScreen = () => {
     try {
       const res = await ensureConversation();
       thr = res.threadId;
+      setActiveThreadId(thr);
     } catch {
       setLocalMsgs((m) => [
         ...m,
