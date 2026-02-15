@@ -44,7 +44,7 @@ FORMAT RULES:
 - Never mention the KB, sources, documents, or file names.
 `.trim();
 
-/** deterministic escalation detector */
+// ✅ hard human-intent detector (deterministic escalation)
 function wantsHuman(text: string) {
   const t = (text || "").toLowerCase();
   return (
@@ -65,7 +65,7 @@ function wantsHuman(text: string) {
 
 /**
  * Normalise "question-like" prompts:
- * - helps some LLMs behave consistently for short prompts
+ * - helps models behave consistently for short prompts (ex: "What is Inboundless")
  */
 function normalizeQuestionPrompt(p: string) {
   const t = (p || "").trim();
@@ -93,8 +93,7 @@ function normalizeQuestionPrompt(p: string) {
 
 /**
  * Retry wrapper: avoids provider cold-start flakiness.
- * IMPORTANT: Do NOT write the user-visible fallback here.
- * We handle visibility AFTER generation with a short poll.
+ * IMPORTANT: Don't write user-visible fallback here.
  */
 async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any) {
   try {
@@ -115,9 +114,7 @@ async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any
 /**
  * ✅ FIX KEY:
  * Wait briefly for the assistant message to actually be persisted,
- * instead of returning immediately (which creates the "needs 2nd message" bug).
- *
- * We ensure there is an assistant message newer than the user prompt time.
+ * instead of letting the UI look "stuck" (which creates the “needs 2nd message” bug).
  */
 async function waitForAssistantAfter(ctx: any, threadId: string, afterTs: number) {
   const agent = makeSupportAgent({ llmProvider: "openai", llmModel: "gpt-4o-mini" });
@@ -152,9 +149,6 @@ async function waitForAssistantAfter(ctx: any, threadId: string, afterTs: number
   return false;
 }
 
-/**
- * If after waiting we still don't see an assistant reply, write a helpful fallback.
- */
 async function writeGenerationFallback(ctx: any, threadId: string) {
   await saveMessage(ctx, components.agent, {
     threadId,
@@ -216,20 +210,20 @@ export const create = action({
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
 
-    // available reps for deterministic escalation
+    // reps availability (used for deterministic escalation)
     const availableReps =
       (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
         organizationId: conversation.organizationId,
       })) ?? [];
 
-    // Always persist the user's message first (stable UX + rep context)
+    // ✅ Always persist user message first (stable UX + rep context)
     const userPromptTs = Date.now();
     await saveMessage(ctx, components.agent, {
       threadId: args.threadId,
       prompt,
     });
 
-    // HARD escalation if user asks AND someone available
+    // ✅ HARD escalation if user asks AND someone available
     if (wantsHuman(prompt) && availableReps.length > 0) {
       await ctx.runMutation(internal.system.conversations.escalate, { threadId: args.threadId });
 
@@ -245,6 +239,7 @@ export const create = action({
       subscription?.status === "active" && conversation.status === "unresolved";
 
     if (!shouldTriggerAgent) {
+      // Keep it informative (no dead-end)
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         message: {
@@ -256,7 +251,7 @@ export const create = action({
       return;
     }
 
-    // reps block (internal)
+    // repsBlock for agent (hidden)
     const repsLabel = availableReps
       .slice(0, 3)
       .map((r: any) => {

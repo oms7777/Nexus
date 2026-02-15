@@ -1381,12 +1381,7 @@ export const WidgetChatScreen = () => {
                   step === "picking"
                 }
                 onChange={field.onChange}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    form.handleSubmit(onSubmit)();
-                  }
-                }}
+              
                 placeholder={
                   conversation?.status === "resolved"
                     ? "This conversation has been resolved."
