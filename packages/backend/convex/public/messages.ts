@@ -96,7 +96,12 @@ function normalizeQuestionPrompt(p: string) {
  * - retries once (transient provider/cold-start issues)
  * - guarantees a user-visible fallback message if generation fails
  */
-async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any) {
+async function safeGenerate(
+  agent: any,
+  ctx: any,
+  threadId: string,
+  payload: any
+) {
   try {
     await agent.generateText(ctx, { threadId }, payload);
     return;
@@ -121,6 +126,55 @@ async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any
   }
 }
 
+/**
+ * ✅ IMPORTANT FIX:
+ * Some providers / edge cases may “succeed” but not persist an assistant message.
+ * This guarantees there is a visible assistant message after generation.
+ */
+async function ensureAssistantReplyVisible(ctx: any, threadId: string) {
+  try {
+    // Use the same listing capability (agent.listMessages)
+    const agent = makeSupportAgent({
+      llmProvider: "openai",
+      llmModel: "gpt-4o-mini",
+    });
+
+    const msgs = await agent.listMessages(ctx, {
+      threadId,
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+
+    const last = msgs?.page?.[0];
+
+    // depending on agent internals, role/content can be nested
+    const lastRole = (last as any)?.message?.role ?? (last as any)?.role;
+    const lastContent =
+      ((last as any)?.message?.content ?? (last as any)?.content ?? "").toString();
+
+    // If last message is not a non-empty assistant message => write a fallback.
+    if (lastRole !== "assistant" || lastContent.trim().length === 0) {
+      await saveMessage(ctx, components.agent, {
+        threadId,
+        message: {
+          role: "assistant",
+          content:
+            "Sorry — I didn’t manage to generate a response. Please try again, or ask to speak with a human.",
+        },
+      });
+    }
+  } catch (e) {
+    // Worst-case: still never leave the user with silence.
+    await saveMessage(ctx, components.agent, {
+      threadId,
+      message: {
+        role: "assistant",
+        content:
+          "Sorry — I’m having trouble responding right now. Please try again in a moment, or ask to speak with a human.",
+      },
+    });
+  }
+}
+
 export const create = action({
   args: {
     prompt: v.string(),
@@ -132,25 +186,37 @@ export const create = action({
     const prompt = normalizeQuestionPrompt(args.prompt);
 
     // 0) session check
-    const contactSession = await ctx.runQuery(internal.system.contactSessions.getOne, {
-      contactSessionId: args.contactSessionId,
-    });
+    const contactSession = await ctx.runQuery(
+      internal.system.contactSessions.getOne,
+      {
+        contactSessionId: args.contactSessionId,
+      }
+    );
 
     if (!contactSession || contactSession.expiresAt < Date.now()) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
     // 1) conversation check
-    const conversation = await ctx.runQuery(internal.system.conversations.getByThreadId, {
-      threadId: args.threadId,
-    });
+    const conversation = await ctx.runQuery(
+      internal.system.conversations.getByThreadId,
+      {
+        threadId: args.threadId,
+      }
+    );
 
     if (!conversation) {
-      throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "Conversation not found",
+      });
     }
 
     if (conversation.status === "resolved") {
-      throw new ConvexError({ code: "BAD_REQUEST", message: "Conversation resolved" });
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "Conversation resolved",
+      });
     }
 
     // refresh TTL
@@ -159,16 +225,23 @@ export const create = action({
     });
 
     // 2) subscription gating
-    const subscription = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
-      organizationId: conversation.organizationId,
-    });
+    const subscription = await ctx.runQuery(
+      internal.system.subscriptions.getByOrganizationId,
+      {
+        organizationId: conversation.organizationId,
+      }
+    );
 
     // 3) settings
-    const widgetSettings = await ctx.runQuery(api.public.widgetSettings.getByOrganizationId, {
-      organizationId: conversation.organizationId,
-    });
+    const widgetSettings = await ctx.runQuery(
+      api.public.widgetSettings.getByOrganizationId,
+      {
+        organizationId: conversation.organizationId,
+      }
+    );
 
-    const knowledgeMode = (widgetSettings?.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode;
+    const knowledgeMode = (widgetSettings?.knowledgeMode ??
+      "llm_plus_kb") as KnowledgeMode;
 
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
@@ -250,6 +323,9 @@ export const create = action({
           resolveConversationTool: resolveConversation,
         },
       } as any);
+
+      // ✅ ensure visible assistant reply
+      await ensureAssistantReplyVisible(ctx, args.threadId);
       return;
     }
 
@@ -286,6 +362,8 @@ ${kbText}
         `.trim(),
       } as any);
 
+      // ✅ ensure visible assistant reply
+      await ensureAssistantReplyVisible(ctx, args.threadId);
       return;
     }
 
@@ -301,6 +379,9 @@ ${kbText}
         searchTool: search,
       },
     } as any);
+
+    // ✅ ensure visible assistant reply
+    await ensureAssistantReplyVisible(ctx, args.threadId);
   },
 });
 
@@ -317,7 +398,10 @@ export const getMany = query({
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
-    const agent = makeSupportAgent({ llmProvider: "openai", llmModel: "gpt-4o-mini" });
+    const agent = makeSupportAgent({
+      llmProvider: "openai",
+      llmModel: "gpt-4o-mini",
+    });
 
     return agent.listMessages(ctx, {
       threadId: args.threadId,

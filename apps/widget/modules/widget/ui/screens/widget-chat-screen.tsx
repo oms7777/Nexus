@@ -922,7 +922,6 @@ export const WidgetChatScreen = () => {
     }
 
     form.reset();
-    setLocalMsgs((m) => [...m, { role: "user", text }]);
 
 
     if (!firstMessageSentRef.current && organizationId) {
