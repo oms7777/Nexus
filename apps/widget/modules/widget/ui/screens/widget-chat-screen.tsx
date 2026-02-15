@@ -453,26 +453,45 @@ export const WidgetChatScreen = () => {
   >(null);
   const createConversation = useMutation(api.public.conversations.create);
 
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
   const ensureConversation = async () => {
-    // already have a usable thread
-    const existingThreadId =
+    // 1) si on a un threadId déjà connu -> OK
+    let existingThreadId =
       threadIdRef.current ?? conversation?.threadId ?? localThreadId ?? null;
 
     if (conversationId && existingThreadId) {
+      setActiveThreadId(existingThreadId);
       return { conversationId, threadId: existingThreadId };
     }
 
-    // one in-flight create at a time
+    // 2) ✅ IMPORTANT: si conversationId existe mais threadId pas encore chargé,
+    // on attend un peu le query getOne plutôt que de créer une nouvelle convo.
+    if (conversationId && !existingThreadId) {
+      for (let i = 0; i < 10; i++) {
+        await sleep(50);
+        existingThreadId =
+          threadIdRef.current ?? conversation?.threadId ?? localThreadId ?? null;
+        if (existingThreadId) {
+          setActiveThreadId(existingThreadId);
+          return { conversationId, threadId: existingThreadId };
+        }
+      }
+    }
+
+    // 3) mutex
     if (ensureConvPromiseRef.current) return ensureConvPromiseRef.current;
 
     ensureConvPromiseRef.current = (async () => {
-      const res = await createConversation({ organizationId, contactSessionId } as any);
+      const res = await createConversation({
+        organizationId,
+        contactSessionId,
+      } as any);
 
       setConversationId(res.conversationId);
       setLocalThreadId(res.threadId);
       setActiveThreadId(res.threadId);
       threadIdRef.current = res.threadId;
-      
 
       return res;
     })().finally(() => {
@@ -483,22 +502,31 @@ export const WidgetChatScreen = () => {
   };
 
 
+
   const brandLogoUrl =
   (widgetSettings as any)?.brandLogoUrl ??
   "https://app.inboundless.co/logo.svg";
 
 
-  const effectiveThreadId =
-  conversation?.threadId ?? localThreadId ?? threadIdRef.current ?? null;
+  // ✅ Toujours garder activeThreadId sync quand le backend threadId arrive
+  useEffect(() => {
+    if (conversation?.threadId) {
+      setActiveThreadId(conversation.threadId);
+    }
+  }, [conversation?.threadId]);
 
+  // ✅ on écoute UNIQUEMENT un state (pas un ref) pour déclencher les rerenders
+  const effectiveThreadId =
+    activeThreadId ?? conversation?.threadId ?? localThreadId ?? null;
 
   const messages = useThreadMessages(
     api.public.messages.getMany,
     effectiveThreadId && contactSessionId
       ? { threadId: effectiveThreadId, contactSessionId }
       : "skip",
-    { initialNumItems: 10 }
+    { initialNumItems: 25 }
   );
+
 
   const hasRepStarted = useQuery(
     api.public.analytics.hasInboundRepStarted,
@@ -894,6 +922,8 @@ export const WidgetChatScreen = () => {
     }
 
     form.reset();
+    setLocalMsgs((m) => [...m, { role: "user", text }]);
+
 
     if (!firstMessageSentRef.current && organizationId) {
       firstMessageSentRef.current = true;
