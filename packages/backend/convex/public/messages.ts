@@ -63,33 +63,18 @@ function wantsHuman(text: string) {
   );
 }
 
-/**
- * Normalise "question-like" prompts:
- * - helps some LLMs behave consistently for short prompts
- */
 function normalizeQuestionPrompt(p: string) {
   const t = (p || "").trim();
   if (!t) return t;
+
+  // si déjà ponctué -> OK
   if (/[?.!…]$/.test(t)) return t;
 
-  if (
-    /^(what|why|how|when|where|who|which|can|could|would|should|do|does|is|are|am|tell me|explain)\b/i.test(
-      t
-    )
-  ) {
-    return t + "?";
-  }
-
-  if (
-    /^(c'?est quoi|pourquoi|comment|quand|où|qui|quel|quelle|quels|quelles|peux-tu|pouvez-vous|est-ce que)\b/i.test(
-      t
-    )
-  ) {
-    return t + " ?";
-  }
-
-  return t;
+  // IMPORTANT: toujours forcer une terminaison "question-like"
+  // pour stabiliser les modèles sur les prompts courts
+  return t + "?";
 }
+
 
 /**
  * Retry wrapper: avoids provider cold-start flakiness.

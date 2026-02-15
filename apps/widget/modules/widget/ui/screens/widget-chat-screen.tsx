@@ -1010,10 +1010,7 @@ export const WidgetChatScreen = () => {
 
   // ✅ NEW: si pas de conversationId + idle => on injecte un greet local
   // (comme ça, plus besoin de la welcome card)
-  const uiMsgs =
-    !conversationId && step === "idle" && greet
-      ? [{ role: "assistant" as const, text: greet }, ...baseMsgs]
-      : baseMsgs;
+  const uiMsgs = baseMsgs;
 
 
   const suggestions = useMemo(() => {
