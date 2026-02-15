@@ -934,10 +934,14 @@ export const WidgetChatScreen = () => {
   };
 
   /* -------- MESSAGES + GREET -------- */
-  const backendMsgs = toUIMessages(messages.results ?? []).map((m) => ({
-    role: m.role === "user" ? ("user" as const) : ("assistant" as const),
-    text: m.content,
-  }));
+  const backendMsgs = toUIMessages(messages.results ?? [])
+    // ✅ remove empty assistant/user messages (stream/tool placeholders)
+    .filter((m) => (m.content ?? "").trim().length > 0)
+    .map((m) => ({
+      role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+      text: m.content,
+    }));
+
 
   const greet = widgetSettings?.greetMessage?.trim();
 
