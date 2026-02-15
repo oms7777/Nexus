@@ -39,7 +39,7 @@ FORMAT RULES:
 - Never mention the KB, sources, documents, or file names.
 `.trim();
 
-// ✅ hard human-intent detector (deterministic escalation)
+// ✅ deterministic “human intent” detector
 function wantsHuman(text: string) {
   const t = (text || "").toLowerCase();
   return (
@@ -59,17 +59,14 @@ function wantsHuman(text: string) {
 }
 
 /**
- * ✅ Normalise les prompts “question-like” pour éviter le cas
- * où l’agent ne répond qu’après un second message ("?").
+ * ✅ Normalize prompts “question-like”
+ * prevents “needs 2 messages” bug
  */
 function normalizeQuestionPrompt(p: string) {
   const t = (p || "").trim();
   if (!t) return t;
-
-  // Si ça finit déjà par une ponctuation, on ne touche pas
   if (/[?.!…]$/.test(t)) return t;
 
-  // Question openers (EN)
   if (
     /^(what|why|how|when|where|who|which|can|could|would|should|do|does|is|are|am|tell me|explain)\b/i.test(
       t
@@ -78,7 +75,6 @@ function normalizeQuestionPrompt(p: string) {
     return t + "?";
   }
 
-  // Question openers (FR)
   if (
     /^(c'?est quoi|pourquoi|comment|quand|où|qui|quel|quelle|quels|quelles|peux-tu|pouvez-vous|est-ce que)\b/i.test(
       t
@@ -87,92 +83,86 @@ function normalizeQuestionPrompt(p: string) {
     return t + " ?";
   }
 
-  // Sinon, on laisse tel quel (ex: “for more inbound leads”)
   return t;
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * ✅ Robust wrapper around agent.generateText
  * - retries once (transient provider/cold-start issues)
- * - guarantees a user-visible fallback message if generation fails
+ * - NEVER leaves user with forbidden “sorry i can’t generate” wording
  */
-async function safeGenerate(
-  agent: any,
-  ctx: any,
-  threadId: string,
-  payload: any
-) {
+async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any) {
   try {
     await agent.generateText(ctx, { threadId }, payload);
-    return;
-  } catch (e1) {
-    await new Promise((r) => setTimeout(r, 250));
+    return { ok: true as const };
+  } catch (e1: any) {
+    console.error("agent.generateText failed (first try)", e1?.message ?? e1);
+    await sleep(250);
     try {
       await agent.generateText(ctx, { threadId }, payload);
-      return;
-    } catch (e2) {
-      console.error("agent.generateText failed twice", e2);
+      return { ok: true as const };
+    } catch (e2: any) {
+      console.error("agent.generateText failed (second try)", e2?.message ?? e2);
 
-      // Never leave the user with silence.
       await saveMessage(ctx, components.agent, {
         threadId,
         message: {
           role: "assistant",
           content:
-            "Sorry — I’m having trouble responding right now. Please try again in a moment, or ask to speak with a human.",
+            "I can help — could you rephrase your question or share 1–2 more details? If you prefer, I can also connect you with a human teammate.",
         },
       });
+
+      return { ok: false as const };
     }
   }
 }
 
 /**
  * ✅ IMPORTANT FIX:
- * Some providers / edge cases may “succeed” but not persist an assistant message.
- * This guarantees there is a visible assistant message after generation.
+ * Providers can succeed but the assistant message may persist a moment later.
+ * We poll a few times before writing ANY fallback.
+ *
+ * Also: we NEVER write the forbidden “Sorry — I didn’t manage…” message anymore.
  */
-async function ensureAssistantReplyVisible(ctx: any, threadId: string) {
-  try {
-    // Use the same listing capability (agent.listMessages)
-    const agent = makeSupportAgent({
-      llmProvider: "openai",
-      llmModel: "gpt-4o-mini",
-    });
+async function ensureAssistantReplyVisible(ctx: any, agent: any, threadId: string) {
+  const MAX_ATTEMPTS = 6;
+  const WAIT_MS = 200;
 
-    const msgs = await agent.listMessages(ctx, {
-      threadId,
-      paginationOpts: { numItems: 1, cursor: null },
-    });
-
-    const last = msgs?.page?.[0];
-
-    // depending on agent internals, role/content can be nested
-    const lastRole = (last as any)?.message?.role ?? (last as any)?.role;
-    const lastContent =
-      ((last as any)?.message?.content ?? (last as any)?.content ?? "").toString();
-
-    // If last message is not a non-empty assistant message => write a fallback.
-    if (lastRole !== "assistant" || lastContent.trim().length === 0) {
-      await saveMessage(ctx, components.agent, {
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    try {
+      const msgs = await agent.listMessages(ctx, {
         threadId,
-        message: {
-          role: "assistant",
-          content:
-            "Sorry — I didn’t manage to generate a response. Please try again, or ask to speak with a human.",
-        },
+        paginationOpts: { numItems: 10, cursor: null },
       });
+
+      const page = msgs?.page ?? [];
+      const hasAssistant = page.some((m: any) => {
+        const role = m?.message?.role ?? m?.role;
+        const content = (m?.message?.content ?? m?.content ?? "").toString().trim();
+        return role === "assistant" && content.length > 0;
+      });
+
+      if (hasAssistant) return;
+    } catch (e: any) {
+      // if listMessages itself errors transiently, just retry
+      console.error("ensureAssistantReplyVisible: listMessages error", e?.message ?? e);
     }
-  } catch (e) {
-    // Worst-case: still never leave the user with silence.
-    await saveMessage(ctx, components.agent, {
-      threadId,
-      message: {
-        role: "assistant",
-        content:
-          "Sorry — I’m having trouble responding right now. Please try again in a moment, or ask to speak with a human.",
-      },
-    });
+
+    await sleep(WAIT_MS);
   }
+
+  // After retries, if still no assistant message, write a safe fallback
+  await saveMessage(ctx, components.agent, {
+    threadId,
+    message: {
+      role: "assistant",
+      content:
+        "I can help — could you rephrase your question or give a bit more context? If you want, I can also connect you with a human teammate.",
+    },
+  });
 }
 
 export const create = action({
@@ -182,41 +172,28 @@ export const create = action({
     contactSessionId: v.id("contactSessions"),
   },
   handler: async (ctx, args) => {
-    // ✅ normalize prompt INSIDE handler (args exists here)
     const prompt = normalizeQuestionPrompt(args.prompt);
 
     // 0) session check
-    const contactSession = await ctx.runQuery(
-      internal.system.contactSessions.getOne,
-      {
-        contactSessionId: args.contactSessionId,
-      }
-    );
+    const contactSession = await ctx.runQuery(internal.system.contactSessions.getOne, {
+      contactSessionId: args.contactSessionId,
+    });
 
     if (!contactSession || contactSession.expiresAt < Date.now()) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
     // 1) conversation check
-    const conversation = await ctx.runQuery(
-      internal.system.conversations.getByThreadId,
-      {
-        threadId: args.threadId,
-      }
-    );
+    const conversation = await ctx.runQuery(internal.system.conversations.getByThreadId, {
+      threadId: args.threadId,
+    });
 
     if (!conversation) {
-      throw new ConvexError({
-        code: "NOT_FOUND",
-        message: "Conversation not found",
-      });
+      throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     if (conversation.status === "resolved") {
-      throw new ConvexError({
-        code: "BAD_REQUEST",
-        message: "Conversation resolved",
-      });
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Conversation resolved" });
     }
 
     // refresh TTL
@@ -225,24 +202,16 @@ export const create = action({
     });
 
     // 2) subscription gating
-    const subscription = await ctx.runQuery(
-      internal.system.subscriptions.getByOrganizationId,
-      {
-        organizationId: conversation.organizationId,
-      }
-    );
+    const subscription = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
+      organizationId: conversation.organizationId,
+    });
 
     // 3) settings
-    const widgetSettings = await ctx.runQuery(
-      api.public.widgetSettings.getByOrganizationId,
-      {
-        organizationId: conversation.organizationId,
-      }
-    );
+    const widgetSettings = await ctx.runQuery(api.public.widgetSettings.getByOrganizationId, {
+      organizationId: conversation.organizationId,
+    });
 
-    const knowledgeMode = (widgetSettings?.knowledgeMode ??
-      "llm_plus_kb") as KnowledgeMode;
-
+    const knowledgeMode = (widgetSettings?.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode;
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
 
@@ -252,52 +221,38 @@ export const create = action({
         organizationId: conversation.organizationId,
       })) ?? [];
 
-    // ✅ HARD ESCALATION: if user asks for a human AND someone is available -> escalate now
+    // ✅ HARD ESCALATION: user asks for a human AND someone is available
     if (wantsHuman(prompt) && availableReps.length > 0) {
       await ctx.runMutation(internal.system.conversations.escalate, {
         threadId: args.threadId,
       });
 
-      // Save the user message so the rep sees context
-      await saveMessage(ctx, components.agent, {
-        threadId: args.threadId,
-        prompt,
-      });
+      await saveMessage(ctx, components.agent, { threadId: args.threadId, prompt });
 
-      // Optional assistant ack
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
-        message: {
-          role: "assistant",
-          content: "Got it — connecting you with a human teammate now.",
-        },
+        message: { role: "assistant", content: "Got it — connecting you with a human teammate now." },
       });
 
       return;
     }
 
-    // ✅ If not eligible => just save user msg (no agent run)
+    // ✅ If not eligible => save user msg, no agent run
     const shouldTriggerAgent =
       subscription?.status === "active" && conversation.status === "unresolved";
 
     if (!shouldTriggerAgent) {
-      await saveMessage(ctx, components.agent, {
-        threadId: args.threadId,
-        prompt,
-      });
+      await saveMessage(ctx, components.agent, { threadId: args.threadId, prompt });
 
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
-        message: {
-          role: "assistant",
-          content: "One moment — preparing the conversation…",
-        },
+        message: { role: "assistant", content: "One moment — preparing the conversation…" },
       });
 
       return;
     }
 
-    // repsBlock for agent (hidden)
+    // reps block for agent (hidden)
     const repsLabel = availableReps
       .slice(0, 3)
       .map((r: any) => {
@@ -324,8 +279,7 @@ export const create = action({
         },
       } as any);
 
-      // ✅ ensure visible assistant reply
-      await ensureAssistantReplyVisible(ctx, args.threadId);
+      await ensureAssistantReplyVisible(ctx, agent, args.threadId);
       return;
     }
 
@@ -362,8 +316,7 @@ ${kbText}
         `.trim(),
       } as any);
 
-      // ✅ ensure visible assistant reply
-      await ensureAssistantReplyVisible(ctx, args.threadId);
+      await ensureAssistantReplyVisible(ctx, kbStrictAgent, args.threadId);
       return;
     }
 
@@ -380,8 +333,7 @@ ${kbText}
       },
     } as any);
 
-    // ✅ ensure visible assistant reply
-    await ensureAssistantReplyVisible(ctx, args.threadId);
+    await ensureAssistantReplyVisible(ctx, agent, args.threadId);
   },
 });
 
@@ -398,10 +350,21 @@ export const getMany = query({
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
-    const agent = makeSupportAgent({
-      llmProvider: "openai",
-      llmModel: "gpt-4o-mini",
+    // Try to keep consistent with org settings (and avoid hardcoding)
+    const conversation = await ctx.runQuery(internal.system.conversations.getByThreadId, {
+      threadId: args.threadId,
     });
+
+    const widgetSettings = conversation
+      ? await ctx.runQuery(api.public.widgetSettings.getByOrganizationId, {
+          organizationId: conversation.organizationId,
+        })
+      : null;
+
+    const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
+    const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
+
+    const agent = makeSupportAgent({ llmProvider, llmModel });
 
     return agent.listMessages(ctx, {
       threadId: args.threadId,
