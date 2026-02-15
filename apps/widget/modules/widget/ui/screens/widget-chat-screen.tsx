@@ -1352,9 +1352,9 @@ export const WidgetChatScreen = () => {
             <AISuggestion
               key={s}
               suggestion={s}
-              onClick={async () => {
-                form.setValue("message", s, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
-                await form.handleSubmit(onSubmit)();
+              onClick={() => {
+                form.setValue("message", s);
+                form.handleSubmit(onSubmit)();
               }}
             />
           ))}

@@ -224,7 +224,7 @@ export const create = action({
     });
 
     // ✅ HARD escalation if user asks AND someone available
-    if (wantsHuman(prompt) && availableReps.length > 0) {
+    if (wantsHuman(args.prompt)) {
       await ctx.runMutation(internal.system.conversations.escalate, { threadId: args.threadId });
 
       await saveMessage(ctx, components.agent, {
@@ -236,7 +236,8 @@ export const create = action({
     }
 
     const shouldTriggerAgent =
-      subscription?.status === "active" && conversation.status === "unresolved";
+      conversation.status === "unresolved";
+
 
     if (!shouldTriggerAgent) {
       // Keep it informative (no dead-end)
