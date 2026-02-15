@@ -142,7 +142,6 @@ function SlotsByDay({
       </div>
     );
   }
-  
 
   // ✔ Plus d'undefined ici !
   const safeIndex = Math.min(activeIndex, dayOrder.length - 1);
@@ -424,7 +423,6 @@ export const WidgetChatScreen = () => {
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [localThreadId, setLocalThreadId] = useState<string | null>(null);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
   useEffect(() => {
     if (routingMode === "visitor_choice") {
@@ -447,86 +445,37 @@ export const WidgetChatScreen = () => {
     threadIdRef.current = conversation?.threadId ?? localThreadId ?? null;
   }, [conversation?.threadId, localThreadId]);
 
-  // ✅ Mutex: prevents double conversation/thread creation (fixes “needs 2 messages” bug)
-  const ensureConvPromiseRef = useRef<
-    Promise<{ conversationId: any; threadId: string }> | null
-  >(null);
-  const createConversation = useMutation(api.public.conversations.create);
-
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-  const ensureConversation = async () => {
-    // 1) si on a un threadId déjà connu -> OK
-    let existingThreadId =
-      threadIdRef.current ?? conversation?.threadId ?? localThreadId ?? null;
-
-    if (conversationId && existingThreadId) {
-      setActiveThreadId(existingThreadId);
-      return { conversationId, threadId: existingThreadId };
-    }
-
-    // 2) ✅ IMPORTANT: si conversationId existe mais threadId pas encore chargé,
-    // on attend un peu le query getOne plutôt que de créer une nouvelle convo.
-    if (conversationId && !existingThreadId) {
-      for (let i = 0; i < 10; i++) {
-        await sleep(50);
-        existingThreadId =
-          threadIdRef.current ?? conversation?.threadId ?? localThreadId ?? null;
-        if (existingThreadId) {
-          setActiveThreadId(existingThreadId);
-          return { conversationId, threadId: existingThreadId };
-        }
-      }
-    }
-
-    // 3) mutex
-    if (ensureConvPromiseRef.current) return ensureConvPromiseRef.current;
-
-    ensureConvPromiseRef.current = (async () => {
-      const res = await createConversation({
-        organizationId,
-        contactSessionId,
-      } as any);
-
-      setConversationId(res.conversationId);
-      setLocalThreadId(res.threadId);
-      setActiveThreadId(res.threadId);
-      threadIdRef.current = res.threadId;
-
-      return res;
-    })().finally(() => {
-      ensureConvPromiseRef.current = null;
-    });
-
-    return ensureConvPromiseRef.current;
-  };
-
-
-
   const brandLogoUrl =
   (widgetSettings as any)?.brandLogoUrl ??
   "https://app.inboundless.co/logo.svg";
 
+  // Wait helper: resolve once threadId exists (short poll)
+  async function waitForThreadId(opts: {
+    timeoutMs?: number;
+    intervalMs?: number;
+  } = {}) {
+    const timeoutMs = opts.timeoutMs ?? 4000;
+    const intervalMs = opts.intervalMs ?? 150;
+    const start = Date.now();
 
-  // ✅ Toujours garder activeThreadId sync quand le backend threadId arrive
-  useEffect(() => {
-    if (conversation?.threadId) {
-      setActiveThreadId(conversation.threadId);
+    if (threadIdRef.current) return threadIdRef.current;
+
+    while (Date.now() - start < timeoutMs) {
+      if (threadIdRef.current) return threadIdRef.current;
+      await new Promise((r) => setTimeout(r, intervalMs));
     }
-  }, [conversation?.threadId]);
+    return null;
+  }
 
-  // ✅ on écoute UNIQUEMENT un state (pas un ref) pour déclencher les rerenders
-  const effectiveThreadId =
-    activeThreadId ?? conversation?.threadId ?? localThreadId ?? null;
+  const effectiveThreadId = conversation?.threadId ?? localThreadId;
 
   const messages = useThreadMessages(
     api.public.messages.getMany,
     effectiveThreadId && contactSessionId
       ? { threadId: effectiveThreadId, contactSessionId }
       : "skip",
-    { initialNumItems: 25 }
+    { initialNumItems: 10 }
   );
-
 
   const hasRepStarted = useQuery(
     api.public.analytics.hasInboundRepStarted,
@@ -537,52 +486,29 @@ export const WidgetChatScreen = () => {
 
   const fallbackTimerRef = useRef<any>(null);
   const fallbackShownRef = useRef(false);
-  const escalatedSinceRef = useRef<number | null>(null);
-
 
   useEffect(() => {
     // reset if no conversation
     if (!conversationId) {
       fallbackShownRef.current = false;
-      escalatedSinceRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       return;
     }
 
     const isResolved = conversation?.status === "resolved";
-    const isEscalated = conversation?.status === "escalated";
     const humanAlreadyReplied = hasRepStarted === true;
 
-    // If not escalated, we do NOT run the human-wait fallback
-    if (!isEscalated || isResolved) {
+    // stop fallback if resolved OR human replied OR not idle
+    if (isResolved || humanAlreadyReplied || step !== "idle") {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackShownRef.current = false;
-      escalatedSinceRef.current = null;
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       return;
     }
 
-    // stop if human replied or not idle
-    if (humanAlreadyReplied || step !== "idle") {
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-      return;
-    }
+    // already shown => don't spam
+    if (fallbackShownRef.current) return;
 
-    // mark the moment we entered "escalated"
-    const backendEscalatedAt =
-      (conversation as any)?.escalatedAt ? Number((conversation as any).escalatedAt) : null;
-
-    // fallback only if backend doesn't provide it yet
-    if (!backendEscalatedAt && !escalatedSinceRef.current) {
-      escalatedSinceRef.current = Date.now();
-    }
-
-    const startedAt = backendEscalatedAt ?? escalatedSinceRef.current ?? Date.now();
-
-    // compute remaining time precisely
-    const elapsedMs = Date.now() - startedAt;
-    const remainingMs = Math.max(0, HUMAN_FALLBACK_SECONDS * 1000 - elapsedMs);
-
-
+    // arm timer
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
 
     fallbackTimerRef.current = setTimeout(() => {
@@ -598,13 +524,12 @@ export const WidgetChatScreen = () => {
             `Click “Book a meeting” to pick a slot.`,
         },
       ]);
-    }, remainingMs);
+    }, HUMAN_FALLBACK_SECONDS * 1000);
 
     return () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     };
   }, [conversationId, conversation?.status, hasRepStarted, step]);
-
 
 
 
@@ -672,30 +597,7 @@ export const WidgetChatScreen = () => {
 
   // analytics & conversation bootstrap
   const logEvent = useMutation(api.public.analytics.log);
-  
-  const bootstrappedRef = useRef(false);
-
-  useEffect(() => {
-    if (!organizationId || !contactSessionId) return;
-    if (conversationId) return;
-    if (bootstrappedRef.current) return;
-
-    if (bookingIntent !== "none") return;
-    if (step !== "idle") return;
-    if (mustAcceptConsent) return;
-
-    bootstrappedRef.current = true;
-
-    (async () => {
-      try {
-        await ensureConversation();
-      } catch {
-        bootstrappedRef.current = false;
-      }
-    })();
-  }, [organizationId, contactSessionId, conversationId, bookingIntent, step, mustAcceptConsent]);
-
-
+  const createConversation = useMutation(api.public.conversations.create);
   const firstMessageSentRef = useRef(false);
 
   // ✅ NEW: book handler identique à SmartPromo.ensureAndStart("book")
@@ -724,9 +626,20 @@ export const WidgetChatScreen = () => {
     // réutiliser la conversation si déjà là
     if (conversationId) return;
 
+    // sinon créer une conversation (suppressGreet pour booking)
     try {
-      await ensureConversation();
-    } catch {}
+      const res = await createConversation({
+        contactSessionId: sessionId,
+        organizationId,
+        suppressGreet: true,
+      } as any);
+
+      setConversationId(res.conversationId);
+      setLocalThreadId(res.threadId);
+
+    } catch {
+      // safe: le chat screen pourra en recréer plus tard si nécessaire
+    }
   };
   // log widget load
   useEffect(() => {
@@ -765,7 +678,18 @@ export const WidgetChatScreen = () => {
     if (bookingIntent === "chat") {
       (async () => {
         try {
-          await ensureConversation();
+          if (!conversation && organizationId && contactSessionId) {
+            const res = await createConversation({
+              organizationId,
+              contactSessionId,
+            });
+
+            // ✅ createConversation retourne { conversationId, threadId }
+            setConversationId(res.conversationId);
+
+            // (optionnel mais recommandé si tu utilises localThreadId)
+            setLocalThreadId(res.threadId);
+          }
         } catch {}
         setStep("idle");
         setBookingIntent("none");
@@ -923,7 +847,6 @@ export const WidgetChatScreen = () => {
 
     form.reset();
 
-
     if (!firstMessageSentRef.current && organizationId) {
       firstMessageSentRef.current = true;
       logEvent({
@@ -954,16 +877,41 @@ export const WidgetChatScreen = () => {
 
     if (!contactSessionId || !organizationId) return;
 
-    // --- Ensure threadId exists (bootstrap should have done it, but fallback here) ---
-    let thr: string;
+    // Ensure a conversation exists
+    // Ensure a conversation exists
+    let cid = conversationId;
+    let createdThreadId: string | null = null;
+
     try {
-      const res = await ensureConversation();
-      thr = res.threadId;
-      setActiveThreadId(thr);
+      if (!cid || !conversation) {
+        const res = await createConversation({ organizationId, contactSessionId } as any);
+        cid = res.conversationId;
+        createdThreadId = res.threadId;
+
+        setConversationId(res.conversationId);
+        setLocalThreadId(res.threadId);
+      }
     } catch {
       setLocalMsgs((m) => [
         ...m,
         { role: "assistant", text: "One sec… ready now. Please resend your message." },
+      ]);
+      return;
+    }
+
+    // Wait for threadId to be ready, then send
+    const thr =
+      conversation?.threadId ??
+      createdThreadId ??
+      localThreadId ??
+      (await waitForThreadId());
+    if (!thr) {
+      setLocalMsgs((m) => [
+        ...m,
+        {
+          role: "assistant",
+          text: "Preparing the chat… please resend your message in a moment.",
+        },
       ]);
       return;
     }
@@ -977,21 +925,19 @@ export const WidgetChatScreen = () => {
     } catch {
       setLocalMsgs((m) => [
         ...m,
-        { role: "assistant", text: "Network hiccup—please try again." },
+        {
+          role: "assistant",
+          text: "Network hiccup—please try again.",
+        },
       ]);
     }
-
-  }
+  };
 
   /* -------- MESSAGES + GREET -------- */
-  const backendMsgs = toUIMessages(messages.results ?? [])
-    // ✅ remove empty assistant/user messages (stream/tool placeholders)
-    .filter((m) => (m.content ?? "").trim().length > 0)
-    .map((m) => ({
-      role: m.role === "user" ? ("user" as const) : ("assistant" as const),
-      text: m.content,
-    }));
-
+  const backendMsgs = toUIMessages(messages.results ?? []).map((m) => ({
+    role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+    text: m.content,
+  }));
 
   const greet = widgetSettings?.greetMessage?.trim();
 
@@ -1010,7 +956,10 @@ export const WidgetChatScreen = () => {
 
   // ✅ NEW: si pas de conversationId + idle => on injecte un greet local
   // (comme ça, plus besoin de la welcome card)
-  const uiMsgs = baseMsgs;
+  const uiMsgs =
+    !conversationId && step === "idle" && greet
+      ? [{ role: "assistant" as const, text: greet }, ...baseMsgs]
+      : baseMsgs;
 
 
   const suggestions = useMemo(() => {
@@ -1078,17 +1027,17 @@ export const WidgetChatScreen = () => {
             })}
 
             {/* ✅ Fallback booking CTA after X seconds if escalated & no human reply */}
-            {conversation?.status === "escalated" &&
+            {conversationId &&
               hasRepStarted !== true &&
               fallbackShownRef.current &&
-              step === "idle" && (
+              step === "idle" &&
+              conversation?.status !== "resolved" && (
                 <div className="p-3">
                   <Button className="w-full" onClick={startBookingLikePromo}>
                     Book a meeting
                   </Button>
                 </div>
               )}
-
 
 
               {step === "auto_assign_wait" && (
@@ -1187,7 +1136,19 @@ export const WidgetChatScreen = () => {
                           ]);
                         } else {
                           try {
-                            await ensureConversation();
+                            if (
+                              !conversation &&
+                              organizationId &&
+                              contactSessionId
+                            ) {
+                              const res = await createConversation({
+                                organizationId,
+                                contactSessionId,
+                              } as any);
+
+                              setConversationId(res.conversationId);
+                              setLocalThreadId(res.threadId);
+                            }
                           } catch {}
                           setStep("idle");
                         }
