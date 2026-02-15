@@ -39,7 +39,6 @@ FORMAT RULES:
 - Never mention the KB, sources, documents, or file names.
 `.trim();
 
-// ✅ deterministic “human intent” detector
 function wantsHuman(text: string) {
   const t = (text || "").toLowerCase();
   return (
@@ -58,10 +57,6 @@ function wantsHuman(text: string) {
   );
 }
 
-/**
- * ✅ Normalize prompts “question-like”
- * prevents “needs 2 messages” bug
- */
 function normalizeQuestionPrompt(p: string) {
   const t = (p || "").trim();
   if (!t) return t;
@@ -88,11 +83,6 @@ function normalizeQuestionPrompt(p: string) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * ✅ Robust wrapper around agent.generateText
- * - retries once (transient provider/cold-start issues)
- * - NEVER leaves user with forbidden “sorry i can’t generate” wording
- */
 async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any) {
   try {
     await agent.generateText(ctx, { threadId }, payload);
@@ -120,13 +110,6 @@ async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any
   }
 }
 
-/**
- * ✅ IMPORTANT FIX:
- * Providers can succeed but the assistant message may persist a moment later.
- * We poll a few times before writing ANY fallback.
- *
- * Also: we NEVER write the forbidden “Sorry — I didn’t manage…” message anymore.
- */
 async function ensureAssistantReplyVisible(ctx: any, agent: any, threadId: string) {
   const MAX_ATTEMPTS = 6;
   const WAIT_MS = 200;
@@ -147,14 +130,12 @@ async function ensureAssistantReplyVisible(ctx: any, agent: any, threadId: strin
 
       if (hasAssistant) return;
     } catch (e: any) {
-      // if listMessages itself errors transiently, just retry
       console.error("ensureAssistantReplyVisible: listMessages error", e?.message ?? e);
     }
 
     await sleep(WAIT_MS);
   }
 
-  // After retries, if still no assistant message, write a safe fallback
   await saveMessage(ctx, components.agent, {
     threadId,
     message: {
@@ -192,6 +173,7 @@ export const create = action({
       throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
+    // ✅ only block resolved (don’t block “new/open/pending”)
     if (conversation.status === "resolved") {
       throw new ConvexError({ code: "BAD_REQUEST", message: "Conversation resolved" });
     }
@@ -215,13 +197,11 @@ export const create = action({
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
     const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
 
-    // ✅ reps availability (used for deterministic escalation)
     const availableReps =
       (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
         organizationId: conversation.organizationId,
       })) ?? [];
 
-    // ✅ HARD ESCALATION: user asks for a human AND someone is available
     if (wantsHuman(prompt) && availableReps.length > 0) {
       await ctx.runMutation(internal.system.conversations.escalate, {
         threadId: args.threadId,
@@ -237,22 +217,23 @@ export const create = action({
       return;
     }
 
-    // ✅ If not eligible => save user msg, no agent run
-    const shouldTriggerAgent =
-      subscription?.status === "active" && conversation.status === "unresolved";
+    // ✅ FIX: do NOT depend on conversation.status === "unresolved"
+    const shouldTriggerAgent = subscription?.status === "active";
 
     if (!shouldTriggerAgent) {
       await saveMessage(ctx, components.agent, { threadId: args.threadId, prompt });
 
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
-        message: { role: "assistant", content: "One moment — preparing the conversation…" },
+        message: {
+          role: "assistant",
+          content: "One moment — preparing the conversation…",
+        },
       });
 
       return;
     }
 
-    // reps block for agent (hidden)
     const repsLabel = availableReps
       .slice(0, 3)
       .map((r: any) => {
@@ -266,9 +247,6 @@ export const create = action({
 
     const agent = makeSupportAgent({ llmProvider, llmModel });
 
-    // -------------------------
-    // MODE: LLM ONLY
-    // -------------------------
     if (knowledgeMode === "llm_only") {
       await safeGenerate(agent, ctx, args.threadId, {
         prompt,
@@ -283,9 +261,6 @@ export const create = action({
       return;
     }
 
-    // ---------------------------------------
-    // MODE: KB ONLY (STRICT)
-    // ---------------------------------------
     if (knowledgeMode === "kb_only") {
       const orgId = conversation.organizationId;
 
@@ -320,9 +295,6 @@ ${kbText}
       return;
     }
 
-    // -------------------------
-    // MODE: LLM + KB
-    // -------------------------
     await safeGenerate(agent, ctx, args.threadId, {
       prompt,
       system: repsBlock,
@@ -350,7 +322,6 @@ export const getMany = query({
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
-    // Try to keep consistent with org settings (and avoid hardcoding)
     const conversation = await ctx.runQuery(internal.system.conversations.getByThreadId, {
       threadId: args.threadId,
     });
