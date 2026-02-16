@@ -554,6 +554,8 @@ export const WidgetChatScreen = () => {
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
     }
   }, [step]);
+  const pendingFallbackShownRef = useRef(false);
+
 
 
 
@@ -936,25 +938,34 @@ export const WidgetChatScreen = () => {
         return;
       }
 
+      pendingFallbackShownRef.current = false;
+
       // pending UI (typing)
       assistantCountAtSendRef.current = backendAssistantCount;
       setIsPendingAssistant(true);
 
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
       pendingTimeoutRef.current = setTimeout(() => {
+        // Si une réponse assistant est arrivée => stop
         if (backendAssistantCountRef.current > assistantCountAtSendRef.current) {
           setIsPendingAssistant(false);
           return;
         }
-        setIsPendingAssistant(false);
+
+        // Sinon: on affiche le message 1 seule fois, MAIS on garde Typing… (isPendingAssistant reste true)
+        if (pendingFallbackShownRef.current) return;
+        pendingFallbackShownRef.current = true;
+
         setLocalMsgs((m) => [
           ...m,
           {
             role: "assistant",
-            text: "Still working on it… If this takes too long, please try again or ask to speak with a human.",
+            text:
+              "Still working on it… I’m generating the answer and I’ll post it here as soon as it’s ready.\n\nIf you prefer, you can also ask to speak with a human.",
           },
         ]);
-      }, 20000);
+      }, 30000);
+
 
       try {
         await createMessage({
@@ -992,6 +1003,7 @@ export const WidgetChatScreen = () => {
     if (!isPendingAssistant) return;
     if (backendAssistantCount > assistantCountAtSendRef.current) {
       setIsPendingAssistant(false);
+      pendingFallbackShownRef.current = false;
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
     }
   }, [backendAssistantCount, isPendingAssistant]);
@@ -1436,6 +1448,7 @@ export const WidgetChatScreen = () => {
               <AIInputTextarea
                 disabled={
                   mustAcceptConsent ||
+                  isPendingAssistant ||
                   conversation?.status === "resolved" ||
                   step === "ask_name" ||
                   step === "pick_rep" ||
@@ -1470,6 +1483,7 @@ export const WidgetChatScreen = () => {
               }}
               disabled={
                 mustAcceptConsent ||
+                isPendingAssistant ||
                 conversation?.status === "resolved" ||
                 !form.formState.isValid ||
                 step === "ask_name" ||
