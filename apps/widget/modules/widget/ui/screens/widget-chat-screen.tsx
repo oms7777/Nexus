@@ -494,6 +494,12 @@ export const WidgetChatScreen = () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       return;
     }
+    const isEscalated = conversation?.status === "escalated"; // adapte si autre valeur
+    if (!isEscalated) {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+      fallbackShownRef.current = false;
+      return;
+    }
 
     const isResolved = conversation?.status === "resolved";
     const humanAlreadyReplied = hasRepStarted === true;
@@ -548,6 +554,8 @@ export const WidgetChatScreen = () => {
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
     }
   }, [step]);
+
+
 
 
 
@@ -612,6 +620,7 @@ export const WidgetChatScreen = () => {
   const logEvent = useMutation(api.public.analytics.log);
   const createConversation = useMutation(api.public.conversations.create);
   const firstMessageSentRef = useRef(false);
+  const isSendingRef = useRef(false);
 
   // ✅ NEW: book handler identique à SmartPromo.ensureAndStart("book")
   const startBookingLikePromo = async () => {
@@ -928,13 +937,20 @@ export const WidgetChatScreen = () => {
       ]);
       return;
     }
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
     // start pending UI (typing)
     assistantCountAtSendRef.current = backendAssistantCount;
     setIsPendingAssistant(true);
 
     if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
     pendingTimeoutRef.current = setTimeout(() => {
-      // if after 20s still nothing, stop pending and show local fallback
+      // ✅ if assistant already replied, do nothing
+      if (backendAssistantCountRef.current > assistantCountAtSendRef.current) {
+        setIsPendingAssistant(false);
+        return;
+      }
+
       setIsPendingAssistant(false);
       setLocalMsgs((m) => [
         ...m,
@@ -944,6 +960,7 @@ export const WidgetChatScreen = () => {
         },
       ]);
     }, 20000);
+
 
     try {
       await createMessage({
@@ -959,8 +976,10 @@ export const WidgetChatScreen = () => {
         ...m,
         { role: "assistant", text: "Network hiccup—please try again." },
       ]);
+    } finally {
+      isSendingRef.current = false;
     }
-  };
+  }
 
   /* -------- MESSAGES + GREET -------- */
   const backendMsgs = toUIMessages(messages.results ?? [])
@@ -982,7 +1001,10 @@ export const WidgetChatScreen = () => {
     }
   }, [backendAssistantCount, isPendingAssistant]);
 
-
+  const backendAssistantCountRef = useRef(0);
+  useEffect(() => {
+    backendAssistantCountRef.current = backendAssistantCount;
+  }, [backendAssistantCount]);
 
   const greet = widgetSettings?.greetMessage?.trim();
 
@@ -1080,18 +1102,19 @@ export const WidgetChatScreen = () => {
             )}
 
 
-            {/* ✅ Fallback booking CTA after X seconds if escalated & no human reply */}
             {conversationId &&
+              conversation?.status === "escalated" &&
               hasRepStarted !== true &&
               fallbackShownRef.current &&
-              step === "idle" &&
-              conversation?.status !== "resolved" && (
+              step === "idle" && (
                 <div className="p-3">
                   <Button className="w-full" onClick={startBookingLikePromo}>
                     Book a meeting
                   </Button>
                 </div>
               )}
+
+
 
 
               {step === "auto_assign_wait" && (
