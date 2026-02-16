@@ -111,51 +111,13 @@ async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any
   }
 }
 
-/**
- * ✅ FIX KEY:
- * Wait briefly for the assistant message to actually be persisted,
- * instead of letting the UI look "stuck" (which creates the “needs 2nd message” bug).
- */
-async function waitForAssistantAfter(ctx: any, threadId: string, afterTs: number) {
-  const agent = makeSupportAgent({ llmProvider: "openai", llmModel: "gpt-4o-mini" });
-
-  const tries = 10;
-  const delayMs = 200;
-
-  for (let i = 0; i < tries; i++) {
-    try {
-      const msgs = await agent.listMessages(ctx, {
-        threadId,
-        paginationOpts: { numItems: 10, cursor: null },
-      });
-
-      const page = msgs?.page ?? [];
-
-      const hasFreshAssistant = page.some((m: any) => {
-        const role = m?.message?.role ?? m?.role;
-        const content = (m?.message?.content ?? m?.content ?? "").toString().trim();
-        const ts = Number(m?._creationTime ?? m?.message?._creationTime ?? 0);
-        return role === "assistant" && content.length > 0 && ts >= afterTs;
-      });
-
-      if (hasFreshAssistant) return true;
-    } catch {
-      // ignore transient read errors, keep polling
-    }
-
-    await new Promise((r) => setTimeout(r, delayMs));
-  }
-
-  return false;
-}
-
 async function writeGenerationFallback(ctx: any, threadId: string) {
   await saveMessage(ctx, components.agent, {
     threadId,
     message: {
       role: "assistant",
       content:
-        "I’m not seeing my reply come through. Please send your question again, or ask to speak with a human.",
+        "I’m having trouble generating a reply right now. Please try again, or ask to speak with a human.",
     },
   });
 }
@@ -196,7 +158,7 @@ export const create = action({
       contactSessionId: args.contactSessionId,
     });
 
-    // 2) subscription gating
+    // 2) subscription gating (tu peux remettre si tu veux, là tu l’avais retiré)
     const subscription = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
       organizationId: conversation.organizationId,
     });
@@ -217,7 +179,6 @@ export const create = action({
       })) ?? [];
 
     // ✅ Always persist user message first (stable UX + rep context)
-    const userPromptTs = Date.now();
     await saveMessage(ctx, components.agent, {
       threadId: args.threadId,
       prompt,
@@ -229,18 +190,19 @@ export const create = action({
 
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
-        message: { role: "assistant", content: "Got it — connecting you with a human teammate now." },
+        message: {
+          role: "assistant",
+          content: "Got it — connecting you with a human teammate now.",
+        },
       });
 
       return;
     }
 
     const shouldTriggerAgent =
-      conversation.status === "unresolved";
-
+      subscription?.status === "active" && conversation.status === "unresolved";
 
     if (!shouldTriggerAgent) {
-      // Keep it informative (no dead-end)
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         message: {
@@ -277,8 +239,7 @@ export const create = action({
         },
       } as any);
 
-      const ok = gen.ok ? await waitForAssistantAfter(ctx, args.threadId, userPromptTs) : false;
-      if (!ok) await writeGenerationFallback(ctx, args.threadId);
+      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId);
       return;
     }
 
@@ -313,8 +274,7 @@ ${kbText}
         `.trim(),
       } as any);
 
-      const ok = gen.ok ? await waitForAssistantAfter(ctx, args.threadId, userPromptTs) : false;
-      if (!ok) await writeGenerationFallback(ctx, args.threadId);
+      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId);
       return;
     }
 
@@ -329,8 +289,7 @@ ${kbText}
       },
     } as any);
 
-    const ok = gen.ok ? await waitForAssistantAfter(ctx, args.threadId, userPromptTs) : false;
-    if (!ok) await writeGenerationFallback(ctx, args.threadId);
+    if (!gen.ok) await writeGenerationFallback(ctx, args.threadId);
   },
 });
 

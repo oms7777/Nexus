@@ -538,6 +538,19 @@ export const WidgetChatScreen = () => {
     Array<{ role: "assistant" | "user"; text: string }>
   >([]);
 
+  // --- pending assistant (prevents "silent" UX + fixes "needs 2nd message" perception)
+  const [isPendingAssistant, setIsPendingAssistant] = useState(false);
+  const assistantCountAtSendRef = useRef(0);
+  const pendingTimeoutRef = useRef<any>(null);
+  useEffect(() => {
+    if (step !== "idle") {
+      setIsPendingAssistant(false);
+      if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+    }
+  }, [step]);
+
+
+
   // calendar (fallback / compat)
   const calendarAccount = useQuery(
     api.public.calendar.getAccount,
@@ -915,6 +928,22 @@ export const WidgetChatScreen = () => {
       ]);
       return;
     }
+    // start pending UI (typing)
+    assistantCountAtSendRef.current = backendAssistantCount;
+    setIsPendingAssistant(true);
+
+    if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+    pendingTimeoutRef.current = setTimeout(() => {
+      // if after 20s still nothing, stop pending and show local fallback
+      setIsPendingAssistant(false);
+      setLocalMsgs((m) => [
+        ...m,
+        {
+          role: "assistant",
+          text: "Still working on it… If this takes too long, please try again or ask to speak with a human.",
+        },
+      ]);
+    }, 20000);
 
     try {
       await createMessage({
@@ -923,12 +952,12 @@ export const WidgetChatScreen = () => {
         contactSessionId,
       });
     } catch {
+      setIsPendingAssistant(false);
+      if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+
       setLocalMsgs((m) => [
         ...m,
-        {
-          role: "assistant",
-          text: "Network hiccup—please try again.",
-        },
+        { role: "assistant", text: "Network hiccup—please try again." },
       ]);
     }
   };
@@ -941,6 +970,18 @@ export const WidgetChatScreen = () => {
       role: m.role === "user" ? ("user" as const) : ("assistant" as const),
       text: m.content,
     }));
+  
+  const backendAssistantCount = backendMsgs.filter((m) => m.role === "assistant").length;
+  useEffect(() => {
+    if (!isPendingAssistant) return;
+
+    // if assistant count increased since last send => assistant replied
+    if (backendAssistantCount > assistantCountAtSendRef.current) {
+      setIsPendingAssistant(false);
+      if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+    }
+  }, [backendAssistantCount, isPendingAssistant]);
+
 
 
   const greet = widgetSettings?.greetMessage?.trim();
@@ -1029,6 +1070,15 @@ export const WidgetChatScreen = () => {
                 </AIMessage>
               );
             })}
+            {isPendingAssistant && (
+              <AIMessage from="assistant">
+                <AIMessageContent>
+                  <AIResponse>Typing…</AIResponse>
+                </AIMessageContent>
+                <DicebearAvatar imageUrl={brandLogoUrl} seed="assistant" size={32} />
+              </AIMessage>
+            )}
+
 
             {/* ✅ Fallback booking CTA after X seconds if escalated & no human reply */}
             {conversationId &&
