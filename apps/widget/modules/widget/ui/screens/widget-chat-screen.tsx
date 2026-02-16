@@ -1018,9 +1018,9 @@ export const WidgetChatScreen = () => {
     const base = widgetSettings?.defaultSuggestions
       ? (Object.values(widgetSettings.defaultSuggestions).filter(Boolean) as string[])
       : [];
-
-    return base;
+    return Array.from(new Set(base.map(s => s.trim()))).filter(Boolean);
   }, [widgetSettings]);
+
 
   return (
     <div

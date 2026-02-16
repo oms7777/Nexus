@@ -178,11 +178,6 @@ export const create = action({
         organizationId: conversation.organizationId,
       })) ?? [];
 
-    // ✅ Always persist user message first (stable UX + rep context)
-    await saveMessage(ctx, components.agent, {
-      threadId: args.threadId,
-      prompt,
-    });
 
     // ✅ HARD escalation if user asks AND someone available
     if (wantsHuman(args.prompt)) {
