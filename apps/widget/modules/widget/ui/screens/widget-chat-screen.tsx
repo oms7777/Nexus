@@ -857,158 +857,146 @@ export const WidgetChatScreen = () => {
 
   /* -------- Send message (thread bootstrap + retry) -------- */
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
-    const text = values.message.trim();
-    
-    if (!text) return;
-
-    if (mustAcceptConsent) {
-      setStep("consent");
-      setBookingIntent("chat");
-      return;
-    }
-
-    form.reset();
-
-    if (!firstMessageSentRef.current && organizationId) {
-      firstMessageSentRef.current = true;
-      logEvent({
-        organizationId,
-        type: "inbound_chat_requested",
-        sessionId: contactSessionId || undefined,
-        meta: { source: step === "idle" ? "manual" : "flow" },
-      }).catch(() => {});
-    }
-
-    // booking intent via free text
-    if (step === "idle" && /book|demo|meeting/i.test(text)) {
-      setLocalMsgs((m) => [...m, { role: "user", text }]);
-      setBookingIntent("book");
-
-      if (!consentEnabled || consentGiven) {
-        setStep("ask_name");
-        setLocalMsgs((m) => [
-          ...m,
-          { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
-        ]);
-      } else {
-        setStep("consent");
-      }
-      return;
-    }
-
-
-    if (!contactSessionId || !organizationId) return;
-
-    // Ensure a conversation exists
-    // Ensure a conversation exists
-    let cid = conversationId;
-    let createdThreadId: string | null = null;
-
-    try {
-      if (!cid || !conversation) {
-        const res = await createConversation({ organizationId, contactSessionId } as any);
-        cid = res.conversationId;
-        createdThreadId = res.threadId;
-
-        setConversationId(res.conversationId);
-        setLocalThreadId(res.threadId);
-      }
-    } catch {
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "assistant", text: "One sec… ready now. Please resend your message." },
-      ]);
-      return;
-    }
-
-    // Wait for threadId to be ready, then send
-    const thr =
-      conversation?.threadId ??
-      createdThreadId ??
-      localThreadId ??
-      (await waitForThreadId());
-    if (!thr) {
-      setLocalMsgs((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text: "Preparing the chat… please resend your message in a moment.",
-        },
-      ]);
-      return;
-    }
     if (isSendingRef.current) return;
     isSendingRef.current = true;
-    // start pending UI (typing)
-    assistantCountAtSendRef.current = backendAssistantCount;
-    setIsPendingAssistant(true);
 
-    if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
-    pendingTimeoutRef.current = setTimeout(() => {
-      // ✅ if assistant already replied, do nothing
-      if (backendAssistantCountRef.current > assistantCountAtSendRef.current) {
-        setIsPendingAssistant(false);
+    try {
+      const text = values.message.trim();
+      if (!text) return;
+
+      if (mustAcceptConsent) {
+        setStep("consent");
+        setBookingIntent("chat");
         return;
       }
 
-      setIsPendingAssistant(false);
-      setLocalMsgs((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text: "Still working on it… If this takes too long, please try again or ask to speak with a human.",
-        },
-      ]);
-    }, 20000);
+      form.reset();
 
+      if (!firstMessageSentRef.current && organizationId) {
+        firstMessageSentRef.current = true;
+        logEvent({
+          organizationId,
+          type: "inbound_chat_requested",
+          sessionId: contactSessionId || undefined,
+          meta: { source: step === "idle" ? "manual" : "flow" },
+        }).catch(() => {});
+      }
 
-    try {
-      await createMessage({
-        threadId: thr,
-        prompt: text,
-        contactSessionId,
-      });
-    } catch {
-      setIsPendingAssistant(false);
+      // booking intent via free text
+      if (step === "idle" && /book|demo|meeting/i.test(text)) {
+        setLocalMsgs((m) => [...m, { role: "user", text }]);
+        setBookingIntent("book");
+
+        if (!consentEnabled || consentGiven) {
+          setStep("ask_name");
+          setLocalMsgs((m) => [
+            ...m,
+            { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+          ]);
+        } else {
+          setStep("consent");
+        }
+        return;
+      }
+
+      if (!contactSessionId || !organizationId) return;
+
+      // Ensure a conversation exists
+      let cid = conversationId;
+      let createdThreadId: string | null = null;
+
+      try {
+        if (!cid || !conversation) {
+          const res = await createConversation({ organizationId, contactSessionId } as any);
+          cid = res.conversationId;
+          createdThreadId = res.threadId;
+
+          setConversationId(res.conversationId);
+          setLocalThreadId(res.threadId);
+        }
+      } catch {
+        setLocalMsgs((m) => [
+          ...m,
+          { role: "assistant", text: "One sec… ready now. Please resend your message." },
+        ]);
+        return;
+      }
+
+      const thr =
+        conversation?.threadId ??
+        createdThreadId ??
+        localThreadId ??
+        (await waitForThreadId());
+
+      if (!thr) {
+        setLocalMsgs((m) => [
+          ...m,
+          { role: "assistant", text: "Preparing the chat… please resend your message in a moment." },
+        ]);
+        return;
+      }
+
+      // pending UI (typing)
+      assistantCountAtSendRef.current = backendAssistantCount;
+      setIsPendingAssistant(true);
+
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+      pendingTimeoutRef.current = setTimeout(() => {
+        if (backendAssistantCountRef.current > assistantCountAtSendRef.current) {
+          setIsPendingAssistant(false);
+          return;
+        }
+        setIsPendingAssistant(false);
+        setLocalMsgs((m) => [
+          ...m,
+          {
+            role: "assistant",
+            text: "Still working on it… If this takes too long, please try again or ask to speak with a human.",
+          },
+        ]);
+      }, 20000);
 
-      setLocalMsgs((m) => [
-        ...m,
-        { role: "assistant", text: "Network hiccup—please try again." },
-      ]);
+      try {
+        await createMessage({
+          threadId: thr,
+          prompt: text,
+          contactSessionId,
+        });
+      } catch {
+        setIsPendingAssistant(false);
+        if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+        setLocalMsgs((m) => [...m, { role: "assistant", text: "Network hiccup—please try again." }]);
+      }
     } finally {
       isSendingRef.current = false;
     }
-  }
+  };
+
 
   /* -------- MESSAGES + GREET -------- */
   const backendMsgs = toUIMessages(messages.results ?? [])
-    // ✅ remove empty assistant/user messages (stream/tool placeholders)
     .filter((m) => (m.content ?? "").trim().length > 0)
     .map((m) => ({
       role: m.role === "user" ? ("user" as const) : ("assistant" as const),
       text: m.content,
     }));
-  
-  const backendAssistantCount = backendMsgs.filter((m) => m.role === "assistant").length;
-  useEffect(() => {
-    if (!isPendingAssistant) return;
 
-    // if assistant count increased since last send => assistant replied
-    if (backendAssistantCount > assistantCountAtSendRef.current) {
-      setIsPendingAssistant(false);
-      if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
-    }
-  }, [backendAssistantCount, isPendingAssistant]);
+  const backendAssistantCount = backendMsgs.filter((m) => m.role === "assistant").length;
 
   const backendAssistantCountRef = useRef(0);
   useEffect(() => {
     backendAssistantCountRef.current = backendAssistantCount;
   }, [backendAssistantCount]);
 
-  const greet = widgetSettings?.greetMessage?.trim();
+  useEffect(() => {
+    if (!isPendingAssistant) return;
+    if (backendAssistantCount > assistantCountAtSendRef.current) {
+      setIsPendingAssistant(false);
+      if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+    }
+  }, [backendAssistantCount, isPendingAssistant]);
 
-  // ✅ On cache le greet backend pendant booking/flow (sinon doublons)
+  const greet = widgetSettings?.greetMessage?.trim();
   const hideGreetNow = bookingIntent === "book" || step !== "idle";
 
   const filteredBackend = greet
@@ -1018,11 +1006,8 @@ export const WidgetChatScreen = () => {
       })
     : backendMsgs;
 
-  // ✅ Base = ce que tu avais déjà
   const baseMsgs = [...filteredBackend, ...localMsgs];
 
-  // ✅ NEW: si pas de conversationId + idle => on injecte un greet local
-  // (comme ça, plus besoin de la welcome card)
   const uiMsgs =
     !conversationId && step === "idle" && greet
       ? [{ role: "assistant" as const, text: greet }, ...baseMsgs]
@@ -1426,7 +1411,10 @@ export const WidgetChatScreen = () => {
               key={s}
               suggestion={s}
               onClick={() => {
-                form.setValue("message", s);
+                // Anti double-submit "soft"
+                if (isSendingRef.current) return;
+
+                form.setValue("message", s, { shouldValidate: true });
                 form.handleSubmit(onSubmit)();
               }}
             />
@@ -1489,8 +1477,10 @@ export const WidgetChatScreen = () => {
                 step === "picking"
               }
               status="ready"
-              type="submit"
+              type="button"
+              onClick={form.handleSubmit(onSubmit)}
             />
+
 
           </AIInputToolbar>
         </AIInput>

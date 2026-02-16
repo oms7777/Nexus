@@ -200,7 +200,8 @@ export const create = action({
     }
 
     const shouldTriggerAgent =
-      subscription?.status === "active" && conversation.status === "unresolved";
+      subscription?.status === "active";
+
 
     if (!shouldTriggerAgent) {
       await saveMessage(ctx, components.agent, {
