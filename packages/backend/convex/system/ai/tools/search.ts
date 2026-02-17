@@ -6,7 +6,6 @@ import { generateText } from "ai";
 import z from "zod";
 import { api, internal } from "../../../_generated/api";
 import rag from "../rag";
-import { SEARCH_INTERPRETER_PROMPT } from "../constants";
 
 const NO_KB_PROMPT = `
 # Support Assistant – No Knowledge Base
@@ -39,9 +38,9 @@ function tokenize(s: string) {
 
 // petit filtre stopwords pour éviter les faux positifs
 const STOP = new Set([
-  "the","a","an","and","or","to","of","in","on","for","with","is","are","was","were",
-  "i","you","he","she","it","we","they","my","your","our","their",
-  "can","could","should","would","how","what","when","where","why"
+  "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "is", "are", "was", "were",
+  "i", "you", "he", "she", "it", "we", "they", "my", "your", "our", "their",
+  "can", "could", "should", "would", "how", "what", "when", "where", "why"
 ]);
 
 function isRelevant(query: string, text: string) {
@@ -69,6 +68,10 @@ function clip(text: string, max = 1600) {
  * IMPORTANT:
  * - This tool must NOT save messages to the thread.
  * - It only returns data to the agent.
+ *
+ * ✅ CHANGE (MAJ):
+ * - In llm_plus_kb mode, this tool is now RETRIEVAL-ONLY (no second LLM call inside the tool).
+ * - The agent will do the final synthesis using its own prompt rules.
  */
 export const search = createTool({
   description: "Search the knowledge base for relevant information to help answer user questions",
@@ -123,8 +126,8 @@ export const search = createTool({
     });
 
     const raw = (searchResult?.text ?? "").trim();
-    if (raw.length < 50) return "NO_RESULT";
     if (!raw) return "NO_RESULT";
+    if (raw.length < 50) return "NO_RESULT";
 
     // ✅ relevance guard (prevents “get married” matching inboundless docs)
     if (!isRelevant(args.query, raw)) {
@@ -136,18 +139,8 @@ export const search = createTool({
       return clip(raw, 1400);
     }
 
-    // 6) llm_plus_kb => let LLM interpret results (still do NOT leak sources)
-    const response = await generateText({
-      model,
-      messages: [
-        { role: "system", content: SEARCH_INTERPRETER_PROMPT },
-        {
-          role: "user",
-          content: `User asked: "${args.query}"\n\nSearch results:\n\n${clip(raw, 1600)}`,
-        },
-      ],
-    });
-
-    return response.text;
+    // ✅ 6) llm_plus_kb => RETRIEVAL ONLY (NO LLM INTERPRETER HERE)
+    // The agent will rewrite/summarize using its own system prompt.
+    return clip(raw, 1600);
   },
 });

@@ -158,7 +158,7 @@ export const create = action({
       contactSessionId: args.contactSessionId,
     });
 
-    // 2) subscription gating (tu peux remettre si tu veux, là tu l’avais retiré)
+    // 2) subscription gating
     const subscription = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
       organizationId: conversation.organizationId,
     });
@@ -178,7 +178,6 @@ export const create = action({
         organizationId: conversation.organizationId,
       })) ?? [];
 
-
     // ✅ HARD escalation if user asks AND someone available
     if (wantsHuman(args.prompt)) {
       await ctx.runMutation(internal.system.conversations.escalate, { threadId: args.threadId });
@@ -194,9 +193,7 @@ export const create = action({
       return;
     }
 
-    const shouldTriggerAgent =
-      subscription?.status === "active";
-
+    const shouldTriggerAgent = subscription?.status === "active";
 
     if (!shouldTriggerAgent) {
       await saveMessage(ctx, components.agent, {
@@ -275,6 +272,7 @@ ${kbText}
     }
 
     // MODE: LLM + KB
+    // ✅ NOTE (MAJ): searchTool is now retrieval-only, so LLM+KB is stable (no 2nd LLM call inside the tool).
     const gen = await safeGenerate(agent, ctx, args.threadId, {
       prompt,
       system: repsBlock,
