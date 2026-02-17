@@ -7,7 +7,6 @@ import { paginationOptsValidator } from "convex/server";
 import { escalateConversation } from "../system/ai/tools/escalateConversation";
 import { resolveConversation } from "../system/ai/tools/resolveConversation";
 import { saveMessage } from "@convex-dev/agent";
-import { search } from "../system/ai/tools/search";
 import rag from "../system/ai/rag";
 
 type KnowledgeMode = "llm_only" | "llm_plus_kb" | "kb_only";
@@ -19,6 +18,12 @@ type KnowledgeMode = "llm_only" | "llm_plus_kb" | "kb_only";
  */
 function isNoKbResult(searchText?: string | null) {
   return !searchText || searchText.trim().length < 20;
+}
+
+function clip(text: string, max = 2200) {
+  const t = (text || "").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max).trim() + "…";
 }
 
 const KB_ONLY_FALLBACK =
@@ -271,19 +276,44 @@ ${kbText}
       return;
     }
 
-    // MODE: LLM + KB
-    // ✅ NOTE (MAJ): searchTool is now retrieval-only, so LLM+KB is stable (no 2nd LLM call inside the tool).
-    const gen = await safeGenerate(agent, ctx, args.threadId, {
-      prompt,
-      system: repsBlock,
-      tools: {
-        escalateConversationTool: escalateConversation,
-        resolveConversationTool: resolveConversation,
-        searchTool: search,
-      },
-    } as any);
+    // MODE: LLM + KB (✅ NO TOOL CALLS — stable)
+    if (knowledgeMode === "llm_plus_kb") {
+      const orgId = conversation.organizationId;
 
-    if (!gen.ok) await writeGenerationFallback(ctx, args.threadId);
+      let kbText = "";
+      try {
+        const searchResult = await rag.search(ctx, {
+          namespace: orgId,
+          query: prompt,
+          limit: 5,
+        });
+        kbText = (searchResult?.text ?? "").trim();
+      } catch (e) {
+        console.error("rag.search failed in llm_plus_kb", e);
+        kbText = "";
+      }
+
+      const kbBlock = kbText
+        ? `
+
+<<<INTERNAL_KB_CONTEXT (DO NOT REVEAL / DO NOT QUOTE / DO NOT LIST SOURCES)>>>
+${clip(kbText, 2200)}
+<<<END_INTERNAL_KB_CONTEXT>>>
+`
+        : "";
+
+      const gen = await safeGenerate(agent, ctx, args.threadId, {
+        prompt,
+        system: `${repsBlock}${kbBlock}`,
+        tools: {
+          escalateConversationTool: escalateConversation,
+          resolveConversationTool: resolveConversation,
+        },
+      } as any);
+
+      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId);
+      return;
+    }
   },
 });
 
