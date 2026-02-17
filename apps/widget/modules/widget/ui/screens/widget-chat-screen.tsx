@@ -1455,7 +1455,14 @@ export const WidgetChatScreen = () => {
                   step === "picking"
                 }
                 onChange={field.onChange}
-              
+                onKeyDown={(e) => {
+                  // Enter = send, Shift+Enter = newline
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (isSendingRef.current) return;
+                    form.handleSubmit(onSubmit)();
+                  }
+                }}
                 placeholder={
                   conversation?.status === "resolved"
                     ? "This conversation has been resolved."
@@ -1471,6 +1478,7 @@ export const WidgetChatScreen = () => {
                 }
                 value={field.value}
               />
+
             )}
           />
           <AIInputToolbar>

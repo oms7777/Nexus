@@ -43,7 +43,7 @@ import {
 } from "@workspace/ui/components/select";
 import { Label } from "@workspace/ui/components/label";
 
-type KnowledgeMode = "llm_only" | "llm_plus_kb" | "kb_only";
+type KnowledgeMode = "llm_plus_kb" | "kb_only";
 type LlmProvider = "openai" | "google";
 
 export const FilesView = () => {
@@ -61,7 +61,7 @@ export const FilesView = () => {
   // ✅ SINGLE source of truth for files
   const files = usePaginatedQuery(
     api.private.files.list,
-    { refreshToken }, // ✅ force rerun after upload
+    { refreshToken },
     { initialNumItems: 10 }
   );
 
@@ -78,22 +78,26 @@ export const FilesView = () => {
   });
 
   // Local UI state (hydrated from settings)
-  const [knowledgeMode, setKnowledgeMode] =
-    useState<KnowledgeMode>("llm_plus_kb");
+  const [knowledgeMode, setKnowledgeMode] = useState<KnowledgeMode>("llm_plus_kb");
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("openai");
 
-  // Hydrate from DB
+  // Hydrate from DB (sanitize legacy "llm_only" -> "llm_plus_kb")
   useEffect(() => {
     if (!widgetSettings) return;
 
-    const km = (widgetSettings.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode;
+    const rawKm = (widgetSettings.knowledgeMode ?? "llm_plus_kb") as
+      | "llm_only"
+      | "llm_plus_kb"
+      | "kb_only";
+
+    const km: KnowledgeMode = rawKm === "llm_only" ? "llm_plus_kb" : (rawKm as KnowledgeMode);
     setKnowledgeMode(km);
 
     const prov = (widgetSettings.llmProvider ?? "openai") as LlmProvider;
     setLlmProvider(prov);
   }, [widgetSettings]);
 
-  const kbEnabled = useMemo(() => knowledgeMode !== "llm_only", [knowledgeMode]);
+  const kbEnabled = useMemo(() => true, []); // ✅ always enabled now (since llm_only removed)
 
   const handleDeleteClick = (file: PublicFile) => {
     setSelectedFile(file);
@@ -187,7 +191,6 @@ export const FilesView = () => {
                         LLM + KB (recommended)
                       </SelectItem>
                       <SelectItem value="kb_only">KB only (strict)</SelectItem>
-                      <SelectItem value="llm_only">LLM only (no KB)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
@@ -195,8 +198,6 @@ export const FilesView = () => {
                       "Uses the KB when helpful, otherwise answers with the LLM."}
                     {knowledgeMode === "kb_only" &&
                       "Answers only if the KB contains the information (otherwise offers human help)."}
-                    {knowledgeMode === "llm_only" &&
-                      "Ignores the KB entirely (useful if your docs aren’t ready yet)."}
                   </p>
                 </div>
 
@@ -238,120 +239,108 @@ export const FilesView = () => {
                 These documents are indexed and used by your assistant to answer
                 product and support questions.
               </div>
-              <Button
-                onClick={() => setUploadDialogOpen(true)}
-                disabled={!kbEnabled}
-              >
+              <Button onClick={() => setUploadDialogOpen(true)} disabled={!kbEnabled}>
                 <PlusIcon className="mr-2 h-4 w-4" />
                 Add document
               </Button>
             </div>
 
-            {!kbEnabled ? (
-              <div className="px-6 py-8 text-center text-sm text-muted-foreground">
-                The knowledge base is currently disabled (LLM only). Switch to
-                “LLM + KB” or “KB only” to upload and use documents.
-              </div>
-            ) : (
-              <>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="px-6 py-4 font-medium">Name</TableHead>
-                      <TableHead className="px-6 py-4 font-medium">Type</TableHead>
-                      <TableHead className="px-6 py-4 font-medium">Size</TableHead>
-                      <TableHead className="px-6 py-4 font-medium">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(() => {
-                      if (isLoadingFirstPage) {
-                        return (
-                          <TableRow>
-                            <TableCell
-                              className="h-24 text-center text-sm text-muted-foreground"
-                              colSpan={4}
-                            >
-                              Loading files…
-                            </TableCell>
-                          </TableRow>
-                        );
-                      }
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="px-6 py-4 font-medium">Name</TableHead>
+                  <TableHead className="px-6 py-4 font-medium">Type</TableHead>
+                  <TableHead className="px-6 py-4 font-medium">Size</TableHead>
+                  <TableHead className="px-6 py-4 font-medium">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(() => {
+                  if (isLoadingFirstPage) {
+                    return (
+                      <TableRow>
+                        <TableCell
+                          className="h-24 text-center text-sm text-muted-foreground"
+                          colSpan={4}
+                        >
+                          Loading files…
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
 
-                      if (files.results.length === 0) {
-                        return (
-                          <TableRow>
-                            <TableCell
-                              className="h-24 text-center text-sm text-muted-foreground"
-                              colSpan={4}
-                            >
-                              No knowledge documents yet. Start by uploading a
-                              PDF, DOCX, or TXT file.
-                            </TableCell>
-                          </TableRow>
-                        );
-                      }
+                  if (files.results.length === 0) {
+                    return (
+                      <TableRow>
+                        <TableCell
+                          className="h-24 text-center text-sm text-muted-foreground"
+                          colSpan={4}
+                        >
+                          No knowledge documents yet. Start by uploading a PDF,
+                          DOCX, or TXT file.
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
 
-                      return files.results.map((file) => (
-                        <TableRow className="hover:bg-muted/50" key={file.id}>
-                          <TableCell className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <FileIcon className="h-4 w-4 text-muted-foreground" />
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-medium">
-                                  {file.name}
-                                </div>
-                                {file.folder ? (
-                                  <div className="truncate text-xs text-muted-foreground">
-                                    Folder: {file.folder}
-                                  </div>
-                                ) : null}
-                              </div>
+                  return files.results.map((file) => (
+                    <TableRow className="hover:bg-muted/50" key={file.id}>
+                      <TableCell className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <FileIcon className="h-4 w-4 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">
+                              {file.name}
                             </div>
-                          </TableCell>
-                          <TableCell className="px-6 py-4">
-                            <Badge className="uppercase" variant="outline">
-                              {file.type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="px-6 py-4 text-sm text-muted-foreground">
-                            {file.size}
-                          </TableCell>
-                          <TableCell className="px-6 py-4">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button className="size-8 p-0" size="sm" variant="ghost">
-                                  <MoreHorizontalIcon className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onClick={() => handleDeleteClick(file)}
-                                >
-                                  <TrashIcon className="mr-2 h-4 w-4" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ));
-                    })()}
-                  </TableBody>
-                </Table>
+                            {file.folder ? (
+                              <div className="truncate text-xs text-muted-foreground">
+                                Folder: {file.folder}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-6 py-4">
+                        <Badge className="uppercase" variant="outline">
+                          {file.type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="px-6 py-4 text-sm text-muted-foreground">
+                        {file.size}
+                      </TableCell>
+                      <TableCell className="px-6 py-4">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button className="size-8 p-0" size="sm" variant="ghost">
+                              <MoreHorizontalIcon className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDeleteClick(file)}
+                            >
+                              <TrashIcon className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ));
+                })()}
+              </TableBody>
+            </Table>
 
-                {!isLoadingFirstPage && files.results.length > 0 && (
-                  <div className="border-t">
-                    <InfiniteScrollTrigger
-                      canLoadMore={canLoadMore}
-                      isLoadingMore={isLoadingMore}
-                      onLoadMore={handleLoadMore}
-                      ref={topElementRef}
-                    />
-                  </div>
-                )}
-              </>
+            {!isLoadingFirstPage && files.results.length > 0 && (
+              <div className="border-t">
+                <InfiniteScrollTrigger
+                  canLoadMore={canLoadMore}
+                  isLoadingMore={isLoadingMore}
+                  onLoadMore={handleLoadMore}
+                  ref={topElementRef}
+                />
+              </div>
             )}
           </div>
         </div>

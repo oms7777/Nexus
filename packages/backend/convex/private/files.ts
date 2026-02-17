@@ -34,6 +34,7 @@ function sanitizeMimeType(
   const name = (filename || "").toLowerCase();
   let safe = (mime || "").trim();
 
+  // sometimes we receive "application-pdf" instead of "application/pdf"
   if (safe && safe.includes("-") && !safe.includes("/")) {
     safe = safe.replace("-", "/");
   }
@@ -51,6 +52,12 @@ function buildStorageFallbackUrl(storageId: Id<"_storage">): string | null {
   const deployment = process.env.CONVEX_DEPLOYMENT;
   if (!deployment) return null;
   return `https://${deployment}.convex.cloud/api/storage/${storageId}`;
+}
+
+function safeFileTypeFromName(name: string): string {
+  const n = (name || "").trim();
+  const ext = n.includes(".") ? n.split(".").pop()?.toLowerCase() : "";
+  return ext && ext.length <= 8 ? ext : "file";
 }
 
 /* ----------------------------- Types ----------------------------- */
@@ -232,7 +239,7 @@ export const addFile = action({
     const contentHash = await contentHashFromArrayBuffer(bytes);
 
     /**
-     * ✅ IMPORTANT (same as your old "critical fix"):
+     * ✅ IMPORTANT:
      * Always make key unique so uploads don't silently dedupe/hide.
      */
     const uniqueKey = `${orgId}/kb/${Date.now()}-${filename}`;
@@ -252,7 +259,8 @@ export const addFile = action({
       contentHash,
     });
 
-    const url = await ctx.storage.getUrl(storageId);
+    const urlFromConvex = await ctx.storage.getUrl(storageId);
+    const url = urlFromConvex ?? buildStorageFallbackUrl(storageId);
 
     return { url, entryId, storageId };
   },
@@ -286,18 +294,12 @@ export const list = query({
       paginationOpts: args.paginationOpts,
     });
 
-    const files = await Promise.all(
+    const mapped = await Promise.all(
       results.page.map((entry) => convertEntryToPublicFile(ctx, entry)),
     );
 
-    /**
-     * ✅ Only KB docs in /files.
-     * Hide assets completely.
-     */
-    const filtered = files.filter((f) => {
-      const kind = f.kind ?? "kb";
-      return kind === "kb";
-    });
+    // ✅ Only KB docs in /files. Hide assets completely.
+    const filtered = mapped.filter((f) => (f.kind ?? "kb") === "kb");
 
     return {
       page: filtered,
@@ -329,15 +331,17 @@ async function convertEntryToPublicFile(ctx: QueryCtx, entry: Entry): Promise<Pu
     entry.key ||
     "Unknown";
 
-  const extension =
-    displayName.split(".").pop()?.toLowerCase() ||
-    (entry.key?.split(".").pop()?.toLowerCase() ?? "txt");
+  const type = safeFileTypeFromName(displayName);
 
   let status: "ready" | "processing" | "error" = "error";
   if (entry.status === "ready") status = "ready";
   else if (entry.status === "pending") status = "processing";
 
-  const url = storageId ? await ctx.storage.getUrl(storageId) : null;
+  let url: string | null = null;
+  if (storageId) {
+    const urlFromConvex = await ctx.storage.getUrl(storageId);
+    url = urlFromConvex ?? buildStorageFallbackUrl(storageId);
+  }
 
   // ✅ kind + folder (compat with old `category`)
   const kind = (metadata?.kind as SystemKind | undefined) ?? "kb";
@@ -346,7 +350,7 @@ async function convertEntryToPublicFile(ctx: QueryCtx, entry: Entry): Promise<Pu
   return {
     id: entry.entryId,
     name: displayName,
-    type: extension,
+    type,
     size: fileSize,
     status,
     url,
