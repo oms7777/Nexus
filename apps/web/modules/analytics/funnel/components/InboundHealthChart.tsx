@@ -1,15 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 type Inbound = {
   requests?: number;
@@ -36,11 +28,7 @@ export function InboundHealthChart({
       { name: "Rep available", value: n(data?.with_rep_available) },
       { name: "Rep started", value: n(data?.rep_started) },
     ];
-
-    if (showSla) {
-      base.push({ name: "Started < SLA", value: n(data?.started_before_sla) });
-    }
-
+    if (showSla) base.push({ name: "Started < SLA", value: n(data?.started_before_sla) });
     return base;
   }, [data, showSla]);
 
@@ -61,10 +49,8 @@ export function InboundHealthChart({
           <CartesianGrid vertical={false} />
           <XAxis dataKey="name" tickLine={false} axisLine={false} />
           <YAxis tickLine={false} axisLine={false} />
-          <Tooltip
-            formatter={(value: any) => [Number(value ?? 0).toLocaleString(), "Count"]}
-          />
-          <Bar dataKey="value" isAnimationActive={false} radius={[10, 10, 0, 0]} />
+          <Tooltip formatter={(value: any) => [Number(value ?? 0).toLocaleString(), "Count"]} />
+          <Bar dataKey="value" fill="#a855f7" isAnimationActive={false} radius={[10, 10, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

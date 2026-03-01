@@ -1,13 +1,7 @@
 "use client";
 
 import React from "react";
-import {
-  ResponsiveContainer,
-  FunnelChart,
-  Funnel,
-  Tooltip,
-  LabelList,
-} from "recharts";
+import { ResponsiveContainer, FunnelChart, Funnel, Tooltip, LabelList } from "recharts";
 
 type Engagement = {
   sessions?: number;
@@ -25,24 +19,14 @@ function fmt(v: any) {
   return n(v).toLocaleString();
 }
 
-export function EngagementFunnelChart({
-  data,
-}: {
-  data?: Engagement | null;
-}) {
-  const sessions = n(data?.sessions);
-  const experiences = n(data?.experiences);
-  const conversations = n(data?.conversations);
-  const meetings = n(data?.meetings);
-
+export function EngagementFunnelChart({ data }: { data?: Engagement | null }) {
   const rows = [
-    { name: "Sessions", value: sessions },
-    { name: "Experience", value: experiences },
-    { name: "Conversations", value: conversations },
-    { name: "Meetings", value: meetings },
+    { name: "Sessions", value: n(data?.sessions), fill: "#a855f7" },
+    { name: "Experience", value: n(data?.experiences), fill: "#d946ef" },
+    { name: "Conversations", value: n(data?.conversations), fill: "#ec4899" },
+    { name: "Meetings", value: n(data?.meetings), fill: "#f43f5e" },
   ];
 
-  // Recharts FunnelChart needs >= 1 value
   const hasAny = rows.some((r) => r.value > 0);
 
   if (!hasAny) {
@@ -57,20 +41,10 @@ export function EngagementFunnelChart({
     <div className="h-[240px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <FunnelChart>
-          <Tooltip
-            formatter={(value: any, name: any) => [fmt(value), String(name)]}
-          />
+          <Tooltip formatter={(value: any, name: any) => [fmt(value), String(name)]} />
           <Funnel dataKey="value" data={rows} isAnimationActive={false}>
-            <LabelList
-              position="right"
-              dataKey="name"
-              formatter={(label: any) => String(label)}
-            />
-            <LabelList
-              position="inside"
-              dataKey="value"
-              formatter={(v: any) => fmt(v)}
-            />
+            <LabelList position="right" dataKey="name" formatter={(label: any) => String(label)} />
+            <LabelList position="inside" dataKey="value" formatter={(v: any) => fmt(v)} />
           </Funnel>
         </FunnelChart>
       </ResponsiveContainer>

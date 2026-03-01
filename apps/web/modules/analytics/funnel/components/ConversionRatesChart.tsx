@@ -1,15 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 type Conversion = {
   meetings_from_conversations_num?: number;
@@ -28,11 +20,7 @@ function pct(num: number, den: number) {
   return Math.round((num / den) * 100);
 }
 
-export function ConversionRatesChart({
-  data,
-}: {
-  data?: Conversion | null;
-}) {
+export function ConversionRatesChart({ data }: { data?: Conversion | null }) {
   const rows = useMemo(() => {
     const mNum = n(data?.meetings_from_conversations_num);
     const mDen = n(data?.meetings_from_conversations_den);
@@ -41,18 +29,8 @@ export function ConversionRatesChart({
     const cDen = n(data?.conversations_from_experiences_den);
 
     return [
-      {
-        name: "Conv → Meeting",
-        rate: pct(mNum, mDen),
-        num: mNum,
-        den: mDen,
-      },
-      {
-        name: "Exp → Conv",
-        rate: pct(cNum, cDen),
-        num: cNum,
-        den: cDen,
-      },
+      { name: "Conv → Meeting", rate: pct(mNum, mDen), num: mNum, den: mDen },
+      { name: "Exp → Conv", rate: pct(cNum, cDen), num: cNum, den: cDen },
     ];
   }, [data]);
 
@@ -81,10 +59,13 @@ export function ConversionRatesChart({
           <Tooltip
             formatter={(value: any, _name: any, ctx: any) => {
               const r = ctx?.payload;
-              return [`${value}%`, `${r?.num?.toLocaleString?.() ?? 0} / ${r?.den?.toLocaleString?.() ?? 0}`];
+              return [
+                `${Number(value ?? 0)}%`,
+                `${r?.num?.toLocaleString?.() ?? 0} / ${r?.den?.toLocaleString?.() ?? 0}`,
+              ];
             }}
           />
-          <Bar dataKey="rate" isAnimationActive={false} radius={[10, 10, 0, 0]} />
+          <Bar dataKey="rate" fill="#ec4899" isAnimationActive={false} radius={[10, 10, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

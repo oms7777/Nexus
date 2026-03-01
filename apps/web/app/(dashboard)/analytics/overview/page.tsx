@@ -1,3 +1,4 @@
+// ✅ FILE: app/(app)/analytics/overview/page.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -178,8 +179,6 @@ export default function AnalyticsOverviewPage() {
           organizationId: orgId,
           fromTs,
           toTs,
-          // on garde slaSeconds optionnel côté backend si tu veux plus tard,
-          // mais on n'affiche plus le bloc "Inbound response speed".
           ...(advancedEnabled ? { slaSeconds: 120 } : {}),
         }
       : "skip",
@@ -190,7 +189,6 @@ export default function AnalyticsOverviewPage() {
     orgId ? { organizationId: orgId, fromTs, toTs } : "skip",
   );
 
-  // Advanced: leaderboard (on le garde, c'est actionnable & "waw")
   const reps = useQuery(
     api.public.analytics.repsLeaderboard,
     orgId && advancedEnabled
@@ -236,9 +234,7 @@ export default function AnalyticsOverviewPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="text-2xl font-semibold">Executive Analytics</div>
-          <div className="text-sm text-muted-foreground">
-            Pipeline performance for the selected period.
-          </div>
+          <div className="text-sm text-muted-foreground">Pipeline performance for the selected period.</div>
         </div>
         <RangePills value={days} onChange={setDays} />
       </div>
@@ -249,7 +245,6 @@ export default function AnalyticsOverviewPage() {
         ))}
       </div>
 
-      {/* Core: Pipeline trend */}
       <div className="grid gap-4 grid-cols-1">
         <CardShell
           title="Pipeline trend"
@@ -267,7 +262,6 @@ export default function AnalyticsOverviewPage() {
                   <YAxis width={42} />
                   <Tooltip />
                   <Legend />
-                  {/* Palette simple & premium (rose/mauve) */}
                   <Line type="monotone" dataKey="sessions" dot={false} stroke="#a855f7" strokeWidth={2} />
                   <Line type="monotone" dataKey="conversations" dot={false} stroke="#ec4899" strokeWidth={2} />
                   <Line type="monotone" dataKey="meetings" dot={false} stroke="#f43f5e" strokeWidth={2} />
@@ -278,7 +272,6 @@ export default function AnalyticsOverviewPage() {
         </CardShell>
       </div>
 
-      {/* Advanced: Attribution + reps impact (on garde, c'est utile) */}
       {advancedEnabled ? (
         <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
           <div className="xl:col-span-2">
@@ -327,7 +320,11 @@ export default function AnalyticsOverviewPage() {
             </CardShell>
           </div>
 
-          <CardShell title="Top reps impact" subtitle="Who converts inbound into meetings" right={<BrandPill>Advanced</BrandPill>}>
+          <CardShell
+            title="Top reps impact"
+            subtitle="Who converts inbound into meetings"
+            right={<BrandPill>Advanced</BrandPill>}
+          >
             {repRows.length === 0 ? (
               <div className="text-sm text-muted-foreground">
                 No rep events tracked yet. (This fills when you log rep actions with `userId`.)
