@@ -202,14 +202,13 @@ type NudgeKind = "promo" | "suggestions" | null;
     container.id = "nexus-widget-container";
     container.style.cssText = `
       position: fixed;
-      ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
-      bottom: 90px;
-      width: 400px; height: 600px;
-      max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
+      left: 0; right: 0; bottom: 90px;
+      width: 100%; height: min(600px, 70vh);
+      max-height: calc(100vh - 110px);
       z-index: 2147482999;
-      border-radius: 16px; overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0,0,0,.15);
-      display: none; opacity: 0; transform: translateY(10px);
+      border-radius: 16px 16px 0 0; overflow: hidden;
+      box-shadow: 0 -4px 24px rgba(0,0,0,.15);
+      display: none; opacity: 0; transform: translateY(20px);
       transition: all .3s ease; background: #fff;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
     `;

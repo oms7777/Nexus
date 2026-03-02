@@ -42,14 +42,13 @@ or you can use record.mirror to access the mirror instance during recording.`,Ir
       pointer-events: none;
     `,o.addEventListener("click",()=>{if(l){V();return}ke()}),o.addEventListener("mouseenter",()=>{o&&(o.style.transform="scale(1.05)",o.style.boxShadow="0 6px 28px rgba(15,23,42,.35)")}),o.addEventListener("mouseleave",()=>{o&&(o.style.transform="scale(1)",o.style.boxShadow="0 4px 24px rgba(0,0,0,.25)")}),document.body.appendChild(o),n=document.createElement("div"),n.id="nexus-widget-container",n.style.cssText=`
       position: fixed;
-      ${p==="bottom-right"?"right: 20px;":"left: 20px;"}
-      bottom: 90px;
-      width: 400px; height: 600px;
-      max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
+      left: 0; right: 0; bottom: 90px;
+      width: 100%; height: min(600px, 70vh);
+      max-height: calc(100vh - 110px);
       z-index: 2147482999;
-      border-radius: 16px; overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0,0,0,.15);
-      display: none; opacity: 0; transform: translateY(10px);
+      border-radius: 16px 16px 0 0; overflow: hidden;
+      box-shadow: 0 -4px 24px rgba(0,0,0,.15);
+      display: none; opacity: 0; transform: translateY(20px);
       transition: all .3s ease; background: #fff;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
     `,e=document.createElement("iframe"),e.src=ee(),e.allow="microphone; clipboard-read; clipboard-write",e.style.cssText="width:100%;height:100%;border:none;",e.onload=()=>{g=!0,w=new URL(e.src).origin,X({type:"nexus:embed-ready"}),ie(),setTimeout(ie,300),O||(O=N(()=>{ie()})),re()},n.appendChild(e),document.body.appendChild(n),window.addEventListener("message",Q),window.addEventListener("resize",Se),window.addEventListener("scroll",Se,{passive:!0})}function ee(){const E=new URLSearchParams;return E.append("organizationId",k),`${Mt.WIDGET_URL}?${E.toString()}`}function Q(E){var se,P;const{type:z,payload:W}=E.data||{};if(!(g&&w&&E.origin!==w))switch(z){case"close":V();break;case"resize":W!=null&&W.height&&n&&(n.style.height=`${W.height}px`);break;case"nexus:theme":{const M=W;f=(M==null?void 0:M.theme)||null,x=(M==null?void 0:M.brandLogoUrl)||null,re();break}case"nexus:suggestions":{const M=W;if(b==="promo")return;f=M.theme||f||null,x=M.brandLogoUrl||x||null,re(),ce(M);break}case"nexus:promo":{const M=W;(se=e==null?void 0:e.contentWindow)==null||se.postMessage({type:"nexus:host-ack"},w||"*"),(P=e==null?void 0:e.contentWindow)==null||P.postMessage({type:"nexus:hide-internal-promo"},w||"*"),te(),b="promo",d=!0,f=M.theme||f||null,x=M.brandLogoUrl||x||null,re(),he(M);break}case"nexus:session-ready":{if(!k)return;const M=W==null?void 0:W.sessionId;if(typeof M!="string"||M.trim().length===0||m&&h===M)return;m=!0,h=M,Vi({orgId:k,sessionId:M});break}}}function ce(E){C=E,d=!0,v&&window.clearTimeout(v),v=window.setTimeout(()=>{v=null,!y&&(l||b!=="promo"&&(b="suggestions",C&&H(C)))},220)}function te(){C=null,v&&(window.clearTimeout(v),v=null)}function $(){o&&(L||!f&&!x&&!d||(L=!0,o.style.opacity="1",o.style.pointerEvents="auto"))}function re(){if(!o)return;const E=(f==null?void 0:f.chatBubbleColor)||(f==null?void 0:f.primaryColor)||"#a855f7",z=(f==null?void 0:f.primaryTextColor)||"#ffffff";if(o.style.background=E,o.style.color=z,$(),!l)if(x){const W=K(x);o.innerHTML=`
