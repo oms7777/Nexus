@@ -102,6 +102,12 @@ async function requireAdvancedAnalytics(ctx: any, organizationId: string) {
     .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
     .unique();
 
+  // In local/dev environments we often don't bother seeding subscriptions.
+  // To avoid breaking dashboards, allow funnels when there's no subscription at all.
+  if (!sub && process.env.NODE_ENV !== "production") {
+    return { plan: "dev", status: "active" };
+  }
+
   const plan = String(sub?.plan ?? "starter");
   const status = String(sub?.status ?? "paused");
 
