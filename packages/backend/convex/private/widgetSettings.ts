@@ -50,6 +50,11 @@ const RoutingModeV = v.union(
   v.literal("visitor_choice"),
 );
 
+const EmbedLayoutV = v.union(
+  v.literal("compact"),
+  v.literal("full_width_bottom"),
+);
+
 const KnowledgeModeV = v.union(
   v.literal("llm_only"),
   v.literal("llm_plus_kb"),
@@ -72,6 +77,7 @@ export const upsert = mutation({
     consent: v.optional(ConsentV),
 
     routingMode: v.optional(RoutingModeV),
+    embedLayout: v.optional(EmbedLayoutV),
     knowledgeMode: v.optional(KnowledgeModeV),
 
     // ✅ NEW: LLM selection
@@ -105,6 +111,7 @@ export const upsert = mutation({
     if ("consent" in args) patch.consent = args.consent;
 
     if ("routingMode" in args) patch.routingMode = args.routingMode;
+    if ("embedLayout" in args) patch.embedLayout = args.embedLayout;
     if ("knowledgeMode" in args) patch.knowledgeMode = args.knowledgeMode;
 
     if ("llmProvider" in args) patch.llmProvider = args.llmProvider;
@@ -129,6 +136,7 @@ export const upsert = mutation({
         privacyUrl: patch.privacyUrl,
         consent: patch.consent,
         routingMode: patch.routingMode,
+        embedLayout: patch.embedLayout,
         knowledgeMode: patch.knowledgeMode,
         llmProvider: patch.llmProvider,
         llmModel: patch.llmModel,

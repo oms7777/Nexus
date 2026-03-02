@@ -177,7 +177,8 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
     try {
       const theme = (widgetSettings as any)?.theme;
       const brandLogoUrl = (widgetSettings as any)?.brandLogoUrl;
-      window.parent?.postMessage({ type: "nexus:theme", payload: { theme, brandLogoUrl } }, "*");
+      const embedLayout = (widgetSettings as any)?.embedLayout ?? "compact";
+      window.parent?.postMessage({ type: "nexus:theme", payload: { theme, brandLogoUrl, embedLayout } }, "*");
     } catch {}
 
     setStep("vapi");

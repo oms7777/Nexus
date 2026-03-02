@@ -69,6 +69,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         suggestion2: initialData?.defaultSuggestions.suggestion2 || "",
         suggestion3: initialData?.defaultSuggestions.suggestion3 || "",
       },
+      embedLayout: (initialData as any)?.embedLayout || "compact",
       theme: {
         primaryColor: initialData?.theme?.primaryColor || "#a855f7",
         primaryTextColor: initialData?.theme?.primaryTextColor || "#ffffff",
@@ -167,6 +168,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         greetMessage: values.greetMessage,
         defaultSuggestions: values.defaultSuggestions,
         teamAvatars: undefined,
+        embedLayout: values.embedLayout,
         theme,
         brandLogoUrl: values.brandLogoUrl || undefined,
         privacyUrl: values.privacyUrl || undefined,
@@ -318,6 +320,39 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                     />
 
                     <Separator />
+
+                    <FormField
+                      control={form.control as any}
+                      name="embedLayout"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Widget layout</FormLabel>
+                          <FormControl>
+                            <select
+                              {...field}
+                              value={field.value ?? "compact"}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value as "compact" | "full_width_bottom"
+                                )
+                              }
+                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              <option value="compact">
+                                Compact panel (floating on the side)
+                              </option>
+                              <option value="full_width_bottom">
+                                Full-width bar at bottom of page
+                              </option>
+                            </select>
+                          </FormControl>
+                          <FormDescription>
+                            Compact: small floating block. Full-width: chat spans the bottom of the page.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <FormField

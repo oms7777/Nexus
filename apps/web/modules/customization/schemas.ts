@@ -40,6 +40,11 @@ export const widgetSettingsSchema = z
       .partial()
       .optional(),
 
+    embedLayout: z
+      .enum(["compact", "full_width_bottom"])
+      .optional()
+      .default("compact"),
+
     // -------------------------
     // Legacy privacy URL
     // -------------------------

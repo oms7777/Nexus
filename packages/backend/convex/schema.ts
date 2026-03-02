@@ -101,6 +101,10 @@ export default defineSchema({
 
     routingMode: v.optional(v.union(v.literal("auto_assign"), v.literal("visitor_choice"))),
 
+    embedLayout: v.optional(
+      v.union(v.literal("compact"), v.literal("full_width_bottom"))
+    ),
+
     knowledgeMode: v.optional(
       v.union(v.literal("llm_only"), v.literal("llm_plus_kb"), v.literal("kb_only"))
     ),
