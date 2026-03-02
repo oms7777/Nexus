@@ -402,6 +402,8 @@ export default defineSchema({
     organizationId: v.string(),
     name: v.string(),
     active: v.boolean(),
+    // Optional targeting role for promo (e.g. "sales")
+    targetRole: v.optional(v.string()),
     showNudge: v.optional(v.boolean()),
     rules: v.object({
       pathPrefix: v.optional(v.string()),

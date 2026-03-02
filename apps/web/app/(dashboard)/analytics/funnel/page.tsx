@@ -92,7 +92,7 @@ function Row({ label, value }: { label: string; value: any }) {
   );
 }
 
-function LockedFunnelCard() {
+function LockedFunnelCard({ reason }: { reason?: string }) {
   return (
     <div className="rounded-2xl border bg-white p-6 shadow-sm">
       <div className="flex items-start justify-between gap-4">
@@ -101,6 +101,11 @@ function LockedFunnelCard() {
           <div className="mt-1 text-sm text-muted-foreground">
             Funnels are available on Growth / Enterprise plans.
           </div>
+          {reason ? (
+            <div className="mt-2 text-xs text-muted-foreground">
+              Reason: <span className="font-medium">{reason}</span>
+            </div>
+          ) : null}
         </div>
         <div className="rounded-full border px-3 py-1 text-xs font-medium">Locked</div>
       </div>
@@ -118,28 +123,65 @@ function LockedFunnelCard() {
   );
 }
 
-export default function AnalyticsFunnelPage() {
-  const { organization } = useOrganization();
-  const orgId = organization?.id;
+/**
+ * ✅ ErrorBoundary pour catcher les erreurs Convex (FORBIDDEN, etc.)
+ * et éviter l’écran cassé + console spam.
+ */
+class FunnelErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback: (err: unknown) => React.ReactNode },
+  { err: unknown }
+> {
+  state = { err: null as unknown };
 
-  const ent = useEntitlements();
-  const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
+  static getDerivedStateFromError(err: unknown) {
+    return { err };
+  }
 
+  componentDidCatch(err: unknown) {
+    // optionnel : tu peux logger ici si tu veux
+    // console.error(err);
+  }
+
+  render() {
+    if (this.state.err) return this.props.fallback(this.state.err);
+    return this.props.children;
+  }
+}
+
+function extractReason(err: unknown) {
+  // ConvexError peut arriver sous plusieurs formes côté client bundlé,
+  // donc on reste robuste.
+  const msg =
+    (typeof err === "object" && err && "message" in err ? String((err as any).message) : "") || "";
+
+  // Si ton ConvexError est construit avec {code, message}, parfois il apparaît dans message stringify
+  // ex: "ConvexError: { code: 'FORBIDDEN', message: 'Advanced Analytics required' }"
+  if (msg.toLowerCase().includes("advanced analytics required")) return "Advanced Analytics required";
+  if (msg.toLowerCase().includes("forbidden")) return "Forbidden";
+  if (msg) return msg.slice(0, 140);
+  return "Server error";
+}
+
+function FunnelsInner({
+  orgId,
+  advancedEnabled,
+}: {
+  orgId: string;
+  advancedEnabled: boolean;
+}) {
   const [days, setDays] = useState(30);
   const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
 
   const data = useQuery(
     api.public.analytics.funnels,
-    orgId && advancedEnabled
-      ? ({
+    advancedEnabled
+      ? {
           organizationId: orgId,
           fromTs,
           toTs,
-        } as any)
+        }
       : "skip",
   );
-
-  if (!orgId) return <div className="p-6">No organization</div>;
 
   if (!advancedEnabled) {
     return (
@@ -155,7 +197,22 @@ export default function AnalyticsFunnelPage() {
     );
   }
 
-  if (data === undefined) return <div className="p-6">Loading…</div>;
+  if (data === undefined) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-2xl font-semibold">Funnels</div>
+            <div className="text-sm text-muted-foreground">
+              Engagement → conversations → meetings, plus inbound performance.
+            </div>
+          </div>
+          <RangePills value={days} onChange={setDays} />
+        </div>
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">Loading…</div>
+      </div>
+    );
+  }
 
   const engagement = data?.engagement ?? {
     sessions: 0,
@@ -193,14 +250,8 @@ export default function AnalyticsFunnelPage() {
         >
           <div className="space-y-2">
             <Row label="Sessions" value={Number(engagement.sessions ?? 0).toLocaleString()} />
-            <Row
-              label="Experience shown"
-              value={Number(engagement.experiences ?? 0).toLocaleString()}
-            />
-            <Row
-              label="Conversations created"
-              value={Number(engagement.conversations ?? 0).toLocaleString()}
-            />
+            <Row label="Experience shown" value={Number(engagement.experiences ?? 0).toLocaleString()} />
+            <Row label="Conversations created" value={Number(engagement.conversations ?? 0).toLocaleString()} />
             <Row label="Meetings booked" value={Number(engagement.meetings ?? 0).toLocaleString()} />
           </div>
 
@@ -228,22 +279,13 @@ export default function AnalyticsFunnelPage() {
           ) : (
             <>
               <div className="grid gap-2 md:grid-cols-2">
-                <Row
-                  label="Inbound chat requests"
-                  value={Number(inbound.requests ?? 0).toLocaleString()}
-                />
-                <Row
-                  label="Rep started conversation"
-                  value={Number(inbound.rep_started ?? 0).toLocaleString()}
-                />
+                <Row label="Inbound chat requests" value={Number(inbound.requests ?? 0).toLocaleString()} />
+                <Row label="Rep started conversation" value={Number(inbound.rep_started ?? 0).toLocaleString()} />
                 <Row
                   label="Booking proposed (timeout 30s)"
                   value={Number(inbound.booking_proposed ?? 0).toLocaleString()}
                 />
-                <Row
-                  label="Meetings booked"
-                  value={Number(inbound.meetings_booked ?? 0).toLocaleString()}
-                />
+                <Row label="Meetings booked" value={Number(inbound.meetings_booked ?? 0).toLocaleString()} />
               </div>
 
               <div className="mt-4">
@@ -254,5 +296,41 @@ export default function AnalyticsFunnelPage() {
         </CardShell>
       </div>
     </div>
+  );
+}
+
+export default function AnalyticsFunnelPage() {
+  const { organization } = useOrganization();
+  const orgId = organization?.id;
+
+  const ent = useEntitlements();
+  const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
+
+  if (!orgId) return <div className="p-6">No organization</div>;
+
+  return (
+    <FunnelErrorBoundary
+      fallback={(err) => (
+        <div className="p-6 space-y-6">
+          <div>
+            <div className="text-2xl font-semibold">Funnels</div>
+            <div className="text-sm text-muted-foreground">
+              Engagement → conversations → meetings, plus inbound performance.
+            </div>
+          </div>
+
+          {/* ✅ si backend dit FORBIDDEN / Advanced Analytics required */}
+          <LockedFunnelCard reason={extractReason(err)} />
+
+          <div className="text-xs text-muted-foreground">
+            If you believe this is a mistake, check your subscription record in Convex table
+            <span className="font-medium"> subscriptions </span>
+            for this organization.
+          </div>
+        </div>
+      )}
+    >
+      <FunnelsInner orgId={orgId} advancedEnabled={advancedEnabled} />
+    </FunnelErrorBoundary>
   );
 }

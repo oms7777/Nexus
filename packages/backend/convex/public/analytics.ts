@@ -774,7 +774,6 @@ export const timeseries = query({
 });
 
 
-
 /* ============================================================
    signals (on le garde tel quel pour l’instant)
    ⚠️ ton UI actuelle "SignalsTable" ne match pas encore ce format

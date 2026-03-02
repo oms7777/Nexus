@@ -30,6 +30,7 @@ import type * as private_secrets from "../private/secrets.js";
 import type * as private_territories from "../private/territories.js";
 import type * as private_users from "../private/users.js";
 import type * as private_vapi from "../private/vapi.js";
+import type * as private_websiteIngest from "../private/websiteIngest.js";
 import type * as private_widgetSettings from "../private/widgetSettings.js";
 import type * as public_analytics from "../public/analytics.js";
 import type * as public_booking from "../public/booking.js";
@@ -100,6 +101,7 @@ declare const fullApi: ApiFromModules<{
   "private/territories": typeof private_territories;
   "private/users": typeof private_users;
   "private/vapi": typeof private_vapi;
+  "private/websiteIngest": typeof private_websiteIngest;
   "private/widgetSettings": typeof private_widgetSettings;
   "public/analytics": typeof public_analytics;
   "public/booking": typeof public_booking;
