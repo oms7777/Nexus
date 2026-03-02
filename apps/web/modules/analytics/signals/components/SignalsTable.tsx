@@ -63,7 +63,7 @@ function IntentBadge({ value }: { value?: string }) {
     <span
       className={[
         "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
-        isHigh ? "bg-emerald-50" : isMedium ? "bg-blue-50" : "bg-muted",
+        isHigh ? "bg-emerald-50" : isMedium ? "bg-fuchsia-50" : "bg-muted",
       ].join(" ")}
     >
       Intent: {label}

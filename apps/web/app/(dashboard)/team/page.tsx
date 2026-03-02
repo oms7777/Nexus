@@ -424,7 +424,7 @@ export default function TeamPage() {
               </p>
             </div>
 
-            <Button onClick={() => setInviteOpen(true)} className="shrink-0">
+            <Button onClick={() => setInviteOpen(true)} className="shrink-0 bg-gradient-to-r from-fuchsia-600 to-rose-500 hover:from-fuchsia-700 hover:to-rose-600 border-0">
               Invite member
             </Button>
           </div>
@@ -473,7 +473,7 @@ export default function TeamPage() {
           {/* ROUTING MODE (hidden for Starter) */}
           {canUseRoutingModeUi ? (
             <>
-              <div className="rounded-lg border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="rounded-xl border bg-background p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between shadow-sm hover:border-fuchsia-200 transition">
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Routing mode</p>
                   <p className="text-xs text-muted-foreground">
@@ -502,9 +502,9 @@ export default function TeamPage() {
             <h2 className="text-lg font-semibold">Team</h2>
             {loadingMembers && <p className="text-sm text-muted-foreground">Loading team…</p>}
 
-            <div className="overflow-x-auto rounded-lg border bg-background">
+            <div className="overflow-x-auto rounded-xl border bg-background shadow-sm hover:border-fuchsia-200 transition">
               <table className="min-w-full text-sm">
-                <thead className="bg-muted/60">
+                <thead className="bg-fuchsia-50/60">
                   <tr>
                     <th className="px-4 py-3 text-left font-medium">User</th>
 
@@ -563,7 +563,7 @@ export default function TeamPage() {
               <div className="space-y-3">
                 <h2 className="text-lg font-semibold">Territories</h2>
 
-                <Card>
+                <Card className="rounded-2xl border shadow-sm hover:shadow-md hover:border-fuchsia-200 transition">
                   <CardHeader>
                     <CardTitle>Create a territory</CardTitle>
                   </CardHeader>
@@ -644,12 +644,12 @@ export default function TeamPage() {
                     </div>
 
                     <div className="flex justify-end">
-                      <Button onClick={handleCreateTerritory}>Save territory</Button>
+                      <Button onClick={handleCreateTerritory} className="bg-gradient-to-r from-fuchsia-600 to-rose-500 hover:from-fuchsia-700 hover:to-rose-600 border-0">Save territory</Button>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="rounded-2xl border shadow-sm hover:shadow-md hover:border-fuchsia-200 transition">
                   <CardHeader>
                     <CardTitle>Existing territories</CardTitle>
                   </CardHeader>
@@ -661,9 +661,9 @@ export default function TeamPage() {
                     )}
 
                     {territories && territories.length > 0 && (
-                      <div className="overflow-x-auto rounded-lg border bg-background">
+                      <div className="overflow-x-auto rounded-xl border bg-background shadow-sm">
                         <table className="min-w-full text-sm">
-                          <thead className="bg-muted/60">
+                          <thead className="bg-fuchsia-50/60">
                             <tr>
                               <th className="px-4 py-3 text-left font-medium">Label</th>
                               <th className="px-4 py-3 text-left font-medium">Key</th>
@@ -766,7 +766,7 @@ function TeamRow({
       </td>
 
       <td className="px-4 py-3 align-middle text-right">
-        <Button size="sm" onClick={handleClickSave} disabled={saving}>
+        <Button size="sm" onClick={handleClickSave} disabled={saving} className="bg-fuchsia-600 hover:bg-fuchsia-700 border-0">
           {saving ? "Saving…" : "Save"}
         </Button>
       </td>

@@ -161,11 +161,11 @@ function SlotsByDay({
               type="button"
               onClick={() => setActiveIndex(idx)}
               className={[
-                "min-w-[96px] rounded-lg border px-3 py-2 text-left text-xs font-medium transition",
+                "min-w-[96px] rounded-xl border px-3 py-2 text-left text-xs font-medium transition",
                 "flex flex-col justify-center",
                 isActive
-                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                  : "bg-background hover:bg-accent text-foreground",
+                  ? "border-fuchsia-300 bg-gradient-to-r from-fuchsia-600 to-rose-500 text-white shadow-sm"
+                  : "border-fuchsia-100 bg-background text-foreground hover:border-fuchsia-200 hover:bg-fuchsia-50/50",
               ].join(" ")}
             >
               <span className="uppercase tracking-wide">{weekday}</span>
@@ -181,7 +181,7 @@ function SlotsByDay({
           <button
             key={`${s.start}-${s.end}-${i}`}
             type="button"
-            className="rounded-lg border px-3 py-2 text-sm shadow-sm hover:shadow transition active:scale-[0.99] bg-background hover:bg-accent"
+            className="rounded-xl border border-fuchsia-100 px-3 py-2 text-sm shadow-sm transition active:scale-[0.99] bg-background hover:border-fuchsia-300 hover:bg-gradient-to-r hover:from-fuchsia-600 hover:to-rose-500 hover:text-white"
             onClick={() => onPick(s)}
           >
             <div className="font-medium">
@@ -262,7 +262,7 @@ function RepPicker({
             <button
               key={rep.userId}
               onClick={() => onPick(rep)}
-              className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2 text-left hover:bg-accent transition"
+              className="flex items-center gap-3 rounded-xl border border-fuchsia-100 bg-background px-3 py-2 text-left transition hover:border-fuchsia-200 hover:bg-fuchsia-50/50"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted overflow-hidden">
                 {rep.avatarUrl ? (
@@ -310,48 +310,38 @@ function BookingSplitLayout({
   if (!rep) return null;
 
   return (
-    <div className="flex flex-col sm:flex-row w-full h-full bg-white">
-      {/* LEFT SIDEBAR (Sales Rep) */}
-      <div className="sm:w-1/3 w-full border-r bg-gray-50 p-5 flex flex-col items-center text-center">
-        <div className="w-16 h-16 rounded-full overflow-hidden bg-muted mb-3">
+    <div className="flex w-full h-full flex-col bg-white sm:flex-row">
+      {/* LEFT SIDEBAR */}
+      <div className="flex w-full flex-col items-center border-r border-fuchsia-100 bg-fuchsia-50/40 p-5 text-center sm:w-1/3">
+        <div className="mb-3 flex h-14 w-14 overflow-hidden rounded-full border-2 border-fuchsia-200 bg-white shadow-sm">
           {rep.avatarUrl ? (
-            <img src={rep.avatarUrl} className="w-full h-full object-cover" />
+            <img src={rep.avatarUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <span className="text-lg flex h-full items-center justify-center">
+            <span className="flex h-full w-full items-center justify-center text-lg font-semibold text-fuchsia-600">
               {(rep.name || rep.title || "S")[0]?.toUpperCase()}
             </span>
           )}
         </div>
-
-        <h3 className="text-lg font-semibold">{rep.name || "Your expert"}</h3>
-
-        <p className="text-sm text-muted-foreground">
-          {[rep.title, rep.regions?.join(", ")]
-            .filter(Boolean)
-            .join(" • ")}
+        <h3 className="text-base font-semibold text-foreground">{rep.name || "Your expert"}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {[rep.title, rep.regions?.join(", ")].filter(Boolean).join(" • ") || "Sales team"}
         </p>
-
-        <div className="mt-4 text-xs text-muted-foreground">
-          Your time zone:{" "}
-          {new Intl.DateTimeFormat(undefined, {
-            timeZoneName: "short",
-          }).format(new Date())}
-        </div>
-
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Your timezone: {new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).format(new Date())}
+        </p>
         {onBack && (
-          <button onClick={onBack} className="mt-6 px-3 py-1 text-sm rounded-md border bg-white hover:bg-accent transition">
-            ← Change sales rep
+          <button
+            onClick={onBack}
+            className="mt-4 rounded-lg border border-fuchsia-200 bg-white px-3 py-1.5 text-xs font-medium text-fuchsia-700 transition hover:bg-fuchsia-100"
+          >
+            ← Change rep
           </button>
         )}
       </div>
 
-      {/* RIGHT PANEL : CALENDAR */}
-      <div className="flex-1 p-3">
-        <CalendarContainerBeautified
-          slots={slots}
-          loading={loading}
-          onPick={onPick}
-        />
+      {/* RIGHT: CALENDAR */}
+      <div className="flex-1 p-4">
+        <CalendarContainerBeautified slots={slots} loading={loading} onPick={onPick} />
       </div>
     </div>
   );

@@ -166,7 +166,7 @@ export default function LiveMap({ visitors, selectedId }: Props) {
           source: SOURCE_ID,
           filter: ["!", ["has", "point_count"]],
           paint: {
-            "circle-color": "#2563eb",
+            "circle-color": "#a855f7",
             "circle-radius": 6,
             "circle-stroke-width": 2,
             "circle-stroke-color": "#ffffff",
@@ -281,8 +281,8 @@ function buildPopupHTML(p: any) {
         <span>${fmt(p.timeOnSiteMs)}</span>
       </div>
       <div style="margin-top:8px;display:flex;gap:8px">
-        ${p.conversationId ? `<a href="/conversations/${p.conversationId}" style="color:#2563eb;text-decoration:underline">Open conversation</a>` : ""}
-        ${p.url ? `<a href="${p.url}" target="_blank" style="color:#2563eb;text-decoration:underline">Open page</a>` : ""}
+        ${p.conversationId ? `<a href="/conversations/${p.conversationId}" style="color:#a855f7;text-decoration:underline">Open conversation</a>` : ""}
+        ${p.url ? `<a href="${p.url}" target="_blank" style="color:#a855f7;text-decoration:underline">Open page</a>` : ""}
       </div>
     </div>
   `;

@@ -70,7 +70,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         suggestion3: initialData?.defaultSuggestions.suggestion3 || "",
       },
       theme: {
-        primaryColor: initialData?.theme?.primaryColor || "#0ea5e9",
+        primaryColor: initialData?.theme?.primaryColor || "#a855f7",
         primaryTextColor: initialData?.theme?.primaryTextColor || "#ffffff",
         secondaryColor: initialData?.theme?.secondaryColor || "#ffffff",
         secondaryTextColor: initialData?.theme?.secondaryTextColor || "#0f172a",
@@ -79,7 +79,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         chatBubbleColor:
           initialData?.theme?.chatBubbleColor ||
           initialData?.theme?.primaryColor ||
-          "#3b82f6",
+          "#d946ef",
       },
       brandLogoUrl: initialData?.brandLogoUrl || "",
       privacyUrl: initialData?.privacyUrl ?? undefined,
@@ -106,7 +106,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
   const logoUrl = form.watch("brandLogoUrl");
   const themeWatch = form.watch("theme");
 
-  const primaryColor = form.watch("theme.primaryColor") || "#0ea5e9";
+  const primaryColor = form.watch("theme.primaryColor") || "#a855f7";
   const primaryTextColor = form.watch("theme.primaryTextColor") || "#ffffff";
   const secondaryColor = form.watch("theme.secondaryColor") || "#ffffff";
   const secondaryTextColor =
@@ -328,11 +328,11 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                             <FormLabel>Primary color</FormLabel>
                             <div className="flex items-center gap-2">
                               <FormControl>
-                                <Input {...field} placeholder="#0ea5e9" />
+                                <Input {...field} placeholder="#a855f7" />
                               </FormControl>
                               <input
                                 type="color"
-                                value={field.value || "#0ea5e9"}
+                                value={field.value || "#a855f7"}
                                 onChange={(e) => field.onChange(e.target.value)}
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
@@ -453,11 +453,11 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                             <FormLabel>Chat bubble color</FormLabel>
                             <div className="flex items-center gap-2">
                               <FormControl>
-                                <Input {...field} placeholder="#3b82f6" />
+                                <Input {...field} placeholder="#d946ef" />
                               </FormControl>
                               <input
                                 type="color"
-                                value={field.value || "#3b82f6"}
+                                value={field.value || "#d946ef"}
                                 onChange={(e) => field.onChange(e.target.value)}
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />

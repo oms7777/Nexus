@@ -44,70 +44,56 @@ export default function QualifyCard({
 
   return (
     <div className="p-3">
-      <div className="rounded-lg border bg-background p-3">
-        <div className="font-semibold mb-1">Tell us a bit before booking</div>
-        <p className="text-sm text-muted-foreground mb-3">
+      <div className="rounded-2xl border border-fuchsia-100 bg-white p-4 shadow-sm">
+        <div className="mb-1 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-fuchsia-500" />
+          <span className="text-sm font-semibold">Book a meeting</span>
+        </div>
+        <p className="mb-4 text-xs text-muted-foreground">
           We’ll use this to tailor the call and match you with the right expert.
         </p>
 
         <div className="space-y-3">
-          <div>
-            <Label>Name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 rounded-lg" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Email</Label>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-9 rounded-lg" />
+            </div>
           </div>
-
-          <div>
-            <Label>Email</Label>
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Company</Label>
+              <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Inc." className="h-9 rounded-lg" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Role</Label>
+              <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. PM" className="h-9 rounded-lg" />
+            </div>
           </div>
-
-          <div>
-            <Label>Phone (optional)</Label>
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+33 6 12 34 56 78"
-              inputMode="tel"
-            />
+          <div className="space-y-1">
+            <Label className="text-xs font-medium text-muted-foreground">Phone (optional)</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+33 6 12 34 56 78" inputMode="tel" className="h-9 rounded-lg" />
           </div>
-
-          <div>
-            <Label>Company</Label>
-            <Input value={company} onChange={(e) => setCompany(e.target.value)} />
-          </div>
-
-          <div>
-            <Label>Role / Job title</Label>
-            <Input value={role} onChange={(e) => setRole(e.target.value)} />
-          </div>
-
-          {/* ✅ NEW */}
-          <div>
-            <Label>What do you want to achieve? (required)</Label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="min-h-[90px]"
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Please share a short context (at least 5 characters).
-            </p>
+          <div className="space-y-1">
+            <Label className="text-xs font-medium text-muted-foreground">What do you want to achieve?</Label>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief context…" className="min-h-[72px] resize-none rounded-lg text-sm" />
           </div>
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
           {onCancel && (
-            <Button variant="ghost" onClick={onCancel}>
+            <Button variant="ghost" size="sm" onClick={onCancel} className="text-muted-foreground">
               Cancel
             </Button>
           )}
-
           <Button
             disabled={!canSubmit}
+            size="sm"
+            className="rounded-lg bg-gradient-to-r from-fuchsia-600 to-rose-500 px-4 hover:from-fuchsia-700 hover:to-rose-600"
             onClick={() =>
               onSubmit({
                 name: name.trim(),
@@ -115,11 +101,11 @@ export default function QualifyCard({
                 phone: phone.trim() || undefined,
                 company: company.trim() || undefined,
                 role: role.trim() || undefined,
-                description: description.trim(), // ✅ REQUIRED
+                description: description.trim(),
               })
             }
           >
-            Continue to calendar
+            Continue →
           </Button>
         </div>
       </div>

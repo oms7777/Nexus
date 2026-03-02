@@ -186,7 +186,7 @@ export default function ProfilePage() {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Slack className="size-5 text-blue-500" />
+            <Slack className="size-5 text-fuchsia-500" />
             Slack Notifications
           </CardTitle>
         </CardHeader>

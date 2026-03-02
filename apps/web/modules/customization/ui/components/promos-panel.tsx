@@ -312,7 +312,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const pathMode = form.watch("pathMode") ?? "prefix";
   const pathPrefix = form.watch("pathPrefix") ?? "/";
 
-  const primaryColor = theme?.primaryColor || "#0ea5e9";
+  const primaryColor = theme?.primaryColor || "#a855f7";
   const primaryTextColor = theme?.primaryTextColor || "#ffffff";
   const secondaryColor = theme?.secondaryColor || "#ffffff";
   const secondaryTextColor = theme?.secondaryTextColor || "#0f172a";

@@ -15,29 +15,26 @@ export default function CalendarContainerBeautified({
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
-  /* ---------------- LOADING ---------------- */
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Loading availability…
+      <div className="flex h-full flex-col items-center justify-center gap-3">
+        <div className="h-2 w-24 animate-pulse rounded-full bg-fuchsia-100" />
+        <p className="text-xs text-muted-foreground">Loading availability…</p>
       </div>
     );
   }
 
-  /* ---------------- NO SLOTS ---------------- */
   if (!slots || slots.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        No availability found.
+      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-fuchsia-100 bg-fuchsia-50/30 p-6">
+        <p className="text-sm font-medium text-foreground">No availability</p>
+        <p className="text-xs text-muted-foreground">Try another period or contact us.</p>
       </div>
     );
   }
 
-  /* ---------------- PROCESSING SLOTS ---------------- */
   const uniq: Slot[] = Array.from(
-    new Map<string, Slot>(
-      slots.map((s: Slot) => [`${s.start}-${s.end}`, s])
-    ).values()
+    new Map<string, Slot>(slots.map((s: Slot) => [`${s.start}-${s.end}`, s])).values()
   );
 
   const grouped: Record<string, Slot[]> = {};
@@ -52,56 +49,48 @@ export default function CalendarContainerBeautified({
   const currentDay: string = days[safeIndex] ?? "";
   const currentSlots: Slot[] = grouped[currentDay] ?? [];
 
-  /* ---------------- RENDER ---------------- */
   return (
-    <div className="w-full h-full flex flex-col gap-3">
-
-      {/* Header simple, style Calendly */}
+    <div className="flex h-full w-full flex-col gap-4">
       <div className="text-center">
-        <h3 className="text-sm font-semibold">Pick a time</h3>
-        <p className="text-[11px] text-muted-foreground">
-          Times shown in your local timezone.
+        <h3 className="text-sm font-semibold text-foreground">Pick a time</h3>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          Times in your local timezone
         </p>
       </div>
 
-      {/* DAYS TABS */}
-      <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+      <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
         {days.map((day, idx) => {
           const active = idx === safeIndex;
           const [weekday, ...rest] = day.split(" ");
-
           return (
             <button
               key={day}
               onClick={() => setActiveIndex(idx)}
               className={[
-                "min-w-[90px] rounded-full px-3 py-1.5 text-left border text-xs",
-                "flex flex-col justify-center",
+                "min-w-[88px] rounded-xl px-3 py-2 text-left text-xs transition",
+                "flex flex-col justify-center border",
                 active
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-white hover:bg-accent text-foreground",
+                  ? "border-fuchsia-300 bg-gradient-to-r from-fuchsia-600 to-rose-500 text-white shadow-sm"
+                  : "border-fuchsia-100 bg-white text-foreground hover:border-fuchsia-200 hover:bg-fuchsia-50/50",
               ].join(" ")}
             >
-              <span className="uppercase tracking-wide">{weekday}</span>
-              <span className="text-xs font-semibold">{rest.join(" ")}</span>
+              <span className="uppercase tracking-wide opacity-90">{weekday}</span>
+              <span className="font-semibold">{rest.join(" ")}</span>
             </button>
           );
         })}
       </div>
 
-      {/* TIME SLOTS */}
       <div className="grid grid-cols-2 gap-2">
         {currentSlots.map((slot, idx) => (
           <button
             key={`${slot.start}-${slot.end}-${idx}`}
             onClick={() => onPick(slot)}
-            className="rounded-lg border px-3 py-2 text-xs bg-white
-                       hover:bg-primary hover:text-white
-                       shadow-sm transition-all active:scale-[0.97]"
+            className="rounded-xl border border-fuchsia-100 bg-white px-3 py-2.5 text-xs font-medium
+                       transition hover:border-fuchsia-300 hover:bg-gradient-to-r hover:from-fuchsia-600 hover:to-rose-500
+                       hover:text-white active:scale-[0.98]"
           >
-            <span className="font-medium">
-              {formatTime(slot.start)} – {formatTime(slot.end)}
-            </span>
+            {formatTime(slot.start)} – {formatTime(slot.end)}
           </button>
         ))}
       </div>
