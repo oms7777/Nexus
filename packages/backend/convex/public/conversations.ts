@@ -5,6 +5,7 @@ import { paginationOptsValidator } from "convex/server";
 import { api, components, internal } from "../_generated/api";
 import { supportAgent } from "../system/ai/agents/supportAgent";
 import { saveMessage, type MessageDoc } from "@convex-dev/agent";
+import type { Id } from "../_generated/dataModel";
 
 export const getMany = query({
   args: {
@@ -42,10 +43,11 @@ export const getMany = query({
           organizationId: conversation.organizationId,
           threadId: conversation.threadId,
           lastMessage,
+          // ✅ API return can be null (fine)
           assignedRepUserId: conversation.assignedRepUserId ?? null,
           assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
         };
-      })
+      }),
     );
 
     return { ...conversations, page };
@@ -77,11 +79,10 @@ export const getOne = query({
       _id: conversation._id,
       status: conversation.status,
       threadId: conversation.threadId,
-      escalatedAt: (conversation as any).escalatedAt ?? null, // ✅ NEW
+      escalatedAt: (conversation as any).escalatedAt ?? null,
       assignedRepUserId: conversation.assignedRepUserId ?? null,
       assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
     };
-
   },
 });
 
@@ -97,11 +98,24 @@ export const create = mutation({
     if (!session || session.expiresAt < Date.now()) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
     }
+    if (session.organizationId !== args.organizationId) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Organization" });
+    }
 
     // Refresh TTL
     await ctx.runMutation(internal.system.contactSessions.refresh, {
       contactSessionId: args.contactSessionId,
     });
+
+    // ✅ Ensure stable assignment exists ON THE SESSION
+    const assignment = await ctx.runMutation(api.routing.ensureAssignmentForSession, {
+      organizationId: args.organizationId,
+      contactSessionId: args.contactSessionId,
+    });
+
+    // ✅ Convex DB wants string | undefined (not null)
+    const sessionAssignedRep: string | undefined = assignment.assignedRepUserId ?? undefined;
+    const sessionTerritory: string | undefined = assignment.assignedTerritoryKey ?? undefined;
 
     const existingActive = await ctx.db
       .query("conversations")
@@ -109,29 +123,14 @@ export const create = mutation({
       .order("desc")
       .first();
 
-    // ✅ assignment should come from top-level (stable)
-    const sessionAssignedRep =
-      (session.assignedRepUserId as string | undefined) ||
-      (session.preferredRepUserId as string | undefined) ||
-      ((session.metadata as any)?.preferredRepUserId as string | undefined) ||
-      undefined;
-
-    const sessionTerritory =
-      (session.assignedTerritoryKey as string | undefined) ||
-      ((session.metadata as any)?.assignedTerritoryKey as string | undefined) ||
-      undefined;
-
     if (
       existingActive &&
       existingActive.organizationId === args.organizationId &&
       existingActive.status !== "resolved"
     ) {
-      // ✅ If mismatch, patch it (important)
       const needsPatch =
-        (sessionAssignedRep && existingActive.assignedRepUserId !== sessionAssignedRep) ||
-        (sessionTerritory && existingActive.assignedTerritoryKey !== sessionTerritory) ||
-        (!existingActive.assignedRepUserId && !!sessionAssignedRep) ||
-        (!existingActive.assignedTerritoryKey && !!sessionTerritory);
+        existingActive.assignedRepUserId !== sessionAssignedRep ||
+        existingActive.assignedTerritoryKey !== sessionTerritory;
 
       if (needsPatch) {
         await ctx.db.patch(existingActive._id, {
@@ -149,8 +148,8 @@ export const create = mutation({
           threadId: existingActive.threadId,
           reused: true,
           suppressGreet: !!args.suppressGreet,
-          assignedRepUserId: sessionAssignedRep ?? existingActive.assignedRepUserId ?? null,
-          assignedTerritoryKey: sessionTerritory ?? existingActive.assignedTerritoryKey ?? null,
+          assignedRepUserId: sessionAssignedRep ?? null,
+          assignedTerritoryKey: sessionTerritory ?? null,
         },
       });
 
@@ -182,12 +181,11 @@ export const create = mutation({
       });
     }
 
-    const conversationId = await ctx.db.insert("conversations", {
+    const conversationId: Id<"conversations"> = await ctx.db.insert("conversations", {
       contactSessionId: session._id,
       status: "unresolved",
       organizationId: args.organizationId,
       threadId,
-
       assignedRepUserId: sessionAssignedRep,
       assignedTerritoryKey: sessionTerritory,
     });

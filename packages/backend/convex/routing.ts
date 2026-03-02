@@ -1,49 +1,11 @@
 // packages/backend/convex/routing.ts
-import { query } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 
 /**
- * Petit helper local: est-ce que la règle matche ce visiteur ?
- * (pays + urlIncludes + utmSource)
+ * Helpers
  */
-function ruleMatches(
-  rule: Doc<"routingRules">,
-  ctx: { countryCode?: string; currentUrl?: string; utmSource?: string },
-): boolean {
-  const m = rule.match ?? {};
-
-  // pays
-  if (m.countries && m.countries.length > 0) {
-    if (!ctx.countryCode || !m.countries.includes(ctx.countryCode)) {
-      return false;
-    }
-  }
-
-  // URL substring
-  if (m.urlIncludes && m.urlIncludes.length > 0) {
-    if (!ctx.currentUrl) return false;
-    const url = ctx.currentUrl.toLowerCase();
-    const ok = m.urlIncludes.some((sub: string) => url.includes(sub.toLowerCase()));
-    if (!ok) return false;
-  }
-
-  // utm_source
-  if (m.utmSource && m.utmSource.length > 0) {
-    if (!ctx.utmSource || !m.utmSource.includes(ctx.utmSource)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function pickRandom<T>(arr: T[]): T | null {
-  if (arr.length === 0) return null;
-  const idx = Math.floor(Math.random() * arr.length);
-  return arr[idx] ?? null;
-}
-
 function normalizeCountryCode(cc?: string): string | undefined {
   if (!cc) return undefined;
   const x = cc.trim();
@@ -51,8 +13,68 @@ function normalizeCountryCode(cc?: string): string | undefined {
   return x.toUpperCase();
 }
 
+function normalizeUtmSource(s?: string): string | undefined {
+  if (!s) return undefined;
+  const x = s.trim().toLowerCase();
+  return x ? x : undefined;
+}
+
+function extractUtmSourceFromUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  try {
+    const u = new URL(url);
+    const v = u.searchParams.get("utm_source");
+    return normalizeUtmSource(v ?? undefined);
+  } catch {
+    return undefined;
+  }
+}
+
+function pickRandom<T>(arr: T[]): T | null {
+  if (!arr.length) return null;
+  const idx = Math.floor(Math.random() * arr.length);
+  return arr[idx] ?? null;
+}
+
 /**
- * Calcule la liste des territory.key qui couvrent un countryCode donné.
+ * Est-ce qu'une règle matche ce visiteur ?
+ */
+function ruleMatches(
+  rule: Doc<"routingRules">,
+  ctx: { countryCode?: string; currentUrl?: string; utmSource?: string },
+): boolean {
+  const m = rule.match ?? {};
+
+  // countries
+  if (m.countries && m.countries.length > 0) {
+    const normalizedRuleCountries = m.countries
+      .map((c) => normalizeCountryCode(c))
+      .filter(Boolean) as string[];
+
+    if (!ctx.countryCode || !normalizedRuleCountries.includes(ctx.countryCode)) return false;
+  }
+
+  // URL substring
+  if (m.urlIncludes && m.urlIncludes.length > 0) {
+    if (!ctx.currentUrl) return false;
+    const url = ctx.currentUrl.toLowerCase();
+    const ok = m.urlIncludes.some((sub: string) => url.includes(String(sub).toLowerCase()));
+    if (!ok) return false;
+  }
+
+  // utm_source
+  if (m.utmSource && m.utmSource.length > 0) {
+    const normalizedRuleUtm = m.utmSource
+      .map((x) => normalizeUtmSource(x))
+      .filter(Boolean) as string[];
+    if (!ctx.utmSource || !normalizedRuleUtm.includes(ctx.utmSource)) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Calcule les territory.key qui couvrent un countryCode donné.
  */
 async function resolveTerritoryKeysForCountry(
   ctx: any,
@@ -72,87 +94,145 @@ async function resolveTerritoryKeysForCountry(
     .map((t) => t.key);
 }
 
-function extractUtmSourceFromUrl(url?: string): string | undefined {
-  if (!url) return undefined;
-  try {
-    const u = new URL(url);
-    const v = u.searchParams.get("utm_source");
-    return v ? v : undefined;
-  } catch {
-    return undefined;
-  }
-}
+type AssignmentResult = {
+  assignedRepUserId: string | null;
+  assignedTerritoryKey: string | null;
+  reason:
+    | "already_assigned"
+    | "forced"
+    | "preferred_rep"
+    | "rule"
+    | "territory_fallback"
+    | "available_fallback"
+    | "none";
+};
 
 /**
- * Choisit UN rep pour une session donnée.
- * Retourne son userId (Clerk) ou null.
+ * ✅ THE ONE TRUE ENGINE:
+ * - If already assigned => return it
+ * - Else decide once (preferred -> rules -> territory -> any available)
+ * - Persist on contactSessions (top-level)
  *
- * ✅ V1 territory-only:
- * - On ignore totalement r.role dans le routing.
- * - On garde uniquement: available + (repIds?) + (regions/territories?)
+ * IMPORTANT: In DB, optional strings must be string | undefined (never null).
+ * We keep null only in the RETURN shape (API).
  */
-export const pickRepForSession = query({
+export const ensureAssignmentForSession = mutation({
   args: {
     organizationId: v.string(),
     contactSessionId: v.id("contactSessions"),
-  },
-  handler: async (ctx, { organizationId, contactSessionId }) => {
-    // 1) récupérer la session
-    const session = await ctx.db.get(contactSessionId);
-    if (!session) return null;
-    if (session.organizationId !== organizationId) return null;
 
-    const currentUrl = session.metadata?.currentUrl as string | undefined;
+    // Optional: force a rep (used by calendar best-slot picker)
+    forceUserId: v.optional(v.string()),
+    forceTerritoryKey: v.optional(v.string()),
+
+    // Optional: force recompute even if assigned exists (rare / admin tools)
+    forceRecompute: v.optional(v.boolean()),
+  },
+  handler: async (
+    ctx,
+    { organizationId, contactSessionId, forceUserId, forceTerritoryKey, forceRecompute },
+  ) => {
+    const session = await ctx.db.get(contactSessionId);
+    if (!session)
+      return { assignedRepUserId: null, assignedTerritoryKey: null, reason: "none" } as AssignmentResult;
+    if (session.organizationId !== organizationId)
+      return { assignedRepUserId: null, assignedTerritoryKey: null, reason: "none" } as AssignmentResult;
+    if (session.expiresAt && session.expiresAt < Date.now())
+      return { assignedRepUserId: null, assignedTerritoryKey: null, reason: "none" } as AssignmentResult;
+
+    // 0) Force set (DB: undefined, return: null ok)
+    if (forceUserId) {
+      await ctx.db.patch(contactSessionId, {
+        assignedRepUserId: forceUserId,
+        assignedTerritoryKey: forceTerritoryKey ?? undefined,
+      });
+      return {
+        assignedRepUserId: forceUserId,
+        assignedTerritoryKey: forceTerritoryKey ?? null,
+        reason: "forced",
+      } as AssignmentResult;
+    }
+
+    // 1) Stable assignment already exists
+    if (!forceRecompute && session.assignedRepUserId) {
+      return {
+        assignedRepUserId: (session.assignedRepUserId as string | undefined) ?? null,
+        assignedTerritoryKey: (session.assignedTerritoryKey as string | undefined) ?? null,
+        reason: "already_assigned",
+      } as AssignmentResult;
+    }
+
+    const currentUrl = (session.metadata?.currentUrl as string | undefined) ?? undefined;
 
     const matchCtx = {
       countryCode: normalizeCountryCode(session.metadata?.countryCode as string | undefined),
       currentUrl,
       utmSource:
-        (session.metadata?.utmSource as string | undefined) ??
+        normalizeUtmSource(session.metadata?.utmSource as string | undefined) ??
         extractUtmSourceFromUrl(currentUrl),
     };
 
-    // 2) récupérer tous les reps de l’org (source of truth)
+    // 2) Load reps (source of truth)
     const reps = (await ctx.db
       .query("repsPresence")
-      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
       .collect()) as Doc<"repsPresence">[];
 
-    if (!reps.length) return null;
+    if (!reps.length) {
+      await ctx.db.patch(contactSessionId, {
+        assignedRepUserId: undefined,
+        assignedTerritoryKey: undefined,
+      });
+      return { assignedRepUserId: null, assignedTerritoryKey: null, reason: "none" } as AssignmentResult;
+    }
 
-    // 3) Si le visiteur a explicitement choisi un rep côté widget
-    const preferredRepUserId = session.metadata?.preferredRepUserId as string | undefined;
+    const availableReps = reps.filter((r) => r.available);
+    if (!availableReps.length) {
+      await ctx.db.patch(contactSessionId, {
+        assignedRepUserId: undefined,
+        assignedTerritoryKey: undefined,
+      });
+      return { assignedRepUserId: null, assignedTerritoryKey: null, reason: "none" } as AssignmentResult;
+    }
 
-    // ✅ V1 territory-only: on vérifie seulement "available"
+    // 3) Preferred rep (top-level first, then legacy metadata)
+    const preferredRepUserId =
+      (session.preferredRepUserId as string | undefined) ||
+      (session.metadata?.preferredRepUserId as string | undefined);
+
     if (preferredRepUserId) {
-      const preferred = reps.find((r) => r.userId === preferredRepUserId);
-      if (preferred && preferred.available) {
-        return preferred.userId;
+      const preferred = availableReps.find((r) => r.userId === preferredRepUserId);
+      if (preferred) {
+        await ctx.db.patch(contactSessionId, {
+          assignedRepUserId: preferred.userId,
+          assignedTerritoryKey: undefined,
+        });
+        return {
+          assignedRepUserId: preferred.userId,
+          assignedTerritoryKey: null,
+          reason: "preferred_rep",
+        } as AssignmentResult;
       }
     }
 
-    // 4) routingRules par priorité
-    const rules = await ctx.db
+    // 4) Rules by priority
+    const rules = (await ctx.db
       .query("routingRules")
-      .withIndex("by_org_prio", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_org_prio", (q: any) => q.eq("organizationId", organizationId))
       .order("asc")
-      .take(100);
+      .take(100)) as Doc<"routingRules">[];
 
     for (const rule of rules) {
       if (rule.enabled === false) continue;
-      if (!ruleMatches(rule as Doc<"routingRules">, matchCtx)) continue;
+      if (!ruleMatches(rule, matchCtx)) continue;
 
       const target = rule.routeTo;
+      let candidates = availableReps;
 
-      // ✅ V1 territory-only: candidats = dispo uniquement (ignore target.role)
-      let candidates = reps.filter((r) => r.available);
-
-      // filtre repIds si défini
       if (target.repIds && target.repIds.length > 0) {
         candidates = candidates.filter((r) => target.repIds!.includes(r.userId));
       }
 
-      // filtre regions si défini (territory.key)
       if (target.regions && target.regions.length > 0) {
         candidates = candidates.filter((r) => {
           const repRegions = r.regions ?? [];
@@ -161,33 +241,90 @@ export const pickRepForSession = query({
       }
 
       const chosen = pickRandom(candidates);
-      if (chosen) return chosen.userId;
+      if (chosen) {
+        // stable "territoryKey" for analytics/debug
+        const assignedTerritoryKey: string | null =
+          (target.regions && target.regions.length ? target.regions[0] : null) ?? null;
+
+        await ctx.db.patch(contactSessionId, {
+          assignedRepUserId: chosen.userId,
+          assignedTerritoryKey: assignedTerritoryKey ?? undefined,
+        });
+
+        return {
+          assignedRepUserId: chosen.userId,
+          assignedTerritoryKey,
+          reason: "rule",
+        } as AssignmentResult;
+      }
     }
 
-    // 5) Fallback territories: countryCode → territories → reps
+    // 5) Territory fallback
     if (matchCtx.countryCode) {
-      const territoryKeys = await resolveTerritoryKeysForCountry(
-        ctx,
-        organizationId,
-        matchCtx.countryCode,
-      );
+      const territoryKeys = await resolveTerritoryKeysForCountry(ctx, organizationId, matchCtx.countryCode);
 
       if (territoryKeys.length > 0) {
-        const geoCandidates = reps.filter((r) => {
-          if (!r.available) return false;
+        const geoCandidates = availableReps.filter((r) => {
           const repRegions = r.regions ?? [];
           return repRegions.some((reg) => territoryKeys.includes(reg));
         });
 
         const chosen = pickRandom(geoCandidates);
-        if (chosen) return chosen.userId;
+        if (chosen) {
+          const assignedTerritoryKey: string | null = territoryKeys[0] ?? null;
+
+          await ctx.db.patch(contactSessionId, {
+            assignedRepUserId: chosen.userId,
+            assignedTerritoryKey: assignedTerritoryKey ?? undefined,
+          });
+
+          return {
+            assignedRepUserId: chosen.userId,
+            assignedTerritoryKey,
+            reason: "territory_fallback",
+          } as AssignmentResult;
+        }
       }
     }
 
-    // 6) fallback : n'importe quel rep dispo
-    const available = reps.filter((r) => r.available);
-    if (available.length) return pickRandom(available)!.userId;
+    // 6) Any available rep
+    const chosen = pickRandom(availableReps);
+    if (chosen) {
+      await ctx.db.patch(contactSessionId, {
+        assignedRepUserId: chosen.userId,
+        assignedTerritoryKey: undefined,
+      });
+      return {
+        assignedRepUserId: chosen.userId,
+        assignedTerritoryKey: null,
+        reason: "available_fallback",
+      } as AssignmentResult;
+    }
 
-    return null;
+    // should never happen, but safe
+    await ctx.db.patch(contactSessionId, {
+      assignedRepUserId: undefined,
+      assignedTerritoryKey: undefined,
+    });
+    return { assignedRepUserId: null, assignedTerritoryKey: null, reason: "none" } as AssignmentResult;
+  },
+});
+
+/**
+ * Backward compat / convenience:
+ * ✅ ONLY returns the stable value.
+ * (No more "random pick" inside queries.)
+ */
+export const pickRepForSession = query({
+  args: {
+    organizationId: v.string(),
+    contactSessionId: v.id("contactSessions"),
+  },
+  handler: async (ctx, { organizationId, contactSessionId }) => {
+    const session = await ctx.db.get(contactSessionId);
+    if (!session) return null;
+    if (session.organizationId !== organizationId) return null;
+    if (session.expiresAt && session.expiresAt < Date.now()) return null;
+    return (session.assignedRepUserId as string | undefined) ?? null;
   },
 });

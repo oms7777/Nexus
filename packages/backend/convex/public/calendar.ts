@@ -6,10 +6,9 @@ import type { Id } from "../_generated/dataModel";
 
 type Slot = { start: number; end: number };
 
-// Le shape minimal dont on a besoin ici (vient de routing.listCandidatesForAutoAssign)
+// ✅ Align with routing.public types (no role here)
 type PublicRep = {
   userId: string;
-  role: "sales" | "support";
   available: boolean;
   regions: string[];
   name?: string;
@@ -31,7 +30,7 @@ function toErrString(e: unknown) {
 
 function isInvalidGrant(e: unknown) {
   const s = toErrString(e).toLowerCase();
-  return s.includes("invalid_grant");
+  return s.includes("invalid_grant") || s.includes("calendar_reconnect_required");
 }
 
 /* -------------------------------------------------------------
@@ -56,7 +55,7 @@ export const getAccount = query({
       if (byUser) {
         acct = byUser;
       } else {
-        // ✅ IMPORTANT: if userId is specified, do NOT fallback to org-level
+        // ✅ If user specified => never fallback to org-level
         return null;
       }
     } else {
@@ -105,9 +104,7 @@ export const getSettingsForOrg = query({
 });
 
 /* -------------------------------------------------------------
- * Liste des créneaux
- *  ✅ PATCH: ne jamais throw si Google token invalid_grant
- *  => on retourne [] (rep "non bookable") au lieu de crash.
+ * Liste des créneaux (safe invalid_grant)
  * ----------------------------------------------------------- */
 export const listSlots = action({
   args: {
@@ -158,10 +155,9 @@ export const listSlots = action({
         timeMaxIso: new Date(rangeEnd).toISOString(),
       });
     } catch (e) {
-      // ✅ KEY FIX: invalid_grant => on ne crashe pas l’assign
       if (isInvalidGrant(e)) {
         console.log(
-          `[calendar.listSlots] invalid_grant for userId=${acct.userId} org=${organizationId} -> returning empty slots`,
+          `[calendar.listSlots] token invalid for userId=${acct.userId} org=${organizationId} -> returning empty slots`,
         );
         return [];
       }
@@ -236,11 +232,8 @@ export const listSlots = action({
 });
 
 /* -------------------------------------------------------------
- * Auto-assign: choisir le meilleur rep + slots
- * ✅ PATCH: territory-only => ne filtre plus sales, seulement:
- *   - rep.available
- *   - calendar connecté pour ce rep
- *   - slots non vides
+ * Auto-assign: choisir meilleur rep + slots
+ * ✅ Fige le rep sur la session dès qu’on trouve des slots.
  * ----------------------------------------------------------- */
 export const pickBestRepAndListSlots = action({
   args: {
@@ -265,7 +258,6 @@ export const pickBestRepAndListSlots = action({
     for (const rep of reps) {
       if (rep.available === false) continue;
 
-      // must have a calendar connected for THIS user
       const acct = await ctx.runQuery(api.public.calendar.getAccount, {
         organizationId,
         userId: rep.userId,
@@ -282,13 +274,19 @@ export const pickBestRepAndListSlots = action({
         })) as Slot[];
 
         if (slots?.length) {
+          // ✅ persist stable assignment immediately
+          await ctx.runMutation(api.routing.ensureAssignmentForSession, {
+            organizationId,
+            contactSessionId,
+            forceUserId: rep.userId,
+          });
+
           return { rep, slots };
         }
       } catch (e) {
-        // ✅ NE JAMAIS casser l’assign global
         if (isInvalidGrant(e)) {
           console.log(
-            `[calendar.pickBestRepAndListSlots] invalid_grant for rep=${rep.userId} -> skipping`,
+            `[calendar.pickBestRepAndListSlots] invalid token for rep=${rep.userId} -> skipping`,
           );
           continue;
         }
@@ -341,15 +339,11 @@ export const bookSlot = action({
     let effectiveUserId = userId;
 
     if (!effectiveUserId) {
-      try {
-        const routedUserId = await ctx.runQuery(api.routing.pickRepForSession, {
-          organizationId,
-          contactSessionId,
-        });
-        if (routedUserId) effectiveUserId = routedUserId;
-      } catch (e) {
-        console.log("pickRepForSession failed, fallback to org-level account:", e);
-      }
+      const assignment = await ctx.runMutation(api.routing.ensureAssignmentForSession, {
+        organizationId,
+        contactSessionId,
+      });
+      if (assignment.assignedRepUserId) effectiveUserId = assignment.assignedRepUserId;
     }
 
     // 1) choose google account
@@ -372,7 +366,6 @@ export const bookSlot = action({
     ].filter(Boolean);
 
     // 2) create Google calendar event
-    // ✅ FIX: do NOT add organizer as an attendee
     const event: any = await ctx.runAction(api.private.calendar.createEventForOrgUser, {
       organizationId,
       userId: acct.userId,

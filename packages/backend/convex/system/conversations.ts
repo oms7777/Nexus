@@ -1,7 +1,7 @@
 // packages/backend/convex/system/conversations.ts
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { api } from "../_generated/api";
 
 export const escalate = internalMutation({
   args: { threadId: v.string() },
@@ -17,34 +17,33 @@ export const escalate = internalMutation({
 
     const now = Date.now();
 
-    // ✅ If no assigned rep yet, pick the first AVAILABLE rep
-    let assignedRepUserId = conversation.assignedRepUserId ?? null;
+    const assignment = await ctx.runMutation(api.routing.ensureAssignmentForSession, {
+      organizationId: conversation.organizationId,
+      contactSessionId: conversation.contactSessionId,
+    });
 
-    if (!assignedRepUserId) {
-      const available =
-        (await ctx.runQuery(internal.system.repsPresence.listAvailableForOrg, {
-          organizationId: conversation.organizationId,
-        })) ?? [];
+    const assignedRepUserId: string | undefined =
+      assignment.assignedRepUserId ?? conversation.assignedRepUserId ?? undefined;
 
-      assignedRepUserId = available?.[0]?.userId ?? null;
-    }
+    const assignedTerritoryKey: string | undefined =
+      assignment.assignedTerritoryKey ?? conversation.assignedTerritoryKey ?? undefined;
 
     await ctx.db.patch(conversation._id, {
       status: "escalated",
-      escalatedAt: (conversation as any).escalatedAt ?? now, // keep first escalatedAt
+      escalatedAt: (conversation as any).escalatedAt ?? now,
       updatedAt: now,
-      ...(assignedRepUserId ? { assignedRepUserId } : {}),
+      assignedRepUserId,
+      assignedTerritoryKey,
     });
 
-    // ✅ Optional but recommended: also persist assignment on the session for stability
+    // belt & suspenders
     if (assignedRepUserId) {
       await ctx.db.patch(conversation.contactSessionId, {
         assignedRepUserId,
-        assignedTerritoryKey: conversation.assignedTerritoryKey ?? undefined,
+        assignedTerritoryKey,
       });
     }
   },
-
 });
 
 export const resolve = internalMutation({
