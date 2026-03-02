@@ -161,12 +161,14 @@ function SlotsByDay({
               type="button"
               onClick={() => setActiveIndex(idx)}
               className={[
-                "min-w-[96px] rounded-xl border px-3 py-2 text-left text-xs font-medium transition",
-                "flex flex-col justify-center",
-                isActive
-                  ? "border-fuchsia-300 bg-gradient-to-r from-fuchsia-600 to-rose-500 text-white shadow-sm"
-                  : "border-fuchsia-100 bg-background text-foreground hover:border-fuchsia-200 hover:bg-fuchsia-50/50",
+                "min-w-[96px] rounded-xl border px-3 py-2 text-left text-xs font-medium transition flex flex-col justify-center",
+                isActive ? "shadow-sm" : "bg-background text-foreground",
               ].join(" ")}
+              style={
+                isActive
+                  ? { backgroundColor: "var(--widget-primary)", color: "var(--widget-primary-text)", borderColor: "var(--widget-primary)" }
+                  : { borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)" }
+              }
             >
               <span className="uppercase tracking-wide">{weekday}</span>
               <span className="text-sm font-semibold">{rest.join(" ")}</span>
@@ -181,7 +183,16 @@ function SlotsByDay({
           <button
             key={`${s.start}-${s.end}-${i}`}
             type="button"
-            className="rounded-xl border border-fuchsia-100 px-3 py-2 text-sm shadow-sm transition active:scale-[0.99] bg-background hover:border-fuchsia-300 hover:bg-gradient-to-r hover:from-fuchsia-600 hover:to-rose-500 hover:text-white"
+            className="rounded-xl border px-3 py-2 text-sm shadow-sm transition active:scale-[0.99] bg-background"
+            style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 25%, transparent)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = "var(--widget-primary)";
+              e.currentTarget.style.color = "var(--widget-primary-text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "";
+              e.currentTarget.style.color = "";
+            }}
             onClick={() => onPick(s)}
           >
             <div className="font-medium">
@@ -262,7 +273,14 @@ function RepPicker({
             <button
               key={rep.userId}
               onClick={() => onPick(rep)}
-              className="flex items-center gap-3 rounded-xl border border-fuchsia-100 bg-background px-3 py-2 text-left transition hover:border-fuchsia-200 hover:bg-fuchsia-50/50"
+              className="flex items-center gap-3 rounded-xl border bg-background px-3 py-2 text-left transition"
+              style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 25%, transparent)" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--widget-primary) 10%, transparent)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "";
+              }}
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted overflow-hidden">
                 {rep.avatarUrl ? (
@@ -312,12 +330,12 @@ function BookingSplitLayout({
   return (
     <div className="flex w-full h-full flex-col bg-white sm:flex-row">
       {/* LEFT SIDEBAR */}
-      <div className="flex w-full flex-col items-center border-r border-fuchsia-100 bg-fuchsia-50/40 p-5 text-center sm:w-1/3">
-        <div className="mb-3 flex h-14 w-14 overflow-hidden rounded-full border-2 border-fuchsia-200 bg-white shadow-sm">
+      <div className="flex w-full flex-col items-center border-r p-5 text-center sm:w-1/3" style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)", backgroundColor: "color-mix(in srgb, var(--widget-primary) 8%, transparent)" }}>
+        <div className="mb-3 flex h-14 w-14 overflow-hidden rounded-full border-2 bg-white shadow-sm" style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 40%, transparent)" }}>
           {rep.avatarUrl ? (
             <img src={rep.avatarUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <span className="flex h-full w-full items-center justify-center text-lg font-semibold text-fuchsia-600">
+            <span className="flex h-full w-full items-center justify-center text-lg font-semibold" style={{ color: "var(--widget-primary)" }}>
               {(rep.name || rep.title || "S")[0]?.toUpperCase()}
             </span>
           )}
@@ -332,7 +350,14 @@ function BookingSplitLayout({
         {onBack && (
           <button
             onClick={onBack}
-            className="mt-4 rounded-lg border border-fuchsia-200 bg-white px-3 py-1.5 text-xs font-medium text-fuchsia-700 transition hover:bg-fuchsia-100"
+            className="mt-4 rounded-lg border bg-white px-3 py-1.5 text-xs font-medium transition"
+            style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 40%, transparent)", color: "var(--widget-primary)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--widget-primary) 12%, transparent)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "";
+            }}
           >
             ← Change rep
           </button>

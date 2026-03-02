@@ -14,16 +14,22 @@ export function WidgetThemeVars() {
     const primary =
       (settings as any)?.theme?.primaryColor ||
       (settings as any)?.branding?.primaryColor ||
-      "#0b63f3";
+      "#a855f7";
 
     const primaryText =
       (settings as any)?.theme?.primaryTextColor ||
       (settings as any)?.branding?.primaryTextColor ||
       "#ffffff";
 
-    // ✅ variables globales widget
+    const chatBubble =
+      (settings as any)?.theme?.chatBubbleColor ||
+      (settings as any)?.branding?.chatBubbleColor ||
+      primary;
+
+    // Variables utilisées par le flow booking (QualifyCard, Calendar, etc.)
     root.style.setProperty("--widget-primary", primary);
     root.style.setProperty("--widget-primary-text", primaryText);
+    root.style.setProperty("--widget-chat-bubble", chatBubble);
   }, [settings]);
 
   return null;

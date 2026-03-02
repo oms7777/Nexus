@@ -164,7 +164,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
       bottom: 20px;
       width: 60px; height: 60px; border-radius: 9999px;
-      background: ${theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6"};
+      background: ${theme?.chatBubbleColor || theme?.primaryColor || "#a855f7"};
       color: ${theme?.primaryTextColor || "#ffffff"};
       cursor: pointer;
       z-index: 2147483000;
@@ -390,7 +390,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     if (!button) return;
 
 
-    const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#3b82f6";
+    const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#a855f7";
     const textColor = theme?.primaryTextColor || "#ffffff";
 
     button.style.background = bubbleColor;
@@ -442,7 +442,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     if (!NUDGE_ENABLED) return;
 
     const palette: ThemePayload = payload.theme || theme || {};
-    const primaryColor = palette.primaryColor || "#0ea5e9";
+    const primaryColor = palette.primaryColor || "#a855f7";
     const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
 
     if (!nudge) {
@@ -584,14 +584,14 @@ type NudgeKind = "promo" | "suggestions" | null;
     if (!NUDGE_ENABLED) return;
 
     const palette: ThemePayload = payload.theme || theme || {};
-    const primaryColor = palette.primaryColor || "#0ea5e9";
+    const primaryColor = palette.primaryColor || "#a855f7";
     const primaryTextColor = palette.primaryTextColor || "#ffffff";
     const secondaryColor = palette.secondaryColor || "#ffffff";
     const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
     const secondaryTextColor = palette.secondaryTextColor || "#111827";
 
     // mic colors = bubble (branding)
-    const micBg = palette.chatBubbleColor || palette.primaryColor || "#3b82f6";
+    const micBg = palette.chatBubbleColor || palette.primaryColor || "#a855f7";
     const micFg = palette.primaryTextColor || "#ffffff";
     const canUseVoice = payload.canUseVoice !== false;
 

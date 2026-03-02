@@ -18,7 +18,7 @@ export default function CalendarContainerBeautified({
   if (loading) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
-        <div className="h-2 w-24 animate-pulse rounded-full bg-fuchsia-100" />
+        <div className="h-2 w-24 animate-pulse rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--widget-primary) 25%, transparent)" }} />
         <p className="text-xs text-muted-foreground">Loading availability…</p>
       </div>
     );
@@ -26,7 +26,7 @@ export default function CalendarContainerBeautified({
 
   if (!slots || slots.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-fuchsia-100 bg-fuchsia-50/30 p-6">
+      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border p-6" style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)", backgroundColor: "color-mix(in srgb, var(--widget-primary) 8%, transparent)" }}>
         <p className="text-sm font-medium text-foreground">No availability</p>
         <p className="text-xs text-muted-foreground">Try another period or contact us.</p>
       </div>
@@ -69,10 +69,13 @@ export default function CalendarContainerBeautified({
               className={[
                 "min-w-[88px] rounded-xl px-3 py-2 text-left text-xs transition",
                 "flex flex-col justify-center border",
-                active
-                  ? "border-fuchsia-300 bg-gradient-to-r from-fuchsia-600 to-rose-500 text-white shadow-sm"
-                  : "border-fuchsia-100 bg-white text-foreground hover:border-fuchsia-200 hover:bg-fuchsia-50/50",
+                active ? "shadow-sm" : "bg-white text-foreground",
               ].join(" ")}
+              style={
+                active
+                  ? { backgroundColor: "var(--widget-primary)", color: "var(--widget-primary-text)", borderColor: "var(--widget-primary)" }
+                  : { borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)" }
+              }
             >
               <span className="uppercase tracking-wide opacity-90">{weekday}</span>
               <span className="font-semibold">{rest.join(" ")}</span>
@@ -86,9 +89,18 @@ export default function CalendarContainerBeautified({
           <button
             key={`${slot.start}-${slot.end}-${idx}`}
             onClick={() => onPick(slot)}
-            className="rounded-xl border border-fuchsia-100 bg-white px-3 py-2.5 text-xs font-medium
-                       transition hover:border-fuchsia-300 hover:bg-gradient-to-r hover:from-fuchsia-600 hover:to-rose-500
-                       hover:text-white active:scale-[0.98]"
+            className="rounded-xl border bg-white px-3 py-2.5 text-xs font-medium transition active:scale-[0.98]"
+            style={{
+              borderColor: "color-mix(in srgb, var(--widget-primary) 25%, transparent)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = "var(--widget-primary)";
+              e.currentTarget.style.color = "var(--widget-primary-text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "";
+              e.currentTarget.style.color = "";
+            }}
           >
             {formatTime(slot.start)} – {formatTime(slot.end)}
           </button>

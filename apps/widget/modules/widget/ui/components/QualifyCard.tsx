@@ -44,9 +44,9 @@ export default function QualifyCard({
 
   return (
     <div className="p-3">
-      <div className="rounded-2xl border border-fuchsia-100 bg-white p-4 shadow-sm">
+      <div className="rounded-2xl border bg-white p-4 shadow-sm" style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 25%, transparent)" }}>
         <div className="mb-1 flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-fuchsia-500" />
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "var(--widget-primary)" }} />
           <span className="text-sm font-semibold">Book a meeting</span>
         </div>
         <p className="mb-4 text-xs text-muted-foreground">
@@ -93,7 +93,8 @@ export default function QualifyCard({
           <Button
             disabled={!canSubmit}
             size="sm"
-            className="rounded-lg bg-gradient-to-r from-fuchsia-600 to-rose-500 px-4 hover:from-fuchsia-700 hover:to-rose-600"
+            className="rounded-lg px-4 text-white hover:opacity-90"
+            style={{ backgroundColor: "var(--widget-primary)", color: "var(--widget-primary-text)" }}
             onClick={() =>
               onSubmit({
                 name: name.trim(),
