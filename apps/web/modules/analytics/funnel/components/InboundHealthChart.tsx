@@ -1,13 +1,21 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 
 type Inbound = {
   requests?: number;
-  with_rep_available?: number;
   rep_started?: number;
-  started_before_sla?: number;
+  booking_proposed?: number; // ✅ new
+  meetings_booked?: number;  // ✅ optional (or reuse engagement.meetings)
 };
 
 function n(x: any) {
@@ -15,22 +23,15 @@ function n(x: any) {
   return Number.isFinite(v) ? v : 0;
 }
 
-export function InboundHealthChart({
-  data,
-  showSla = true,
-}: {
-  data?: Inbound | null;
-  showSla?: boolean;
-}) {
+export function InboundHealthChart({ data }: { data?: Inbound | null }) {
   const rows = useMemo(() => {
-    const base = [
+    return [
       { name: "Requests", value: n(data?.requests) },
-      { name: "Rep available", value: n(data?.with_rep_available) },
       { name: "Rep started", value: n(data?.rep_started) },
+      { name: "Booking proposed (30s)", value: n(data?.booking_proposed) },
+      { name: "Meetings booked", value: n(data?.meetings_booked) },
     ];
-    if (showSla) base.push({ name: "Started < SLA", value: n(data?.started_before_sla) });
-    return base;
-  }, [data, showSla]);
+  }, [data]);
 
   const hasAny = rows.some((r) => r.value > 0);
 
@@ -49,7 +50,9 @@ export function InboundHealthChart({
           <CartesianGrid vertical={false} />
           <XAxis dataKey="name" tickLine={false} axisLine={false} />
           <YAxis tickLine={false} axisLine={false} />
-          <Tooltip formatter={(value: any) => [Number(value ?? 0).toLocaleString(), "Count"]} />
+          <Tooltip
+            formatter={(value: any) => [Number(value ?? 0).toLocaleString(), "Count"]}
+          />
           <Bar dataKey="value" fill="#a855f7" isAnimationActive={false} radius={[10, 10, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>

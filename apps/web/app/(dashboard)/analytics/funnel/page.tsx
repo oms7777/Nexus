@@ -25,13 +25,7 @@ function BrandPill({ children }: { children: React.ReactNode }) {
   );
 }
 
-function RangePills({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
+function RangePills({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const opts = [7, 30, 90];
   return (
     <div className="inline-flex rounded-xl border bg-white p-1 shadow-sm">
@@ -80,9 +74,7 @@ function CardShell({
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-base font-semibold">{title}</div>
-          {subtitle ? (
-            <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div>
-          ) : null}
+          {subtitle ? <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div> : null}
         </div>
         {right ? <div>{right}</div> : null}
       </div>
@@ -110,15 +102,13 @@ function LockedFunnelCard() {
             Funnels are available on Growth / Enterprise plans.
           </div>
         </div>
-        <div className="rounded-full border px-3 py-1 text-xs font-medium">
-          Locked
-        </div>
+        <div className="rounded-full border px-3 py-1 text-xs font-medium">Locked</div>
       </div>
 
       <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
         <div>• Engagement funnel (sessions → experiences → conversations → meetings)</div>
         <div>• Conversion rates (exp → conv, conv → meeting)</div>
-        <div>• Inbound health (requests → rep started → started within SLA)</div>
+        <div>• Inbound conversion health (requests → rep started → booking proposed → meetings)</div>
       </div>
 
       <div className="mt-6 rounded-xl bg-muted p-4 text-sm">
@@ -145,7 +135,6 @@ export default function AnalyticsFunnelPage() {
           organizationId: orgId,
           fromTs,
           toTs,
-          slaSeconds: 120,
         } as any)
       : "skip",
   );
@@ -168,16 +157,19 @@ export default function AnalyticsFunnelPage() {
 
   if (data === undefined) return <div className="p-6">Loading…</div>;
 
-  const engagement =
-    data?.engagement ?? { sessions: 0, experiences: 0, conversations: 0, meetings: 0 };
+  const engagement = data?.engagement ?? {
+    sessions: 0,
+    experiences: 0,
+    conversations: 0,
+    meetings: 0,
+  };
 
-  const conversion =
-    data?.conversion ?? {
-      meetings_from_conversations_num: 0,
-      meetings_from_conversations_den: 0,
-      conversations_from_experiences_num: 0,
-      conversations_from_experiences_den: 0,
-    };
+  const conversion = data?.conversion ?? {
+    meetings_from_conversations_num: 0,
+    meetings_from_conversations_den: 0,
+    conversations_from_experiences_num: 0,
+    conversations_from_experiences_den: 0,
+  };
 
   const inbound = data?.inbound ?? null;
 
@@ -201,8 +193,14 @@ export default function AnalyticsFunnelPage() {
         >
           <div className="space-y-2">
             <Row label="Sessions" value={Number(engagement.sessions ?? 0).toLocaleString()} />
-            <Row label="Experience shown" value={Number(engagement.experiences ?? 0).toLocaleString()} />
-            <Row label="Conversations created" value={Number(engagement.conversations ?? 0).toLocaleString()} />
+            <Row
+              label="Experience shown"
+              value={Number(engagement.experiences ?? 0).toLocaleString()}
+            />
+            <Row
+              label="Conversations created"
+              value={Number(engagement.conversations ?? 0).toLocaleString()}
+            />
             <Row label="Meetings booked" value={Number(engagement.meetings ?? 0).toLocaleString()} />
           </div>
 
@@ -220,8 +218,8 @@ export default function AnalyticsFunnelPage() {
         </CardShell>
 
         <CardShell
-          title="Inbound chat health"
-          subtitle="Requests → rep started → started within SLA (120s)"
+          title="Inbound conversion health"
+          subtitle="Requests → rep started → booking proposed (30s) → meetings booked"
           right={<BrandPill>Advanced</BrandPill>}
           className="lg:col-span-2"
         >
@@ -230,14 +228,26 @@ export default function AnalyticsFunnelPage() {
           ) : (
             <>
               <div className="grid gap-2 md:grid-cols-2">
-                <Row label="Inbound chat requests" value={Number(inbound.requests ?? 0).toLocaleString()} />
-                <Row label="Requests with rep available" value={Number(inbound.with_rep_available ?? 0).toLocaleString()} />
-                <Row label="Requests where rep started" value={Number(inbound.rep_started ?? 0).toLocaleString()} />
-                <Row label="Started within SLA (120s)" value={Number(inbound.started_before_sla ?? 0).toLocaleString()} />
+                <Row
+                  label="Inbound chat requests"
+                  value={Number(inbound.requests ?? 0).toLocaleString()}
+                />
+                <Row
+                  label="Rep started conversation"
+                  value={Number(inbound.rep_started ?? 0).toLocaleString()}
+                />
+                <Row
+                  label="Booking proposed (timeout 30s)"
+                  value={Number(inbound.booking_proposed ?? 0).toLocaleString()}
+                />
+                <Row
+                  label="Meetings booked"
+                  value={Number(inbound.meetings_booked ?? 0).toLocaleString()}
+                />
               </div>
 
               <div className="mt-4">
-                <InboundHealthChart data={inbound as any} showSla />
+                <InboundHealthChart data={inbound as any} />
               </div>
             </>
           )}
