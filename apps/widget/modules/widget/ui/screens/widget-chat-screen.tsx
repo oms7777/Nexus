@@ -66,6 +66,7 @@ import {
 import QualifyCard from "../components/QualifyCard";
 import CalendarContainerBeautified from "../components/CalendarContainerBeautified";
 import VoiceCallButton from "../components/VoiceCallButton";
+import { CollapsibleAIResponse } from "../components/CollapsibleAIResponse";
 
 /* ---------------- helpers ---------------- */
 
@@ -1092,6 +1093,20 @@ export const WidgetChatScreen = () => {
           {canUseVoice && <VoiceCallButton />}
 
           {/* 📅 Book a meeting (same behavior as SmartPromo secondary CTA) */}
+          {/* ✕ Close (embeddé: postMessage vers parent) */}
+          {typeof window !== "undefined" && window !== window.parent && (
+            <button
+              type="button"
+              onClick={() => window.parent?.postMessage({ type: "close" }, "*")}
+              title="Close"
+              className="size-8 flex items-center justify-center rounded-full opacity-90 hover:opacity-100 hover:bg-white/10 transition-opacity"
+              aria-label="Close"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
           <Button
             size="icon"
             variant="transparent"
@@ -1118,7 +1133,11 @@ export const WidgetChatScreen = () => {
                         : undefined
                     }
                   >
-                    <AIResponse>{m.text}</AIResponse>
+                    {m.role === "assistant" ? (
+                      <CollapsibleAIResponse text={m.text} />
+                    ) : (
+                      <AIResponse>{m.text}</AIResponse>
+                    )}
                   </AIMessageContent>
 
                   {m.role === "assistant" && (

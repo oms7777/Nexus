@@ -159,14 +159,14 @@ type NudgeKind = "promo" | "suggestions" | null;
     container.style.cssText = `
       position: fixed;
       ${isFull
-        ? `left: 0; right: 0; bottom: 90px; width: 100%; height: min(380px, 45vh); max-height: calc(100vh - 110px);
-           border-radius: 16px 16px 0 0; box-shadow: 0 -4px 24px rgba(0,0,0,.12);`
-        : `${position === "bottom-right" ? "right: 20px;" : "left: 20px;"} bottom: 90px;
-           width: 400px; height: 600px; max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
-           border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,.15);`}
+        ? `left: 0; right: 0; bottom: 80px; width: 100%; height: min(420px, 50vh); max-height: calc(100vh - 100px);
+           border-radius: 16px 16px 0 0; box-shadow: 0 -2px 16px rgba(0,0,0,.08);`
+        : `${position === "bottom-right" ? "right: 16px;" : "left: 16px;"} bottom: 88px;
+           width: 380px; height: 560px; max-width: calc(100vw - 32px); max-height: calc(100vh - 100px);
+           border-radius: 14px; box-shadow: 0 2px 16px rgba(0,0,0,.08);`}
       z-index: 2147482999; overflow: hidden;
-      display: none; opacity: 0; transform: translateY(${isFull ? "20" : "10"}px);
-      transition: all .3s ease; background: #fff;
+      display: none; opacity: 0; transform: translateY(${isFull ? "16" : "8"}px);
+      transition: all .28s ease; background: #fff;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
     `;
   }
@@ -180,16 +180,16 @@ type NudgeKind = "promo" | "suggestions" | null;
     button.style.cssText = `
       all: unset;
       position: fixed;
-      ${position === "bottom-right" ? "right: 20px;" : "left: 20px;"}
-      bottom: 20px;
-      width: 60px; height: 60px; border-radius: 9999px;
+      ${position === "bottom-right" ? "right: 16px;" : "left: 16px;"}
+      bottom: 16px;
+      width: 52px; height: 52px; border-radius: 9999px;
       background: ${theme?.chatBubbleColor || theme?.primaryColor || "#a855f7"};
       color: ${theme?.primaryTextColor || "#ffffff"};
       cursor: pointer;
       z-index: 2147483000;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 4px 24px rgba(0,0,0,.20);
-      transition: transform .2s ease, box-shadow .2s ease, background .2s ease, opacity .15s ease;
+      box-shadow: 0 2px 12px rgba(0,0,0,.12);
+      transition: transform .2s ease, box-shadow .2s ease, background .2s ease, opacity .2s ease;
       opacity: 0;
       pointer-events: none;
     `;
@@ -204,14 +204,14 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     button.addEventListener("mouseenter", () => {
       if (!button) return;
-      button.style.transform = "scale(1.05)";
-      button.style.boxShadow = "0 6px 28px rgba(15,23,42,.35)";
+      button.style.transform = "scale(1.04)";
+      button.style.boxShadow = "0 4px 16px rgba(0,0,0,.18)";
     });
 
     button.addEventListener("mouseleave", () => {
       if (!button) return;
       button.style.transform = "scale(1)";
-      button.style.boxShadow = "0 4px 24px rgba(0,0,0,.25)";
+      button.style.boxShadow = "0 2px 12px rgba(0,0,0,.12)";
     });
 
     document.body.appendChild(button);
@@ -1061,6 +1061,9 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     button.innerHTML = closeIcon;
     applyThemeToFab();
+    // Discreet: hide FAB when open (close via header X)
+    button.style.opacity = "0";
+    button.style.pointerEvents = "none";
 
     sendParentLocation();
   }
@@ -1075,6 +1078,9 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     button.innerHTML = chatBubbleIcon;
     applyThemeToFab();
+    // Restore FAB
+    button.style.opacity = "1";
+    button.style.pointerEvents = "auto";
 
     // show nudge back if available
     if (!nudgeDismissed && hasNudgePayload && nudge && caret) {
