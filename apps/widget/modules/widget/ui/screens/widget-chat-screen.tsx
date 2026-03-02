@@ -484,13 +484,19 @@ export const WidgetChatScreen = () => {
       : "skip"
   ) as boolean | undefined;
 
+  const logEvent = useMutation(api.public.analytics.log);
+  const createConversation = useMutation(api.public.conversations.create);
+
   const fallbackTimerRef = useRef<any>(null);
   const fallbackShownRef = useRef(false);
+
+  const bookingProposedLoggedRef = useRef(false);
 
   useEffect(() => {
     // reset if no conversation
     if (!conversationId) {
       fallbackShownRef.current = false;
+      bookingProposedLoggedRef.current = false; 
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       return;
     }
@@ -498,6 +504,7 @@ export const WidgetChatScreen = () => {
     if (!isEscalated) {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackShownRef.current = false;
+      bookingProposedLoggedRef.current = false; 
       return;
     }
 
@@ -519,23 +526,40 @@ export const WidgetChatScreen = () => {
 
     fallbackTimerRef.current = setTimeout(() => {
       if (fallbackShownRef.current) return;
-      fallbackShownRef.current = true;
+        fallbackShownRef.current = true;
 
-      setLocalMsgs((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text:
-            `⏳ If no teammate answers right away, you can book a quick meeting instead.\n` +
-            `Click “Book a meeting” to pick a slot.`,
-        },
-      ]);
+        // ✅ NEW: log booking_proposed once
+        if (!bookingProposedLoggedRef.current && organizationId && conversationId) {
+          bookingProposedLoggedRef.current = true;
+
+          logEvent({
+            organizationId,
+            type: "booking_proposed",
+            sessionId: contactSessionId || undefined,
+            conversationId,
+            meta: {
+              reason: "rep_timeout",
+              timeoutSeconds: HUMAN_FALLBACK_SECONDS,
+              status: conversation?.status,
+            },
+          }).catch(() => {});
+        }
+
+        setLocalMsgs((m) => [
+          ...m,
+          {
+            role: "assistant",
+            text:
+              `⏳ If no teammate answers right away, you can book a quick meeting instead.\n` +
+              `Click “Book a meeting” to pick a slot.`,
+          },
+        ]);
     }, HUMAN_FALLBACK_SECONDS * 1000);
 
     return () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     };
-  }, [conversationId, conversation?.status, hasRepStarted, step]);
+  }, [conversationId, conversation?.status, hasRepStarted, step, organizationId, contactSessionId, logEvent]);
 
 
 
@@ -619,8 +643,7 @@ export const WidgetChatScreen = () => {
   const bookSlot = useAction(api.public.calendar.bookSlot);
 
   // analytics & conversation bootstrap
-  const logEvent = useMutation(api.public.analytics.log);
-  const createConversation = useMutation(api.public.conversations.create);
+
   const firstMessageSentRef = useRef(false);
   const isSendingRef = useRef(false);
 
