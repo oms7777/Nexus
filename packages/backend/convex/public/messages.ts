@@ -96,6 +96,39 @@ function normalizeQuestionPrompt(p: string) {
   return t;
 }
 
+const SEARCH_STOP = new Set([
+  "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "is", "are", "was", "were",
+  "i", "you", "he", "she", "it", "we", "they", "my", "your", "our", "their",
+  "can", "could", "should", "would", "how", "what", "when", "where", "why", "does", "do", "did",
+]);
+
+/** Condensed query for second-pass RAG when first search returns little. */
+function toCondensedSearchQuery(prompt: string): string {
+  const t = (prompt || "").trim().slice(0, 300);
+  const cleaned = t.toLowerCase().replace(/[?.!,;:'"()]/g, " ");
+  const words = cleaned.split(/\s+/).filter((w) => w.length > 1 && !SEARCH_STOP.has(w));
+  const unique = Array.from(new Set(words)).slice(0, 8);
+  return unique.join(" ");
+}
+
+async function smartRagSearch(
+  ctx: any,
+  namespace: string,
+  prompt: string,
+  limit: number = 5,
+): Promise<{ text: string | null }> {
+  const first = await rag.search(ctx, { namespace, query: prompt, limit });
+  if (!isNoKbResult(first?.text)) return { text: (first?.text ?? "").trim() || null };
+
+  const condensed = toCondensedSearchQuery(prompt);
+  if (condensed.length < 3) return { text: null };
+
+  const second = await rag.search(ctx, { namespace, query: condensed, limit });
+  if (!isNoKbResult(second?.text)) return { text: (second?.text ?? "").trim() || null };
+
+  return { text: null };
+}
+
 /**
  * Retry wrapper: avoids provider cold-start flakiness.
  * IMPORTANT: Don't write user-visible fallback here.
@@ -245,13 +278,9 @@ export const create = action({
     if (knowledgeMode === "kb_only") {
       const orgId = conversation.organizationId;
 
-      const searchResult = await rag.search(ctx, {
-        namespace: orgId,
-        query: prompt,
-        limit: 5,
-      });
+      const { text: kbRaw } = await smartRagSearch(ctx, orgId, prompt, 5);
 
-      if (isNoKbResult(searchResult.text)) {
+      if (isNoKbResult(kbRaw)) {
         await saveMessage(ctx, components.agent, {
           threadId: args.threadId,
           message: { role: "assistant", content: KB_ONLY_FALLBACK },
@@ -259,7 +288,7 @@ export const create = action({
         return;
       }
 
-      const kbText = (searchResult.text ?? "").trim();
+      const kbText = (kbRaw ?? "").trim();
       const kbStrictAgent = makeSupportAgent({ llmProvider, llmModel });
 
       const gen = await safeGenerate(kbStrictAgent, ctx, args.threadId, {
@@ -276,20 +305,16 @@ ${kbText}
       return;
     }
 
-    // MODE: LLM + KB (✅ NO TOOL CALLS — stable)
+    // MODE: LLM + KB (✅ double-pass RAG for better recall)
     if (knowledgeMode === "llm_plus_kb") {
       const orgId = conversation.organizationId;
 
       let kbText = "";
       try {
-        const searchResult = await rag.search(ctx, {
-          namespace: orgId,
-          query: prompt,
-          limit: 5,
-        });
-        kbText = (searchResult?.text ?? "").trim();
+        const { text } = await smartRagSearch(ctx, orgId, prompt, 5);
+        kbText = (text ?? "").trim();
       } catch (e) {
-        console.error("rag.search failed in llm_plus_kb", e);
+        console.error("smartRagSearch failed in llm_plus_kb", e);
         kbText = "";
       }
 

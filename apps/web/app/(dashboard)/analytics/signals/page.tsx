@@ -7,7 +7,7 @@ import { useOrganization } from "@clerk/nextjs";
 
 import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
 
-import { RangePills } from "@/modules/analytics/signals/components/RangePills";
+import { RangePills } from "@/modules/analytics/shared/analytics-primitives";
 import { LockedSignalsAdvancedCard } from "@/modules/analytics/signals/components/LockedSignalsAdvancedCard";
 import { SignalsTable } from "@/modules/analytics/signals/components/SignalsTable";
 
@@ -74,7 +74,7 @@ export default function AnalyticsSignalsPage() {
       </div>
 
       {isEmpty ? (
-        <div className="rounded-2xl border bg-white p-8 shadow-sm">
+        <div className="rounded-2xl border bg-white p-8 shadow-sm transition hover:shadow-md hover:border-fuchsia-200">
           <div className="text-lg font-semibold">No signals yet</div>
           <div className="mt-2 text-sm text-muted-foreground max-w-2xl">
             Signals appear when visitors generate trackable events (sessions, inbound requests, conversations, bookings).

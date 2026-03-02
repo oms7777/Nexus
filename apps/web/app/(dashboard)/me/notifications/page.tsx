@@ -4,17 +4,12 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@workspace/ui/components/card";
 import { Switch } from "@workspace/ui/components/switch";
 import { Label } from "@workspace/ui/components/label";
 import { Button } from "@workspace/ui/components/button";
-import { Separator } from "@workspace/ui/components/separator";
 import { toast } from "sonner";
+
+import { CardShell, BrandPill } from "@/modules/analytics/shared/analytics-primitives";
 
 export default function NotificationsPage() {
   const prefs = useQuery(api.private.notifications.meNotificationPrefs, {});
@@ -35,12 +30,8 @@ export default function NotificationsPage() {
   const onSave = async () => {
     try {
       setSaving(true);
-      await savePrefs({
-        showBadges,
-        playSound,
-        autoOpenConversation,
-      });
-      toast.success("Notification preferences saved");
+      await savePrefs({ showBadges, playSound, autoOpenConversation });
+      toast.success("Preferences saved");
     } catch (e) {
       console.error(e);
       toast.error("Failed to save preferences");
@@ -50,57 +41,45 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="p-8 max-w-3xl">
-      <h1 className="mb-6 text-2xl md:text-4xl">Notifications</h1>
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Notifications</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Control how the dashboard behaves when new conversations are assigned to you.
+        </p>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>In-app behaviour</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Control how Nexus behaves when new leads or conversations arrive.
-          </p>
-
-          <Separator />
-
-          {/* Show badges */}
+      <CardShell
+        title="In-app behaviour"
+        subtitle="Sidebar badges, sounds, and auto-navigation"
+        right={<BrandPill>Profile</BrandPill>}
+      >
+        <div className="space-y-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <Label className="text-sm">Show badges for new activity</Label>
-              <p className="text-xs text-muted-foreground">
-                Display counters and red dots in the sidebar and conversation list
-                when there are unread messages.
+              <Label className="text-sm font-medium">Show badges</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Display the escalated count badge next to Conversations in the sidebar.
               </p>
             </div>
-            <Switch
-              checked={showBadges}
-              onCheckedChange={(v) => setShowBadges(Boolean(v))}
-            />
+            <Switch checked={showBadges} onCheckedChange={(v) => setShowBadges(Boolean(v))} />
           </div>
 
-          {/* Play sound */}
           <div className="flex items-center justify-between gap-4">
             <div>
-              <Label className="text-sm">Play a sound for new leads</Label>
-              <p className="text-xs text-muted-foreground">
-                When a new lead is assigned to you, Nexus can play a short sound
-                while you&apos;re in the dashboard.
+              <Label className="text-sm font-medium">Play sound</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Play a short beep when new conversations are assigned to you.
               </p>
             </div>
-            <Switch
-              checked={playSound}
-              onCheckedChange={(v) => setPlaySound(Boolean(v))}
-            />
+            <Switch checked={playSound} onCheckedChange={(v) => setPlaySound(Boolean(v))} />
           </div>
 
-          {/* Auto-open conversation */}
           <div className="flex items-center justify-between gap-4">
             <div>
-              <Label className="text-sm">Auto-open assigned conversations</Label>
-              <p className="text-xs text-muted-foreground">
-                Automatically open the conversation page when a new lead is routed
-                to you.
+              <Label className="text-sm font-medium">Auto-open conversation</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Automatically navigate to the conversation when a new lead is routed to you.
               </p>
             </div>
             <Switch
@@ -109,13 +88,11 @@ export default function NotificationsPage() {
             />
           </div>
 
-          <div className="pt-2">
-            <Button onClick={onSave} disabled={saving}>
-              {saving ? "Saving…" : "Save preferences"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          <Button onClick={onSave} disabled={saving} className="mt-2">
+            {saving ? "Saving…" : "Save preferences"}
+          </Button>
+        </div>
+      </CardShell>
     </div>
   );
 }

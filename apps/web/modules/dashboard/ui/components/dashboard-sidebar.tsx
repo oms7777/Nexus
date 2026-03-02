@@ -87,27 +87,35 @@ export const DashboardSidebar = () => {
   const canUseBooking = !!f.canUseBooking;
   const canUseAdvancedAnalytics = !!f.canUseAdvancedAnalytics;
 
-  // ✅ NEW: count escalated conversations for THIS rep (badge + sound)
+  // ✅ count escalated conversations for THIS rep (badge + sound)
   const escalatedCount = useQuery(api.private.conversations.countMineByStatus, {
     status: "escalated",
   });
+
+  // ✅ notification prefs: badge + sound respect user settings
+  const notifPrefs = useQuery(api.private.notifications.meNotificationPrefs, {});
+  const showBadges = notifPrefs?.showBadges ?? true;
+  const playSoundEnabled = notifPrefs?.playSound ?? true;
 
   const prevCountRef = useRef<number>(0);
   useEffect(() => {
     const next = Number(escalatedCount ?? 0);
     const prev = prevCountRef.current;
 
-    // sound only when increases and not first load
-    if (prev !== 0 && next > prev) {
+    if (playSoundEnabled && prev !== 0 && next > prev) {
       playBeep();
     }
-
     prevCountRef.current = next;
-  }, [escalatedCount]);
+  }, [escalatedCount, playSoundEnabled]);
 
   const pipelineItems = [
     { title: "Live Map", url: "/live", icon: MapIcon },
-    { title: "Conversations", url: "/conversations", icon: InboxIcon, badge: Number(escalatedCount ?? 0) },
+    {
+      title: "Conversations",
+      url: "/conversations",
+      icon: InboxIcon,
+      badge: showBadges ? Number(escalatedCount ?? 0) : 0,
+    },
   ];
 
   const analyticsItems = useMemo(() => {
@@ -199,7 +207,7 @@ export const DashboardSidebar = () => {
                     className={cn(
                       itemClass,
                       isActive(item.url) &&
-                        "bg-gradient-to-b from-sidebar-primary to-[#0b63f3]! text-sidebar-primary-foreground!"
+                        "bg-gradient-to-r from-fuchsia-600 to-rose-500 text-white"
                     )}
                     title={item.title}
                   >

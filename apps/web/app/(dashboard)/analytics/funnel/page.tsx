@@ -10,6 +10,7 @@ import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
 import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/EngagementFunnelChart";
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
 import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
+import { BrandPill, RangePills, CardShell, Row } from "@/modules/analytics/shared/analytics-primitives";
 
 function makeRange(days: number) {
   const toTs = Date.now();
@@ -17,84 +18,9 @@ function makeRange(days: number) {
   return { fromTs, toTs };
 }
 
-function BrandPill({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-full border border-fuchsia-200 bg-gradient-to-r from-fuchsia-600 to-rose-500 px-3 py-1 text-xs font-semibold text-white shadow-sm">
-      {children}
-    </div>
-  );
-}
-
-function RangePills({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const opts = [7, 30, 90];
-  return (
-    <div className="inline-flex rounded-xl border bg-white p-1 shadow-sm">
-      {opts.map((d) => {
-        const active = d === value;
-        return (
-          <button
-            key={d}
-            type="button"
-            onClick={() => onChange(d)}
-            className={[
-              "px-3 py-1.5 text-sm rounded-lg transition",
-              active
-                ? "bg-gradient-to-r from-fuchsia-600 to-rose-500 text-white shadow-sm"
-                : "text-muted-foreground hover:bg-fuchsia-50 hover:text-foreground",
-            ].join(" ")}
-          >
-            {d}d
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function CardShell({
-  title,
-  subtitle,
-  right,
-  children,
-  className = "",
-}: {
-  title: string;
-  subtitle?: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={[
-        "rounded-2xl border bg-white p-6 shadow-sm transition hover:shadow-md hover:border-fuchsia-200",
-        className,
-      ].join(" ")}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-base font-semibold">{title}</div>
-          {subtitle ? <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div> : null}
-        </div>
-        {right ? <div>{right}</div> : null}
-      </div>
-      <div className="mt-4">{children}</div>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: any }) {
-  return (
-    <div className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium tabular-nums">{String(value ?? "—")}</span>
-    </div>
-  );
-}
-
 function LockedFunnelCard({ reason }: { reason?: string }) {
   return (
-    <div className="rounded-2xl border bg-white p-6 shadow-sm">
+    <div className="rounded-2xl border bg-white p-6 shadow-sm transition hover:shadow-md hover:border-fuchsia-200">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-base font-semibold">Funnel Analytics (Advanced)</div>
@@ -107,7 +33,7 @@ function LockedFunnelCard({ reason }: { reason?: string }) {
             </div>
           ) : null}
         </div>
-        <div className="rounded-full border px-3 py-1 text-xs font-medium">Locked</div>
+        <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs font-medium text-fuchsia-700">Locked</div>
       </div>
 
       <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
@@ -116,7 +42,7 @@ function LockedFunnelCard({ reason }: { reason?: string }) {
         <div>• Inbound conversion health (requests → rep started → booking proposed → meetings)</div>
       </div>
 
-      <div className="mt-6 rounded-xl bg-muted p-4 text-sm">
+      <div className="mt-6 rounded-xl bg-fuchsia-50/60 p-4 text-sm border border-fuchsia-100">
         Upgrade to <span className="font-medium">Growth</span> to unlock Funnel.
       </div>
     </div>
