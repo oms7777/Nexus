@@ -55,6 +55,7 @@ import { AISuggestion, AISuggestions } from "@workspace/ui/components/ai/suggest
 import { Form, FormField } from "@workspace/ui/components/form";
 import { toUIMessages, useThreadMessages } from "@convex-dev/agent/react";
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
+import { cn } from "@workspace/ui/lib/utils";
 
 import {
   Dialog,
@@ -401,6 +402,8 @@ export const WidgetChatScreen = () => {
     "#ffffff";
     
   const consentCfg = widgetSettings?.consent;
+  const embedLayout = (widgetSettings as any)?.embedLayout ?? "compact";
+  const isFullWidth = embedLayout === "full_width_bottom";
   const organizationId = useAtomValue(organizationIdAtom);
   const contactSessionId = useAtomValue(contactSessionIdAtom);
   const conversationId = useAtomValue(conversationIdAtom);
@@ -1083,44 +1086,73 @@ export const WidgetChatScreen = () => {
           ["--nexus-send-fg" as any]: chatBubbleTextColor,
         } as React.CSSProperties
       }
-      className="h-full w-full flex flex-col bg-white"
+      className="h-full w-full flex flex-col bg-white relative"
     >
-      <WidgetHeader className="flex items-center justify-between">
-        <p className="font-medium">Chat</p>
+      {/* Header: seulement en mode compact */}
+      {!isFullWidth && (
+        <WidgetHeader className="flex items-center justify-between">
+          <p className="font-medium">Chat</p>
+          <div className="flex items-center gap-1">
+            {canUseVoice && <VoiceCallButton />}
+            {typeof window !== "undefined" && window !== window.parent && (
+              <button
+                type="button"
+                onClick={() => window.parent?.postMessage({ type: "close" }, "*")}
+                title="Close"
+                className="size-8 flex items-center justify-center rounded-full opacity-90 hover:opacity-100 hover:bg-white/10 transition-opacity"
+                aria-label="Close"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            <Button size="icon" variant="transparent" onClick={startBookingLikePromo} title="Book a meeting">
+              <CalendarIcon />
+            </Button>
+          </div>
+        </WidgetHeader>
+      )}
 
-        <div className="flex items-center gap-1">
-          {/* 🎙️ Voice call */}
-          {canUseVoice && <VoiceCallButton />}
-
-          {/* 📅 Book a meeting (same behavior as SmartPromo secondary CTA) */}
-          {/* ✕ Close (embeddé: postMessage vers parent) */}
-          {typeof window !== "undefined" && window !== window.parent && (
-            <button
-              type="button"
-              onClick={() => window.parent?.postMessage({ type: "close" }, "*")}
-              title="Close"
-              className="size-8 flex items-center justify-center rounded-full opacity-90 hover:opacity-100 hover:bg-white/10 transition-opacity"
-              aria-label="Close"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-          <Button
-            size="icon"
-            variant="transparent"
+      {/* Full-width: boutons en bulles flottantes */}
+      {isFullWidth && typeof window !== "undefined" && window !== window.parent && (
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+          <button
+            type="button"
             onClick={startBookingLikePromo}
             title="Book a meeting"
+            className="size-9 flex items-center justify-center rounded-full shadow-md transition-all hover:scale-105"
+            style={{ backgroundColor: "var(--widget-primary)", color: "var(--widget-primary-text)" }}
           >
-            <CalendarIcon />
-          </Button>
+            <CalendarIcon className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => window.parent?.postMessage({ type: "close" }, "*")}
+            title="Close"
+            className="size-9 flex items-center justify-center rounded-full bg-muted shadow-md transition-all hover:scale-105 hover:bg-muted/80"
+            aria-label="Close"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-      </WidgetHeader>
+      )}
+      {isFullWidth && canUseVoice && (
+        <div className="absolute top-3 left-3 z-10">
+          <VoiceCallButton />
+        </div>
+      )}
 
       <div className="flex-1 min-h-0"> 
         <AIConversation className="h-full flex flex-col">
-          <AIConversationContent className="flex-1 min-h-0 overflow-y-auto">
+          <AIConversationContent
+            className={cn(
+              "flex-1 min-h-0 overflow-y-auto",
+              isFullWidth && "pt-12 px-3"
+            )}
+          >
             {uiMsgs.map((m, i) => {
               const isUser = m.role === "user";
 
@@ -1492,10 +1524,13 @@ export const WidgetChatScreen = () => {
       )}
 
 
-      {/* composer */}
+      {/* composer — full-width: input compact */}
       <Form {...(form as any)}>
         <AIInput
-          className="rounded-none border-x-0 border-b-0"
+          className={cn(
+            "rounded-none border-x-0 border-b-0",
+            isFullWidth && "border-t"
+          )}
           onSubmit={form.handleSubmit(onSubmit)}
         >
           <FormField
@@ -1503,6 +1538,9 @@ export const WidgetChatScreen = () => {
             name="message"
             render={({ field }) => (
               <AIInputTextarea
+                minHeight={isFullWidth ? 36 : 48}
+                maxHeight={isFullWidth ? 88 : 164}
+                className={isFullWidth ? "py-2 px-3 text-sm" : undefined}
                 disabled={
                   mustAcceptConsent ||
                   isPendingAssistant ||
@@ -1538,7 +1576,7 @@ export const WidgetChatScreen = () => {
 
             )}
           />
-          <AIInputToolbar>
+          <AIInputToolbar className={isFullWidth ? "p-1.5" : undefined}>
             <AIInputTools />
             <AIInputSubmit
               className="hover:opacity-90 [&_svg]:text-[var(--nexus-send-fg)]"

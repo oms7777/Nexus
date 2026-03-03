@@ -159,7 +159,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     container.style.cssText = `
       position: fixed;
       ${isFull
-        ? `left: 0; right: 0; bottom: 80px; width: 100%; height: min(420px, 50vh); max-height: calc(100vh - 100px);
+        ? `left: 0; right: 0; bottom: 80px; width: 100%; height: min(500px, 48vh); max-height: calc(100vh - 100px);
            border-radius: 16px 16px 0 0; box-shadow: 0 -2px 16px rgba(0,0,0,.08);`
         : `${position === "bottom-right" ? "right: 16px;" : "left: 16px;"} bottom: 88px;
            width: 380px; height: 560px; max-width: calc(100vw - 32px); max-height: calc(100vh - 100px);
