@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@workspace/ui/components/table";
 import { useInfiniteScroll } from "@workspace/ui/hooks/use-infinite-scroll";
-import { usePaginatedQuery, useMutation, useQuery } from "convex/react";
+import { usePaginatedQuery, useMutation, useQuery, useAction } from "convex/react";
 import type { PublicFile } from "@workspace/backend/private/files";
 import { Button } from "@workspace/ui/components/button";
 import { Badge } from "@workspace/ui/components/badge";
@@ -25,6 +25,7 @@ import { DeleteFileDialog } from "../components/delete-file-dialog";
 
 import {
   FileIcon,
+  GlobeIcon,
   MoreHorizontalIcon,
   PlusIcon,
   TrashIcon,
@@ -42,6 +43,7 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select";
 import { Label } from "@workspace/ui/components/label";
+import { Input } from "@workspace/ui/components/input";
 
 type KnowledgeMode = "llm_plus_kb" | "kb_only";
 type LlmProvider = "openai" | "google";
@@ -54,6 +56,10 @@ export const FilesView = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<PublicFile | null>(null);
   const [savingAi, setSavingAi] = useState(false);
+  const [crawlUrl, setCrawlUrl] = useState("");
+  const [crawling, setCrawling] = useState(false);
+
+  const crawlSiteAction = useAction(api.private.files.crawlSite);
 
   // ✅ Used to force re-run of the query after upload
   const [refreshToken, setRefreshToken] = useState(0);
@@ -128,6 +134,28 @@ export const FilesView = () => {
 
   const handleProviderChange = (value: LlmProvider) => {
     setLlmProvider(value);
+  };
+
+  const handleCrawlSite = async () => {
+    const url = crawlUrl.trim();
+    if (!url) {
+      toast.error("Enter a valid URL");
+      return;
+    }
+    try {
+      setCrawling(true);
+      const result = await crawlSiteAction({ rootUrl: url });
+      toast.success(
+        `Site indexed: ${result.pagesIndexed} page${result.pagesIndexed !== 1 ? "s" : ""} added to your Knowledge Base.`
+      );
+      setCrawlUrl("");
+      setRefreshToken((x) => x + 1);
+    } catch (e: any) {
+      const msg = e?.data?.message ?? e?.message ?? "Failed to index site";
+      toast.error(msg);
+    } finally {
+      setCrawling(false);
+    }
   };
 
   if (widgetSettings === undefined) {
@@ -230,6 +258,44 @@ export const FilesView = () => {
                   {savingAi ? "Saving…" : "Save AI settings"}
                 </Button>
               </div>
+            </div>
+          </div>
+
+          {/* Index your website */}
+          <div className="rounded-lg border bg-background px-6 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+              <div className="flex-1 space-y-2">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <GlobeIcon className="h-4 w-4" />
+                  Index your website
+                </Label>
+                <Input
+                  type="url"
+                  placeholder="https://yourwebsite.com"
+                  value={crawlUrl}
+                  onChange={(e) => setCrawlUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleCrawlSite()}
+                  className="max-w-md"
+                  disabled={crawling}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter your site URL. We&apos;ll crawl up to 20 pages and add them to your Knowledge Base.
+                </p>
+              </div>
+              <Button
+                onClick={handleCrawlSite}
+                disabled={crawling || !crawlUrl.trim()}
+                className="shrink-0"
+              >
+                {crawling ? (
+                  <>
+                    <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                    Indexing…
+                  </>
+                ) : (
+                  "Index site"
+                )}
+              </Button>
             </div>
           </div>
 

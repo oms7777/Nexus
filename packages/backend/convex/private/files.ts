@@ -266,6 +266,38 @@ export const addFile = action({
   },
 });
 
+/* ----------------------------- Crawl site (KB) ----------------------------- */
+
+export const crawlSite = action({
+  args: {
+    rootUrl: v.string(),
+    maxPages: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ pagesVisited: number; pagesIndexed: number; limit: number }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+    }
+
+    const orgId = (identity as any).orgId as string | undefined;
+    if (!orgId) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+    }
+
+    return await ctx.runAction(
+      (internal as any)["private/websiteIngest"].ingestPublicSite,
+      {
+        organizationId: orgId,
+        rootUrl: args.rootUrl,
+        maxPages: args.maxPages,
+      }
+    );
+  },
+});
+
 /* ----------------------------- Queries ----------------------------- */
 
 export const list = query({

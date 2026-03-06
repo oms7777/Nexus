@@ -67,8 +67,6 @@ import {
 import QualifyCard from "../components/QualifyCard";
 import CalendarContainerBeautified from "../components/CalendarContainerBeautified";
 import VoiceCallButton from "../components/VoiceCallButton";
-import { CollapsibleAIResponse } from "../components/CollapsibleAIResponse";
-
 /* ---------------- helpers ---------------- */
 
 const formSchema = z.object({ message: z.string().min(1) });
@@ -1165,11 +1163,7 @@ export const WidgetChatScreen = () => {
                         : undefined
                     }
                   >
-                    {m.role === "assistant" ? (
-                      <CollapsibleAIResponse text={m.text} />
-                    ) : (
-                      <AIResponse>{m.text}</AIResponse>
-                    )}
+                    <AIResponse>{m.text}</AIResponse>
                   </AIMessageContent>
 
                   {m.role === "assistant" && (
@@ -1178,14 +1172,6 @@ export const WidgetChatScreen = () => {
                 </AIMessage>
               );
             })}
-            {isPendingAssistant && (
-              <AIMessage from="assistant">
-                <AIMessageContent>
-                  <AIResponse>Typing…</AIResponse>
-                </AIMessageContent>
-                <DicebearAvatar imageUrl={brandLogoUrl} seed="assistant" size={32} />
-              </AIMessage>
-            )}
 
 
             {conversationId &&
