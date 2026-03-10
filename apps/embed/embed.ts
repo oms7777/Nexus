@@ -159,13 +159,16 @@ type NudgeKind = "promo" | "suggestions" | null;
     container.style.cssText = `
       position: fixed;
       ${isFull
-        ? `left: 0; right: 0; bottom: 80px; width: 100%; height: min(500px, 48vh); max-height: calc(100vh - 100px);
-           border-radius: 16px 16px 0 0; box-shadow: 0 -2px 16px rgba(0,0,0,.08);`
+        ? `left: 50%; transform: translate(-50%, 16px);
+           width: min(480px, calc(100vw - 48px)); max-width: 480px;
+           bottom: 80px; height: min(500px, 48vh); max-height: calc(100vh - 100px);
+           border-radius: 16px; box-shadow: 0 -2px 16px rgba(0,0,0,.08);`
         : `${position === "bottom-right" ? "right: 16px;" : "left: 16px;"} bottom: 88px;
            width: 380px; height: 560px; max-width: calc(100vw - 32px); max-height: calc(100vh - 100px);
-           border-radius: 14px; box-shadow: 0 2px 16px rgba(0,0,0,.08);`}
+           border-radius: 14px; box-shadow: 0 2px 16px rgba(0,0,0,.08);
+           transform: translateY(8px);`}
       z-index: 2147482999; overflow: hidden;
-      display: none; opacity: 0; transform: translateY(${isFull ? "16" : "8"}px);
+      display: none; opacity: 0;
       transition: all .28s ease; background: #fff;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
     `;
@@ -1055,7 +1058,8 @@ type NudgeKind = "promo" | "suggestions" | null;
     setTimeout(() => {
       if (container) {
         container.style.opacity = "1";
-        container.style.transform = "translateY(0)";
+        const isFull = embedLayout === "full_width_bottom";
+        container.style.transform = isFull ? "translate(-50%, 0)" : "translateY(0)";
       }
     }, 10);
 
@@ -1073,7 +1077,8 @@ type NudgeKind = "promo" | "suggestions" | null;
     isOpen = false;
 
     container.style.opacity = "0";
-    container.style.transform = "translateY(10px)";
+    const isFull = embedLayout === "full_width_bottom";
+    container.style.transform = isFull ? "translate(-50%, 10px)" : "translateY(10px)";
     setTimeout(() => container && (container.style.display = "none"), 300);
 
     button.innerHTML = chatBubbleIcon;
