@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { action, internalMutation, query, mutation } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { internalMutation, query, mutation } from "../_generated/server";
+import { crawlAndIndexPublicSite } from "./websiteIngest";
 
 type Frequency = "off" | "daily" | "weekly";
 
@@ -85,32 +85,6 @@ export const upsertSettings = mutation({
   },
 });
 
-export const updateRunResult = internalMutation({
-  args: {
-    organizationId: v.string(),
-    status: v.union(v.literal("success"), v.literal("error")),
-    pagesVisited: v.optional(v.number()),
-    pagesIndexed: v.optional(v.number()),
-    error: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("websiteIndexingSettings")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", args.organizationId))
-      .unique();
-    if (!row) return;
-
-    await ctx.db.patch(row._id, {
-      lastRunAt: Date.now(),
-      lastStatus: args.status,
-      lastPagesVisited: args.pagesVisited,
-      lastPagesIndexed: args.pagesIndexed,
-      lastError: args.error,
-      updatedAt: Date.now(),
-    });
-  },
-});
-
 function isDue(frequency: Frequency, lastRunAt?: number): boolean {
   if (frequency === "off") return false;
   if (!lastRunAt) return true;
@@ -119,7 +93,7 @@ function isDue(frequency: Frequency, lastRunAt?: number): boolean {
   return ageMs >= 7 * 24 * 60 * 60 * 1000;
 }
 
-export const runDue = action({
+export const runDue = internalMutation({
   args: {},
   handler: async (ctx) => {
     // Runs without user identity (cron). Iterate all enabled settings.
@@ -131,24 +105,27 @@ export const runDue = action({
       if (!isDue(freq, row.lastRunAt)) continue;
 
       try {
-        const result = await ctx.runAction(internal.private.websiteIngest.ingestPublicSite, {
+        const result = await crawlAndIndexPublicSite(ctx, {
           organizationId: row.organizationId,
           rootUrl: row.rootUrl,
           maxPages: row.maxPages,
         });
 
-        await ctx.runMutation(internal.private.websiteIndexing.updateRunResult, {
-          organizationId: row.organizationId,
-          status: "success",
-          pagesVisited: result.pagesVisited,
-          pagesIndexed: result.pagesIndexed,
+        await ctx.db.patch(row._id, {
+          lastRunAt: Date.now(),
+          lastStatus: "success",
+          lastPagesVisited: result.pagesVisited,
+          lastPagesIndexed: result.pagesIndexed,
+          lastError: undefined,
+          updatedAt: Date.now(),
         });
       } catch (err: any) {
         const msg = err?.data?.message ?? err?.message ?? "Failed to index site";
-        await ctx.runMutation(internal.private.websiteIndexing.updateRunResult, {
-          organizationId: row.organizationId,
-          status: "error",
-          error: String(msg),
+        await ctx.db.patch(row._id, {
+          lastRunAt: Date.now(),
+          lastStatus: "error",
+          lastError: String(msg),
+          updatedAt: Date.now(),
         });
       }
     }

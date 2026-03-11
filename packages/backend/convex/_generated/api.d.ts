@@ -9,6 +9,7 @@
  */
 
 import type * as constants from "../constants.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as lib_extractTextContent from "../lib/extractTextContent.js";
@@ -30,6 +31,7 @@ import type * as private_secrets from "../private/secrets.js";
 import type * as private_territories from "../private/territories.js";
 import type * as private_users from "../private/users.js";
 import type * as private_vapi from "../private/vapi.js";
+import type * as private_websiteIndexing from "../private/websiteIndexing.js";
 import type * as private_websiteIngest from "../private/websiteIngest.js";
 import type * as private_widgetSettings from "../private/widgetSettings.js";
 import type * as public_analytics from "../public/analytics.js";
@@ -80,6 +82,7 @@ import type {
  */
 declare const fullApi: ApiFromModules<{
   constants: typeof constants;
+  crons: typeof crons;
   http: typeof http;
   integrations: typeof integrations;
   "lib/extractTextContent": typeof lib_extractTextContent;
@@ -101,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   "private/territories": typeof private_territories;
   "private/users": typeof private_users;
   "private/vapi": typeof private_vapi;
+  "private/websiteIndexing": typeof private_websiteIndexing;
   "private/websiteIngest": typeof private_websiteIngest;
   "private/widgetSettings": typeof private_widgetSettings;
   "public/analytics": typeof public_analytics;
