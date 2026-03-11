@@ -47,10 +47,13 @@ import { Input } from "@workspace/ui/components/input";
 
 type KnowledgeMode = "llm_plus_kb" | "kb_only";
 type LlmProvider = "openai" | "google";
+type WebsiteSyncFrequency = "off" | "daily" | "weekly";
 
 export const FilesView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
+  const websiteIndexingSettings = useQuery(api.private.websiteIndexing.getSettings);
+  const upsertWebsiteIndexingSettings = useMutation(api.private.websiteIndexing.upsertSettings);
 
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -58,6 +61,7 @@ export const FilesView = () => {
   const [savingAi, setSavingAi] = useState(false);
   const [crawlUrl, setCrawlUrl] = useState("");
   const [crawling, setCrawling] = useState(false);
+  const [websiteSyncFrequency, setWebsiteSyncFrequency] = useState<WebsiteSyncFrequency>("off");
 
   const crawlSiteAction = useAction(api.private.files.crawlSite);
 
@@ -103,6 +107,12 @@ export const FilesView = () => {
     setLlmProvider(prov);
   }, [widgetSettings]);
 
+  useEffect(() => {
+    if (!websiteIndexingSettings) return;
+    setWebsiteSyncFrequency((websiteIndexingSettings.frequency ?? "off") as WebsiteSyncFrequency);
+    if (websiteIndexingSettings.rootUrl) setCrawlUrl(websiteIndexingSettings.rootUrl);
+  }, [websiteIndexingSettings]);
+
   const kbEnabled = useMemo(() => true, []); // ✅ always enabled now (since llm_only removed)
 
   const handleDeleteClick = (file: PublicFile) => {
@@ -145,10 +155,20 @@ export const FilesView = () => {
     try {
       setCrawling(true);
       const result = await crawlSiteAction({ rootUrl: url });
-      toast.success(
-        `Site indexed: ${result.pagesIndexed} page${result.pagesIndexed !== 1 ? "s" : ""} added to your Knowledge Base.`
-      );
-      setCrawlUrl("");
+      await upsertWebsiteIndexingSettings({
+        rootUrl: url,
+        frequency: websiteSyncFrequency,
+        enabled: websiteSyncFrequency !== "off",
+      });
+      if (result.pagesIndexed === 0) {
+        toast.warning(
+          "No pages were added. The site may be client-rendered (SPA) or pages have very little text. Try adding important pages as PDF or TXT in \"Add document\"."
+        );
+      } else {
+        toast.success(
+          `Site indexed: ${result.pagesIndexed} page${result.pagesIndexed !== 1 ? "s" : ""} added to your Knowledge Base.`
+        );
+      }
       setRefreshToken((x) => x + 1);
     } catch (e: any) {
       const msg = e?.data?.message ?? e?.message ?? "Failed to index site";
@@ -158,7 +178,7 @@ export const FilesView = () => {
     }
   };
 
-  if (widgetSettings === undefined) {
+  if (widgetSettings === undefined || websiteIndexingSettings === undefined) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-y-2 bg-muted">
         <Loader2Icon className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -269,18 +289,46 @@ export const FilesView = () => {
                   <GlobeIcon className="h-4 w-4" />
                   Index your website
                 </Label>
-                <Input
-                  type="url"
-                  placeholder="https://yourwebsite.com"
-                  value={crawlUrl}
-                  onChange={(e) => setCrawlUrl(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCrawlSite()}
-                  className="max-w-md"
-                  disabled={crawling}
-                />
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <Input
+                    type="url"
+                    placeholder="https://yourwebsite.com"
+                    value={crawlUrl}
+                    onChange={(e) => setCrawlUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleCrawlSite()}
+                    className="max-w-md"
+                    disabled={crawling}
+                  />
+                  <div className="w-full max-w-[220px]">
+                    <Select
+                      value={websiteSyncFrequency}
+                      onValueChange={(v) => setWebsiteSyncFrequency(v as WebsiteSyncFrequency)}
+                    >
+                      <SelectTrigger disabled={crawling}>
+                        <SelectValue placeholder="Auto-sync" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="off">Auto-sync: Off</SelectItem>
+                        <SelectItem value="daily">Auto-sync: Daily</SelectItem>
+                        <SelectItem value="weekly">Auto-sync: Weekly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Enter your site URL. We&apos;ll crawl up to 20 pages and add them to your Knowledge Base.
+                  If auto-sync is enabled, we&apos;ll re-index automatically.
                 </p>
+                {websiteIndexingSettings?.lastRunAt ? (
+                  <p className="text-xs text-muted-foreground">
+                    Last indexed: {new Date(websiteIndexingSettings.lastRunAt).toLocaleString()} ·{" "}
+                    {websiteIndexingSettings.lastPagesIndexed ?? 0} page
+                    {websiteIndexingSettings.lastPagesIndexed === 1 ? "" : "s"} added
+                    {websiteIndexingSettings.lastStatus === "error" && websiteIndexingSettings.lastError
+                      ? ` · Error: ${websiteIndexingSettings.lastError}`
+                      : ""}
+                  </p>
+                ) : null}
               </div>
               <Button
                 onClick={handleCrawlSite}

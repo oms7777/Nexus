@@ -61,6 +61,20 @@ export default defineSchema({
     .index("by_org", ["organizationId"])
     .index("by_org_domain", ["organizationId", "domain"]),
 
+  websiteIndexingSettings: defineTable({
+    organizationId: v.string(),
+    rootUrl: v.string(),
+    frequency: v.union(v.literal("off"), v.literal("daily"), v.literal("weekly")),
+    maxPages: v.optional(v.number()),
+    enabled: v.boolean(),
+    lastRunAt: v.optional(v.number()),
+    lastStatus: v.optional(v.union(v.literal("success"), v.literal("error"))),
+    lastPagesVisited: v.optional(v.number()),
+    lastPagesIndexed: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_organization_id", ["organizationId"]),
+
   usageMonthly: defineTable({
     organizationId: v.string(),
     month: v.string(),

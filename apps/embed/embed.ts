@@ -160,7 +160,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       position: fixed;
       ${isFull
         ? `left: 50%; transform: translate(-50%, 16px);
-           width: min(480px, calc(100vw - 48px)); max-width: 480px;
+           width: min(1200px, calc(100vw - 96px)); max-width: 1200px;
            bottom: 80px; height: min(500px, 48vh); max-height: calc(100vh - 100px);
            border-radius: 16px; box-shadow: 0 -2px 16px rgba(0,0,0,.08);`
         : `${position === "bottom-right" ? "right: 16px;" : "left: 16px;"} bottom: 88px;
