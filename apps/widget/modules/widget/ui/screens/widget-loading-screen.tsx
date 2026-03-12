@@ -212,7 +212,8 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
   useEffect(() => {
     if (step !== "done") return;
 
-    setQualifyStep(consentGiven ? "idle" : "consent");
+    // Soft-consent: démarrer directement sur l'état "idle"
+    setQualifyStep("idle");
 
     // ✅ your behavior
     setScreen("chat");
