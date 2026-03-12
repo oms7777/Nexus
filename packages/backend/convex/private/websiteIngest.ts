@@ -290,12 +290,20 @@ export async function crawlAndIndexPublicSite(
 
 async function fetchJinaText(url: string): Promise<string> {
   const readerUrl = `${JINA_READER_BASE}${url}`;
+
+  const headers: Record<string, string> = {
+    "User-Agent": CRAWL_USER_AGENT,
+    Accept: "text/plain",
+  };
+
+  const apiKey = process.env.JINA_API_KEY;
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
   const res = await fetch(readerUrl, {
     redirect: "follow",
-    headers: {
-      "User-Agent": CRAWL_USER_AGENT,
-      Accept: "text/plain",
-    },
+    headers,
   });
   if (!res.ok) {
     throw new Error(`Jina returned ${res.status}`);
