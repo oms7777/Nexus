@@ -171,6 +171,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     form.setValue("pathMode", "exact"); // "/" + exact = homepage only
   };
 
+  const quickSetPricingPage = () => {
+    form.setValue("pathPrefix", "/pricing");
+    form.setValue("pathMode", "exact"); // only /pricing
+  };
+
   /* ----------------- Submit ----------------- */
 
   const onSubmit: SubmitHandler<PromoForm> = async (values) => {
@@ -402,12 +407,17 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         />
                       </div>
 
-                      <div className="flex items-center gap-2 pt-6">
-                        <Label className="text-xs text-muted-foreground">Show nudge</Label>
-                        <Switch
-                          checked={form.watch("showNudge") ?? true}
-                          onCheckedChange={(v) => form.setValue("showNudge", v)}
-                        />
+                      <div className="flex flex-col gap-1 pt-6">
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs font-medium">Show nudge</Label>
+                          <Switch
+                            checked={form.watch("showNudge") ?? true}
+                            onCheckedChange={(v) => form.setValue("showNudge", v)}
+                          />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Display the promo card on matching pages (turn off to hide it)
+                        </p>
                       </div>
                     </div>
 
@@ -426,10 +436,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   <section className="space-y-3 rounded-xl border bg-muted/40 p-4">
                     <div className="space-y-1">
                       <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Targeting
+                        Where does this promo appear?
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        Control on which pages this promo appears.
+                        Choose the pages where visitors will see this nudge.
                       </p>
                     </div>
 
@@ -440,34 +450,42 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       <Button type="button" variant="outline" size="sm" onClick={quickSetHomepageOnly}>
                         Homepage only
                       </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={quickSetPricingPage}>
+                        Pricing page
+                      </Button>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div>
-                        <Label>Path</Label>
-                        <Input {...form.register("pathPrefix")} placeholder="/pricing" />
+                        <Label>Page path</Label>
+                        <Input
+                          {...form.register("pathPrefix")}
+                          placeholder="/pricing"
+                          className="font-mono text-sm"
+                        />
                         <p className="mt-1 text-[11px] text-muted-foreground">
-                          Examples: <code>/pricing</code>, <code>/blog</code>, <code>/</code>
+                          Use the real URL path. Example: for <code>yoursite.com/pricing</code>, enter{" "}
+                          <code>/pricing</code>
                         </p>
                       </div>
 
                       <div>
-                        <Label>Match mode</Label>
+                        <Label>Scope</Label>
                         <Select
                           value={pathMode}
                           onValueChange={(v) => form.setValue("pathMode", v as "prefix" | "exact")}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder="Prefix" />
+                            <SelectValue placeholder="Scope" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="prefix">Prefix (matches /pricing/*)</SelectItem>
-                            <SelectItem value="exact">Exact (only this page)</SelectItem>
+                            <SelectItem value="exact">Only this exact page</SelectItem>
+                            <SelectItem value="prefix">This page and its subpages</SelectItem>
                           </SelectContent>
                         </Select>
-
                         <p className="mt-1 text-[11px] text-muted-foreground">
-                          <b>Exact</b> is the key to make <code>/</code> = homepage only.
+                          Exact = only <code>{pathPrefix || "/"}</code>. Prefix = also{" "}
+                          <code>{pathPrefix || "/"}</code>/*.
                         </p>
                       </div>
 
@@ -491,20 +509,22 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           </Select>
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground md:w-1/2">
-                          Choose whether the nudge shows your company logo or the 3 sales avatars.
+                          Logo or team avatars in the nudge.
                         </p>
                       </div>
                     </div>
 
-                    <div className="rounded-lg bg-background px-3 py-2 text-xs">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-muted-foreground">
-                          Current targeting:{" "}
-                          <code>
-                            {pathPrefix} ({pathMode})
-                          </code>
-                        </div>
-                      </div>
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2.5 text-sm">
+                      <span className="font-medium text-emerald-800">Shows on: </span>
+                      <span className="text-emerald-700">
+                        {pathPrefix === "/" && pathMode === "exact"
+                          ? "Homepage only"
+                          : pathPrefix === "/" && pathMode === "prefix"
+                            ? "All pages"
+                            : pathMode === "exact"
+                              ? `Only page ${pathPrefix || "/"}`
+                              : `Page ${pathPrefix || "/"} and subpages`}
+                      </span>
                     </div>
                   </section>
 
@@ -809,14 +829,24 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               </div>
 
               {(p.rules?.pathPrefix || p.rules?.pathMode) && (
-                <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
-                  {p.rules?.pathPrefix && (
-                    <span className="rounded bg-slate-50 px-1.5 py-0.5">
-                      path: <code>{p.rules.pathPrefix}</code>
-                    </span>
-                  )}
-                  <span className="rounded bg-slate-50 px-1.5 py-0.5">
-                    mode: <code>{p.rules?.pathMode ?? "prefix"}</code>
+                <div className="mt-1">
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      p.showNudge !== false
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {p.showNudge === false
+                      ? "Nudge hidden"
+                      : (() => {
+                          const pref = p.rules?.pathPrefix ?? "/";
+                          const mode = p.rules?.pathMode ?? "prefix";
+                          if (pref === "/" && mode === "exact") return "Shows on: Homepage only";
+                          if (pref === "/" && mode === "prefix") return "Shows on: All pages";
+                          if (mode === "exact") return `Shows on: ${pref} only`;
+                          return `Shows on: ${pref} + subpages`;
+                        })()}
                   </span>
                 </div>
               )}
