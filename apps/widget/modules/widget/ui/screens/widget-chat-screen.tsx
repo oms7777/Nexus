@@ -416,7 +416,8 @@ export const WidgetChatScreen = () => {
   const [, setAssignedRep] = useAtom(assignedRepAtom);
 
   const consentEnabled = !!consentCfg && consentCfg.enabled !== false;
-  const mustAcceptConsent = consentEnabled && !consentGiven;
+  // Soft consent: no longer blocks typing, only shown as notice
+  const mustAcceptConsent = false;
 
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
   // plan public (no auth) pour gating voice
@@ -1532,7 +1533,6 @@ export const WidgetChatScreen = () => {
                 maxHeight={isFullWidth ? 88 : 164}
                 className={isFullWidth ? "py-2 px-3 text-sm" : undefined}
                 disabled={
-                  mustAcceptConsent ||
                   isPendingAssistant ||
                   conversation?.status === "resolved" ||
                   step === "ask_name" ||
@@ -1557,8 +1557,6 @@ export const WidgetChatScreen = () => {
                     ? "Choose who you want to meet…"
                     : step === "picking"
                     ? "Pick a time above…"
-                    : mustAcceptConsent
-                    ? "Please accept consent to start the chat…"
                     : "Type your message..."
                 }
                 value={field.value}
@@ -1575,7 +1573,6 @@ export const WidgetChatScreen = () => {
                 color: "var(--nexus-send-fg)",
               }}
               disabled={
-                mustAcceptConsent ||
                 isPendingAssistant ||
                 conversation?.status === "resolved" ||
                 !form.formState.isValid ||
@@ -1592,6 +1589,29 @@ export const WidgetChatScreen = () => {
           </AIInputToolbar>
         </AIInput>
       </Form>
+
+      {consentEnabled && consentCfg?.body && (
+        <p className="px-3 pb-2 pt-1 text-[11px] leading-snug text-muted-foreground">
+          {consentCfg.body}{" "}
+          {consentCfg.linkMode === "link" && consentCfg.privacyUrl ? (
+            <a
+              href={consentCfg.privacyUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              here
+            </a>
+          ) : consentCfg.linkMode === "modal" && consentCfg.modalContent ? (
+            <ConsentInlineModal
+              triggerLabel="here"
+              title={consentCfg.title || "Privacy & data usage"}
+              fullText={consentCfg.modalContent}
+            />
+          ) : null}
+          .
+        </p>
+      )}
     </div>
   );
 }
