@@ -1053,20 +1053,18 @@ export const WidgetChatScreen = () => {
   }, [backendAssistantCount, isPendingAssistant]);
 
   const greet = widgetSettings?.greetMessage?.trim();
-  const hideGreetNow = bookingIntent === "book" || step !== "idle";
 
   const filteredBackend = greet
-    ? backendMsgs.filter((m) => {
-        if (!hideGreetNow) return true;
-        return !(m.role === "assistant" && m.text.trim() === greet);
-      })
+    ? backendMsgs.filter((m) => m.text.trim() !== greet)
     : backendMsgs;
 
   const baseMsgs = [...filteredBackend, ...localMsgs];
 
   let uiMsgs = baseMsgs;
-  if (step === "idle" && greet) {
-    uiMsgs = [{ role: "assistant" as const, text: greet }, ...baseMsgs];
+
+  // Always show greet as first message when present and no actual messages yet
+  if (greet && uiMsgs.length === 0) {
+    uiMsgs = [{ role: "assistant" as const, text: greet }];
   }
 
 
@@ -1468,8 +1466,8 @@ export const WidgetChatScreen = () => {
         </AIConversation>
       </div>
 
-      {/* suggestions */}
-      {step === "idle" && suggestions.length > 0 && (
+      {/* suggestions: show at start (below greet) */}
+      {suggestions.length > 0 && uiMsgs.length <= 1 && (
         <div className="flex w-full flex-wrap gap-2 px-3 pb-2">
           {suggestions.map((s) => (
             <button
