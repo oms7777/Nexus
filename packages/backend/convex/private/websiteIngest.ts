@@ -281,11 +281,20 @@ export async function crawlAndIndexPublicSite(
     }
   }
 
-  return {
+  const result = {
     pagesVisited: visited.size,
     pagesIndexed: indexedCount,
     limit,
   };
+
+  // Debug log to inspect crawl behavior in Convex dashboard
+  console.log("crawlAndIndexPublicSite result", {
+    organizationId,
+    rootUrl,
+    ...result,
+  });
+
+  return result;
 }
 
 async function fetchJinaText(url: string): Promise<string> {
