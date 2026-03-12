@@ -1497,21 +1497,22 @@ export const WidgetChatScreen = () => {
 
       {/* suggestions */}
       {step === "idle" && suggestions.length > 0 && (
-        <AISuggestions className="flex w-full flex-col items-end p-2">
+        <div className="flex w-full flex-wrap gap-2 px-3 pb-2">
           {suggestions.map((s) => (
-            <AISuggestion
+            <button
               key={s}
-              suggestion={s}
+              type="button"
+              className="rounded-full border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition"
               onClick={() => {
-                // Anti double-submit "soft"
                 if (isSendingRef.current) return;
-
                 form.setValue("message", s, { shouldValidate: true });
                 form.handleSubmit(onSubmit)();
               }}
-            />
+            >
+              {s}
+            </button>
           ))}
-        </AISuggestions>
+        </div>
       )}
 
 
