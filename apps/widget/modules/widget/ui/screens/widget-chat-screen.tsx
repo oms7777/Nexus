@@ -227,7 +227,7 @@ function ConsentInlineModal({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <div className="whitespace-pre-wrap text-sm text-muted-foreground">
+        <div className="whitespace-pre-wrap text-sm text-muted-foreground max-h-[60vh] overflow-y-auto pr-2">
           {fullText}
         </div>
       </DialogContent>
@@ -1496,7 +1496,7 @@ export const WidgetChatScreen = () => {
       </div>
 
       {/* suggestions */}
-      {step === "idle" && suggestions.length > 0 && uiMsgs.length <= 1 && (
+      {step === "idle" && suggestions.length > 0 && (
         <AISuggestions className="flex w-full flex-col items-end p-2">
           {suggestions.map((s) => (
             <AISuggestion
