@@ -34,7 +34,6 @@ import {
   assignedRepAtom,
 } from "../../atoms/qualify-atoms";
 
-import { WidgetHeader } from "../components/widget-header";
 import { Button } from "@workspace/ui/components/button";
 import { CalendarIcon, MenuIcon } from "lucide-react";
 
@@ -1065,10 +1064,10 @@ export const WidgetChatScreen = () => {
 
   const baseMsgs = [...filteredBackend, ...localMsgs];
 
-  const uiMsgs =
-    !conversationId && step === "idle" && greet
-      ? [{ role: "assistant" as const, text: greet }, ...baseMsgs]
-      : baseMsgs;
+  let uiMsgs = baseMsgs;
+  if (step === "idle" && greet) {
+    uiMsgs = [{ role: "assistant" as const, text: greet }, ...baseMsgs];
+  }
 
 
   const suggestions = useMemo(() => {
@@ -1091,34 +1090,8 @@ export const WidgetChatScreen = () => {
       }
       className="h-full w-full flex flex-col bg-white relative"
     >
-      {/* Header: seulement en mode compact */}
-      {!isFullWidth && (
-        <WidgetHeader className="flex items-center justify-between">
-          <p className="font-medium">Chat</p>
-          <div className="flex items-center gap-1">
-            {canUseVoice && <VoiceCallButton />}
-            {typeof window !== "undefined" && window !== window.parent && (
-              <button
-                type="button"
-                onClick={() => window.parent?.postMessage({ type: "close" }, "*")}
-                title="Close"
-                className="size-8 flex items-center justify-center rounded-full opacity-90 hover:opacity-100 hover:bg-white/10 transition-opacity"
-                aria-label="Close"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-            <Button size="icon" variant="transparent" onClick={startBookingLikePromo} title="Book a meeting">
-              <CalendarIcon />
-            </Button>
-          </div>
-        </WidgetHeader>
-      )}
-
-      {/* Full-width: boutons en bulles flottantes */}
-      {isFullWidth && typeof window !== "undefined" && window !== window.parent && (
+      {/* Boutons flottants (mêmes pour tous les layouts) */}
+      {typeof window !== "undefined" && window !== window.parent && (
         <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
           <button
             type="button"
