@@ -171,11 +171,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     form.setValue("pathMode", "exact"); // "/" + exact = homepage only
   };
 
-  const quickSetPricingPage = () => {
-    form.setValue("pathPrefix", "/pricing");
-    form.setValue("pathMode", "exact"); // only /pricing
-  };
-
   /* ----------------- Submit ----------------- */
 
   const onSubmit: SubmitHandler<PromoForm> = async (values) => {
@@ -449,9 +444,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </Button>
                       <Button type="button" variant="outline" size="sm" onClick={quickSetHomepageOnly}>
                         Homepage only
-                      </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={quickSetPricingPage}>
-                        Pricing page
                       </Button>
                     </div>
 

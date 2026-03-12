@@ -968,9 +968,8 @@ type NudgeKind = "promo" | "suggestions" | null;
 
   function runNudgeCta(index: number) {
     show();
-    setTimeout(() => {
-      postToWidget({ type: "nexus:run-cta", index });
-    }, 50);
+    // Delay so widget has time to load and SmartPromo to mount
+    setTimeout(() => postToWidget({ type: "nexus:run-cta", index }), 600);
   }
 
   function defaultLabelForKind(kind: SimpleCta["kind"]): string {
@@ -1101,12 +1100,12 @@ type NudgeKind = "promo" | "suggestions" | null;
 
   function openChat() {
     show();
-    setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 50);
+    setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 600);
   }
 
   function openBooking() {
     show();
-    setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 50);
+    setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 600);
   }
 
   /* ---------------- Lifecycle ---------------- */
