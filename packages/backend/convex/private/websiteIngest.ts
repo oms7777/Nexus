@@ -150,10 +150,13 @@ export async function crawlAndIndexPublicSite(
     });
   }
 
-  const limit = Math.max(
-    1,
-    Math.min(HARD_MAX_PAGES, Number.isFinite(maxPages || 0) ? (maxPages as number) : DEFAULT_MAX_PAGES),
-  );
+  // Normalize maxPages to a safe positive integer
+  const normalizedMaxPages =
+    typeof maxPages === "number" && Number.isFinite(maxPages) && maxPages > 0
+      ? maxPages
+      : DEFAULT_MAX_PAGES;
+
+  const limit = Math.max(1, Math.min(HARD_MAX_PAGES, normalizedMaxPages));
 
   // Subscription check – same rule as KB uploads
   const subscription = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
