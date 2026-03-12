@@ -10,8 +10,8 @@ type WebsiteEntryMetadata = {
   uploadedBy?: string;
 };
 
-const DEFAULT_MAX_PAGES = 20;
-const HARD_MAX_PAGES = 60;
+const DEFAULT_MAX_PAGES = 500;
+const HARD_MAX_PAGES = 1000;
 
 const SKIPPED_EXTENSIONS = [
   ".png",

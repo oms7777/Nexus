@@ -1004,6 +1004,10 @@ export const WidgetChatScreen = () => {
               "Still working on it… I’m generating the answer and I’ll post it here as soon as it’s ready.\n\nIf you prefer, you can also ask to speak with a human.",
           },
         ]);
+
+        // Après le message de fallback, on réactive l'input
+        setIsPendingAssistant(false);
+        if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
       }, 30000);
 
 
