@@ -45,8 +45,6 @@ import {
   AIInput,
   AIInputSubmit,
   AIInputTextarea,
-  AIInputToolbar,
-  AIInputTools,
 } from "@workspace/ui/components/ai/input";
 import { AIMessage, AIMessageContent } from "@workspace/ui/components/ai/message";
 import { AIResponse } from "@workspace/ui/components/ai/response";
@@ -1108,7 +1106,7 @@ export const WidgetChatScreen = () => {
     if (statusNow === "escalated" || statusNow === "resolved") return;
     if (step !== "idle") return;
 
-    if (backendAssistantCount >= 2) {
+    if (backendAssistantCount >= 3) {
       softEscalationSuggestedRef.current = true;
       setSoftEscalationActive(true);
       setLocalMsgs((m) => [
@@ -1264,11 +1262,11 @@ export const WidgetChatScreen = () => {
                       Talk to someone
                     </Button>
                     <Button
-                      className="flex-1 text-xs font-semibold border-0"
-                      style={{ backgroundColor: themePrimary, color: themePrimaryText }}
-                      onClick={startBookingLikePromo}
+                      variant="ghost"
+                      className="flex-1 text-xs"
+                      onClick={() => setSoftEscalationActive(false)}
                     >
-                      Book a meeting
+                      Continue to chat
                     </Button>
                   </div>
                 </div>
@@ -1599,62 +1597,56 @@ export const WidgetChatScreen = () => {
       )}
 
 
-      {/* composer — full-width: input compact */}
+      {/* composer — input + send icon sur une seule ligne (type your message à droite de l'icône) */}
       <Form {...(form as any)}>
         <AIInput
           className={cn(
-            "border-0 border-t bg-transparent px-2 py-2",
+            "flex flex-row items-end gap-2 !divide-y-0 border-0 border-t bg-transparent px-3 py-2",
             isFullWidth && "border-t"
           )}
           onSubmit={form.handleSubmit(onSubmit)}
         >
-          <FormField
-            control={form.control as any}
-            name="message"
-            render={({ field }) => (
-              <AIInputTextarea
-                minHeight={isFullWidth ? 40 : 48}
-                maxHeight={isFullWidth ? 88 : 140}
-                className={cn(
-                  "w-full rounded-full border bg-[#f4f4f5] px-4 text-sm shadow-sm focus-visible:ring-0 focus-visible:ring-offset-0",
-                  isFullWidth ? "py-2" : "py-2.5"
-                )}
-                disabled={
-                  isPendingAssistant ||
-                  conversation?.status === "resolved" ||
-                  step === "ask_name" ||
-                  step === "pick_rep" ||
-                  step === "picking"
-                }
-                onChange={field.onChange}
-                onKeyDown={(e) => {
-                  // Enter = send, Shift+Enter = newline
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (isSendingRef.current) return;
-                    form.handleSubmit(onSubmit)();
+          <div className="flex flex-1 min-w-0 items-center gap-2 rounded-full border bg-[#f4f4f5] px-3 py-1.5 shadow-sm">
+            <FormField
+              control={form.control as any}
+              name="message"
+              render={({ field }) => (
+                <AIInputTextarea
+                  minHeight={36}
+                  maxHeight={96}
+                  className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-0 py-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  disabled={
+                    isPendingAssistant ||
+                    conversation?.status === "resolved" ||
+                    step === "ask_name" ||
+                    step === "pick_rep" ||
+                    step === "picking"
                   }
-                }}
-                placeholder={
-                  conversation?.status === "resolved"
-                    ? "This conversation has been resolved."
-                    : step === "ask_name"
-                    ? "Fill the form above to continue…"
-                    : step === "pick_rep"
-                    ? "Choose who you want to meet…"
-                    : step === "picking"
-                    ? "Pick a time above…"
-                    : "Type your message..."
-                }
-                value={field.value}
-              />
-
-            )}
-          />
-          <AIInputToolbar className={isFullWidth ? "p-1.5" : "p-2"}>
-            <AIInputTools />
+                  onChange={field.onChange}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (isSendingRef.current) return;
+                      form.handleSubmit(onSubmit)();
+                    }
+                  }}
+                  placeholder={
+                    conversation?.status === "resolved"
+                      ? "This conversation has been resolved."
+                      : step === "ask_name"
+                      ? "Fill the form above to continue…"
+                      : step === "pick_rep"
+                      ? "Choose who you want to meet…"
+                      : step === "picking"
+                      ? "Pick a time above…"
+                      : "Type your message..."
+                  }
+                  value={field.value}
+                />
+              )}
+            />
             <AIInputSubmit
-              className="hover:opacity-90 [&_svg]:text-[var(--nexus-send-fg)]"
+              className="h-8 w-8 shrink-0 rounded-full hover:opacity-90 [&_svg]:size-4 [&_svg]:text-[var(--nexus-send-fg)]"
               style={{
                 backgroundColor: "var(--nexus-send-bg)",
                 color: "var(--nexus-send-fg)",
@@ -1671,9 +1663,7 @@ export const WidgetChatScreen = () => {
               type="button"
               onClick={form.handleSubmit(onSubmit)}
             />
-
-
-          </AIInputToolbar>
+          </div>
         </AIInput>
       </Form>
 
