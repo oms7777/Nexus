@@ -69,7 +69,7 @@ import VoiceCallButton from "../components/VoiceCallButton";
 /* ---------------- helpers ---------------- */
 
 const formSchema = z.object({ message: z.string().min(1) });
-const HUMAN_FALLBACK_SECONDS = 30; // X secondes avant fallback booking
+const HUMAN_FALLBACK_SECONDS = 45; // délai avant fallback booking (laisse plus de temps à l'humain)
 
 
 type Slot = { start: number; end: number };
@@ -507,6 +507,25 @@ export const WidgetChatScreen = () => {
   const fallbackTimerRef = useRef<any>(null);
   const fallbackShownRef = useRef(false);
 
+  // refs pour garder l'état "live" pour le timer (évite d'afficher le fallback si l'humain répond entre-temps)
+  const conversationStatusRef = useRef<string | null>(null);
+  const hasRepStartedRef = useRef<boolean>(false);
+  const stepRef = useRef(step);
+
+  useEffect(() => {
+    conversationStatusRef.current = conversation?.status ?? null;
+  }, [conversation?.status]);
+
+  useEffect(() => {
+    if (typeof hasRepStarted === "boolean") {
+      hasRepStartedRef.current = hasRepStarted;
+    }
+  }, [hasRepStarted]);
+
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
+
   const bookingProposedLoggedRef = useRef(false);
 
   useEffect(() => {
@@ -542,35 +561,46 @@ export const WidgetChatScreen = () => {
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
 
     fallbackTimerRef.current = setTimeout(() => {
+      // re-vérifier l'état "live" au moment où le timer se déclenche
+      const statusNow = conversationStatusRef.current;
+      const humanNow = hasRepStartedRef.current;
+      const stepNow = stepRef.current;
+
       if (fallbackShownRef.current) return;
-        fallbackShownRef.current = true;
 
-        // ✅ NEW: log booking_proposed once
-        if (!bookingProposedLoggedRef.current && organizationId && conversationId) {
-          bookingProposedLoggedRef.current = true;
+      // si entre-temps la conv est résolue, ou un humain a répondu, ou on n'est plus idle -> ne rien faire
+      if (statusNow === "resolved" || humanNow === true || stepNow !== "idle") {
+        return;
+      }
 
-          logEvent({
-            organizationId,
-            type: "booking_proposed",
-            sessionId: contactSessionId || undefined,
-            conversationId,
-            meta: {
-              reason: "rep_timeout",
-              timeoutSeconds: HUMAN_FALLBACK_SECONDS,
-              status: conversation?.status,
-            },
-          }).catch(() => {});
-        }
+      fallbackShownRef.current = true;
 
-        setLocalMsgs((m) => [
-          ...m,
-          {
-            role: "assistant",
-            text:
-              `⏳ If no teammate answers right away, you can book a quick meeting instead.\n` +
-              `Click “Book a meeting” to pick a slot.`,
+      // ✅ NEW: log booking_proposed once
+      if (!bookingProposedLoggedRef.current && organizationId && conversationId) {
+        bookingProposedLoggedRef.current = true;
+
+        logEvent({
+          organizationId,
+          type: "booking_proposed",
+          sessionId: contactSessionId || undefined,
+          conversationId,
+          meta: {
+            reason: "rep_timeout",
+            timeoutSeconds: HUMAN_FALLBACK_SECONDS,
+            status: statusNow,
           },
-        ]);
+        }).catch(() => {});
+      }
+
+      setLocalMsgs((m) => [
+        ...m,
+        {
+          role: "assistant",
+          text:
+            `⏳ If no teammate answers right away, you can book a quick meeting instead.\n` +
+            `Click “Book a meeting” to pick a slot.`,
+        },
+      ]);
     }, HUMAN_FALLBACK_SECONDS * 1000);
 
     return () => {
