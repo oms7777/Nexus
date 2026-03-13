@@ -530,6 +530,7 @@ export const WidgetChatScreen = () => {
 
   // suggestion "parler à quelqu'un / booker" après réponses générales
   const softEscalationSuggestedRef = useRef(false);
+  const [softEscalationActive, setSoftEscalationActive] = useState(false);
 
   useEffect(() => {
     // reset if no conversation
@@ -983,8 +984,7 @@ export const WidgetChatScreen = () => {
           ...m,
           {
             role: "assistant",
-            text:
-              "Got it — connecting you with a human teammate now. If you prefer, you can also book a quick meeting using the “Book a meeting” option.",
+            text: "Got it — connecting you with a human teammate now.",
           },
         ]);
         // ne pas return: on laisse le backend gérer l'escalade normalement
@@ -1076,6 +1076,13 @@ export const WidgetChatScreen = () => {
     }
   };
 
+  // helper: déclenche une demande "talk to someone" via bouton
+  const triggerTalkToSomeone = () => {
+    if (isSendingRef.current) return;
+    form.setValue("message", "I’d like to talk to someone.", { shouldValidate: true } as any);
+    form.handleSubmit(onSubmit)();
+  };
+
 
   /* -------- MESSAGES + GREET -------- */
   const backendMsgs = toUIMessages(messages.results ?? [])
@@ -1103,12 +1110,13 @@ export const WidgetChatScreen = () => {
 
     if (backendAssistantCount >= 2) {
       softEscalationSuggestedRef.current = true;
+      setSoftEscalationActive(true);
       setLocalMsgs((m) => [
         ...m,
         {
           role: "assistant",
           text:
-            "If you’d like to go deeper, I can connect you with a human teammate or help you book a quick meeting. Just say you want to talk to someone, or click “Book a meeting”.",
+            "If you’d like to go deeper, I can connect you with a human teammate or help you book a quick meeting. Just say you want to talk to someone, or ask for a meeting.",
         },
       ]);
     }
@@ -1227,9 +1235,42 @@ export const WidgetChatScreen = () => {
               fallbackShownRef.current &&
               step === "idle" && (
                 <div className="p-3">
-                  <Button className="w-full" onClick={startBookingLikePromo}>
+                  <Button
+                    className="w-full border-0 text-sm font-semibold"
+                    style={{
+                      backgroundColor: themePrimary,
+                      color: themePrimaryText,
+                    }}
+                    onClick={startBookingLikePromo}
+                  >
                     Book a meeting
                   </Button>
+                </div>
+              )}
+
+            {softEscalationActive &&
+              (!conversation || (conversation.status !== "escalated" && conversation.status !== "resolved")) &&
+              step === "idle" && (
+                <div className="flex flex-col gap-2 p-3">
+                  <div className="text-xs text-muted-foreground">
+                    If you’d like to go deeper, I can connect you with a human teammate or help you book a quick meeting.
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      variant="outline"
+                      className="flex-1 text-xs"
+                      onClick={triggerTalkToSomeone}
+                    >
+                      Talk to someone
+                    </Button>
+                    <Button
+                      className="flex-1 text-xs font-semibold border-0"
+                      style={{ backgroundColor: themePrimary, color: themePrimaryText }}
+                      onClick={startBookingLikePromo}
+                    >
+                      Book a meeting
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -1562,7 +1603,7 @@ export const WidgetChatScreen = () => {
       <Form {...(form as any)}>
         <AIInput
           className={cn(
-            "rounded-none border-x-0 border-b-0",
+            "border-0 border-t bg-transparent px-2 py-2",
             isFullWidth && "border-t"
           )}
           onSubmit={form.handleSubmit(onSubmit)}
@@ -1572,9 +1613,12 @@ export const WidgetChatScreen = () => {
             name="message"
             render={({ field }) => (
               <AIInputTextarea
-                minHeight={isFullWidth ? 36 : 48}
-                maxHeight={isFullWidth ? 88 : 164}
-                className={isFullWidth ? "py-2 px-3 text-sm" : undefined}
+                minHeight={isFullWidth ? 40 : 48}
+                maxHeight={isFullWidth ? 88 : 140}
+                className={cn(
+                  "w-full rounded-full border bg-[#f4f4f5] px-4 text-sm shadow-sm focus-visible:ring-0 focus-visible:ring-offset-0",
+                  isFullWidth ? "py-2" : "py-2.5"
+                )}
                 disabled={
                   isPendingAssistant ||
                   conversation?.status === "resolved" ||
@@ -1607,7 +1651,7 @@ export const WidgetChatScreen = () => {
 
             )}
           />
-          <AIInputToolbar className={isFullWidth ? "p-1.5" : undefined}>
+          <AIInputToolbar className={isFullWidth ? "p-1.5" : "p-2"}>
             <AIInputTools />
             <AIInputSubmit
               className="hover:opacity-90 [&_svg]:text-[var(--nexus-send-fg)]"
