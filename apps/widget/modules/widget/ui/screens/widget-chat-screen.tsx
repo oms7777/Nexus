@@ -1224,6 +1224,7 @@ export const WidgetChatScreen = () => {
             {conversationId &&
               conversation?.status === "escalated" &&
               hasRepStarted !== true &&
+              fallbackShownRef.current &&
               step === "idle" && (
                 <div className="p-3">
                   <Button className="w-full" onClick={startBookingLikePromo}>
