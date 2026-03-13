@@ -218,6 +218,11 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
     // ✅ your behavior
     setScreen("chat");
     if (getNoChat()) setScreen("chat");
+
+    // Notify embed that widget is ready (for pending "Book a meeting" etc.)
+    try {
+      window.parent?.postMessage({ type: "nexus:widget-ready" }, "*");
+    } catch {}
   }, [step, consentGiven, setQualifyStep, setScreen]);
 
   const loadingMessage = useAtomValue(loadingMessageAtom);

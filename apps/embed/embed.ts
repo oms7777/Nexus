@@ -68,6 +68,10 @@ type NudgeKind = "promo" | "suggestions" | null;
   let pendingSuggestions: SuggestionsPayload | null = null;
   let suggestionsTimer: number | null = null;
 
+  // Pending CTA when user clicks nudge before widget is ready
+  let pendingCta: { type: "run-cta" | "run-secondary-cta" | "open-chat"; index?: number } | null = null;
+  let pendingCtaTimeout: number | null = null;
+
   // Tracking
   let trackingStarted = false;
   let trackingSessionId: string | null = null;
@@ -354,6 +358,24 @@ type NudgeKind = "promo" | "suggestions" | null;
           sessionId: sid,
         });
 
+        break;
+      }
+
+      case "nexus:widget-ready": {
+        if (pendingCta) {
+          if (pendingCta.type === "run-cta" && typeof pendingCta.index === "number") {
+            postToWidget({ type: "nexus:run-cta", index: pendingCta.index });
+          } else if (pendingCta.type === "run-secondary-cta") {
+            postToWidget({ type: "nexus:run-secondary-cta" });
+          } else if (pendingCta.type === "open-chat") {
+            postToWidget({ type: "nexus:open-chat" });
+          }
+          pendingCta = null;
+        }
+        if (pendingCtaTimeout) {
+          window.clearTimeout(pendingCtaTimeout);
+          pendingCtaTimeout = null;
+        }
         break;
       }
 
@@ -967,9 +989,15 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   function runNudgeCta(index: number) {
+    pendingCta = { type: "run-cta", index };
     show();
-    // Delay so widget has time to load and SmartPromo to mount
-    setTimeout(() => postToWidget({ type: "nexus:run-cta", index }), 600);
+    if (pendingCtaTimeout) window.clearTimeout(pendingCtaTimeout);
+    pendingCtaTimeout = window.setTimeout(() => {
+      if (pendingCta && pendingCta.type === "run-cta") {
+        postToWidget({ type: "nexus:run-cta", index: pendingCta.index! });
+      }
+      pendingCtaTimeout = null;
+    }, 800);
   }
 
   function defaultLabelForKind(kind: SimpleCta["kind"]): string {
@@ -1074,6 +1102,11 @@ type NudgeKind = "promo" | "suggestions" | null;
   function hide() {
     if (!container || !button) return;
     isOpen = false;
+    pendingCta = null;
+    if (pendingCtaTimeout) {
+      window.clearTimeout(pendingCtaTimeout);
+      pendingCtaTimeout = null;
+    }
 
     container.style.opacity = "0";
     const isFull = embedLayout === "full_width_bottom";
@@ -1099,13 +1132,27 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   function openChat() {
+    pendingCta = { type: "open-chat" };
     show();
-    setTimeout(() => postToWidget({ type: "nexus:open-chat" }), 600);
+    if (pendingCtaTimeout) window.clearTimeout(pendingCtaTimeout);
+    pendingCtaTimeout = window.setTimeout(() => {
+      if (pendingCta && pendingCta.type === "open-chat") {
+        postToWidget({ type: "nexus:open-chat" });
+      }
+      pendingCtaTimeout = null;
+    }, 800);
   }
 
   function openBooking() {
+    pendingCta = { type: "run-secondary-cta" };
     show();
-    setTimeout(() => postToWidget({ type: "nexus:run-secondary-cta" }), 600);
+    if (pendingCtaTimeout) window.clearTimeout(pendingCtaTimeout);
+    pendingCtaTimeout = window.setTimeout(() => {
+      if (pendingCta && pendingCta.type === "run-secondary-cta") {
+        postToWidget({ type: "nexus:run-secondary-cta" });
+      }
+      pendingCtaTimeout = null;
+    }, 800);
   }
 
   /* ---------------- Lifecycle ---------------- */
@@ -1153,6 +1200,11 @@ type NudgeKind = "promo" | "suggestions" | null;
     nudgeKind = null;
     pendingSuggestions = null;
     cancelSuggestions();
+    pendingCta = null;
+    if (pendingCtaTimeout) {
+      window.clearTimeout(pendingCtaTimeout);
+      pendingCtaTimeout = null;
+    }
   }
 
   function reinit(cfg: { organizationId?: string; position?: "bottom-right" | "bottom-left" }) {
