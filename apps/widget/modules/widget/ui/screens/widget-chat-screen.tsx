@@ -69,7 +69,7 @@ import VoiceCallButton from "../components/VoiceCallButton";
 /* ---------------- helpers ---------------- */
 
 const formSchema = z.object({ message: z.string().min(1) });
-const HUMAN_FALLBACK_SECONDS = 45; // délai avant fallback booking (laisse plus de temps à l'humain)
+const HUMAN_FALLBACK_SECONDS = 30; // délai avant fallback booking
 
 
 type Slot = { start: number; end: number };
@@ -528,6 +528,9 @@ export const WidgetChatScreen = () => {
 
   const bookingProposedLoggedRef = useRef(false);
 
+  // suggestion "parler à quelqu'un / booker" après réponses générales
+  const softEscalationSuggestedRef = useRef(false);
+
   useEffect(() => {
     // reset if no conversation
     if (!conversationId) {
@@ -971,6 +974,22 @@ export const WidgetChatScreen = () => {
         return;
       }
 
+      // human handoff intent via free text => suggérer booking en plus
+      if (
+        step === "idle" &&
+        /\b(human|someone|teammate|agent|person|representative|advisor)\b/i.test(text)
+      ) {
+        setLocalMsgs((m) => [
+          ...m,
+          {
+            role: "assistant",
+            text:
+              "Got it — connecting you with a human teammate now. If you prefer, you can also book a quick meeting using the “Book a meeting” option.",
+          },
+        ]);
+        // ne pas return: on laisse le backend gérer l'escalade normalement
+      }
+
       if (!contactSessionId || !organizationId) return;
 
       // Ensure a conversation exists
@@ -1072,6 +1091,28 @@ export const WidgetChatScreen = () => {
   useEffect(() => {
     backendAssistantCountRef.current = backendAssistantCount;
   }, [backendAssistantCount]);
+
+  // après que l'IA ait déjà répondu au moins une fois, proposer doucement l'escalade / booking
+  useEffect(() => {
+    if (softEscalationSuggestedRef.current) return;
+    if (!organizationId || !conversationId) return;
+
+    const statusNow = conversation?.status;
+    if (statusNow === "escalated" || statusNow === "resolved") return;
+    if (step !== "idle") return;
+
+    if (backendAssistantCount >= 2) {
+      softEscalationSuggestedRef.current = true;
+      setLocalMsgs((m) => [
+        ...m,
+        {
+          role: "assistant",
+          text:
+            "If you’d like to go deeper, I can connect you with a human teammate or help you book a quick meeting. Just say you want to talk to someone, or click “Book a meeting”.",
+        },
+      ]);
+    }
+  }, [backendAssistantCount, conversation?.status, step, organizationId, conversationId, setLocalMsgs]);
 
   useEffect(() => {
     if (!isPendingAssistant) return;
@@ -1183,7 +1224,6 @@ export const WidgetChatScreen = () => {
             {conversationId &&
               conversation?.status === "escalated" &&
               hasRepStarted !== true &&
-              fallbackShownRef.current &&
               step === "idle" && (
                 <div className="p-3">
                   <Button className="w-full" onClick={startBookingLikePromo}>
