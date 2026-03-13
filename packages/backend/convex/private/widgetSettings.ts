@@ -86,6 +86,8 @@ export const upsert = mutation({
 
     // ✅ voice settings
     vapiSettings: v.optional(VapiSettingsV),
+
+    escalationSuggestionAfterMessages: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -118,6 +120,8 @@ export const upsert = mutation({
     if ("llmModel" in args) patch.llmModel = args.llmModel;
 
     if ("vapiSettings" in args) patch.vapiSettings = args.vapiSettings;
+    if ("escalationSuggestionAfterMessages" in args)
+      patch.escalationSuggestionAfterMessages = args.escalationSuggestionAfterMessages;
 
     // If no record yet, insert minimal required fields
     if (!existing) {

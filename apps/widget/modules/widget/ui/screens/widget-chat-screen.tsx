@@ -1077,6 +1077,7 @@ export const WidgetChatScreen = () => {
   // helper: déclenche une demande "talk to someone" via bouton
   const triggerTalkToSomeone = () => {
     if (isSendingRef.current) return;
+    setSoftEscalationActive(false);
     form.setValue("message", "I’d like to talk to someone.", { shouldValidate: true } as any);
     form.handleSubmit(onSubmit)();
   };
@@ -1106,7 +1107,9 @@ export const WidgetChatScreen = () => {
     if (statusNow === "escalated" || statusNow === "resolved") return;
     if (step !== "idle") return;
 
-    if (backendAssistantCount >= 3) {
+    const triggerCount =
+      (widgetSettings as any)?.escalationSuggestionAfterMessages ?? 3;
+    if (triggerCount > 0 && backendAssistantCount >= triggerCount) {
       softEscalationSuggestedRef.current = true;
       setSoftEscalationActive(true);
       setLocalMsgs((m) => [
@@ -1118,7 +1121,7 @@ export const WidgetChatScreen = () => {
         },
       ]);
     }
-  }, [backendAssistantCount, conversation?.status, step, organizationId, conversationId, setLocalMsgs]);
+  }, [backendAssistantCount, conversation?.status, step, organizationId, conversationId, widgetSettings]);
 
   useEffect(() => {
     if (!isPendingAssistant) return;
@@ -1617,7 +1620,6 @@ export const WidgetChatScreen = () => {
                   className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-0 py-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   disabled={
                     isPendingAssistant ||
-                    conversation?.status === "resolved" ||
                     step === "ask_name" ||
                     step === "pick_rep" ||
                     step === "picking"
@@ -1631,9 +1633,7 @@ export const WidgetChatScreen = () => {
                     }
                   }}
                   placeholder={
-                    conversation?.status === "resolved"
-                      ? "This conversation has been resolved."
-                      : step === "ask_name"
+                    step === "ask_name"
                       ? "Fill the form above to continue…"
                       : step === "pick_rep"
                       ? "Choose who you want to meet…"
@@ -1653,7 +1653,6 @@ export const WidgetChatScreen = () => {
               }}
               disabled={
                 isPendingAssistant ||
-                conversation?.status === "resolved" ||
                 !form.formState.isValid ||
                 step === "ask_name" ||
                 step === "pick_rep" ||

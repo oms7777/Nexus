@@ -69,6 +69,8 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         suggestion2: initialData?.defaultSuggestions.suggestion2 || "",
         suggestion3: initialData?.defaultSuggestions.suggestion3 || "",
       },
+      escalationSuggestionAfterMessages:
+        (initialData as any)?.escalationSuggestionAfterMessages ?? 3,
       embedLayout: (initialData as any)?.embedLayout || "compact",
       theme: {
         primaryColor: initialData?.theme?.primaryColor || "#a855f7",
@@ -167,6 +169,8 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
       await upsertWidgetSettings({
         greetMessage: values.greetMessage,
         defaultSuggestions: values.defaultSuggestions,
+        escalationSuggestionAfterMessages:
+          values.escalationSuggestionAfterMessages ?? 3,
         teamAvatars: undefined,
         embedLayout: values.embedLayout,
         theme,
@@ -752,6 +756,39 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                     </div>
                   </div>
                 </div>
+
+                <Separator />
+
+                <FormField
+                  control={form.control as any}
+                  name="escalationSuggestionAfterMessages"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Show &quot;Talk to someone&quot; / &quot;Continue to chat&quot; after</FormLabel>
+                      <FormControl>
+                        <select
+                          value={field.value ?? 3}
+                          onChange={(e) =>
+                            field.onChange(Number(e.target.value))
+                          }
+                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+                        >
+                          <option value={0}>Never</option>
+                          <option value={2}>2 AI replies</option>
+                          <option value={3}>3 AI replies</option>
+                          <option value={4}>4 AI replies</option>
+                          <option value={5}>5 AI replies</option>
+                        </select>
+                      </FormControl>
+                      <FormDescription>
+                        After this many assistant messages, the visitor sees
+                        options to talk to a human or continue chatting with the
+                        AI.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </CardContent>
             </Card>
           </TabsContent>

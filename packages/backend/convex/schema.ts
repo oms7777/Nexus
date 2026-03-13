@@ -126,6 +126,9 @@ export default defineSchema({
     llmProvider: v.optional(v.union(v.literal("openai"), v.literal("google"))),
     llmModel: v.optional(v.string()),
 
+    /** After how many AI replies to show "Talk to someone" / "Continue to chat". 0 = never. Default 3. */
+    escalationSuggestionAfterMessages: v.optional(v.number()),
+
     privacyUrl: v.optional(v.string()),
     consent: v.optional(
       v.object({

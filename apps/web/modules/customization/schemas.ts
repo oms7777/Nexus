@@ -23,6 +23,9 @@ export const widgetSettingsSchema = z
       suggestion3: z.string().optional(),
     }),
 
+    /** 0 = never, 2-5 = after X AI replies. Shows "Talk to someone" / "Continue to chat". */
+    escalationSuggestionAfterMessages: z.number().min(0).max(10).optional(),
+
     // -------------------------
     // Branding
     // -------------------------
