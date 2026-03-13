@@ -146,9 +146,8 @@ export default function SmartPromo() {
 
     setBookingIntent(intent);
 
-    const nextStep =
-      consentGiven ? (intent === "book" ? "ask_name" : "idle") : "consent";
-
+    // Soft consent: we only show the legal text, no blocking card
+    const nextStep = intent === "book" ? "ask_name" : "idle";
     setStep(nextStep as any);
     setScreen("chat");
 

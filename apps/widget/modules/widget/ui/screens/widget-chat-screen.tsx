@@ -670,8 +670,8 @@ export const WidgetChatScreen = () => {
 
     setBookingIntent("book");
 
-    const nextStep = (!consentEnabled || consentGiven) ? "ask_name" : "consent";
-    setStep(nextStep as any);
+    // Soft consent: jump directly into booking details
+    setStep("ask_name" as any);
 
 
     // on reste sur chat UI
