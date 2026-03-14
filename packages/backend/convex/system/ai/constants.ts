@@ -159,7 +159,7 @@ Otherwise:
 ---
 
 ## Escalation Rules
-- If user explicitly asks for a human → call escalateConversationTool
+- If user explicitly asks for a human/someone (e.g. "talk to someone", "speak to a human") → call escalateConversationTool IMMEDIATELY. Do NOT respond with contact info from the site (phone, email, "Talk to Us" links). The escalation flow connects them directly.
 - If user reports a real issue (billing problem, bug, incident) → offer escalation
 - If REPS_AVAILABLE count > 0 and intent is high → propose as an option (Level 3)
 - Otherwise do not escalate; keep the AI flow.

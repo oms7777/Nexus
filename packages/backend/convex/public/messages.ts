@@ -55,6 +55,8 @@ function wantsHuman(text: string) {
   return (
     t.includes("talk to a human") ||
     t.includes("talk to human") ||
+    t.includes("talk to someone") ||
+    t.includes("speak to someone") ||
     t.includes("speak to a human") ||
     t.includes("speak to human") ||
     t.includes("human agent") ||
@@ -64,7 +66,10 @@ function wantsHuman(text: string) {
     t.includes("operator") ||
     t.includes("connect me") ||
     t.includes("can i talk to") ||
-    t.includes("can i speak to")
+    t.includes("can i speak to") ||
+    t.includes("i'd like to talk") ||
+    t.includes("i would like to talk") ||
+    t.includes("i want to talk")
   );
 }
 
@@ -224,7 +229,7 @@ export const create = action({
         threadId: args.threadId,
         message: {
           role: "assistant",
-          content: "Got it — connecting you with a human teammate now.",
+          content: "Got it! Connecting you with a human teammate now.",
         },
       });
 

@@ -504,6 +504,7 @@ export const WidgetChatScreen = () => {
 
   const fallbackTimerRef = useRef<any>(null);
   const fallbackShownRef = useRef(false);
+  const [fallbackShown, setFallbackShown] = useState(false);
 
   // refs pour garder l'état "live" pour le timer (évite d'afficher le fallback si l'humain répond entre-temps)
   const conversationStatusRef = useRef<string | null>(null);
@@ -534,14 +535,16 @@ export const WidgetChatScreen = () => {
     // reset if no conversation
     if (!conversationId) {
       fallbackShownRef.current = false;
+      setFallbackShown(false);
       bookingProposedLoggedRef.current = false; 
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       return;
     }
-    const isEscalated = conversation?.status === "escalated"; // adapte si autre valeur
+    const isEscalated = conversation?.status === "escalated";
     if (!isEscalated) {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackShownRef.current = false;
+      setFallbackShown(false);
       bookingProposedLoggedRef.current = false; 
       return;
     }
@@ -553,6 +556,7 @@ export const WidgetChatScreen = () => {
     if (isResolved || humanAlreadyReplied || step !== "idle") {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackShownRef.current = false;
+      setFallbackShown(false);
       return;
     }
 
@@ -576,8 +580,9 @@ export const WidgetChatScreen = () => {
       }
 
       fallbackShownRef.current = true;
+      setFallbackShown(true);
 
-      // ✅ NEW: log booking_proposed once
+      // ✅ log booking_proposed once
       if (!bookingProposedLoggedRef.current && organizationId && conversationId) {
         bookingProposedLoggedRef.current = true;
 
@@ -983,7 +988,7 @@ export const WidgetChatScreen = () => {
           ...m,
           {
             role: "assistant",
-            text: "Got it — connecting you with a human teammate now.",
+            text: "Got it! Connecting you with a human teammate now.",
           },
         ]);
       }
@@ -1241,7 +1246,7 @@ export const WidgetChatScreen = () => {
             {conversationId &&
               conversation?.status === "escalated" &&
               hasRepStarted !== true &&
-              fallbackShownRef.current &&
+              fallbackShown &&
               step === "idle" && (
                 <div className="p-3">
                   <Button
