@@ -700,6 +700,7 @@ export const WidgetChatScreen = () => {
 
   const firstMessageSentRef = useRef(false);
   const isSendingRef = useRef(false);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   // ✅ NEW: book handler identique à SmartPromo.ensureAndStart("book")
   const startBookingLikePromo = async () => {
@@ -978,19 +979,12 @@ export const WidgetChatScreen = () => {
         return;
       }
 
-      // human handoff intent via free text
+      // human handoff: on laisse le backend répondre "Got it..." (évite doublon)
       if (
         step === "idle" &&
         /\b(human|someone|teammate|agent|person|representative|advisor)\b/i.test(text)
       ) {
-        setSoftEscalationActive(false); // masque le bloc si le visiteur tape au lieu de cliquer
-        setLocalMsgs((m) => [
-          ...m,
-          {
-            role: "assistant",
-            text: "Got it! Connecting you with a human teammate now.",
-          },
-        ]);
+        setSoftEscalationActive(false);
       }
 
       if (!contactSessionId || !organizationId) return;
@@ -1076,6 +1070,7 @@ export const WidgetChatScreen = () => {
       }
     } finally {
       isSendingRef.current = false;
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
 
@@ -1628,6 +1623,8 @@ export const WidgetChatScreen = () => {
               name="message"
               render={({ field }) => (
                 <AIInputTextarea
+                  ref={inputRef}
+                  autoFocus
                   minHeight={36}
                   maxHeight={96}
                   className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-0 py-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"

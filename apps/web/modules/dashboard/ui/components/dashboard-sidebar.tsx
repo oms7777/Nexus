@@ -87,10 +87,8 @@ export const DashboardSidebar = () => {
   const canUseBooking = !!f.canUseBooking;
   const canUseAdvancedAnalytics = !!f.canUseAdvancedAnalytics;
 
-  // ✅ count escalated conversations for THIS rep (badge + sound)
-  const escalatedCount = useQuery(api.private.conversations.countMineByStatus, {
-    status: "escalated",
-  });
+  // ✅ count unseen escalated conversations (badge + sound) — disparaît quand l'opérateur ouvre la conv
+  const escalatedCount = useQuery(api.private.conversations.countUnseenEscalated, {});
 
   // ✅ notification prefs: badge + sound respect user settings
   const notifPrefs = useQuery(api.private.notifications.meNotificationPrefs, {});

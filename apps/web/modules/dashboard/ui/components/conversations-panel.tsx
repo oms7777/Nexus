@@ -31,10 +31,8 @@ export const ConversationsPanel = () => {
     const conversations = usePaginatedQuery(
         api.private.conversations.getMany,
         {
-            status:
-                statusFilter === "all"
-                    ? undefined
-                    : statusFilter
+            status: statusFilter === "all" || statusFilter === "active" ? undefined : statusFilter,
+            statusIn: statusFilter === "active" ? ["unresolved", "escalated"] : undefined,
         },
         {
             initialNumItems: 10,
@@ -58,9 +56,9 @@ export const ConversationsPanel = () => {
         <div className="flex h-full w-full flex-col bg-background text-sidebar-foreground">
             <div className="flex flex-col gap-3.5 border-b p-2">
                 <Select
-                    defaultValue="all"
+                    defaultValue="active"
                     onValueChange={(value) => setStatusFilter(
-                        value as "unresolved" | "escalated" | "resolved" | "all"
+                        value as "unresolved" | "escalated" | "resolved" | "all" | "active"
                     )}
                     value={statusFilter}
                 >
@@ -70,6 +68,12 @@ export const ConversationsPanel = () => {
                         <SelectValue placeholder="Filter"/>
                     </SelectTrigger>
                     <SelectContent>
+                        <SelectItem value="active">
+                            <div className="flex items-center gap-2">
+                                <ListIcon className="size-4"/>
+                                <span>Active</span>
+                            </div>
+                        </SelectItem>
                         <SelectItem value="all">
                             <div className="flex items-center gap-2">
                                 <ListIcon className="size-4"/>

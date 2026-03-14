@@ -5,7 +5,7 @@ import { api } from "@workspace/backend/_generated/api";
 import { Id } from "@workspace/backend/_generated/dataModel";
 import { Button } from "@workspace/ui/components/button";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { MoreHorizontalIcon, Wand2Icon } from "lucide-react";
+import { MoreHorizontalIcon, Trash2Icon, Wand2Icon } from "lucide-react";
 import {
     AIConversation,
     AIConversationContent,
@@ -30,12 +30,19 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
 import { ConversationStatusButton } from "../components/conversation-status-button";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useInfiniteScroll } from "@workspace/ui/hooks/use-infinite-scroll";
 import { InfiniteScrollTrigger } from "@workspace/ui/components/infinite-scroll-trigger";
 import { cn } from "@workspace/ui/lib/utils";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
+import { useRouter } from "next/navigation";
 
 const formSchema = z.object({
     message: z.string().min(1, "Message is required"),
@@ -49,6 +56,15 @@ export const ConversationIdView = ({
     const conversation = useQuery(api.private.conversations.getOne, {
         conversationId,
     })
+    const markViewed = useMutation(api.private.conversations.markViewed);
+    const removeConversation = useMutation(api.private.conversations.remove);
+    const router = useRouter();
+
+    useEffect(() => {
+        if (conversation?.status === "escalated") {
+            markViewed({ conversationId });
+        }
+    }, [conversation?.status, conversationId, markViewed]);
 
     const messages = useThreadMessages(
         api.private.messages.getMany,
@@ -92,6 +108,7 @@ export const ConversationIdView = ({
         }
     }
 
+    const inputRef = useRef<HTMLTextAreaElement | null>(null);
     const createMessage = useMutation(api.private.messages.create);
     const onSubmit = async (values: z.infer<typeof formSchema>) => {
         try {
@@ -101,6 +118,7 @@ export const ConversationIdView = ({
             });
 
             form.reset();
+            requestAnimationFrame(() => inputRef.current?.focus());
         } catch (error) {
             console.error(error)
         }
@@ -146,13 +164,31 @@ export const ConversationIdView = ({
     return (
         <div className="flex h-full flex-col bg-muted">
             <header className="flex items-center justify-between border-b bg-background p-2.5">
-                <Button
-                    size="sm"
-                    variant="ghost"
-                
-                >
-                    <MoreHorizontalIcon />
-                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="ghost">
+                            <MoreHorizontalIcon />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                        <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={async () => {
+                                try {
+                                    await removeConversation({ conversationId });
+                                    toast.success("Conversation deleted");
+                                    router.push("/conversations");
+                                } catch (e) {
+                                    toast.error("Failed to delete");
+                                    console.error(e);
+                                }
+                            }}
+                        >
+                            <Trash2Icon className="size-4 mr-2" />
+                            Delete conversation
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
                 {!!conversation && (
                     <ConversationStatusButton 
                         onClick={handleToggleStatus}
@@ -199,6 +235,8 @@ export const ConversationIdView = ({
                     name="message"
                     render={({ field }) => (
                     <AIInputTextarea
+                        ref={inputRef}
+                        autoFocus
                         disabled={
                         conversation?.status === "resolved" ||
                         form.formState.isSubmitting ||

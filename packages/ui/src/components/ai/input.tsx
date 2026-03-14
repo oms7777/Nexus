@@ -6,7 +6,7 @@ import type {
   HTMLAttributes,
   KeyboardEventHandler,
 } from "react";
-import { Children, useCallback, useEffect, useRef } from "react";
+import { Children, useCallback, useEffect, useImperativeHandle, useRef, forwardRef } from "react";
 import { Button } from "@workspace/ui/components/button";
 import {
   Select,
@@ -90,18 +90,36 @@ export type AIInputTextareaProps = ComponentProps<typeof Textarea> & {
   maxHeight?: number;
 };
 
-export const AIInputTextarea = ({
-  onChange,
-  className,
-  placeholder = "What would you like to know?",
-  minHeight = 48,
-  maxHeight = 164,
-  ...props
-}: AIInputTextareaProps) => {
+export const AIInputTextarea = forwardRef<HTMLTextAreaElement | null, AIInputTextareaProps>(function AIInputTextarea(
+  {
+    onChange,
+    className,
+    placeholder = "What would you like to know?",
+    minHeight = 48,
+    maxHeight = 164,
+    ...props
+  },
+  forwardedRef
+) {
   const { textareaRef, adjustHeight } = useAutoResizeTextarea({
     minHeight,
     maxHeight,
   });
+
+  useImperativeHandle<HTMLTextAreaElement | null, HTMLTextAreaElement | null>(
+    forwardedRef,
+    () => textareaRef.current,
+    []
+  );
+
+  const setRefs = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      (textareaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el;
+      if (typeof forwardedRef === "function") forwardedRef(el);
+      else if (forwardedRef) (forwardedRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el;
+    },
+    [forwardedRef]
+  );
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -129,11 +147,11 @@ export const AIInputTextarea = ({
       }}
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
-      ref={textareaRef}
+      ref={setRefs}
       {...props}
     />
   );
-};
+});
 
 export type AIInputToolbarProps = HTMLAttributes<HTMLDivElement>;
 

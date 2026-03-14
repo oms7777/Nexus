@@ -75,10 +75,13 @@ export const getOne = query({
   },
 });
 
+const statusValidator = v.union(v.literal("unresolved"), v.literal("escalated"), v.literal("resolved"));
+
 export const getMany = query({
   args: {
     paginationOpts: paginationOptsValidator,
-    status: v.optional(v.union(v.literal("unresolved"), v.literal("escalated"), v.literal("resolved"))),
+    status: v.optional(statusValidator),
+    statusIn: v.optional(v.array(statusValidator)),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -94,7 +97,7 @@ export const getMany = query({
     let conversations: PaginationResult<Doc<"conversations">>;
 
     // ✅ REP STRICT: always filter by assignedRepUserId
-    if (args.status) {
+    if (args.status && !args.statusIn) {
       // No perfect compound index (status + org + rep) in schema, so:
       // - paginate by status+org
       // - then filter in memory
@@ -110,12 +113,15 @@ export const getMany = query({
       const filtered = base.page.filter((c) => (c.assignedRepUserId ?? null) === meUserId);
       conversations = { ...base, page: filtered };
     } else {
-      // We DO have an index by_org_assigned_rep
       conversations = await ctx.db
         .query("conversations")
         .withIndex("by_org_assigned_rep", (q) => q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId))
         .order("desc")
         .paginate(args.paginationOpts);
+      if (args.statusIn?.length) {
+        const allowed = new Set(args.statusIn);
+        conversations = { ...conversations, page: conversations.page.filter((c) => allowed.has(c.status)) };
+      }
     }
 
     const conversationsWithAdditionalData = await Promise.all(
@@ -173,5 +179,69 @@ export const countMineByStatus = query({
       .collect();
 
     return base.filter((c) => c.status === args.status).length;
+  },
+});
+
+export const countUnseenEscalated = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+
+    const orgId = (identity as any).orgId as string | undefined;
+    const meUserId = (identity as any).subject as string | undefined;
+    if (!orgId || !meUserId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    const base = await ctx.db
+      .query("conversations")
+      .withIndex("by_org_assigned_rep", (q) => q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId))
+      .collect();
+
+    return base.filter(
+      (c) =>
+        c.status === "escalated" &&
+        (c.lastViewedByRepUserId !== meUserId || c.lastViewedByRepAt == null)
+    ).length;
+  },
+});
+
+export const remove = mutation({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+
+    const orgId = (identity as any).orgId as string | undefined;
+    const meUserId = (identity as any).subject as string | undefined;
+    if (!orgId || !meUserId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    const conv = await ctx.db.get(args.conversationId);
+    if (!conv) return;
+    if (conv.organizationId !== orgId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid org" });
+    if ((conv.assignedRepUserId ?? null) !== meUserId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Not your conversation" });
+
+    await ctx.db.delete(args.conversationId);
+  },
+});
+
+export const markViewed = mutation({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+
+    const orgId = (identity as any).orgId as string | undefined;
+    const meUserId = (identity as any).subject as string | undefined;
+    if (!orgId || !meUserId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    const conv = await ctx.db.get(args.conversationId);
+    if (!conv) return;
+    if (conv.organizationId !== orgId) return;
+    if ((conv.assignedRepUserId ?? null) !== meUserId) return;
+
+    await ctx.db.patch(args.conversationId, {
+      lastViewedByRepUserId: meUserId,
+      lastViewedByRepAt: Date.now(),
+    });
   },
 });

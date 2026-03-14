@@ -163,6 +163,8 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
     // ✅ rep “owner” de la conversation
     assignedRepUserId: v.optional(v.string()),
+    lastViewedByRepUserId: v.optional(v.string()),
+    lastViewedByRepAt: v.optional(v.number()),
     // ✅ DEBUG / analytics
     assignedTerritoryKey: v.optional(v.string()),
   })
