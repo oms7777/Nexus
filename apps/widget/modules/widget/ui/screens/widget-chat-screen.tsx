@@ -1146,7 +1146,20 @@ export const WidgetChatScreen = () => {
     ? backendMsgs.filter((m) => m.text.trim() !== greet)
     : backendMsgs;
 
-  const baseMsgs = [...filteredBackend, ...localMsgs];
+  let baseMsgs = [...filteredBackend, ...localMsgs];
+
+  // Réordonner: "If you'd like..." doit apparaître AVANT "Got it!" (suggestion → handoff)
+  const gotItText = "Got it! Connecting you with a human teammate now.";
+  const ifYoulikeText = "If you'd like to go deeper, I can connect you with a human teammate";
+  const gotItIdx = baseMsgs.findIndex((m) => (m.text ?? "").includes(gotItText));
+  const ifYoulikeIdx = baseMsgs.findIndex((m) => (m.text ?? "").includes(ifYoulikeText));
+  if (gotItIdx !== -1 && ifYoulikeIdx !== -1 && ifYoulikeIdx > gotItIdx) {
+    const ifYoulike = baseMsgs[ifYoulikeIdx]!;
+    baseMsgs = baseMsgs.filter((_, i) => i !== ifYoulikeIdx);
+    const newGotItIdx = baseMsgs.findIndex((m) => (m.text ?? "").includes(gotItText));
+    const insertAt = Math.max(0, newGotItIdx - 2);
+    baseMsgs = [...baseMsgs.slice(0, insertAt), ifYoulike, ...baseMsgs.slice(insertAt)];
+  }
 
   let uiMsgs = baseMsgs;
 
