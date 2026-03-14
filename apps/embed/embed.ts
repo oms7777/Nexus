@@ -362,6 +362,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       }
 
       case "nexus:widget-ready": {
+        sendParentLocation();
         if (pendingCta) {
           if (pendingCta.type === "run-cta" && typeof pendingCta.index === "number") {
             postToWidget({ type: "nexus:run-cta", index: pendingCta.index });
