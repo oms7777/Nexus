@@ -1070,7 +1070,7 @@ export const WidgetChatScreen = () => {
       }
     } finally {
       isSendingRef.current = false;
-      requestAnimationFrame(() => inputRef.current?.focus());
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   };
 
@@ -1131,6 +1131,7 @@ export const WidgetChatScreen = () => {
     }
   }, [backendMsgs, conversation?.status, step, organizationId, conversationId, widgetSettings]);
 
+  const prevPendingRef = useRef(isPendingAssistant);
   useEffect(() => {
     if (!isPendingAssistant) return;
     if (backendAssistantCount > assistantCountAtSendRef.current) {
@@ -1139,6 +1140,13 @@ export const WidgetChatScreen = () => {
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
     }
   }, [backendAssistantCount, isPendingAssistant]);
+
+  useEffect(() => {
+    if (prevPendingRef.current && !isPendingAssistant) {
+      setTimeout(() => inputRef.current?.focus(), 80);
+    }
+    prevPendingRef.current = isPendingAssistant;
+  }, [isPendingAssistant]);
 
   const greet = widgetSettings?.greetMessage?.trim();
 
@@ -1157,7 +1165,7 @@ export const WidgetChatScreen = () => {
     const ifYoulike = baseMsgs[ifYoulikeIdx]!;
     baseMsgs = baseMsgs.filter((_, i) => i !== ifYoulikeIdx);
     const newGotItIdx = baseMsgs.findIndex((m) => (m.text ?? "").includes(gotItText));
-    const insertAt = Math.max(0, newGotItIdx - 2);
+    const insertAt = Math.max(0, newGotItIdx - 1);
     baseMsgs = [...baseMsgs.slice(0, insertAt), ifYoulike, ...baseMsgs.slice(insertAt)];
   }
 
@@ -1641,12 +1649,7 @@ export const WidgetChatScreen = () => {
                   minHeight={36}
                   maxHeight={96}
                   className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-0 py-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                  disabled={
-                    isPendingAssistant ||
-                    step === "ask_name" ||
-                    step === "pick_rep" ||
-                    step === "picking"
-                  }
+                  disabled={isPendingAssistant}
                   onChange={field.onChange}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -1655,15 +1658,7 @@ export const WidgetChatScreen = () => {
                       form.handleSubmit(onSubmit)();
                     }
                   }}
-                  placeholder={
-                    step === "ask_name"
-                      ? "Fill the form above to continue…"
-                      : step === "pick_rep"
-                      ? "Choose who you want to meet…"
-                      : step === "picking"
-                      ? "Pick a time above…"
-                      : "Type your message..."
-                  }
+                  placeholder="Type your message..."
                   value={field.value}
                 />
               )}
@@ -1674,13 +1669,7 @@ export const WidgetChatScreen = () => {
                 backgroundColor: "var(--nexus-send-bg)",
                 color: "var(--nexus-send-fg)",
               }}
-              disabled={
-                isPendingAssistant ||
-                !form.formState.isValid ||
-                step === "ask_name" ||
-                step === "pick_rep" ||
-                step === "picking"
-              }
+              disabled={isPendingAssistant || !form.formState.isValid}
               status="ready"
               type="button"
               onClick={form.handleSubmit(onSubmit)}

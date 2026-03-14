@@ -1,10 +1,17 @@
 // apps/web/app/layout.tsx
 import { ClerkProvider } from "@clerk/nextjs";
 import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata } from "next";
 
 import "@workspace/ui/globals.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
+
+export const metadata: Metadata = {
+  title: "Inboundless - Dashboard",
+  description: "Turn website traffic into pipeline",
+  icons: { icon: "/logoo.jpg" },
+};
 
 const fontSans = Geist({
   subsets: ["latin"],
