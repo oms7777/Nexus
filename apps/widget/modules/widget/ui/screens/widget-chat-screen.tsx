@@ -973,11 +973,12 @@ export const WidgetChatScreen = () => {
         return;
       }
 
-      // human handoff intent via free text => suggérer booking en plus
+      // human handoff intent via free text
       if (
         step === "idle" &&
         /\b(human|someone|teammate|agent|person|representative|advisor)\b/i.test(text)
       ) {
+        setSoftEscalationActive(false); // masque le bloc si le visiteur tape au lieu de cliquer
         setLocalMsgs((m) => [
           ...m,
           {
@@ -985,7 +986,6 @@ export const WidgetChatScreen = () => {
             text: "Got it — connecting you with a human teammate now.",
           },
         ]);
-        // ne pas return: on laisse le backend gérer l'escalade normalement
       }
 
       if (!contactSessionId || !organizationId) return;
@@ -1098,18 +1098,26 @@ export const WidgetChatScreen = () => {
     backendAssistantCountRef.current = backendAssistantCount;
   }, [backendAssistantCount]);
 
-  // après que l'IA ait déjà répondu au moins une fois, proposer doucement l'escalade / booking
+  // après X réponses IA (hors greet), proposer "Talk to someone" / "Continue to chat"
   useEffect(() => {
     if (softEscalationSuggestedRef.current) return;
     if (!organizationId || !conversationId) return;
+    if (!widgetSettings) return; // attendre le chargement des settings (évite trigger trop tôt avec défaut 3)
 
     const statusNow = conversation?.status;
     if (statusNow === "escalated" || statusNow === "resolved") return;
     if (step !== "idle") return;
 
+    const greet = (widgetSettings as any)?.greetMessage?.trim();
+    const realAssistantCount = backendMsgs.filter(
+      (m) =>
+        m.role === "assistant" &&
+        (!greet || (m.text ?? "").trim() !== greet)
+    ).length;
+
     const triggerCount =
       (widgetSettings as any)?.escalationSuggestionAfterMessages ?? 3;
-    if (triggerCount > 0 && backendAssistantCount >= triggerCount) {
+    if (triggerCount > 0 && realAssistantCount >= triggerCount) {
       softEscalationSuggestedRef.current = true;
       setSoftEscalationActive(true);
       setLocalMsgs((m) => [
@@ -1121,7 +1129,7 @@ export const WidgetChatScreen = () => {
         },
       ]);
     }
-  }, [backendAssistantCount, conversation?.status, step, organizationId, conversationId, widgetSettings]);
+  }, [backendMsgs, conversation?.status, step, organizationId, conversationId, widgetSettings]);
 
   useEffect(() => {
     if (!isPendingAssistant) return;
