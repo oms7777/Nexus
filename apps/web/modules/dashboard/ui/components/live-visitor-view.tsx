@@ -113,12 +113,15 @@ export function LiveVisitorView({
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    const scale = vw / src.width;
+    // Cover: remplir tout le cadre sans bandes grises (scale = max pour couvrir hauteur et largeur)
+    const scaleW = vw / src.width;
+    const scaleH = vh / src.height;
+    const scale = Math.max(scaleW, scaleH);
 
     const contentW = src.width * scale;
     const contentH = src.height * scale;
-    const ox = 0;
-    const oy = Math.max(0, (vh - contentH) / 2);
+    const ox = (vw - contentW) / 2;
+    const oy = (vh - contentH) / 2;
 
     const s = Math.round(scale * 10000) / 10000;
     const x = Math.round(ox * 10) / 10;
