@@ -23,7 +23,7 @@ export const WidgetErrorScreen = () => {
             <div className="flex flex-1 flex-col items-center justify-center gap-y-4 p-4 text-muted-foreground">
                 <AlertTriangleIcon />
                 <p className="text-sm">
-                    {errorMessage || "Invalid configuration"}
+                    {errorMessage || "Something went wrong. Please refresh the page."}
                 </p>
             </div>
         </>

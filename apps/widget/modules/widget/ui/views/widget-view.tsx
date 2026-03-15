@@ -23,6 +23,18 @@ import { WidgetThemeVars } from "../components/WidgetThemeVars";
 function Boundary({ children }: PropsWithChildren) {
   return <ErrorBoundary fallback={null}>{children}</ErrorBoundary>;
 }
+
+const RefreshFallback = () => (
+  <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground">
+    <p>Something went wrong.</p>
+    <p>
+      <a href={typeof window !== "undefined" ? window.location.href : "#"} className="underline">
+        Refresh the page
+      </a>
+    </p>
+  </div>
+);
+
 class ErrorBoundary extends React.Component<
   PropsWithChildren<{ fallback?: React.ReactNode }>,
   { hasError: boolean }
@@ -35,7 +47,7 @@ class ErrorBoundary extends React.Component<
     return { hasError: true };
   }
   componentDidCatch(err: unknown) {
-    console.error("SmartPromo crashed:", err);
+    console.error("Widget error:", err);
   }
   render() {
     return this.state.hasError ? (this.props.fallback ?? null) : this.props.children;
@@ -62,20 +74,22 @@ export const WidgetView = ({ organizationId }: Props) => {
   const showPromo = true;
 
   return (
-    <main className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-muted">
-      {/* ✅ Injecte les couleurs dès que widgetSettings est chargé */}
-      <WidgetThemeVars />
+    <ErrorBoundary fallback={<RefreshFallback />}>
+      <main className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-muted">
+        {/* ✅ Injecte les couleurs dès que widgetSettings est chargé */}
+        <WidgetThemeVars />
 
-      {screens[screen]}
+        {screens[screen]}
 
-      {showPromo && (
-        <Boundary>
-          <SmartPromo />
-        </Boundary>
-      )}
+        {showPromo && (
+          <Boundary>
+            <SmartPromo />
+          </Boundary>
+        )}
 
-      <QualifyModal />
-      <InlineBooker />
-    </main>
+        <QualifyModal />
+        <InlineBooker />
+      </main>
+    </ErrorBoundary>
   );
 };

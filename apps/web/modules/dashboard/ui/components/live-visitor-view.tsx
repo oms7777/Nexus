@@ -329,9 +329,18 @@ export function LiveVisitorView({
     };
   }
 
+  const hasSnapshot = !!latest?.snapshot;
+
   return (
     <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height: 520 }}>
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
+
+      {!hasSnapshot && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground bg-muted/30">
+          <p>No recording yet for this visitor.</p>
+          <p className="text-xs">Recording starts when they browse with the widget. Ask them to refresh the page if the widget is already open.</p>
+        </div>
+      )}
 
       {cursorPx && (
         <div
