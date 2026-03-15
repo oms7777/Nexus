@@ -255,16 +255,7 @@ function RepPicker({
         {reps.map((rep) => {
           const primary = rep.name || rep.title || "Your expert";
 
-          const subtitleParts: string[] = [];
-
-          if (rep.title && rep.title !== primary) {
-            subtitleParts.push(rep.title);
-          }
-          if (rep.regions?.length) {
-            subtitleParts.push(rep.regions.join(", "));
-          }
-
-          const subtitle = subtitleParts.join(" • ") || "Sales team";
+          const subtitle = rep.title && rep.title !== primary ? rep.title : "Sales team";
 
           return (
             <button
@@ -339,7 +330,7 @@ function BookingSplitLayout({
         </div>
         <h3 className="text-base font-semibold text-foreground">{rep.name || "Your expert"}</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          {[rep.title, rep.regions?.join(", ")].filter(Boolean).join(" • ") || "Sales team"}
+          {rep.title || "Sales team"}
         </p>
         <p className="mt-3 text-[11px] text-muted-foreground">
           Your timezone: {new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).format(new Date())}
@@ -1165,7 +1156,7 @@ export const WidgetChatScreen = () => {
     const ifYoulike = baseMsgs[ifYoulikeIdx]!;
     baseMsgs = baseMsgs.filter((_, i) => i !== ifYoulikeIdx);
     const newGotItIdx = baseMsgs.findIndex((m) => (m.text ?? "").includes(gotItText));
-    const insertAt = Math.max(0, newGotItIdx - 1);
+    const insertAt = Math.max(0, newGotItIdx - 2);
     baseMsgs = [...baseMsgs.slice(0, insertAt), ifYoulike, ...baseMsgs.slice(insertAt)];
   }
 
@@ -1588,17 +1579,10 @@ export const WidgetChatScreen = () => {
                       {selectedRep.name || "our team"}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {[
-                        selectedRep.title &&
-                        selectedRep.title !== (selectedRep.name || "our team")
-                          ? selectedRep.title
-                          : null,
-                        selectedRep.regions?.length
-                          ? selectedRep.regions.join(", ")
-                          : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" • ") || "Sales team"}
+                      {selectedRep.title &&
+                      selectedRep.title !== (selectedRep.name || "our team")
+                        ? selectedRep.title
+                        : "Sales team"}
                     </span>
                   </div>
                 </div>

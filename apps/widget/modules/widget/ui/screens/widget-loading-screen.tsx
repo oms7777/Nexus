@@ -132,6 +132,9 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
           notifyParentSessionReady({ organizationId, sessionId: contactSessionId });
           setStep("settings");
         } else {
+          // Session expirée ou invalide : on nettoie le storage pour que un simple refresh suffise
+          setContactSessionId(null);
+          setConversationId(null);
           if (regeneratedOnceRef.current) {
             setErrorMessage(res.reason || "Session invalid");
             setScreen("error");
@@ -142,6 +145,8 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
         }
       })
       .catch(() => {
+        setContactSessionId(null);
+        setConversationId(null);
         if (regeneratedOnceRef.current) {
           setErrorMessage("Session invalid");
           setScreen("error");

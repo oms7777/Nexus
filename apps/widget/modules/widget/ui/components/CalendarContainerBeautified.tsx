@@ -110,9 +110,10 @@ export default function CalendarContainerBeautified({
   );
 }
 
-/* ---------------- HELPERS ---------------- */
+/* ---------------- HELPERS (English for visitor-facing calendar) ---------------- */
+const EN_LOCALE = "en-GB";
 function formatDay(ts: number): string {
-  return new Date(ts).toLocaleDateString(undefined, {
+  return new Date(ts).toLocaleDateString(EN_LOCALE, {
     weekday: "short",
     day: "numeric",
     month: "short",

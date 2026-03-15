@@ -378,7 +378,7 @@ export const IntegrationsView = () => {
               <p className="text-sm text-muted-foreground">Add the following code to your website to enable the chatbox.</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {INTEGRATIONS.map((integration) => (
                 <button
                   key={integration.id}
@@ -422,7 +422,7 @@ export const IntegrationsDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Integrate with your website</DialogTitle>
-          <DialogDescription>Follow these steps to add the chatbox to your website.</DialogDescription>
+          <DialogDescription>Same script for any site (HTML, React, Next.js, etc.). Paste it in your page&apos;s &lt;head&gt; or in index.html / root layout.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
