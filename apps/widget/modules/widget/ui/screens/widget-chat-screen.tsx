@@ -1147,17 +1147,17 @@ export const WidgetChatScreen = () => {
 
   let baseMsgs = [...filteredBackend, ...localMsgs];
 
-  // Réordonner: "If you'd like..." doit apparaître AVANT "Got it!" (suggestion → handoff)
-  const isGotIt = (t: string) => t.includes("Got it") && t.includes("human teammate now");
-  const isIfYoulike = (t: string) => t.includes("If you'd like to go deeper") && t.includes("human teammate");
+  // Réordonner: "If you'd like..." doit TOUJOURS apparaître avant "Got it!" (suggestion puis handoff)
+  const isGotIt = (t: string) => /Got it/i.test(t) && /connecting you with a human/i.test(t);
+  const isIfYoulike = (t: string) => /If you'd like to go deeper/i.test(t) && /human teammate/i.test(t);
   const gotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
   const ifYoulikeIdx = baseMsgs.findIndex((m) => isIfYoulike(m.text ?? ""));
-  if (gotItIdx !== -1 && ifYoulikeIdx !== -1 && gotItIdx < ifYoulikeIdx) {
+  if (gotItIdx !== -1 && ifYoulikeIdx !== -1) {
     const ifYoulike = baseMsgs[ifYoulikeIdx]!;
-    baseMsgs = baseMsgs.filter((_, i) => i !== ifYoulikeIdx);
-    const newGotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
-    const insertAt = Math.max(0, newGotItIdx);
-    baseMsgs = [...baseMsgs.slice(0, insertAt), ifYoulike, ...baseMsgs.slice(insertAt)];
+    const gotIt = baseMsgs[gotItIdx]!;
+    const others = baseMsgs.filter((_, i) => i !== gotItIdx && i !== ifYoulikeIdx);
+    const insertPos = Math.min(gotItIdx, ifYoulikeIdx);
+    baseMsgs = [...others.slice(0, insertPos), ifYoulike, gotIt, ...others.slice(insertPos)];
   }
 
   let uiMsgs = baseMsgs;
@@ -1223,7 +1223,7 @@ export const WidgetChatScreen = () => {
         <AIConversation className="h-full flex flex-col">
           <AIConversationContent
             className={cn(
-              "flex-1 min-h-0 overflow-y-auto",
+              "flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden",
               isFullWidth && "pt-12 px-3"
             )}
           >
@@ -1474,6 +1474,7 @@ export const WidgetChatScreen = () => {
 
             {/* NEW picking flow : Sidebar rep + Calendar à droite */}
             {step === "picking" && selectedRep && (
+              <div className="min-w-0 max-w-full overflow-hidden">
               <BookingSplitLayout
                 rep={selectedRep}
                 slots={slots}
@@ -1550,6 +1551,7 @@ export const WidgetChatScreen = () => {
                 }}
 
               />
+              </div>
             )}
 
 
@@ -1683,16 +1685,6 @@ export const WidgetChatScreen = () => {
           ) : null}
           .
         </p>
-      )}
-    </div>
-  );
-}
-
-      )}
-    </div>
-  );
-}
-     </p>
       )}
     </div>
   );

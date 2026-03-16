@@ -68,7 +68,8 @@ export default function CalendarContainerBeautified({
       <div className="flex min-w-0 gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
         {days.map((day, idx) => {
           const active = idx === safeIndex;
-          const dayShort = formatDayShort(day);
+          const firstSlot = grouped[day]?.[0];
+          const label = firstSlot ? formatWeekdayAndDay(firstSlot.start) : formatDayShort(day);
           return (
             <button
               key={day}
@@ -84,8 +85,8 @@ export default function CalendarContainerBeautified({
                   : { borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)" }
               }
             >
-              <span className="uppercase tracking-wide opacity-90">{dayShort.weekday}</span>
-              <span className="font-semibold">{dayShort.day}</span>
+              <span className="uppercase tracking-wide opacity-90">{label.weekday}</span>
+              <span className="font-semibold">{label.day}</span>
             </button>
           );
         })}
@@ -127,7 +128,15 @@ function formatDay(ts: number): string {
   });
 }
 
-/** Jour affiché sur le bouton : "MON" + "16" (pas de "Mar" sur chaque bouton). */
+/** À partir du timestamp : uniquement jour de la semaine + numéro du jour (jamais le mois). */
+function formatWeekdayAndDay(ts: number): { weekday: string; day: string } {
+  const d = new Date(ts);
+  const weekday = d.toLocaleDateString(EN_LOCALE, { weekday: "short" }).replace(/,/g, "").trim().slice(0, 3).toUpperCase();
+  const day = d.toLocaleDateString(EN_LOCALE, { day: "numeric" });
+  return { weekday, day };
+}
+
+/** Fallback si pas de slot (ne doit pas afficher le mois). */
 function formatDayShort(dayKey: string): { weekday: string; day: string } {
   const parts = dayKey.replace(/,/g, "").trim().split(/\s+/);
   const weekday = (parts[0] ?? "").toUpperCase().slice(0, 3);
