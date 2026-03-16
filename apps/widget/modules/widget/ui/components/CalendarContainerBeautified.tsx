@@ -44,11 +44,11 @@ export default function CalendarContainerBeautified({
     grouped[d].push(s);
   });
 
-  const days = Object.keys(grouped);
+  const days: string[] = Object.keys(grouped);
   const safeIndex = Math.min(activeIndex, days.length - 1);
   const currentDay: string = days[safeIndex] ?? "";
   const currentSlots: Slot[] = grouped[currentDay] ?? [];
-  const monthLabel = days.length > 0 ? getMonthLabel(days[0], grouped) : "";
+  const monthLabel = days.length > 0 ? getMonthLabel(currentDay, grouped) : "";
 
   return (
     <div className="flex h-full w-full min-w-0 max-w-full flex-col gap-4 overflow-hidden">
