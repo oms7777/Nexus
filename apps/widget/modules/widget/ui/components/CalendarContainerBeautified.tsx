@@ -120,11 +120,19 @@ export default function CalendarContainerBeautified({
 
 /* ---------------- HELPERS (English for visitor-facing calendar) ---------------- */
 const EN_LOCALE = "en-GB";
+
 function formatDay(ts: number): string {
   return new Date(ts).toLocaleDateString(EN_LOCALE, {
     weekday: "short",
     day: "numeric",
     month: "short",
+  });
+}
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
