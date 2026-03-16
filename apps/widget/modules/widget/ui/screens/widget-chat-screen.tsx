@@ -1152,10 +1152,29 @@ export const WidgetChatScreen = () => {
   // 2) "Got it! Connecting..." (handoff)
   // 3) "If no teammate answers..." (fallback booking)
   // Ils doivent toujours apparaître dans cet ordre et AVANT les réponses de l'opérateur.
-  const isGotIt = (t: string) => /Got it/i.test(t) && /connecting you with a human/i.test(t);
-  const isIfYoulike = (t: string) => /If you'd like to go deeper/i.test(t) && /human teammate/i.test(t);
-  const isFallbackBooking = (t: string) =>
-    /If no teammate answers right away/i.test(t) && /Book a meeting/i.test(t);
+  const normalizeText = (t: string) =>
+    t
+      .toLowerCase()
+      .replace(/[’]/g, "'")
+      .trim();
+
+  const isGotIt = (t: string) => {
+    const n = normalizeText(t);
+    return n.includes("got it") && n.includes("connecting you with a human teammate");
+  };
+
+  const isIfYoulike = (t: string) => {
+    const n = normalizeText(t);
+    return n.includes("if you'd like to go deeper") && n.includes("human teammate");
+  };
+
+  const isFallbackBooking = (t: string) => {
+    const n = normalizeText(t);
+    return (
+      n.includes("if no teammate answers right away") &&
+      n.includes("book a meeting")
+    );
+  };
 
   const gotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
   const ifYoulikeIdx = baseMsgs.findIndex((m) => isIfYoulike(m.text ?? ""));
