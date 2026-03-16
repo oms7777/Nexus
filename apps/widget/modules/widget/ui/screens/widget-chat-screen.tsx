@@ -1147,24 +1147,49 @@ export const WidgetChatScreen = () => {
 
   let baseMsgs = [...filteredBackend, ...localMsgs];
 
-  // Réordonner: "If you'd like..." doit apparaître AVANT "Got it!" (suggestion avant handoff)
+  // Réordonner les messages système d'escalade / booking sans toucher aux réponses humaines :
+  // 1) "If you'd like..." (suggestion)
+  // 2) "Got it! Connecting..." (handoff)
+  // 3) "If no teammate answers..." (fallback booking)
+  // Ils doivent toujours apparaître dans cet ordre et AVANT les réponses de l'opérateur.
   const isGotIt = (t: string) => /Got it/i.test(t) && /connecting you with a human/i.test(t);
   const isIfYoulike = (t: string) => /If you'd like to go deeper/i.test(t) && /human teammate/i.test(t);
+  const isFallbackBooking = (t: string) =>
+    /If no teammate answers right away/i.test(t) && /Book a meeting/i.test(t);
+
   const gotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
   const ifYoulikeIdx = baseMsgs.findIndex((m) => isIfYoulike(m.text ?? ""));
-  if (gotItIdx !== -1 && ifYoulikeIdx !== -1) {
-    // On reconstruit juste ces deux messages sans toucher le reste :
-    // à la position min(gotItIdx, ifYoulikeIdx) on met "If you'd like", puis "Got it".
-    const ifYoulike = baseMsgs[ifYoulikeIdx]!;
-    const gotIt = baseMsgs[gotItIdx]!;
-    const others = baseMsgs.filter((_, i) => i !== gotItIdx && i !== ifYoulikeIdx);
-    const insertPos = Math.min(gotItIdx, ifYoulikeIdx);
-    baseMsgs = [
-      ...others.slice(0, insertPos),
-      ifYoulike,
-      gotIt,
-      ...others.slice(insertPos),
-    ];
+  const fallbackIdx = baseMsgs.findIndex((m) => isFallbackBooking(m.text ?? ""));
+
+  const systemIndices = [gotItIdx, ifYoulikeIdx, fallbackIdx].filter((i) => i >= 0);
+  if (systemIndices.length > 0) {
+    const firstIdx = Math.min(...systemIndices);
+
+    // Construire le cluster dans l'ordre voulu, en ne prenant que ceux qui existent.
+    const systemCluster: typeof baseMsgs = [];
+    if (ifYoulikeIdx !== -1) systemCluster.push(baseMsgs[ifYoulikeIdx]!);
+    if (gotItIdx !== -1) systemCluster.push(baseMsgs[gotItIdx]!);
+    if (fallbackIdx !== -1) systemCluster.push(baseMsgs[fallbackIdx]!);
+
+    const indicesSet = new Set(systemIndices);
+    const reordered: typeof baseMsgs = [];
+    let clusterInserted = false;
+
+    baseMsgs.forEach((msg, idx) => {
+      if (idx === firstIdx && !clusterInserted) {
+        reordered.push(...systemCluster);
+        clusterInserted = true;
+      }
+      if (!indicesSet.has(idx)) {
+        reordered.push(msg);
+      }
+    });
+
+    if (!clusterInserted) {
+      reordered.push(...systemCluster);
+    }
+
+    baseMsgs = reordered;
   }
 
   let uiMsgs = baseMsgs;
