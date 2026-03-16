@@ -422,7 +422,6 @@ export const IntegrationsDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Integrate with your website</DialogTitle>
-          <DialogDescription>Same script for any site (HTML, React, Next.js, etc.). Paste it in your page&apos;s &lt;head&gt; or in index.html / root layout.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

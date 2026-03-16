@@ -316,9 +316,9 @@ function BookingSplitLayout({
   if (!rep) return null;
 
   return (
-    <div className="flex w-full h-full flex-col bg-white sm:flex-row">
+    <div className="flex h-full w-full min-w-0 flex-col bg-white sm:flex-row">
       {/* LEFT SIDEBAR */}
-      <div className="flex w-full flex-col items-center border-r p-5 text-center sm:w-1/3" style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)", backgroundColor: "color-mix(in srgb, var(--widget-primary) 8%, transparent)" }}>
+      <div className="flex w-full shrink-0 flex-col items-center border-r p-5 text-center sm:w-[36%]" style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)", backgroundColor: "color-mix(in srgb, var(--widget-primary) 8%, transparent)" }}>
         <div className="mb-3 flex h-14 w-14 overflow-hidden rounded-full border-2 bg-white shadow-sm" style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 40%, transparent)" }}>
           {rep.avatarUrl ? (
             <img src={rep.avatarUrl} alt="" className="h-full w-full object-cover" />
@@ -352,8 +352,8 @@ function BookingSplitLayout({
         )}
       </div>
 
-      {/* RIGHT: CALENDAR */}
-      <div className="flex-1 p-4">
+      {/* RIGHT: CALENDAR — min-w-0 pour que le flex ne fasse pas déborder les slots */}
+      <div className="flex min-w-0 flex-1 flex-col p-4">
         <CalendarContainerBeautified slots={slots} loading={loading} onPick={onPick} />
       </div>
     </div>
@@ -1148,15 +1148,15 @@ export const WidgetChatScreen = () => {
   let baseMsgs = [...filteredBackend, ...localMsgs];
 
   // Réordonner: "If you'd like..." doit apparaître AVANT "Got it!" (suggestion → handoff)
-  const gotItText = "Got it! Connecting you with a human teammate now.";
-  const ifYoulikeText = "If you'd like to go deeper, I can connect you with a human teammate";
-  const gotItIdx = baseMsgs.findIndex((m) => (m.text ?? "").includes(gotItText));
-  const ifYoulikeIdx = baseMsgs.findIndex((m) => (m.text ?? "").includes(ifYoulikeText));
-  if (gotItIdx !== -1 && ifYoulikeIdx !== -1 && ifYoulikeIdx > gotItIdx) {
+  const isGotIt = (t: string) => t.includes("Got it") && t.includes("human teammate now");
+  const isIfYoulike = (t: string) => t.includes("If you'd like to go deeper") && t.includes("human teammate");
+  const gotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
+  const ifYoulikeIdx = baseMsgs.findIndex((m) => isIfYoulike(m.text ?? ""));
+  if (gotItIdx !== -1 && ifYoulikeIdx !== -1 && gotItIdx < ifYoulikeIdx) {
     const ifYoulike = baseMsgs[ifYoulikeIdx]!;
     baseMsgs = baseMsgs.filter((_, i) => i !== ifYoulikeIdx);
-    const newGotItIdx = baseMsgs.findIndex((m) => (m.text ?? "").includes(gotItText));
-    const insertAt = Math.max(0, newGotItIdx - 2);
+    const newGotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
+    const insertAt = Math.max(0, newGotItIdx);
     baseMsgs = [...baseMsgs.slice(0, insertAt), ifYoulike, ...baseMsgs.slice(insertAt)];
   }
 
@@ -1683,6 +1683,16 @@ export const WidgetChatScreen = () => {
           ) : null}
           .
         </p>
+      )}
+    </div>
+  );
+}
+
+      )}
+    </div>
+  );
+}
+     </p>
       )}
     </div>
   );

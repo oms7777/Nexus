@@ -48,26 +48,33 @@ export default function CalendarContainerBeautified({
   const safeIndex = Math.min(activeIndex, days.length - 1);
   const currentDay: string = days[safeIndex] ?? "";
   const currentSlots: Slot[] = grouped[currentDay] ?? [];
+  const monthLabel = days.length > 0 ? getMonthLabel(days[0], grouped) : "";
 
   return (
-    <div className="flex h-full w-full flex-col gap-4">
-      <div className="text-center">
+    <div className="flex h-full w-full min-w-0 max-w-full flex-col gap-4 overflow-hidden">
+      <div className="shrink-0 text-center">
         <h3 className="text-sm font-semibold text-foreground">Pick a time</h3>
         <p className="mt-0.5 text-[11px] text-muted-foreground">
           Times in your local timezone
         </p>
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+      {monthLabel && (
+        <p className="shrink-0 text-center text-xs font-medium text-muted-foreground">
+          {monthLabel}
+        </p>
+      )}
+
+      <div className="flex min-w-0 gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
         {days.map((day, idx) => {
           const active = idx === safeIndex;
-          const [weekday, ...rest] = day.split(" ");
+          const dayShort = formatDayShort(day);
           return (
             <button
               key={day}
               onClick={() => setActiveIndex(idx)}
               className={[
-                "min-w-[88px] rounded-xl px-3 py-2 text-left text-xs transition",
+                "min-w-[72px] shrink-0 rounded-xl px-2.5 py-2 text-center text-xs transition",
                 "flex flex-col justify-center border",
                 active ? "shadow-sm" : "bg-white text-foreground",
               ].join(" ")}
@@ -77,19 +84,19 @@ export default function CalendarContainerBeautified({
                   : { borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)" }
               }
             >
-              <span className="uppercase tracking-wide opacity-90">{weekday}</span>
-              <span className="font-semibold">{rest.join(" ")}</span>
+              <span className="uppercase tracking-wide opacity-90">{dayShort.weekday}</span>
+              <span className="font-semibold">{dayShort.day}</span>
             </button>
           );
         })}
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid min-w-0 grid-cols-2 gap-2 overflow-auto content-start">
         {currentSlots.map((slot, idx) => (
           <button
             key={`${slot.start}-${slot.end}-${idx}`}
             onClick={() => onPick(slot)}
-            className="rounded-xl border bg-white px-3 py-2.5 text-xs font-medium transition active:scale-[0.98]"
+            className="min-w-0 rounded-xl border bg-white px-2 py-2.5 text-xs font-medium transition active:scale-[0.98] truncate"
             style={{
               borderColor: "color-mix(in srgb, var(--widget-primary) 25%, transparent)",
             }}
@@ -120,9 +127,18 @@ function formatDay(ts: number): string {
   });
 }
 
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+/** Jour affiché sur le bouton : "MON" + "16" (pas de "Mar" sur chaque bouton). */
+function formatDayShort(dayKey: string): { weekday: string; day: string } {
+  const parts = dayKey.replace(/,/g, "").trim().split(/\s+/);
+  const weekday = (parts[0] ?? "").toUpperCase().slice(0, 3);
+  const day = parts[1] ?? "";
+  return { weekday, day };
+}
+
+/** Mois + année affichés une seule fois au-dessus des jours (ex. "March 2026"). */
+function getMonthLabel(firstDayKey: string, grouped: Record<string, Slot[]>): string {
+  const slots = grouped[firstDayKey];
+  const ts = slots?.[0]?.start;
+  if (ts == null) return "";
+  return new Date(ts).toLocaleDateString(EN_LOCALE, { month: "long", year: "numeric" });
 }
