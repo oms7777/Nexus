@@ -1147,17 +1147,24 @@ export const WidgetChatScreen = () => {
 
   let baseMsgs = [...filteredBackend, ...localMsgs];
 
-  // Réordonner: "If you'd like..." doit TOUJOURS apparaître avant "Got it!" (suggestion puis handoff)
+  // Réordonner: "If you'd like..." doit apparaître AVANT "Got it!" (suggestion avant handoff)
   const isGotIt = (t: string) => /Got it/i.test(t) && /connecting you with a human/i.test(t);
   const isIfYoulike = (t: string) => /If you'd like to go deeper/i.test(t) && /human teammate/i.test(t);
   const gotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
   const ifYoulikeIdx = baseMsgs.findIndex((m) => isIfYoulike(m.text ?? ""));
   if (gotItIdx !== -1 && ifYoulikeIdx !== -1) {
+    // On reconstruit juste ces deux messages sans toucher le reste :
+    // à la position min(gotItIdx, ifYoulikeIdx) on met "If you'd like", puis "Got it".
     const ifYoulike = baseMsgs[ifYoulikeIdx]!;
     const gotIt = baseMsgs[gotItIdx]!;
     const others = baseMsgs.filter((_, i) => i !== gotItIdx && i !== ifYoulikeIdx);
     const insertPos = Math.min(gotItIdx, ifYoulikeIdx);
-    baseMsgs = [...others.slice(0, insertPos), ifYoulike, gotIt, ...others.slice(insertPos)];
+    baseMsgs = [
+      ...others.slice(0, insertPos),
+      ifYoulike,
+      gotIt,
+      ...others.slice(insertPos),
+    ];
   }
 
   let uiMsgs = baseMsgs;
