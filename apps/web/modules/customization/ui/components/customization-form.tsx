@@ -38,6 +38,7 @@ import z from "zod";
 import { widgetSettingsSchema } from "../../schemas";
 import { MessageCircle } from "lucide-react";
 import PromosPanel from "./promos-panel";
+import PageNudgesPanel from "./page-nudges-panel";
 
 type WidgetSettings = Doc<"widgetSettings">;
 
@@ -791,6 +792,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                 />
               </CardContent>
             </Card>
+
+            {/* 1.5️⃣ PAGE-BASED NUDGES (Starter only) */}
+            {!canUseAdvancedPromos ? <PageNudgesPanel /> : null}
           </TabsContent>
 
           {/* 2️⃣ PAGE-BASED PROMOS (Growth/Enterprise only) */}

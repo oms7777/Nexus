@@ -477,6 +477,33 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
 
+  /* ---------- Nudge suggestions context ---------- */
+  pageNudges: defineTable({
+    organizationId: v.string(),
+    name: v.string(),
+    active: v.boolean(),
+    rules: v.object({
+      pathPrefix: v.optional(v.string()),
+      pathMode: v.optional(v.union(v.literal("prefix"), v.literal("exact"))),
+    }),
+    suggestions: v.object({
+      suggestion1: v.optional(v.string()),
+      suggestion2: v.optional(v.string()),
+      suggestion3: v.optional(v.string()),
+    }),
+    settings: v.optional(
+      v.object({
+        sequenceCount: v.optional(v.number()),
+        showDelayAfterNavMs: v.optional(v.number()),
+        minDelayMs: v.optional(v.number()),
+        autoCloseMs: v.optional(v.number()),
+        betweenPopupsMs: v.optional(v.number()),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]),
+
 
   /* ---------- Slack Integrations ---------- */
   slackIntegrations: defineTable({

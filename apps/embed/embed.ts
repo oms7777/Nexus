@@ -51,6 +51,17 @@ type SuggestionsPayload = {
   theme?: ThemePayload;
   brandLogoUrl?: string;
   canUseVoice?: boolean;
+  /**
+   * Optional override for how the host should display the nudge sequence.
+   * Allows per-page / per-promo customization from the widget iframe.
+   */
+  nudgeDisplay?: {
+    countPerPage?: number;
+    showDelayAfterNavMs?: number;
+    minDelayMs?: number;
+    autoCloseMs?: number;
+    betweenPopupsMs?: number;
+  };
 };
 
 type NudgeKind = "promo" | "suggestions" | null;
@@ -80,7 +91,7 @@ type NudgeKind = "promo" | "suggestions" | null;
   let nudgeAutoCloseTimer: number | null = null;
   let suggestionsNextTimer: number | null = null;
   let nudgeIndex = 0;
-  let suggestionsChipSets: string[][] = [];
+  let suggestionsSequenceItems: string[] = [];
   let nudgeCountPerPage = DEFAULT_NUDGE_COUNT_PER_PAGE;
 
   function parseNudgeCountFromAttrs(scriptEl: HTMLScriptElement | null) {
@@ -471,33 +482,39 @@ type NudgeKind = "promo" | "suggestions" | null;
       window.clearTimeout(suggestionsNextTimer);
       suggestionsNextTimer = null;
     }
-    suggestionsChipSets = [];
+    suggestionsSequenceItems = [];
     nudgeIndex = 0;
   }
 
-  function buildSuggestionChipSets(sp: SuggestionsPayload): string[][] {
-    const all = Array.isArray(sp.suggestions) ? sp.suggestions.filter(Boolean) : [];
-    const maxNudges = Math.max(1, nudgeCountPerPage);
-    const sets: string[][] = [];
-    if (!all.length) return sets;
+  function getEffectiveNudgeDisplay(sp: SuggestionsPayload) {
+    const display = sp.nudgeDisplay || {};
+    const count = display.countPerPage ?? nudgeCountPerPage;
+    const showDelayAfterNavMs = display.showDelayAfterNavMs ?? NUDGE_SHOW_DELAY_AFTER_NAV_MS;
+    const minDelayMs = display.minDelayMs ?? NUDGE_MIN_DELAY_MS;
+    const autoCloseMs = display.autoCloseMs ?? NUDGE_AUTO_CLOSE_MS;
+    const betweenPopupsMs = display.betweenPopupsMs ?? NUDGE_BETWEEN_POPUPS_MS;
 
-    // chunk into sets of 3, but rotate if there are not enough.
-    for (let i = 0; i < maxNudges; i++) {
-      const start = i * 3;
-      let chunk = all.slice(start, start + 3);
-      if (chunk.length < 2) {
-        // rotate fallback
-        const rot = (start % all.length + all.length) % all.length;
-        chunk = [
-          all[rot]!,
-          all[(rot + 1) % all.length]!,
-          all[(rot + 2) % all.length]!,
-        ];
-      }
-      // If still too small, stop early
-      if (chunk.length) sets.push(chunk.slice(0, 3));
+    return {
+      countPerPage: Math.max(1, Math.min(5, Math.floor(count))),
+      showDelayAfterNavMs,
+      minDelayMs,
+      autoCloseMs,
+      betweenPopupsMs,
+    };
+  }
+
+  function buildSuggestionSequence(sp: SuggestionsPayload, count: number): string[] {
+    const all = Array.isArray(sp.suggestions) ? sp.suggestions.filter(Boolean) : [];
+    if (!all.length) return [];
+
+    if (all.length >= count) return all.slice(0, count);
+
+    // rotate fallback so we always show `count` nudges
+    const seq: string[] = [];
+    for (let i = 0; i < count; i++) {
+      seq.push(all[i % all.length]!);
     }
-    return sets.slice(0, maxNudges);
+    return seq;
   }
 
   function scheduleSuggestions(sp: SuggestionsPayload) {
@@ -507,11 +524,14 @@ type NudgeKind = "promo" | "suggestions" | null;
     pendingSuggestions = sp;
     hasNudgePayload = true;
 
-    const elapsed = Date.now() - lastNavigationTs;
-    const remainingAfterNav = NUDGE_SHOW_DELAY_AFTER_NAV_MS - elapsed;
-    const delay = Math.max(NUDGE_MIN_DELAY_MS, remainingAfterNav);
+    const effectiveDisplay = getEffectiveNudgeDisplay(sp);
+    const countPerPage = effectiveDisplay.countPerPage;
 
-    suggestionsChipSets = buildSuggestionChipSets(sp);
+    const elapsed = Date.now() - lastNavigationTs;
+    const remainingAfterNav = effectiveDisplay.showDelayAfterNavMs - elapsed;
+    const delay = Math.max(effectiveDisplay.minDelayMs, remainingAfterNav);
+
+    suggestionsSequenceItems = buildSuggestionSequence(sp, countPerPage);
     nudgeIndex = 0;
 
     suggestionsTimer = window.setTimeout(() => {
@@ -520,7 +540,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       if (nudgeDismissed) return;
       if (isOpen) return;
       if (nudgeKind === "promo") return;
-      if (!pendingSuggestions || !suggestionsChipSets.length) return;
+      if (!pendingSuggestions || !suggestionsSequenceItems.length) return;
 
       nudgeKind = "suggestions";
       const showOne = (idx: number) => {
@@ -529,22 +549,37 @@ type NudgeKind = "promo" | "suggestions" | null;
         if (isOpen) return;
         if (nudgeKind === "promo") return;
         if (!pendingSuggestions) return;
-        if (!suggestionsChipSets.length) return;
-        if (idx >= suggestionsChipSets.length) return;
+        if (!suggestionsSequenceItems.length) return;
+        if (idx >= suggestionsSequenceItems.length) return;
 
         nudgeIndex = idx;
-        renderSuggestionsNudge(pendingSuggestions, suggestionsChipSets[idx]);
+        renderSuggestionsNudge(
+          pendingSuggestions,
+          suggestionsSequenceItems[idx]!,
+          idx + 1,
+          suggestionsSequenceItems.length,
+        );
 
         // Auto close then continue
         nudgeAutoCloseTimer = window.setTimeout(() => {
           nudgeAutoCloseTimer = null;
           // close current one (do not cancel the whole queue)
           removeNudgeOnly();
+
+          const nextIdx = idx + 1;
+          if (nextIdx >= suggestionsSequenceItems.length) {
+            // End: appear then disappear on this page load.
+            pendingSuggestions = null;
+            hasNudgePayload = false;
+            nudgeKind = null;
+            return;
+          }
+
           suggestionsNextTimer = window.setTimeout(() => {
             suggestionsNextTimer = null;
-            showOne(idx + 1);
-          }, NUDGE_BETWEEN_POPUPS_MS);
-        }, NUDGE_AUTO_CLOSE_MS);
+            showOne(nextIdx);
+          }, effectiveDisplay.betweenPopupsMs);
+        }, effectiveDisplay.autoCloseMs);
       };
 
       showOne(0);
@@ -553,6 +588,7 @@ type NudgeKind = "promo" | "suggestions" | null;
 
   function cancelSuggestions() {
     pendingSuggestions = null;
+    hasNudgePayload = false;
     cancelSuggestionsSequence();
   }
 
@@ -618,13 +654,20 @@ type NudgeKind = "promo" | "suggestions" | null;
 
   /* ---------------- Nudge ---------------- */
 
-  // Starter nudge = chips
-  function renderSuggestionsNudge(payload: SuggestionsPayload, chipsOverride?: string[]) {
+  // Starter nudge = 1 suggestion per popup (sequence)
+  function renderSuggestionsNudge(
+    payload: SuggestionsPayload,
+    suggestionText: string,
+    step: number,
+    total: number,
+  ) {
     if (!NUDGE_ENABLED) return;
 
     const palette: ThemePayload = payload.theme || theme || {};
     const primaryColor = palette.primaryColor || "#a855f7";
     const nudgeBg = palette.nudgeBackgroundColor || "#ffffff";
+    const totalSafe = Math.max(1, total || 1);
+    const stepSafe = Math.max(1, Math.min(totalSafe, step || 1));
 
     if (!nudge) {
       nudge = document.createElement("div");
@@ -663,53 +706,53 @@ type NudgeKind = "promo" | "suggestions" | null;
       document.body.appendChild(caret);
     }
 
-    const suggestions = Array.isArray(payload.suggestions)
-      ? payload.suggestions
-      : [];
-    const chips = Array.isArray(chipsOverride) && chipsOverride.length
-      ? chipsOverride
-      : suggestions.slice(0, 3);
-
-    const chipsHtml = chips
-      .map(
-        (s, i) => `
-          <button data-sugg-index="${i}"
-            style="
-              all: unset;
-              display:inline-flex;
-              align-items:center;
-              justify-content:center;
-              padding:8px 10px;
-              border-radius:9999px;
-              border:1px solid ${primaryColor}59;
-              cursor:pointer;
-              font-weight:600;
-              font-size:12px;
-              line-height:1;
-              color:${primaryColor};
-              background:${primaryColor}14;
-              white-space:nowrap;
-              max-width:100%;
-              overflow:hidden;
-              text-overflow:ellipsis;
-            ">
-              ${escapeHtml(s)}
-          </button>
-        `,
-      )
-      .join("");
+    const suggestion = escapeHtml(suggestionText || "");
 
     nudge!.innerHTML = `
       <div style="position:relative">
         <div style="display:flex;gap:10px;align-items:flex-start">
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:800;font-size:13px;color:#111827;">
-              ${escapeHtml("Need a quick answer?")}
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+              <div style="display:flex;align-items:flex-start;gap:10px;">
+                <div style="
+                  width:30px;height:30px;border-radius:12px;
+                  display:flex;align-items:center;justify-content:center;
+                  background:${primaryColor}14;border:1px solid ${primaryColor}33;
+                ">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="color:${primaryColor}">
+                    <path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div style="display:flex;flex-direction:column;">
+                  <div style="font-weight:900;font-size:13px;color:#111827;line-height:1.2;">Need a quick answer?</div>
+                  <div style="margin-top:2px;font-weight:700;font-size:11px;color:#6b7280;line-height:1;">Tap to open the assistant</div>
+                </div>
+              </div>
+
+              <div style="font-weight:900;font-size:12px;color:#111827;background:${primaryColor}14;border:1px solid ${primaryColor}33;border-radius:10px;padding:6px 10px;white-space:nowrap;">
+                ${stepSafe}/${totalSafe}
+              </div>
             </div>
 
-            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
-              ${chipsHtml}
-            </div>
+            <button id="nexus-sugg-main"
+              style="
+                all: unset;
+                cursor:pointer;
+                margin-top:12px;
+                display:flex;align-items:center;justify-content:flex-start;
+                width:100%;
+                padding:12px 12px;
+                border-radius:14px;
+                background: linear-gradient(135deg, ${primaryColor}, ${primaryColor}B3);
+                box-shadow: 0 14px 30px ${primaryColor}2A;
+                color:#fff;
+                font-weight:900;
+                font-size:13px;
+                line-height:1.2;
+              "
+            >
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${suggestion}</span>
+            </button>
 
             ${
               payload.privacyUrl
@@ -729,9 +772,9 @@ type NudgeKind = "promo" | "suggestions" | null;
             style="
               all: unset;
               border-radius:9999px;
-              width:20px;height:20px;
+              width:22px;height:22px;
               display:flex;align-items:center;justify-content:center;
-              color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;
+              color:#9ca3af;cursor:pointer;font-size:18px;line-height:18px;
             ">×</button>
         </div>
       </div>
@@ -744,13 +787,15 @@ type NudgeKind = "promo" | "suggestions" | null;
       removeNudgeOnly();
     });
 
-    const btns = nudge!.querySelectorAll<HTMLButtonElement>(
-      "button[data-sugg-index]",
-    );
-    btns.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        openChat();
-      });
+    const mainBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-sugg-main");
+    mainBtn?.addEventListener("click", () => openChat());
+    mainBtn?.addEventListener("mouseenter", () => {
+      if (!mainBtn) return;
+      mainBtn.style.transform = "translateY(-1px)";
+    });
+    mainBtn?.addEventListener("mouseleave", () => {
+      if (!mainBtn) return;
+      mainBtn.style.transform = "translateY(0px)";
     });
 
     placeNudge();

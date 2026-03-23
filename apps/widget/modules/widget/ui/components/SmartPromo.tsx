@@ -35,6 +35,13 @@ type SuggestionsPayload = {
   theme?: ThemePayload;
   brandLogoUrl?: string;
   canUseVoice?: boolean;
+  nudgeDisplay?: {
+    countPerPage?: number;
+    showDelayAfterNavMs?: number;
+    minDelayMs?: number;
+    autoCloseMs?: number;
+    betweenPopupsMs?: number;
+  };
 };
 
 export default function SmartPromo() {
@@ -127,6 +134,15 @@ export default function SmartPromo() {
         ? { organizationId: orgId, currentUrl }
         : "skip",
     ) ?? [];
+
+  // Starter-only: nudge suggestions can be configured per page.
+  const pageNudge =
+    useQuery(
+      (api.public as any).nudges.getForPage,
+      planReady && isStarterPlan && orgId && currentUrl
+        ? { organizationId: orgId, currentUrl }
+        : "skip",
+    ) ?? null;
 
   const promo: Doc<"promos"> | undefined = useMemo(
     () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
@@ -287,12 +303,30 @@ export default function SmartPromo() {
 
     const greetMessage: string | undefined = (ws as any)?.greetMessage;
 
-    const s1 = (ws as any)?.defaultSuggestions?.suggestion1?.trim();
-    const s2 = (ws as any)?.defaultSuggestions?.suggestion2?.trim();
-    const s3 = (ws as any)?.defaultSuggestions?.suggestion3?.trim();
+    // Base suggestions from widget settings
+    const base1 = (ws as any)?.defaultSuggestions?.suggestion1?.trim();
+    const base2 = (ws as any)?.defaultSuggestions?.suggestion2?.trim();
+    const base3 = (ws as any)?.defaultSuggestions?.suggestion3?.trim();
+
+    // Optional override from per-page nudge configuration
+    const s1 = (pageNudge as any)?.suggestions?.suggestion1?.trim() ?? base1;
+    const s2 = (pageNudge as any)?.suggestions?.suggestion2?.trim() ?? base2;
+    const s3 = (pageNudge as any)?.suggestions?.suggestion3?.trim() ?? base3;
 
     const suggestions = [s1, s2, s3].filter(Boolean) as string[];
     if (!suggestions.length) return null;
+
+    const settings = (pageNudge as any)?.settings;
+    const nudgeDisplay =
+      settings && typeof settings === "object"
+        ? {
+            countPerPage: settings.sequenceCount,
+            showDelayAfterNavMs: settings.showDelayAfterNavMs,
+            minDelayMs: settings.minDelayMs,
+            autoCloseMs: settings.autoCloseMs,
+            betweenPopupsMs: settings.betweenPopupsMs,
+          }
+        : undefined;
 
     return {
       greetMessage,
@@ -301,6 +335,7 @@ export default function SmartPromo() {
       theme,
       brandLogoUrl,
       canUseVoice,
+      nudgeDisplay,
     };
   };
 
@@ -308,12 +343,12 @@ export default function SmartPromo() {
    * ✅ Send when promo changes (instead of "only once")
    */
   const lastSentPromoIdRef = useRef<string | null>(null);
-  const lastSentSuggestionsRef = useRef<boolean>(false);
+  const lastSentSuggestionsKeyRef = useRef<string | null>(null);
 
   // Reset when org changes
   useEffect(() => {
     lastSentPromoIdRef.current = null;
-    lastSentSuggestionsRef.current = false;
+    lastSentSuggestionsKeyRef.current = null;
   }, [orgId]);
 
   // ✅ SEND PROMO when it changes (Growth/Enterprise only)
@@ -336,20 +371,26 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEmbedded, planReady, canUseAdvancedPromos, currentUrl, promo, memberAvatars, ws, canUseVoice]);
 
-  // ✅ SEND SUGGESTIONS (Starter only) once
+  // ✅ SEND SUGGESTIONS (Starter only) when the page-specific config changes
   useEffect(() => {
     if (!isEmbedded) return;
     if (!planReady) return;
     if (!isStarterPlan) return;
-    if (lastSentSuggestionsRef.current) return;
 
     const payload = makeSuggestionsPayload();
     if (!payload) return;
 
-    lastSentSuggestionsRef.current = true;
+    const key = [
+      payload.suggestions.join("|"),
+      JSON.stringify(payload.nudgeDisplay ?? {}),
+    ].join("__");
+
+    if (lastSentSuggestionsKeyRef.current === key) return;
+    lastSentSuggestionsKeyRef.current = key;
+
     window.parent?.postMessage({ type: "nexus:suggestions", payload }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbedded, planReady, isStarterPlan, ws, canUseVoice]);
+  }, [isEmbedded, planReady, isStarterPlan, ws, canUseVoice, currentUrl, pageNudge]);
 
   // Internal preview unchanged
   const showInternal = !!promo && !isEmbedded && canUseAdvancedPromos;
