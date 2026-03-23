@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
 
 import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
 
@@ -18,12 +19,14 @@ function makeRange(days: number) {
   return { fromTs, toTs };
 }
 
-function LockedFunnelCard({ reason }: { reason?: string }) {
+function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPlanBadges: boolean }) {
   return (
     <div className="rounded-2xl border bg-white p-6 shadow-sm transition hover:shadow-md hover:border-fuchsia-200">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-base font-semibold">Funnel Analytics (Advanced)</div>
+          <div className="text-base font-semibold">
+            Funnel Analytics {showPlanBadges ? "(Advanced)" : ""}
+          </div>
           <div className="mt-1 text-sm text-muted-foreground">
             Funnels are available on Growth / Enterprise plans.
           </div>
@@ -91,9 +94,11 @@ function extractReason(err: unknown) {
 function FunnelsInner({
   orgId,
   advancedEnabled,
+  showPlanBadges,
 }: {
   orgId: string;
   advancedEnabled: boolean;
+  showPlanBadges: boolean;
 }) {
   const [days, setDays] = useState(30);
   const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
@@ -118,7 +123,7 @@ function FunnelsInner({
             Engagement → conversations → meetings, plus inbound performance.
           </div>
         </div>
-        <LockedFunnelCard />
+        <LockedFunnelCard showPlanBadges={showPlanBadges} />
       </div>
     );
   }
@@ -172,7 +177,7 @@ function FunnelsInner({
         <CardShell
           title="Engagement funnel"
           subtitle="High-level product usage"
-          right={<BrandPill>Advanced</BrandPill>}
+          right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
         >
           <div className="space-y-2">
             <Row label="Sessions" value={Number(engagement.sessions ?? 0).toLocaleString()} />
@@ -189,7 +194,7 @@ function FunnelsInner({
         <CardShell
           title="Conversion rates"
           subtitle="Exp → Conv and Conv → Meeting"
-          right={<BrandPill>Advanced</BrandPill>}
+          right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
         >
           <ConversionRatesChart data={conversion as any} />
         </CardShell>
@@ -197,7 +202,7 @@ function FunnelsInner({
         <CardShell
           title="Inbound conversion health"
           subtitle="Requests → rep started → booking proposed (30s) → meetings booked"
-          right={<BrandPill>Advanced</BrandPill>}
+          right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           className="lg:col-span-2"
         >
           {!inbound ? (
@@ -232,6 +237,9 @@ export default function AnalyticsFunnelPage() {
   const ent = useEntitlements();
   const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
 
+  const searchParams = useSearchParams();
+  const showPlanBadges = searchParams.get("showPlanBadges") === "1";
+
   if (!orgId) return <div className="p-6">No organization</div>;
 
   return (
@@ -246,7 +254,7 @@ export default function AnalyticsFunnelPage() {
           </div>
 
           {/* ✅ si backend dit FORBIDDEN / Advanced Analytics required */}
-          <LockedFunnelCard reason={extractReason(err)} />
+          <LockedFunnelCard reason={extractReason(err)} showPlanBadges={showPlanBadges} />
 
           <div className="text-xs text-muted-foreground">
             If you believe this is a mistake, check your subscription record in Convex table
@@ -256,7 +264,7 @@ export default function AnalyticsFunnelPage() {
         </div>
       )}
     >
-      <FunnelsInner orgId={orgId} advancedEnabled={advancedEnabled} />
+      <FunnelsInner orgId={orgId} advancedEnabled={advancedEnabled} showPlanBadges={showPlanBadges} />
     </FunnelErrorBoundary>
   );
 }

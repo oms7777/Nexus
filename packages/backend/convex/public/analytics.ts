@@ -160,6 +160,18 @@ function clampTopK<T>(arr: T[], k = 8) {
   return arr.slice(0, Math.max(0, k));
 }
 
+function countryCodeToLabel(cc: string) {
+  const code = String(cc ?? "").toUpperCase();
+  if (!code) return "Unknown";
+  try {
+    // Intl.DisplayNames is available in modern Node runtimes.
+    const dn = new Intl.DisplayNames(["en"], { type: "region" });
+    return dn.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 function dayKeyUTC(ts: number) {
   return new Date(ts).toISOString().slice(0, 10);
 }
@@ -441,8 +453,8 @@ export const overview = query({
         (a, b) => b.meetings - a.meetings || b.conversations - a.conversations || b.sessions - a.sessions,
       );
 
-    // Territories
-    const { ccToTerr } = await buildCountryToTerritoryMap(ctx, organizationId);
+    // Territories (by territory groups)
+    const { ccToTerr, territories } = await buildCountryToTerritoryMap(ctx, organizationId);
 
     const terrAgg = new Map<
       string,
@@ -478,6 +490,67 @@ export const overview = query({
       .map(([territoryKey, r]) => ({
         territoryKey,
         territoryLabel: r.label,
+        sessions: r.sessions.size,
+        conversations: r.conversations.size,
+        meetings: r.meetings.size,
+      }))
+      .sort(
+        (a, b) => b.meetings - a.meetings || b.conversations - a.conversations || b.sessions - a.sessions,
+      );
+
+    // For UI drill-down: territory -> which countries it covers.
+    // (Needed because territories can include many countries; "Whole world" can otherwise shadow everything.)
+    const terrKeyToCountryCodes = new Map<string, string[]>();
+    for (const t of territories) {
+      const key = String(t.key);
+      const codes = Array.isArray(t.countryCodes) ? t.countryCodes.map((c: any) => String(c).toUpperCase()) : [];
+      terrKeyToCountryCodes.set(key, codes);
+    }
+
+    const top_territories_countryCodes = top_territories.map((t) => ({
+      territoryKey: t.territoryKey,
+      territoryLabel: t.territoryLabel,
+      countryCodes: terrKeyToCountryCodes.get(t.territoryKey) ?? [],
+    }));
+
+    // Countries (by raw countryCode from geo metadata)
+    // Note: territories can collapse everything into "Whole world" depending on tenant configuration.
+    const countryAgg = new Map<
+      string,
+      { label: string; sessions: Set<string>; conversations: Set<string>; meetings: Set<string> }
+    >();
+
+    const ensureCountry = (cc: string) => {
+      const key = String(cc ?? "").toUpperCase();
+      let r = countryAgg.get(key);
+      if (!r) {
+        r = { label: countryCodeToLabel(key), sessions: new Set(), conversations: new Set(), meetings: new Set() };
+        countryAgg.set(key, r);
+      }
+      return r;
+    };
+
+    for (const e of evts) {
+      const cc = safeString(e?.meta?.countryCode)?.toUpperCase();
+      const c = cc || "UNKNOWN";
+      const r = ensureCountry(c);
+
+      const sk = getSessionKey(e);
+      if (sk) r.sessions.add(sk);
+
+      const ck = getConversationKey(e);
+      if (ck && e.type === "conversation_created") r.conversations.add(ck);
+
+      if (e.type === "meeting_booked") {
+        const mk = getMeetingKey(e);
+        if (mk) r.meetings.add(mk);
+      }
+    }
+
+    const top_countries = [...countryAgg.entries()]
+      .map(([countryCode, r]) => ({
+        countryCode,
+        countryLabel: r.label,
         sessions: r.sessions.size,
         conversations: r.conversations.size,
         meetings: r.meetings.size,
@@ -542,6 +615,8 @@ export const overview = query({
       inbound_response,
       top_sources: clampTopK(top_sources, 8),
       top_territories: clampTopK(top_territories, 8),
+      top_countries: clampTopK(top_countries, 8),
+      top_territories_countryCodes: clampTopK(top_territories_countryCodes, 8),
       top_pages,
     };
   },

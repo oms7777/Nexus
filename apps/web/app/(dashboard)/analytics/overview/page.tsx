@@ -1,10 +1,11 @@
 // ✅ FILE: app/(app)/analytics/overview/page.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
 
 import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
 
@@ -45,6 +46,11 @@ function normalizeLabel(s: any) {
 export default function AnalyticsOverviewPage() {
   const { organization } = useOrganization();
   const orgId = organization?.id;
+
+  // For client demo: hide "Core/Advanced" pills.
+  // Add `?showPlanBadges=1` in the URL to re-enable them (internal demo/debug).
+  const searchParams = useSearchParams();
+  const showPlanBadges = searchParams.get("showPlanBadges") === "1";
 
   const ent = useEntitlements();
   const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
@@ -99,6 +105,64 @@ export default function AnalyticsOverviewPage() {
   const topSources = Array.isArray(overview?.top_sources) ? overview.top_sources : [];
   const topPages = Array.isArray(overview?.top_pages) ? overview.top_pages : [];
   const topTerritories = Array.isArray(overview?.top_territories) ? overview.top_territories : [];
+  const topCountries = Array.isArray((overview as any)?.top_countries) ? (overview as any).top_countries : [];
+  const useCountriesTable = topCountries.length > 0;
+  const topTerritoriesCountryCodes = Array.isArray((overview as any)?.top_territories_countryCodes)
+    ? (overview as any).top_territories_countryCodes
+    : [];
+
+  const [selectedZoneTerritoryKey, setSelectedZoneTerritoryKey] = useState<string>("");
+
+  const isWholeWorldTerritory = (t: any) => {
+    const key = String(t?.territoryKey ?? "").toLowerCase();
+    const label = String(t?.territoryLabel ?? "").toLowerCase();
+    return key === "whole_world" || (label.includes("whole") && label.includes("world"));
+  };
+
+  const zoneTerritories = useMemo(
+    () => topTerritories.filter((t: any) => !isWholeWorldTerritory(t)).slice(0, 4),
+    [topTerritories],
+  );
+  const zoneTerritoriesWithCountries = useMemo(() => {
+    if (!useCountriesTable) return [];
+    const keyToCodes = new Map<string, string[]>(
+      topTerritoriesCountryCodes.map((t: any) => [
+        String(t.territoryKey),
+        Array.isArray(t.countryCodes) ? t.countryCodes.map((c: any) => String(c).toUpperCase()) : [],
+      ]),
+    );
+    return zoneTerritories.filter((z: any) => {
+      const codes = keyToCodes.get(String(z.territoryKey)) ?? [];
+      return codes.length > 0;
+    });
+  }, [useCountriesTable, zoneTerritories, topTerritoriesCountryCodes]);
+
+  const canShowZoneDrilldown = useCountriesTable && zoneTerritoriesWithCountries.length > 0;
+
+  // Init selection when data arrives.
+  useEffect(() => {
+    if (!selectedZoneTerritoryKey && zoneTerritoriesWithCountries.length > 0) {
+      const k = zoneTerritoriesWithCountries[0]?.territoryKey;
+      if (k) setSelectedZoneTerritoryKey(String(k));
+    }
+  }, [selectedZoneTerritoryKey, zoneTerritoriesWithCountries]);
+
+  const terrKeyToCountryCodes = new Map<string, string[]>(
+    topTerritoriesCountryCodes.map((t: any) => [String(t.territoryKey), (t.countryCodes ?? []).map((c: any) => String(c).toUpperCase())]),
+  );
+
+  const selectedCountryCodes = selectedZoneTerritoryKey
+    ? terrKeyToCountryCodes.get(selectedZoneTerritoryKey)
+    : undefined;
+  const selectedCountryCodeSet =
+    selectedCountryCodes && selectedCountryCodes.length > 0
+      ? new Set(selectedCountryCodes.map((c) => String(c).toUpperCase()))
+      : null;
+
+  const countriesInSelectedZone =
+    useCountriesTable && selectedCountryCodeSet
+      ? topCountries.filter((c: any) => selectedCountryCodeSet.has(String(c.countryCode).toUpperCase()))
+      : [];
 
   const trendRows = (Array.isArray(trends) ? trends : []).map((r: any) => ({
     day: niceDayLabel(String(r.day)),
@@ -129,7 +193,7 @@ export default function AnalyticsOverviewPage() {
         <CardShell
           title="Pipeline trend"
           subtitle="Sessions → Conversations → Meetings over time"
-          right={<BrandPill>Core</BrandPill>}
+          right={showPlanBadges ? <BrandPill>Core</BrandPill> : null}
         >
           {trendRows.length === 0 ? (
             <div className="text-sm text-muted-foreground">No trend data yet.</div>
@@ -158,7 +222,7 @@ export default function AnalyticsOverviewPage() {
             <CardShell
               title="Attribution & territories"
               subtitle="What drives pipeline outcomes"
-              right={<BrandPill>Advanced</BrandPill>}
+              right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
             >
               <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
                 <div>
@@ -185,17 +249,80 @@ export default function AnalyticsOverviewPage() {
               </div>
 
               <div className="mt-4">
-                <div className="mb-2 text-sm font-medium">Top territories</div>
-                <MiniTable
-                  columns={["Territory", "Sessions • Conversations • Meetings"]}
-                  rows={topTerritories.slice(0, 8).map((t: any) => [
-                    normalizeLabel(t.territoryLabel ?? t.territoryKey),
-                    `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                  ])}
-                />
-                <div className="mt-2 text-xs text-muted-foreground">
-                  Tip: “Unattributed” usually means geo is missing (no countryCode captured yet).
-                </div>
+                {canShowZoneDrilldown ? (
+                  <div className="space-y-3">
+                    <div className="mb-1 text-sm font-medium">Top zones</div>
+                    <div className="flex flex-wrap gap-2">
+                      {zoneTerritoriesWithCountries.map((z: any) => {
+                        const active = String(z.territoryKey) === selectedZoneTerritoryKey;
+                        return (
+                          <button
+                            key={z.territoryKey}
+                            type="button"
+                            onClick={() => setSelectedZoneTerritoryKey(String(z.territoryKey))}
+                            className={[
+                              "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                              active
+                                ? "bg-gradient-to-r from-fuchsia-600 to-rose-500 border-fuchsia-200 text-white"
+                                : "bg-white border-slate-200 text-muted-foreground hover:bg-fuchsia-50/40 hover:text-foreground",
+                            ].join(" ")}
+                          >
+                            {z.territoryLabel ?? z.territoryKey}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-2 mb-2 text-sm font-medium">
+                      Top countries in{" "}
+                      {zoneTerritoriesWithCountries.find(
+                        (z: any) => String(z.territoryKey) === selectedZoneTerritoryKey,
+                      )?.territoryLabel ??
+                        selectedZoneTerritoryKey}
+                    </div>
+                    <MiniTable
+                      columns={["Country", "Sessions • Conversations • Meetings"]}
+                      rows={countriesInSelectedZone.slice(0, 8).map((t: any) => [
+                        normalizeLabel(t.countryLabel ?? t.countryCode),
+                        `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                      ])}
+                    />
+
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Tip: “Unknown/Unattributed” usually means geo is missing (no countryCode captured yet).
+                    </div>
+                  </div>
+                ) : (
+                  canShowZoneDrilldown ? null : useCountriesTable ? (
+                    <>
+                      <div className="mb-2 text-sm font-medium">Top countries</div>
+                      <MiniTable
+                        columns={["Country", "Sessions • Conversations • Meetings"]}
+                        rows={topCountries.slice(0, 8).map((t: any) => [
+                          normalizeLabel(t.countryLabel ?? t.countryCode),
+                          `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                        ])}
+                      />
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Tip: “Unknown/Unattributed” usually means geo is missing (no countryCode captured yet).
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-2 text-sm font-medium">Top territories</div>
+                      <MiniTable
+                        columns={["Territory", "Sessions • Conversations • Meetings"]}
+                        rows={topTerritories.slice(0, 8).map((t: any) => [
+                          normalizeLabel(t.territoryLabel ?? t.territoryKey),
+                          `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                        ])}
+                      />
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Tip: “Unknown/Unattributed” usually means geo is missing (no countryCode captured yet).
+                      </div>
+                    </>
+                  )
+                )}
               </div>
             </CardShell>
           </div>
@@ -203,7 +330,7 @@ export default function AnalyticsOverviewPage() {
           <CardShell
             title="Top reps impact"
             subtitle="Who converts inbound into meetings"
-            right={<BrandPill>Advanced</BrandPill>}
+            right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           >
             {repRows.length === 0 ? (
               <div className="text-sm text-muted-foreground">
