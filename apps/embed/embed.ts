@@ -4,6 +4,13 @@ import { chatBubbleIcon, closeIcon } from "./icons";
 import { initVisitorTracking, destroyVisitorTracking } from "./visitor-tracker";
 
 const NUDGE_ENABLED = true;
+// Show the nudge a bit AFTER navigation so it doesn't look spammy right away.
+// This is tuned for "popup" UX.
+const NUDGE_SHOW_DELAY_AFTER_NAV_MS = 2500;
+const NUDGE_MIN_DELAY_MS = 220;
+const NUDGE_AUTO_CLOSE_MS = 4000;
+const NUDGE_BETWEEN_POPUPS_MS = 1000;
+const DEFAULT_NUDGE_COUNT_PER_PAGE = 3;
 
 type ThemePayload = {
   primaryColor?: string;
@@ -67,6 +74,22 @@ type NudgeKind = "promo" | "suggestions" | null;
   let nudgeKind: NudgeKind = null; // once promo is chosen, ignore suggestions
   let pendingSuggestions: SuggestionsPayload | null = null;
   let suggestionsTimer: number | null = null;
+  let pendingPromoPayload: PromoPayload | null = null;
+  let promoRenderTimer: number | null = null;
+  let lastNavigationTs = Date.now();
+  let nudgeAutoCloseTimer: number | null = null;
+  let suggestionsNextTimer: number | null = null;
+  let nudgeIndex = 0;
+  let suggestionsChipSets: string[][] = [];
+  let nudgeCountPerPage = DEFAULT_NUDGE_COUNT_PER_PAGE;
+
+  function parseNudgeCountFromAttrs(scriptEl: HTMLScriptElement | null) {
+    const raw = scriptEl?.getAttribute("data-nudge-count");
+    const n = raw ? Number(raw) : NaN;
+    if (!Number.isFinite(n)) return;
+    const int = Math.max(1, Math.min(5, Math.floor(n)));
+    nudgeCountPerPage = int;
+  }
 
   // Pending CTA when user clicks nudge before widget is ready
   let pendingCta: { type: "run-cta" | "run-secondary-cta" | "open-chat"; index?: number } | null = null;
@@ -99,6 +122,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       (currentScript.getAttribute(
         "data-position",
       ) as "bottom-right" | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
+    parseNudgeCountFromAttrs(currentScript);
   } else {
     const scripts = document.querySelectorAll('script[src*="widget"]');
     const embedScript = Array.from(scripts).find((s) =>
@@ -111,6 +135,7 @@ type NudgeKind = "promo" | "suggestions" | null;
         (embedScript.getAttribute(
           "data-position",
         ) as "bottom-right" | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
+      parseNudgeCountFromAttrs(embedScript);
     }
   }
 
@@ -244,7 +269,40 @@ type NudgeKind = "promo" | "suggestions" | null;
       // start SPA listener after iframe ready
       if (!unpatchHistory) {
         unpatchHistory = patchHistoryForSpa(() => {
+          lastNavigationTs = Date.now();
           sendParentLocation();
+
+          // Reschedule pending nudges so they appear a few seconds after each navigation.
+          if (
+            pendingSuggestions &&
+            nudgeKind !== "promo" &&
+            !isOpen &&
+            !nudgeDismissed
+          ) {
+            // Restart the suggestions sequence after each navigation.
+            scheduleSuggestions(pendingSuggestions);
+          }
+
+          if (
+            pendingPromoPayload &&
+            promoRenderTimer &&
+            nudgeKind === "promo" &&
+            !isOpen
+          ) {
+            window.clearTimeout(promoRenderTimer);
+            promoRenderTimer = null;
+
+            const delay = Math.max(NUDGE_MIN_DELAY_MS, NUDGE_SHOW_DELAY_AFTER_NAV_MS);
+            promoRenderTimer = window.setTimeout(() => {
+              promoRenderTimer = null;
+              if (!NUDGE_ENABLED) return;
+              if (nudgeDismissed) return;
+              if (isOpen) return;
+              if (nudgeKind !== "promo") return;
+              if (!pendingPromoPayload) return;
+              renderNudge(pendingPromoPayload);
+            }, delay);
+          }
         });
       }
 
@@ -338,7 +396,22 @@ type NudgeKind = "promo" | "suggestions" | null;
         brandLogoUrl = promoPayload.brandLogoUrl || brandLogoUrl || null;
 
         applyThemeToFab();
-        renderNudge(promoPayload);
+        pendingPromoPayload = promoPayload;
+        if (promoRenderTimer) window.clearTimeout(promoRenderTimer);
+
+        const elapsed = Date.now() - lastNavigationTs;
+        const remainingAfterNav = NUDGE_SHOW_DELAY_AFTER_NAV_MS - elapsed;
+        const delay = Math.max(NUDGE_MIN_DELAY_MS, remainingAfterNav);
+
+        promoRenderTimer = window.setTimeout(() => {
+          promoRenderTimer = null;
+          if (!NUDGE_ENABLED) return;
+          if (nudgeDismissed) return;
+          if (isOpen) return;
+          if (nudgeKind !== "promo") return;
+          if (!pendingPromoPayload) return;
+          renderNudge(pendingPromoPayload);
+        }, delay);
         break;
       }
 
@@ -385,35 +458,102 @@ type NudgeKind = "promo" | "suggestions" | null;
     }
   }
 
-  function scheduleSuggestions(sp: SuggestionsPayload) {
-    // Keep last suggestions, but delay render slightly.
-    // If promo arrives right after, we never show suggestions => no flash.
-    pendingSuggestions = sp;
-    hasNudgePayload = true;
-
-    if (suggestionsTimer) window.clearTimeout(suggestionsTimer);
-
-    suggestionsTimer = window.setTimeout(() => {
-      suggestionsTimer = null;
-
-      if (!NUDGE_ENABLED) return;
-      if (nudgeDismissed) return;
-      if (isOpen) return;
-
-      // If promo arrived during delay, do nothing
-      if (nudgeKind === "promo") return;
-
-      nudgeKind = "suggestions";
-      if (pendingSuggestions) renderSuggestionsNudge(pendingSuggestions);
-    }, 220);
-  }
-
-  function cancelSuggestions() {
-    pendingSuggestions = null;
+  function cancelSuggestionsSequence() {
     if (suggestionsTimer) {
       window.clearTimeout(suggestionsTimer);
       suggestionsTimer = null;
     }
+    if (nudgeAutoCloseTimer) {
+      window.clearTimeout(nudgeAutoCloseTimer);
+      nudgeAutoCloseTimer = null;
+    }
+    if (suggestionsNextTimer) {
+      window.clearTimeout(suggestionsNextTimer);
+      suggestionsNextTimer = null;
+    }
+    suggestionsChipSets = [];
+    nudgeIndex = 0;
+  }
+
+  function buildSuggestionChipSets(sp: SuggestionsPayload): string[][] {
+    const all = Array.isArray(sp.suggestions) ? sp.suggestions.filter(Boolean) : [];
+    const maxNudges = Math.max(1, nudgeCountPerPage);
+    const sets: string[][] = [];
+    if (!all.length) return sets;
+
+    // chunk into sets of 3, but rotate if there are not enough.
+    for (let i = 0; i < maxNudges; i++) {
+      const start = i * 3;
+      let chunk = all.slice(start, start + 3);
+      if (chunk.length < 2) {
+        // rotate fallback
+        const rot = (start % all.length + all.length) % all.length;
+        chunk = [
+          all[rot]!,
+          all[(rot + 1) % all.length]!,
+          all[(rot + 2) % all.length]!,
+        ];
+      }
+      // If still too small, stop early
+      if (chunk.length) sets.push(chunk.slice(0, 3));
+    }
+    return sets.slice(0, maxNudges);
+  }
+
+  function scheduleSuggestions(sp: SuggestionsPayload) {
+    // Keep last suggestions, but delay render after navigation.
+    // If promo arrives right after, we never show suggestions => no flash.
+    cancelSuggestionsSequence();
+    pendingSuggestions = sp;
+    hasNudgePayload = true;
+
+    const elapsed = Date.now() - lastNavigationTs;
+    const remainingAfterNav = NUDGE_SHOW_DELAY_AFTER_NAV_MS - elapsed;
+    const delay = Math.max(NUDGE_MIN_DELAY_MS, remainingAfterNav);
+
+    suggestionsChipSets = buildSuggestionChipSets(sp);
+    nudgeIndex = 0;
+
+    suggestionsTimer = window.setTimeout(() => {
+      suggestionsTimer = null;
+      if (!NUDGE_ENABLED) return;
+      if (nudgeDismissed) return;
+      if (isOpen) return;
+      if (nudgeKind === "promo") return;
+      if (!pendingSuggestions || !suggestionsChipSets.length) return;
+
+      nudgeKind = "suggestions";
+      const showOne = (idx: number) => {
+        if (!NUDGE_ENABLED) return;
+        if (nudgeDismissed) return;
+        if (isOpen) return;
+        if (nudgeKind === "promo") return;
+        if (!pendingSuggestions) return;
+        if (!suggestionsChipSets.length) return;
+        if (idx >= suggestionsChipSets.length) return;
+
+        nudgeIndex = idx;
+        renderSuggestionsNudge(pendingSuggestions, suggestionsChipSets[idx]);
+
+        // Auto close then continue
+        nudgeAutoCloseTimer = window.setTimeout(() => {
+          nudgeAutoCloseTimer = null;
+          // close current one (do not cancel the whole queue)
+          removeNudgeOnly();
+          suggestionsNextTimer = window.setTimeout(() => {
+            suggestionsNextTimer = null;
+            showOne(idx + 1);
+          }, NUDGE_BETWEEN_POPUPS_MS);
+        }, NUDGE_AUTO_CLOSE_MS);
+      };
+
+      showOne(0);
+    }, delay);
+  }
+
+  function cancelSuggestions() {
+    pendingSuggestions = null;
+    cancelSuggestionsSequence();
   }
 
   function revealFabIfNeeded() {
@@ -479,7 +619,7 @@ type NudgeKind = "promo" | "suggestions" | null;
   /* ---------------- Nudge ---------------- */
 
   // Starter nudge = chips
-  function renderSuggestionsNudge(payload: SuggestionsPayload) {
+  function renderSuggestionsNudge(payload: SuggestionsPayload, chipsOverride?: string[]) {
     if (!NUDGE_ENABLED) return;
 
     const palette: ThemePayload = payload.theme || theme || {};
@@ -492,16 +632,16 @@ type NudgeKind = "promo" | "suggestions" | null;
       nudge.style.cssText = `
         all: unset;
         position: fixed;
-        width: 340px; max-width: min(340px, calc(100vw - 96px));
+        width: 320px; max-width: min(320px, calc(100vw - 96px));
         z-index: 2147483001;
         background: ${nudgeBg};
-        border: 1px solid #e5e7eb; border-radius: 12px;
+        border: 1px solid rgba(229,231,235,.95); border-radius: 14px;
         box-shadow: 0 8px 24px rgba(0,0,0,.12);
-        padding: 12px;
+        padding: 10px 12px;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
         font-size: 14px;
         line-height: 1.4;
-        opacity: 0; transform: translateY(6px);
+        opacity: 0; transform: translateY(10px) scale(0.985);
         transition: opacity .18s ease, transform .18s ease;
         pointer-events: auto;
         background-clip: padding-box;
@@ -524,10 +664,13 @@ type NudgeKind = "promo" | "suggestions" | null;
     }
 
     const suggestions = Array.isArray(payload.suggestions)
-      ? payload.suggestions.slice(0, 3)
+      ? payload.suggestions
       : [];
+    const chips = Array.isArray(chipsOverride) && chipsOverride.length
+      ? chipsOverride
+      : suggestions.slice(0, 3);
 
-    const chips = suggestions
+    const chipsHtml = chips
       .map(
         (s, i) => `
           <button data-sugg-index="${i}"
@@ -550,7 +693,7 @@ type NudgeKind = "promo" | "suggestions" | null;
               overflow:hidden;
               text-overflow:ellipsis;
             ">
-            ${escapeHtml(s)}
+              ${escapeHtml(s)}
           </button>
         `,
       )
@@ -560,12 +703,12 @@ type NudgeKind = "promo" | "suggestions" | null;
       <div style="position:relative">
         <div style="display:flex;gap:10px;align-items:flex-start">
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:800;font-size:14px;color:#111827;">
-              ${escapeHtml("Quick questions")}
+            <div style="font-weight:800;font-size:13px;color:#111827;">
+              ${escapeHtml("Need a quick answer?")}
             </div>
 
             <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
-              ${chips}
+              ${chipsHtml}
             </div>
 
             ${
@@ -597,7 +740,8 @@ type NudgeKind = "promo" | "suggestions" | null;
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
     closeBtn?.addEventListener("click", () => {
       nudgeDismissed = true;
-      removeNudge();
+      cancelSuggestions();
+      removeNudgeOnly();
     });
 
     const btns = nudge!.querySelectorAll<HTMLButtonElement>(
@@ -614,7 +758,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       requestAnimationFrame(() => {
         if (nudge) {
           nudge.style.opacity = "1";
-          nudge.style.transform = "translateY(0)";
+          nudge.style.transform = "translateY(0) scale(1)";
         }
         if (caret) caret.style.opacity = "1";
       });
@@ -642,16 +786,16 @@ type NudgeKind = "promo" | "suggestions" | null;
       nudge.style.cssText = `
         all: unset;
         position: fixed;
-        width: 340px; max-width: min(340px, calc(100vw - 96px));
+        width: 320px; max-width: min(320px, calc(100vw - 96px));
         z-index: 2147483001;
         background: ${nudgeBg};
-        border: 1px solid #e5e7eb; border-radius: 12px;
+        border: 1px solid rgba(229,231,235,.95); border-radius: 14px;
         box-shadow: 0 8px 24px rgba(0,0,0,.12);
-        padding: 12px;
+        padding: 10px 12px;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
         font-size: 14px;
         line-height: 1.4;
-        opacity: 0; transform: translateY(6px);
+        opacity: 0; transform: translateY(10px) scale(0.985);
         transition: opacity .18s ease, transform .18s ease;
         pointer-events: auto;
         background-clip: padding-box;
@@ -974,7 +1118,14 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     closeBtn?.addEventListener("click", () => {
       nudgeDismissed = true;
-      removeNudge();
+      // If the visitor dismisses the promo, stop the whole nudge flow.
+      pendingPromoPayload = null;
+      if (promoRenderTimer) {
+        window.clearTimeout(promoRenderTimer);
+        promoRenderTimer = null;
+      }
+      cancelSuggestions();
+      removeNudgeOnly();
     });
 
     placeNudge();
@@ -982,7 +1133,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       requestAnimationFrame(() => {
         if (nudge) {
           nudge.style.opacity = "1";
-          nudge.style.transform = "translateY(0)";
+          nudge.style.transform = "translateY(0) scale(1)";
         }
         if (caret) caret.style.opacity = "1";
       });
@@ -1043,8 +1194,19 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   function removeNudge() {
-    cancelSuggestions();
+    if (nudge) {
+      nudge.remove();
+      nudge = null;
+    }
+    if (caret) {
+      caret.remove();
+      caret = null;
+    }
+  }
 
+  function removeNudgeOnly() {
+    // Used for auto-close of a single popup in the suggestions sequence:
+    // do NOT clear pendingSuggestions or sequence state.
     if (nudge) {
       nudge.remove();
       nudge = null;
@@ -1124,7 +1286,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     if (!nudgeDismissed && hasNudgePayload && nudge && caret) {
       nudge.style.display = "block";
       nudge.style.opacity = "1";
-      nudge.style.transform = "translateY(0)";
+      nudge.style.transform = "translateY(0) scale(1)";
       caret.style.display = "block";
       caret.style.opacity = "1";
       placeNudge();
@@ -1133,6 +1295,13 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   function openChat() {
+    // Visitor started interacting: stop any queued popups immediately.
+    cancelSuggestionsSequence();
+    if (promoRenderTimer) {
+      window.clearTimeout(promoRenderTimer);
+      promoRenderTimer = null;
+    }
+
     pendingCta = { type: "open-chat" };
     show();
     if (pendingCtaTimeout) window.clearTimeout(pendingCtaTimeout);
@@ -1145,6 +1314,13 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   function openBooking() {
+    // Visitor started interacting: stop any queued popups immediately.
+    cancelSuggestionsSequence();
+    if (promoRenderTimer) {
+      window.clearTimeout(promoRenderTimer);
+      promoRenderTimer = null;
+    }
+
     pendingCta = { type: "run-secondary-cta" };
     show();
     if (pendingCtaTimeout) window.clearTimeout(pendingCtaTimeout);
@@ -1174,6 +1350,12 @@ type NudgeKind = "promo" | "suggestions" | null;
     }
     unpatchHistory = null;
 
+    cancelSuggestionsSequence();
+    if (promoRenderTimer) {
+      window.clearTimeout(promoRenderTimer);
+      promoRenderTimer = null;
+    }
+    pendingPromoPayload = null;
     removeNudge();
 
     if (container) {

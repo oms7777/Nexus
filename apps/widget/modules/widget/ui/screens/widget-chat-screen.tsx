@@ -813,7 +813,7 @@ export const WidgetChatScreen = () => {
       ...m,
       {
         role: "assistant",
-        text: "Perfect — let’s find the best person for you 👇",
+        text: "Great — I’m matching you with the best specialist 👇",
       },
     ]);
 
@@ -884,7 +884,7 @@ export const WidgetChatScreen = () => {
     // Important: pickedRep peut être undefined (loading). On attend via useEffect.
     setLocalMsgs((m) => [
       ...m,
-      { role: "assistant", text: "Perfect — finding the best available time for you 👇" },
+      { role: "assistant", text: "Great — I’m finding the best available time for you 👇" },
     ]);
 
     setStep("auto_assign_wait");
@@ -915,7 +915,7 @@ export const WidgetChatScreen = () => {
       // aucun rep dispo
       setLocalMsgs((m) => [
         ...m,
-        { role: "assistant", text: "No availability found right now. Please try again later." },
+        { role: "assistant", text: "No times are available right now. Please try again later." },
       ]);
       setStep("done");
     } finally {
@@ -932,8 +932,29 @@ export const WidgetChatScreen = () => {
     isSendingRef.current = true;
 
     try {
-      const text = values.message.trim();
-      if (!text) return;
+      const rawText = values.message.trim();
+      if (!rawText) return;
+      let textToSend = rawText;
+
+      // Deterministic handling for short yes/no responses.
+      // Goal: when user answers "yes/oui" to the last bot option (talk to someone / book a meeting),
+      // we trigger the right flow without relying on the LLM to interpret the intent perfectly.
+      const normalized = rawText.toLowerCase().replace(/[’]/g, "'").trim();
+      const isYes = /^(yes|oui|yeah|yep|sure|ok|okay|certainly|absolutely)$/i.test(normalized);
+      const isNo = /^(no|non|nah|nope)$/i.test(normalized);
+
+      const backendUIMsgs = toUIMessages(messages.results ?? []);
+      const lastAssistantText = [...localMsgs, ...backendUIMsgs]
+        .filter((m: any) => m?.role === "assistant")
+        .map((m: any) => String(m?.text ?? ""))
+        .at(-1);
+
+      const lastHasTalkOption = /talk to someone|human teammate|connect you with a human|speak to a human|representative/i.test(
+        lastAssistantText ?? "",
+      );
+      const lastHasBookingOption = /book a meeting|pick a slot|pick a time|book a quick meeting/i.test(
+        lastAssistantText ?? "",
+      );
 
       if (mustAcceptConsent) {
         setStep("consent");
@@ -954,8 +975,8 @@ export const WidgetChatScreen = () => {
       }
 
       // booking intent via free text
-      if (step === "idle" && /book|demo|meeting/i.test(text)) {
-        setLocalMsgs((m) => [...m, { role: "user", text }]);
+      if (step === "idle" && /book|demo|meeting/i.test(rawText)) {
+        setLocalMsgs((m) => [...m, { role: "user", text: rawText }]);
         setBookingIntent("book");
 
         if (!consentEnabled || consentGiven) {
@@ -970,10 +991,26 @@ export const WidgetChatScreen = () => {
         return;
       }
 
+      // yes/no mapping based on the last assistant option
+      if ((isYes || isNo) && (lastHasTalkOption || lastHasBookingOption)) {
+        // If both "talk to someone" and "booking" are present, "oui" should default to talking to a human.
+        if (lastHasBookingOption && isYes && !lastHasTalkOption) {
+          // Open the booking UI deterministically.
+          startBookingLikePromo();
+          return;
+        }
+
+        if (lastHasTalkOption) {
+          // Force backend deterministic escalation using "human intent" keyword detector.
+          textToSend = isYes ? "I’d like to talk to someone." : "Continue to chat.";
+          setSoftEscalationActive(false);
+        }
+      }
+
       // human handoff: on laisse le backend répondre "Got it..." (évite doublon)
       if (
         step === "idle" &&
-        /\b(human|someone|teammate|agent|person|representative|advisor)\b/i.test(text)
+        /\b(human|someone|teammate|agent|person|representative|advisor)\b/i.test(rawText)
       ) {
         setSoftEscalationActive(false);
       }
@@ -1038,7 +1075,7 @@ export const WidgetChatScreen = () => {
           {
             role: "assistant",
             text:
-              "Still working on it… I’m generating the answer and I’ll post it here as soon as it’s ready.\n\nIf you prefer, you can also ask to speak with a human.",
+              "One sec… I’m preparing the response.\n\nIf you’d rather speak to a human, just say it.",
           },
         ]);
 
@@ -1051,7 +1088,7 @@ export const WidgetChatScreen = () => {
       try {
         await createMessage({
           threadId: thr,
-          prompt: text,
+          prompt: textToSend,
           contactSessionId,
         });
       } catch {
@@ -1116,7 +1153,7 @@ export const WidgetChatScreen = () => {
         {
           role: "assistant",
           text:
-            "If you’d like to go deeper, I can connect you with a human teammate or help you book a quick meeting. Just say you want to talk to someone, or ask for a meeting.",
+            "If you’d like to go deeper, I can connect you with a human teammate or help you book a quick meeting. Just say “talk to someone” or “meeting”.",
         },
       ]);
     }
@@ -1325,12 +1362,12 @@ export const WidgetChatScreen = () => {
               step === "idle" && (
                 <div className="flex flex-col gap-2 p-3">
                   <div className="text-xs text-muted-foreground">
-                    If you’d like to go deeper, I can connect you with a human teammate or help you book a quick meeting.
+                    Prefer to talk to a specialist?
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
                       variant="outline"
-                      className="flex-1 text-xs"
+                      className="flex-1 text-xs bg-gradient-to-r from-fuchsia-600 to-rose-500 border-0 text-white hover:opacity-95"
                       onClick={triggerTalkToSomeone}
                     >
                       Talk to someone
