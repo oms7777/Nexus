@@ -371,6 +371,7 @@ export default function SmartPromo() {
       autoCloseMs: firstSettings.autoCloseMs ?? 4500,
       betweenPopupsMs: firstSettings.betweenPopupsMs ?? 10000,
       maxSequenceItems: firstSettings.maxSequenceItems ?? 3,
+      animationPreset: firstSettings.animationPreset ?? "soft_slide",
     };
 
     const key = [

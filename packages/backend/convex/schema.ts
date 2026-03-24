@@ -479,6 +479,14 @@ export default defineSchema({
         autoCloseMs: v.optional(v.number()),
         betweenPopupsMs: v.optional(v.number()),
         maxSequenceItems: v.optional(v.number()),
+        animationPreset: v.optional(
+          v.union(
+            v.literal("soft_slide"),
+            v.literal("ppt_pop"),
+            v.literal("cinematic"),
+            v.literal("none"),
+          ),
+        ),
       })
     ),
     identityMode: v.optional(v.union(v.literal("auto"), v.literal("logo"), v.literal("avatars"))),

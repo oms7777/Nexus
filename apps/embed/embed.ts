@@ -52,6 +52,7 @@ type PromoSequencePayload = {
     autoCloseMs?: number;
     betweenPopupsMs?: number;
     maxSequenceItems?: number;
+    animationPreset?: "soft_slide" | "ppt_pop" | "cinematic" | "none";
   };
 };
 
@@ -648,7 +649,7 @@ type NudgeKind = "promo" | "suggestions" | null;
 
       promoAutoCloseTimer = window.setTimeout(() => {
         promoAutoCloseTimer = null;
-        removeNudgeOnly();
+        animatePromoOutAndRemove();
 
         const next = idx + 1;
         if (next >= promoSequenceItems.length) {
@@ -669,6 +670,54 @@ type NudgeKind = "promo" | "suggestions" | null;
       promoRenderTimer = null;
       showOne(0);
     }, delay);
+  }
+
+  function getPromoAnimationConfig() {
+    const preset = promoSequenceSettings?.animationPreset ?? "soft_slide";
+    if (preset === "none") {
+      return {
+        hiddenTransform: "translateY(0) scale(1)",
+        shownTransform: "translateY(0) scale(1)",
+        exitTransform: "translateY(0) scale(1)",
+        transition: "opacity .12s linear",
+      };
+    }
+    if (preset === "ppt_pop") {
+      return {
+        hiddenTransform: "translateY(14px) scale(0.94)",
+        shownTransform: "translateY(0) scale(1)",
+        exitTransform: "translateY(-8px) scale(0.95)",
+        transition: "opacity .24s cubic-bezier(.2,.9,.2,1), transform .24s cubic-bezier(.2,.9,.2,1)",
+      };
+    }
+    if (preset === "cinematic") {
+      return {
+        hiddenTransform: "translateY(18px) scale(0.985)",
+        shownTransform: "translateY(0) scale(1)",
+        exitTransform: "translateY(-10px) scale(0.98)",
+        transition: "opacity .32s ease, transform .32s cubic-bezier(.16,1,.3,1)",
+      };
+    }
+    // soft_slide
+    return {
+      hiddenTransform: "translateY(10px) scale(0.985)",
+      shownTransform: "translateY(0) scale(1)",
+      exitTransform: "translateY(-6px) scale(0.99)",
+      transition: "opacity .18s ease, transform .18s ease",
+    };
+  }
+
+  function animatePromoOutAndRemove() {
+    const cfg = getPromoAnimationConfig();
+    if (nudge) {
+      nudge.style.transition = cfg.transition;
+      nudge.style.opacity = "0";
+      nudge.style.transform = cfg.exitTransform;
+    }
+    if (caret) caret.style.opacity = "0";
+    window.setTimeout(() => {
+      removeNudgeOnly();
+    }, cfg.transition.includes(".32s") ? 340 : cfg.transition.includes(".24s") ? 260 : 190);
   }
 
   function revealFabIfNeeded() {
@@ -1248,12 +1297,21 @@ type NudgeKind = "promo" | "suggestions" | null;
       removeNudgeOnly();
     });
 
+    const anim = getPromoAnimationConfig();
+    if (nudge) {
+      nudge.style.transition = anim.transition;
+      nudge.style.opacity = "0";
+      nudge.style.transform = anim.hiddenTransform;
+    }
+
     placeNudge();
     if (!isOpen && !nudgeDismissed) {
       requestAnimationFrame(() => {
         if (nudge) {
+          const cfg = getPromoAnimationConfig();
+          nudge.style.transition = cfg.transition;
           nudge.style.opacity = "1";
-          nudge.style.transform = "translateY(0) scale(1)";
+          nudge.style.transform = cfg.shownTransform;
         }
         if (caret) caret.style.opacity = "1";
       });

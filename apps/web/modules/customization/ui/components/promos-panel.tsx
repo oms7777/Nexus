@@ -42,6 +42,9 @@ const PromoSchema = z.object({
   autoCloseMs: z.number().min(0).optional(),
   betweenPopupsMs: z.number().min(0).optional(),
   maxSequenceItems: z.number().int().min(1).max(10).optional(),
+  animationPreset: z
+    .enum(["soft_slide", "ppt_pop", "cinematic", "none"])
+    .optional(),
 
   ctas: z
     .array(
@@ -90,6 +93,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const remove = useMutation(api.private.promos.remove);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [sequenceUxMode, setSequenceUxMode] = useState<"simple" | "advanced">("simple");
 
   const form = useForm<PromoForm>({
     resolver: zodResolver(PromoSchema),
@@ -109,6 +113,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       autoCloseMs: 4500,
       betweenPopupsMs: 10000,
       maxSequenceItems: 3,
+      animationPreset: "soft_slide",
       ctas: [
         { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
         { kind: "open_booking", label: "Book a meeting", url: "" },
@@ -142,6 +147,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       autoCloseMs: form.getValues("autoCloseMs") ?? 4500,
       betweenPopupsMs: form.getValues("betweenPopupsMs") ?? 10000,
       maxSequenceItems: form.getValues("maxSequenceItems") ?? 3,
+      animationPreset: form.getValues("animationPreset") ?? "soft_slide",
       ctas:
         existingCtas && existingCtas.length
           ? existingCtas
@@ -171,6 +177,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       autoCloseMs: form.getValues("autoCloseMs") ?? 4500,
       betweenPopupsMs: form.getValues("betweenPopupsMs") ?? 10000,
       maxSequenceItems: form.getValues("maxSequenceItems") ?? 3,
+      animationPreset: form.getValues("animationPreset") ?? "soft_slide",
       ctas:
         existingCtas && existingCtas.length
           ? existingCtas
@@ -244,6 +251,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           autoCloseMs: values.autoCloseMs ?? 4500,
           betweenPopupsMs: values.betweenPopupsMs ?? 10000,
           maxSequenceItems: values.maxSequenceItems ?? 3,
+          animationPreset: values.animationPreset ?? "soft_slide",
         },
       } as any);
 
@@ -275,6 +283,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       autoCloseMs: 4500,
       betweenPopupsMs: 10000,
       maxSequenceItems: 3,
+      animationPreset: "soft_slide",
       ctas: [
         { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
         { kind: "open_booking", label: "Book a meeting", url: "" },
@@ -328,6 +337,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       autoCloseMs: p.settings?.autoCloseMs ?? 4500,
       betweenPopupsMs: p.settings?.betweenPopupsMs ?? 10000,
       maxSequenceItems: p.settings?.maxSequenceItems ?? 3,
+      animationPreset: p.settings?.animationPreset ?? "soft_slide",
       ctas: ctasForForm,
     });
 
@@ -348,6 +358,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const pathMode = form.watch("pathMode") ?? "prefix";
   const pathPrefix = form.watch("pathPrefix") ?? "/";
+  const sequenceEnabledWatch = form.watch("sequenceEnabled") ?? true;
+  const showDelayWatch = Number(form.watch("showDelayAfterNavMs") ?? 2500);
+  const autoCloseWatch = Number(form.watch("autoCloseMs") ?? 4500);
+  const betweenWatch = Number(form.watch("betweenPopupsMs") ?? 10000);
+  const sequenceCountWatch = Number(form.watch("maxSequenceItems") ?? 3);
+  const animationPresetWatch = form.watch("animationPreset") ?? "soft_slide";
 
   const primaryColor = theme?.primaryColor || "#a855f7";
   const primaryTextColor = theme?.primaryTextColor || "#ffffff";
@@ -564,62 +580,194 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         Sequence behavior
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        Control popup timing: show, auto-close, and delay before next promo.
+                        Modern popups flow: first nudge appears, closes, then next appears after your delay.
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="flex items-center justify-between rounded-lg border bg-background px-3 py-2">
-                        <div>
-                          <Label className="text-xs">Enable sequence</Label>
-                          <p className="text-[11px] text-muted-foreground">Show multiple matched promos one by one.</p>
-                        </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={sequenceUxMode === "simple" ? "default" : "outline"}
+                          onClick={() => setSequenceUxMode("simple")}
+                        >
+                          Simple
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={sequenceUxMode === "advanced" ? "default" : "outline"}
+                          onClick={() => setSequenceUxMode("advanced")}
+                        >
+                          Advanced
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs">Enable sequence</Label>
                         <Switch
-                          checked={form.watch("sequenceEnabled") ?? true}
+                          checked={sequenceEnabledWatch}
                           onCheckedChange={(v) => form.setValue("sequenceEnabled", v)}
                         />
                       </div>
+                    </div>
 
-                      <div>
-                        <Label>Max sequence items</Label>
-                        <Input
-                          type="number"
-                          {...form.register("maxSequenceItems", { valueAsNumber: true })}
-                          min={1}
-                          max={10}
-                        />
-                      </div>
-
-                      <div>
-                        <Label>First popup delay (ms)</Label>
-                        <Input
-                          type="number"
-                          {...form.register("showDelayAfterNavMs", { valueAsNumber: true })}
-                          min={0}
-                        />
-                      </div>
-
-                      <div>
-                        <Label>Auto-close after (ms)</Label>
-                        <Input
-                          type="number"
-                          {...form.register("autoCloseMs", { valueAsNumber: true })}
-                          min={0}
-                        />
-                      </div>
-
-                      <div>
-                        <Label>Delay before next popup (ms)</Label>
-                        <Input
-                          type="number"
-                          {...form.register("betweenPopupsMs", { valueAsNumber: true })}
-                          min={0}
-                        />
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          Example: <code>10000</code> = next nudge appears 10s later.
-                        </p>
+                    <div className="rounded-lg bg-background px-3 py-2 text-xs">
+                      <div className="mb-2 font-medium text-slate-700">Quick timing presets</div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            form.setValue("showDelayAfterNavMs", 2500);
+                            form.setValue("autoCloseMs", 4500);
+                            form.setValue("betweenPopupsMs", 10000);
+                            form.setValue("maxSequenceItems", 3);
+                            form.setValue("animationPreset", "soft_slide");
+                          }}
+                        >
+                          Balanced
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            form.setValue("showDelayAfterNavMs", 1800);
+                            form.setValue("autoCloseMs", 3200);
+                            form.setValue("betweenPopupsMs", 7000);
+                            form.setValue("maxSequenceItems", 3);
+                            form.setValue("animationPreset", "ppt_pop");
+                          }}
+                        >
+                          Aggressive
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            form.setValue("showDelayAfterNavMs", 3200);
+                            form.setValue("autoCloseMs", 5200);
+                            form.setValue("betweenPopupsMs", 12000);
+                            form.setValue("maxSequenceItems", 2);
+                            form.setValue("animationPreset", "cinematic");
+                          }}
+                        >
+                          Soft
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            // Lightweight "AI-like" auto tuning from theme style.
+                            const dark = (theme?.secondaryTextColor || "").toLowerCase() === "#ffffff";
+                            if (dark) {
+                              form.setValue("showDelayAfterNavMs", 3000);
+                              form.setValue("autoCloseMs", 5200);
+                              form.setValue("betweenPopupsMs", 11000);
+                              form.setValue("maxSequenceItems", 2);
+                              form.setValue("animationPreset", "cinematic");
+                            } else {
+                              form.setValue("showDelayAfterNavMs", 2200);
+                              form.setValue("autoCloseMs", 4200);
+                              form.setValue("betweenPopupsMs", 9000);
+                              form.setValue("maxSequenceItems", 3);
+                              form.setValue("animationPreset", "soft_slide");
+                            }
+                            toast.success("Smart tuning applied");
+                          }}
+                        >
+                          Smart tune
+                        </Button>
                       </div>
                     </div>
+
+                    <div className="rounded-lg border bg-background px-3 py-2 text-xs">
+                      <div className="font-medium text-slate-700">Live timeline</div>
+                      {!sequenceEnabledWatch ? (
+                        <div className="mt-1 text-muted-foreground">
+                          Sequence disabled. Only one promo appears.
+                        </div>
+                      ) : (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border px-2 py-0.5">Nudge 1 @ {showDelayWatch}ms</span>
+                          <span className="text-muted-foreground">{"->"} closes after {autoCloseWatch}ms</span>
+                          <span className="rounded-full border px-2 py-0.5">wait {betweenWatch}ms</span>
+                          <span className="rounded-full border px-2 py-0.5">Nudge 2 ... up to {sequenceCountWatch}</span>
+                          <span className="rounded-full border px-2 py-0.5">anim: {animationPresetWatch}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {sequenceUxMode === "advanced" ? (
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div>
+                          <Label>Max sequence items</Label>
+                          <Input
+                            type="number"
+                            {...form.register("maxSequenceItems", { valueAsNumber: true })}
+                            min={1}
+                            max={10}
+                          />
+                        </div>
+
+                        <div>
+                          <Label>First popup delay (ms)</Label>
+                          <Input
+                            type="number"
+                            {...form.register("showDelayAfterNavMs", { valueAsNumber: true })}
+                            min={0}
+                          />
+                        </div>
+
+                        <div>
+                          <Label>Auto-close after (ms)</Label>
+                          <Input
+                            type="number"
+                            {...form.register("autoCloseMs", { valueAsNumber: true })}
+                            min={0}
+                          />
+                        </div>
+
+                        <div>
+                          <Label>Delay before next popup (ms)</Label>
+                          <Input
+                            type="number"
+                            {...form.register("betweenPopupsMs", { valueAsNumber: true })}
+                            min={0}
+                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Example: <code>10000</code> = next nudge appears 10s later.
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label>Animation style</Label>
+                          <Select
+                            value={animationPresetWatch}
+                            onValueChange={(v) =>
+                              form.setValue(
+                                "animationPreset",
+                                v as "soft_slide" | "ppt_pop" | "cinematic" | "none",
+                              )
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Soft slide" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="soft_slide">Soft slide</SelectItem>
+                              <SelectItem value="ppt_pop">PPT pop</SelectItem>
+                              <SelectItem value="cinematic">Cinematic</SelectItem>
+                              <SelectItem value="none">No animation</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    ) : null}
                   </section>
 
                   {/* Message & CTAs */}
