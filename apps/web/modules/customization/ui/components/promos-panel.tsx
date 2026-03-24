@@ -31,6 +31,9 @@ const PromoSchema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   badgeText: z.string().optional(),
+  imageUrl: z.string().optional(),
+  videoUrl: z.string().optional(),
+  videoPosterUrl: z.string().optional(),
   identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
 
   // ✅ persisted
@@ -87,6 +90,16 @@ function isPrimaryButton(mode: PromoForm["ctaEmphasisMode"], index: number, len:
   return index === 0;
 }
 
+function formatDuration(ms: number) {
+  const safe = Math.max(0, Number(ms || 0));
+  if (safe >= 60_000) {
+    const mins = safe / 60_000;
+    return `${Number.isInteger(mins) ? mins.toFixed(0) : mins.toFixed(1)} min`;
+  }
+  const secs = safe / 1000;
+  return `${Number.isInteger(secs) ? secs.toFixed(0) : secs.toFixed(1)} s`;
+}
+
 export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const list = useQuery(api.private.promos.listByOrg, {});
   const upsert = useMutation(api.private.promos.upsert);
@@ -104,6 +117,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
       badgeText: "Live",
+      imageUrl: "",
+      videoUrl: "",
+      videoPosterUrl: "",
       pathPrefix: "/",
       pathMode: "prefix", // "/" + prefix = all pages
       identityMode: "auto",
@@ -138,6 +154,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
       badgeText: "Live",
+      imageUrl: form.getValues("imageUrl") ?? "",
+      videoUrl: form.getValues("videoUrl") ?? "",
+      videoPosterUrl: form.getValues("videoPosterUrl") ?? "",
       pathPrefix: form.getValues("pathPrefix") || "/",
       pathMode: form.getValues("pathMode") ?? "prefix",
       identityMode: form.getValues("identityMode") ?? "auto",
@@ -168,6 +187,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       title: "Scale freely, adapt quickly",
       body: "Book a short call to learn how we help teams like yours.",
       badgeText: "Promo",
+      imageUrl: form.getValues("imageUrl") ?? "",
+      videoUrl: form.getValues("videoUrl") ?? "",
+      videoPosterUrl: form.getValues("videoPosterUrl") ?? "",
       pathPrefix: form.getValues("pathPrefix") || "/",
       pathMode: form.getValues("pathMode") ?? "prefix",
       identityMode: form.getValues("identityMode") ?? "auto",
@@ -239,6 +261,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           title: values.title,
           body: values.body,
           badgeText: values.badgeText || undefined,
+          imageUrl: values.imageUrl?.trim() || undefined,
+          videoUrl: values.videoUrl?.trim() || undefined,
+          videoPosterUrl: values.videoPosterUrl?.trim() || undefined,
         },
         primaryCta,
         secondaryCta,
@@ -274,6 +299,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
       badgeText: "Live",
+      imageUrl: "",
+      videoUrl: "",
+      videoPosterUrl: "",
       pathPrefix: "/",
       pathMode: "prefix",
       identityMode: "auto",
@@ -328,6 +356,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       title: p.card?.title ?? "",
       body: p.card?.body ?? "",
       badgeText: p.card?.badgeText ?? "",
+      imageUrl: p.card?.imageUrl ?? "",
+      videoUrl: p.card?.videoUrl ?? "",
+      videoPosterUrl: p.card?.videoPosterUrl ?? "",
       pathPrefix: p.rules?.pathPrefix ?? "/",
       pathMode: (p.rules?.pathMode as "prefix" | "exact") ?? "prefix",
       identityMode: (p.identityMode as "auto" | "logo" | "avatars") ?? "auto",
@@ -349,6 +380,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const previewTitle = form.watch("title") || "Get help fast or schedule time";
   const previewBody = form.watch("body") || "Talk to the assistant now or book a 15-min demo.";
   const previewBadge = form.watch("badgeText") || "Live";
+  const previewImageUrl = (form.watch("imageUrl") || "").trim();
+  const previewVideoUrl = (form.watch("videoUrl") || "").trim();
+  const previewVideoPosterUrl = (form.watch("videoPosterUrl") || "").trim();
 
   const rawPreviewCtas = form.watch("ctas") || [];
   const previewCtas = rawPreviewCtas.filter((c) => c && c.label && c.label.trim().length > 0);
@@ -693,9 +727,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         </div>
                       ) : (
                         <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <span className="rounded-full border px-2 py-0.5">Nudge 1 @ {showDelayWatch}ms</span>
-                          <span className="text-muted-foreground">{"->"} closes after {autoCloseWatch}ms</span>
-                          <span className="rounded-full border px-2 py-0.5">wait {betweenWatch}ms</span>
+                          <span className="rounded-full border px-2 py-0.5">
+                            Nudge 1 @ {formatDuration(showDelayWatch)}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {"->"} closes after {formatDuration(autoCloseWatch)}
+                          </span>
+                          <span className="rounded-full border px-2 py-0.5">
+                            wait {formatDuration(betweenWatch)}
+                          </span>
                           <span className="rounded-full border px-2 py-0.5">Nudge 2 ... up to {sequenceCountWatch}</span>
                           <span className="rounded-full border px-2 py-0.5">anim: {animationPresetWatch}</span>
                         </div>
@@ -715,32 +755,53 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         </div>
 
                         <div>
-                          <Label>First popup delay (ms)</Label>
+                          <Label>First popup delay (seconds)</Label>
                           <Input
                             type="number"
-                            {...form.register("showDelayAfterNavMs", { valueAsNumber: true })}
                             min={0}
-                          />
-                        </div>
-
-                        <div>
-                          <Label>Auto-close after (ms)</Label>
-                          <Input
-                            type="number"
-                            {...form.register("autoCloseMs", { valueAsNumber: true })}
-                            min={0}
-                          />
-                        </div>
-
-                        <div>
-                          <Label>Delay before next popup (ms)</Label>
-                          <Input
-                            type="number"
-                            {...form.register("betweenPopupsMs", { valueAsNumber: true })}
-                            min={0}
+                            step={0.1}
+                            value={Number((showDelayWatch / 1000).toFixed(1))}
+                            onChange={(e) => {
+                              const s = Number(e.target.value || 0);
+                              form.setValue("showDelayAfterNavMs", Math.max(0, Math.round(s * 1000)));
+                            }}
                           />
                           <p className="mt-1 text-[11px] text-muted-foreground">
-                            Example: <code>10000</code> = next nudge appears 10s later.
+                            Current: <span className="font-medium">{formatDuration(showDelayWatch)}</span>
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label>Auto-close after (seconds)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={Number((autoCloseWatch / 1000).toFixed(1))}
+                            onChange={(e) => {
+                              const s = Number(e.target.value || 0);
+                              form.setValue("autoCloseMs", Math.max(0, Math.round(s * 1000)));
+                            }}
+                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Current: <span className="font-medium">{formatDuration(autoCloseWatch)}</span>
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label>Delay before next popup (seconds)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={Number((betweenWatch / 1000).toFixed(1))}
+                            onChange={(e) => {
+                              const s = Number(e.target.value || 0);
+                              form.setValue("betweenPopupsMs", Math.max(0, Math.round(s * 1000)));
+                            }}
+                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Example: <code>10</code> = next nudge appears 10 seconds later.
                           </p>
                         </div>
 
@@ -793,6 +854,30 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       <div className="max-w-xs">
                         <Label>Badge (optional)</Label>
                         <Input {...form.register("badgeText")} placeholder="Live" />
+                      </div>
+                      <div>
+                        <Label>Image URL (optional)</Label>
+                        <Input
+                          {...form.register("imageUrl")}
+                          placeholder="https://.../promo-image.webp"
+                        />
+                      </div>
+                      <div>
+                        <Label>Video URL (optional)</Label>
+                        <Input
+                          {...form.register("videoUrl")}
+                          placeholder="https://.../promo-video.mp4"
+                        />
+                      </div>
+                      <div>
+                        <Label>Video poster URL (optional)</Label>
+                        <Input
+                          {...form.register("videoPosterUrl")}
+                          placeholder="https://.../video-poster.jpg"
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          If video is set, poster image improves loading and fallback.
+                        </p>
                       </div>
                     </div>
 
@@ -994,6 +1079,24 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     </div>
 
                     <p className="text-xs leading-relaxed text-slate-600">{previewBody}</p>
+
+                    {previewVideoUrl ? (
+                      <video
+                        className="h-28 w-full rounded-lg border object-cover"
+                        src={previewVideoUrl}
+                        poster={previewVideoPosterUrl || undefined}
+                        muted
+                        playsInline
+                        loop
+                        autoPlay
+                      />
+                    ) : previewImageUrl ? (
+                      <img
+                        className="h-28 w-full rounded-lg border object-cover"
+                        src={previewImageUrl}
+                        alt="Promo media"
+                      />
+                    ) : null}
 
                     <div className="space-y-2">
                       {effectivePreviewCtas.map((cta, index) => {

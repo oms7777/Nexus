@@ -442,6 +442,9 @@ export default defineSchema({
       title: v.string(),
       body: v.string(),
       badgeText: v.optional(v.string()),
+      imageUrl: v.optional(v.string()),
+      videoUrl: v.optional(v.string()),
+      videoPosterUrl: v.optional(v.string()),
     }),
     primaryCta: v.object({
       kind: v.union(v.literal("open_chat"), v.literal("open_booking"), v.literal("open_url")),

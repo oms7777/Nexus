@@ -30,6 +30,9 @@ type SimpleCta = {
 type PromoPayload = {
   title?: string;
   body?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  videoPosterUrl?: string;
   primary?: string;
   secondary?: string;
   primaryCta?: SimpleCta;
@@ -1076,6 +1079,35 @@ type NudgeKind = "promo" | "suggestions" | null;
     const title =
       payload.title || "Discover the right solution for your business project.";
     const body = payload.body || "Chat with our assistant or book a 15-min demo.";
+    const safeImage = payload.imageUrl ? escapeAttr(payload.imageUrl) : "";
+    const safeVideo = payload.videoUrl ? escapeAttr(payload.videoUrl) : "";
+    const safeVideoPoster = payload.videoPosterUrl
+      ? escapeAttr(payload.videoPosterUrl)
+      : "";
+    const mediaHtml = safeVideo
+      ? `
+        <div style="margin-top:10px;">
+          <video
+            src="${safeVideo}"
+            ${safeVideoPoster ? `poster="${safeVideoPoster}"` : ""}
+            muted
+            playsinline
+            preload="metadata"
+            style="width:100%;height:112px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
+          ></video>
+        </div>
+      `
+      : safeImage
+        ? `
+        <div style="margin-top:10px;">
+          <img
+            src="${safeImage}"
+            alt="Promo media"
+            style="width:100%;height:112px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
+          />
+        </div>
+      `
+        : "";
 
     const buttonsHtml = hasMulti
       ? `
@@ -1220,6 +1252,8 @@ type NudgeKind = "promo" | "suggestions" | null;
             <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;word-break:break-word;">
               ${escapeHtml(body)}
             </div>
+
+            ${mediaHtml}
 
             ${micHtml}
 

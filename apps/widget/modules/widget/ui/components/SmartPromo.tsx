@@ -277,6 +277,9 @@ export default function SmartPromo() {
     return {
       title: promoDoc.card?.title,
       body: promoDoc.card?.body,
+      imageUrl: (promoDoc as any)?.card?.imageUrl,
+      videoUrl: (promoDoc as any)?.card?.videoUrl,
+      videoPosterUrl: (promoDoc as any)?.card?.videoPosterUrl,
       primary: promoDoc.primaryCta?.label,
       secondary: promoDoc.secondaryCta?.label,
       primaryCta: promoDoc.primaryCta,
