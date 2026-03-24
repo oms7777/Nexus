@@ -87,12 +87,8 @@ export default function AnalyticsOverviewPage() {
       : "skip",
   );
 
-  if (!orgId) return <div className="p-6">No organization</div>;
-  if (overview === undefined || trends === undefined || (advancedEnabled && reps === undefined))
-    return <div className="p-6">Loading…</div>;
-
-  const kpi = overview?.kpi ?? {};
-  const deltas = overview?.deltas ?? {};
+  const kpi = (overview?.kpi ?? {}) as Record<string, number | undefined>;
+  const deltas = (overview?.deltas ?? {}) as Record<string, number | null | undefined>;
 
   const cards: Array<{ label: string; value: number; delta?: number | null; sub?: string }> = [
     { label: "Sessions", value: Number(kpi.sessions ?? 0), delta: deltas.sessions ?? null, sub: "Top-of-funnel traffic" },
@@ -172,6 +168,12 @@ export default function AnalyticsOverviewPage() {
   }));
 
   const repRows = Array.isArray(reps?.reps) ? reps.reps : [];
+
+  // Keep guard returns AFTER all hooks are declared,
+  // otherwise React can throw hook order errors in production.
+  if (!orgId) return <div className="p-6">No organization</div>;
+  if (overview === undefined || trends === undefined || (advancedEnabled && reps === undefined))
+    return <div className="p-6">Loading…</div>;
 
   return (
     <div className="space-y-6">
