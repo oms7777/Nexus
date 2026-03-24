@@ -37,6 +37,11 @@ const PromoSchema = z.object({
   ctaEmphasisMode: z
     .enum(["first_primary", "last_primary", "all_primary", "none_primary"])
     .optional(),
+  sequenceEnabled: z.boolean().optional(),
+  showDelayAfterNavMs: z.number().min(0).optional(),
+  autoCloseMs: z.number().min(0).optional(),
+  betweenPopupsMs: z.number().min(0).optional(),
+  maxSequenceItems: z.number().int().min(1).max(10).optional(),
 
   ctas: z
     .array(
@@ -99,6 +104,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathMode: "prefix", // "/" + prefix = all pages
       identityMode: "auto",
       ctaEmphasisMode: "first_primary",
+      sequenceEnabled: true,
+      showDelayAfterNavMs: 2500,
+      autoCloseMs: 4500,
+      betweenPopupsMs: 10000,
+      maxSequenceItems: 3,
       ctas: [
         { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
         { kind: "open_booking", label: "Book a meeting", url: "" },
@@ -127,6 +137,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathMode: form.getValues("pathMode") ?? "prefix",
       identityMode: form.getValues("identityMode") ?? "auto",
       ctaEmphasisMode: form.getValues("ctaEmphasisMode") ?? "first_primary",
+      sequenceEnabled: form.getValues("sequenceEnabled") ?? true,
+      showDelayAfterNavMs: form.getValues("showDelayAfterNavMs") ?? 2500,
+      autoCloseMs: form.getValues("autoCloseMs") ?? 4500,
+      betweenPopupsMs: form.getValues("betweenPopupsMs") ?? 10000,
+      maxSequenceItems: form.getValues("maxSequenceItems") ?? 3,
       ctas:
         existingCtas && existingCtas.length
           ? existingCtas
@@ -151,6 +166,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathMode: form.getValues("pathMode") ?? "prefix",
       identityMode: form.getValues("identityMode") ?? "auto",
       ctaEmphasisMode: form.getValues("ctaEmphasisMode") ?? "first_primary",
+      sequenceEnabled: form.getValues("sequenceEnabled") ?? true,
+      showDelayAfterNavMs: form.getValues("showDelayAfterNavMs") ?? 2500,
+      autoCloseMs: form.getValues("autoCloseMs") ?? 4500,
+      betweenPopupsMs: form.getValues("betweenPopupsMs") ?? 10000,
+      maxSequenceItems: form.getValues("maxSequenceItems") ?? 3,
       ctas:
         existingCtas && existingCtas.length
           ? existingCtas
@@ -218,6 +238,13 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         identityMode: values.identityMode ?? "auto",
         ctaList: ctaList.length ? ctaList : undefined,
         ctaEmphasisMode: mode,
+        settings: {
+          sequenceEnabled: values.sequenceEnabled ?? true,
+          showDelayAfterNavMs: values.showDelayAfterNavMs ?? 2500,
+          autoCloseMs: values.autoCloseMs ?? 4500,
+          betweenPopupsMs: values.betweenPopupsMs ?? 10000,
+          maxSequenceItems: values.maxSequenceItems ?? 3,
+        },
       } as any);
 
       toast.success("Promo saved");
@@ -243,6 +270,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathMode: "prefix",
       identityMode: "auto",
       ctaEmphasisMode: "first_primary",
+      sequenceEnabled: true,
+      showDelayAfterNavMs: 2500,
+      autoCloseMs: 4500,
+      betweenPopupsMs: 10000,
+      maxSequenceItems: 3,
       ctas: [
         { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
         { kind: "open_booking", label: "Book a meeting", url: "" },
@@ -291,6 +323,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathMode: (p.rules?.pathMode as "prefix" | "exact") ?? "prefix",
       identityMode: (p.identityMode as "auto" | "logo" | "avatars") ?? "auto",
       ctaEmphasisMode: (p.ctaEmphasisMode as PromoForm["ctaEmphasisMode"]) ?? "first_primary",
+      sequenceEnabled: p.settings?.sequenceEnabled ?? true,
+      showDelayAfterNavMs: p.settings?.showDelayAfterNavMs ?? 2500,
+      autoCloseMs: p.settings?.autoCloseMs ?? 4500,
+      betweenPopupsMs: p.settings?.betweenPopupsMs ?? 10000,
+      maxSequenceItems: p.settings?.maxSequenceItems ?? 3,
       ctas: ctasForForm,
     });
 
@@ -517,6 +554,71 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                               ? `Only page ${pathPrefix || "/"}`
                               : `Page ${pathPrefix || "/"} and subpages`}
                       </span>
+                    </div>
+                  </section>
+
+                  {/* Sequence behavior */}
+                  <section className="space-y-3 rounded-xl border bg-muted/40 p-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Sequence behavior
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Control popup timing: show, auto-close, and delay before next promo.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-lg border bg-background px-3 py-2">
+                        <div>
+                          <Label className="text-xs">Enable sequence</Label>
+                          <p className="text-[11px] text-muted-foreground">Show multiple matched promos one by one.</p>
+                        </div>
+                        <Switch
+                          checked={form.watch("sequenceEnabled") ?? true}
+                          onCheckedChange={(v) => form.setValue("sequenceEnabled", v)}
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Max sequence items</Label>
+                        <Input
+                          type="number"
+                          {...form.register("maxSequenceItems", { valueAsNumber: true })}
+                          min={1}
+                          max={10}
+                        />
+                      </div>
+
+                      <div>
+                        <Label>First popup delay (ms)</Label>
+                        <Input
+                          type="number"
+                          {...form.register("showDelayAfterNavMs", { valueAsNumber: true })}
+                          min={0}
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Auto-close after (ms)</Label>
+                        <Input
+                          type="number"
+                          {...form.register("autoCloseMs", { valueAsNumber: true })}
+                          min={0}
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Delay before next popup (ms)</Label>
+                        <Input
+                          type="number"
+                          {...form.register("betweenPopupsMs", { valueAsNumber: true })}
+                          min={0}
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Example: <code>10000</code> = next nudge appears 10s later.
+                        </p>
+                      </div>
                     </div>
                   </section>
 

@@ -472,6 +472,15 @@ export default defineSchema({
         v.literal("none_primary")
       )
     ),
+    settings: v.optional(
+      v.object({
+        sequenceEnabled: v.optional(v.boolean()),
+        showDelayAfterNavMs: v.optional(v.number()),
+        autoCloseMs: v.optional(v.number()),
+        betweenPopupsMs: v.optional(v.number()),
+        maxSequenceItems: v.optional(v.number()),
+      })
+    ),
     identityMode: v.optional(v.union(v.literal("auto"), v.literal("logo"), v.literal("avatars"))),
     createdAt: v.number(),
     updatedAt: v.number(),

@@ -144,10 +144,11 @@ export default function SmartPromo() {
         : "skip",
     ) ?? null;
 
-  const promo: Doc<"promos"> | undefined = useMemo(
-    () => (Array.isArray(promos) && promos.length ? promos[0] : undefined),
+  const matchedPromos: Doc<"promos">[] = useMemo(
+    () => (Array.isArray(promos) ? (promos as Doc<"promos">[]) : []),
     [promos],
   );
+  const promo: Doc<"promos"> | undefined = matchedPromos[0];
 
   const promoRef = useRef<Doc<"promos"> | undefined>(undefined);
   useEffect(() => {
@@ -254,8 +255,7 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, consentGiven, contactSessionId, currentConvId]);
 
-  const makePromoPayload = () => {
-    if (!promo) return null;
+  const makePromoPayload = (promoDoc: Doc<"promos">) => {
 
     const avatars: string[] =
       (Array.isArray(memberAvatars) && memberAvatars.length
@@ -268,25 +268,25 @@ export default function SmartPromo() {
     const theme: ThemePayload | undefined = (ws as any)?.theme;
     const brandLogoUrl: string | undefined = (ws as any)?.brandLogoUrl;
 
-    const ctaList = (promo as any).ctaList as Cta[] | undefined;
+    const ctaList = (promoDoc as any).ctaList as Cta[] | undefined;
     const simpleCtaList =
       ctaList && ctaList.length
         ? ctaList.map((c) => ({ kind: c.kind, label: c.label, url: c.url }))
         : undefined;
 
     return {
-      title: promo.card?.title,
-      body: promo.card?.body,
-      primary: promo.primaryCta?.label,
-      secondary: promo.secondaryCta?.label,
-      primaryCta: promo.primaryCta,
-      secondaryCta: promo.secondaryCta,
+      title: promoDoc.card?.title,
+      body: promoDoc.card?.body,
+      primary: promoDoc.primaryCta?.label,
+      secondary: promoDoc.secondaryCta?.label,
+      primaryCta: promoDoc.primaryCta,
+      secondaryCta: promoDoc.secondaryCta,
       avatars,
-      badgeText: promo.card?.badgeText || undefined,
+      badgeText: promoDoc.card?.badgeText || undefined,
       privacyUrl,
       theme,
       brandLogoUrl,
-      identityMode: promo.identityMode ?? "auto",
+      identityMode: promoDoc.identityMode ?? "auto",
       ctaList: simpleCtaList,
       canUseVoice,
     };
@@ -342,12 +342,12 @@ export default function SmartPromo() {
   /**
    * ✅ Send when promo changes (instead of "only once")
    */
-  const lastSentPromoIdRef = useRef<string | null>(null);
+  const lastSentPromoKeyRef = useRef<string | null>(null);
   const lastSentSuggestionsKeyRef = useRef<string | null>(null);
 
   // Reset when org changes
   useEffect(() => {
-    lastSentPromoIdRef.current = null;
+    lastSentPromoKeyRef.current = null;
     lastSentSuggestionsKeyRef.current = null;
   }, [orgId]);
 
@@ -360,16 +360,33 @@ export default function SmartPromo() {
     // In embedded mode, wait for parentHref so targeting works
     if (!currentUrl) return;
 
-    const payload = makePromoPayload();
-    if (!payload) return;
+    if (!matchedPromos.length) return;
 
-    const nextId = promo?._id ? String(promo._id) : "__noid__";
-    if (lastSentPromoIdRef.current === nextId) return;
+    const items = matchedPromos.map((p) => makePromoPayload(p));
+    const firstSettings = (matchedPromos[0] as any)?.settings ?? {};
 
-    lastSentPromoIdRef.current = nextId;
-    window.parent?.postMessage({ type: "nexus:promo", payload }, "*");
+    const sequenceSettings = {
+      sequenceEnabled: firstSettings.sequenceEnabled ?? true,
+      showDelayAfterNavMs: firstSettings.showDelayAfterNavMs ?? 2500,
+      autoCloseMs: firstSettings.autoCloseMs ?? 4500,
+      betweenPopupsMs: firstSettings.betweenPopupsMs ?? 10000,
+      maxSequenceItems: firstSettings.maxSequenceItems ?? 3,
+    };
+
+    const key = [
+      items.map((x) => `${x.title || ""}:${x.body || ""}`).join("|"),
+      JSON.stringify(sequenceSettings),
+    ].join("__");
+
+    if (lastSentPromoKeyRef.current === key) return;
+    lastSentPromoKeyRef.current = key;
+
+    window.parent?.postMessage(
+      { type: "nexus:promo-sequence", payload: { items, settings: sequenceSettings } },
+      "*",
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbedded, planReady, canUseAdvancedPromos, currentUrl, promo, memberAvatars, ws, canUseVoice]);
+  }, [isEmbedded, planReady, canUseAdvancedPromos, currentUrl, matchedPromos, memberAvatars, ws, canUseVoice]);
 
   // ✅ SEND SUGGESTIONS (Starter only) when the page-specific config changes
   useEffect(() => {

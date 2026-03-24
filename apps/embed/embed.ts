@@ -44,6 +44,17 @@ type PromoPayload = {
   canUseVoice?: boolean;
 };
 
+type PromoSequencePayload = {
+  items: PromoPayload[];
+  settings?: {
+    sequenceEnabled?: boolean;
+    showDelayAfterNavMs?: number;
+    autoCloseMs?: number;
+    betweenPopupsMs?: number;
+    maxSequenceItems?: number;
+  };
+};
+
 type SuggestionsPayload = {
   greetMessage?: string;
   suggestions: string[];
@@ -87,6 +98,11 @@ type NudgeKind = "promo" | "suggestions" | null;
   let suggestionsTimer: number | null = null;
   let pendingPromoPayload: PromoPayload | null = null;
   let promoRenderTimer: number | null = null;
+  let promoAutoCloseTimer: number | null = null;
+  let promoNextTimer: number | null = null;
+  let promoSequenceItems: PromoPayload[] = [];
+  let promoSequenceSettings: PromoSequencePayload["settings"] | null = null;
+  let promoIndex = 0;
   let lastNavigationTs = Date.now();
   let nudgeAutoCloseTimer: number | null = null;
   let suggestionsNextTimer: number | null = null;
@@ -294,25 +310,11 @@ type NudgeKind = "promo" | "suggestions" | null;
             scheduleSuggestions(pendingSuggestions);
           }
 
-          if (
-            pendingPromoPayload &&
-            promoRenderTimer &&
-            nudgeKind === "promo" &&
-            !isOpen
-          ) {
-            window.clearTimeout(promoRenderTimer);
-            promoRenderTimer = null;
-
-            const delay = Math.max(NUDGE_MIN_DELAY_MS, NUDGE_SHOW_DELAY_AFTER_NAV_MS);
-            promoRenderTimer = window.setTimeout(() => {
-              promoRenderTimer = null;
-              if (!NUDGE_ENABLED) return;
-              if (nudgeDismissed) return;
-              if (isOpen) return;
-              if (nudgeKind !== "promo") return;
-              if (!pendingPromoPayload) return;
-              renderNudge(pendingPromoPayload);
-            }, delay);
+          if (nudgeKind === "promo" && promoSequenceItems.length > 0 && !isOpen) {
+            schedulePromoSequence({
+              items: promoSequenceItems,
+              settings: promoSequenceSettings ?? undefined,
+            });
           }
         });
       }
@@ -396,33 +398,24 @@ type NudgeKind = "promo" | "suggestions" | null;
         );
 
         if (!NUDGE_ENABLED) return;
+        schedulePromoSequence({ items: [promoPayload] });
+        break;
+      }
 
-        // ✅ Promo wins: cancel pending suggestions
-        cancelSuggestions();
-        nudgeKind = "promo";
+      case "nexus:promo-sequence": {
+        const promoSequence = payload as PromoSequencePayload;
 
-        hasNudgePayload = true;
+        iframe?.contentWindow?.postMessage(
+          { type: "nexus:host-ack" },
+          TARGET_ORIGIN || "*",
+        );
+        iframe?.contentWindow?.postMessage(
+          { type: "nexus:hide-internal-promo" },
+          TARGET_ORIGIN || "*",
+        );
 
-        theme = promoPayload.theme || theme || null;
-        brandLogoUrl = promoPayload.brandLogoUrl || brandLogoUrl || null;
-
-        applyThemeToFab();
-        pendingPromoPayload = promoPayload;
-        if (promoRenderTimer) window.clearTimeout(promoRenderTimer);
-
-        const elapsed = Date.now() - lastNavigationTs;
-        const remainingAfterNav = NUDGE_SHOW_DELAY_AFTER_NAV_MS - elapsed;
-        const delay = Math.max(NUDGE_MIN_DELAY_MS, remainingAfterNav);
-
-        promoRenderTimer = window.setTimeout(() => {
-          promoRenderTimer = null;
-          if (!NUDGE_ENABLED) return;
-          if (nudgeDismissed) return;
-          if (isOpen) return;
-          if (nudgeKind !== "promo") return;
-          if (!pendingPromoPayload) return;
-          renderNudge(pendingPromoPayload);
-        }, delay);
+        if (!NUDGE_ENABLED) return;
+        schedulePromoSequence(promoSequence);
         break;
       }
 
@@ -590,6 +583,92 @@ type NudgeKind = "promo" | "suggestions" | null;
     pendingSuggestions = null;
     hasNudgePayload = false;
     cancelSuggestionsSequence();
+  }
+
+  function cancelPromoSequence() {
+    pendingPromoPayload = null;
+    promoSequenceItems = [];
+    promoSequenceSettings = null;
+    promoIndex = 0;
+
+    if (promoRenderTimer) {
+      window.clearTimeout(promoRenderTimer);
+      promoRenderTimer = null;
+    }
+    if (promoAutoCloseTimer) {
+      window.clearTimeout(promoAutoCloseTimer);
+      promoAutoCloseTimer = null;
+    }
+    if (promoNextTimer) {
+      window.clearTimeout(promoNextTimer);
+      promoNextTimer = null;
+    }
+  }
+
+  function schedulePromoSequence(promoPayload: PromoSequencePayload) {
+    cancelPromoSequence();
+    cancelSuggestions();
+
+    nudgeKind = "promo";
+    hasNudgePayload = true;
+
+    const allItems = Array.isArray(promoPayload.items) ? promoPayload.items : [];
+    const settings = promoPayload.settings || {};
+    const sequenceEnabled = settings.sequenceEnabled !== false;
+    const maxItems = Math.max(1, Math.min(10, Math.floor(settings.maxSequenceItems ?? 3)));
+
+    promoSequenceItems = sequenceEnabled ? allItems.slice(0, maxItems) : allItems.slice(0, 1);
+    promoSequenceSettings = settings;
+
+    if (!promoSequenceItems.length) return;
+
+    theme = promoSequenceItems[0]?.theme || theme || null;
+    brandLogoUrl = promoSequenceItems[0]?.brandLogoUrl || brandLogoUrl || null;
+    applyThemeToFab();
+
+    const elapsed = Date.now() - lastNavigationTs;
+    const showDelayAfterNavMs = settings.showDelayAfterNavMs ?? NUDGE_SHOW_DELAY_AFTER_NAV_MS;
+    const remainingAfterNav = showDelayAfterNavMs - elapsed;
+    const delay = Math.max(NUDGE_MIN_DELAY_MS, remainingAfterNav);
+
+    const autoCloseMs = settings.autoCloseMs ?? NUDGE_AUTO_CLOSE_MS;
+    const betweenPopupsMs = settings.betweenPopupsMs ?? 10000;
+
+    const showOne = (idx: number) => {
+      if (!NUDGE_ENABLED) return;
+      if (nudgeDismissed) return;
+      if (isOpen) return;
+      if (nudgeKind !== "promo") return;
+      if (idx >= promoSequenceItems.length) return;
+
+      promoIndex = idx;
+      const item = promoSequenceItems[idx]!;
+      pendingPromoPayload = item;
+      renderNudge(item);
+
+      promoAutoCloseTimer = window.setTimeout(() => {
+        promoAutoCloseTimer = null;
+        removeNudgeOnly();
+
+        const next = idx + 1;
+        if (next >= promoSequenceItems.length) {
+          cancelPromoSequence();
+          nudgeKind = null;
+          hasNudgePayload = false;
+          return;
+        }
+
+        promoNextTimer = window.setTimeout(() => {
+          promoNextTimer = null;
+          showOne(next);
+        }, betweenPopupsMs);
+      }, autoCloseMs);
+    };
+
+    promoRenderTimer = window.setTimeout(() => {
+      promoRenderTimer = null;
+      showOne(0);
+    }, delay);
   }
 
   function revealFabIfNeeded() {
@@ -1164,11 +1243,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     closeBtn?.addEventListener("click", () => {
       nudgeDismissed = true;
       // If the visitor dismisses the promo, stop the whole nudge flow.
-      pendingPromoPayload = null;
-      if (promoRenderTimer) {
-        window.clearTimeout(promoRenderTimer);
-        promoRenderTimer = null;
-      }
+      cancelPromoSequence();
       cancelSuggestions();
       removeNudgeOnly();
     });
@@ -1342,10 +1417,7 @@ type NudgeKind = "promo" | "suggestions" | null;
   function openChat() {
     // Visitor started interacting: stop any queued popups immediately.
     cancelSuggestionsSequence();
-    if (promoRenderTimer) {
-      window.clearTimeout(promoRenderTimer);
-      promoRenderTimer = null;
-    }
+    cancelPromoSequence();
 
     pendingCta = { type: "open-chat" };
     show();
@@ -1361,10 +1433,7 @@ type NudgeKind = "promo" | "suggestions" | null;
   function openBooking() {
     // Visitor started interacting: stop any queued popups immediately.
     cancelSuggestionsSequence();
-    if (promoRenderTimer) {
-      window.clearTimeout(promoRenderTimer);
-      promoRenderTimer = null;
-    }
+    cancelPromoSequence();
 
     pendingCta = { type: "run-secondary-cta" };
     show();
@@ -1396,11 +1465,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     unpatchHistory = null;
 
     cancelSuggestionsSequence();
-    if (promoRenderTimer) {
-      window.clearTimeout(promoRenderTimer);
-      promoRenderTimer = null;
-    }
-    pendingPromoPayload = null;
+    cancelPromoSequence();
     removeNudge();
 
     if (container) {

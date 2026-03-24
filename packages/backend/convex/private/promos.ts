@@ -80,6 +80,14 @@ const ctaEmphasisModeV = v.union(
   v.literal("none_primary"),
 );
 
+const promoSettingsV = v.object({
+  sequenceEnabled: v.optional(v.boolean()),
+  showDelayAfterNavMs: v.optional(v.number()),
+  autoCloseMs: v.optional(v.number()),
+  betweenPopupsMs: v.optional(v.number()),
+  maxSequenceItems: v.optional(v.number()),
+});
+
 export const listByOrg = query({
   args: {},
   handler: async (ctx) => {
@@ -106,6 +114,7 @@ export const upsert = mutation({
     identityMode: v.optional(identityModeV),
     ctaList: v.optional(v.array(ctaV)),
     ctaEmphasisMode: v.optional(ctaEmphasisModeV),
+    settings: v.optional(promoSettingsV),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
