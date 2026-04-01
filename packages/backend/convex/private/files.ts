@@ -62,7 +62,43 @@ function safeFileTypeFromName(name: string): string {
 
 /* ----------------------------- Types ----------------------------- */
 
-type SystemKind = "kb" | "brand_logo" | "avatar";
+type SystemKind = "kb" | "brand_logo" | "avatar" | "promo_media";
+
+const MAX_PROMO_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_PROMO_VIDEO_BYTES = 50 * 1024 * 1024;
+
+function assertPromoMediaMime(
+  role: "image" | "video" | "poster",
+  mime: string,
+): void {
+  const m = (mime || "").toLowerCase();
+  if (role === "video") {
+    if (!m.startsWith("video/")) {
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "Video uploads must be a video file (e.g. MP4, WebM).",
+      });
+    }
+    return;
+  }
+  if (!m.startsWith("image/")) {
+    throw new ConvexError({
+      code: "BAD_REQUEST",
+      message: "Image uploads must be an image file (e.g. PNG, WebP, JPEG).",
+    });
+  }
+}
+
+function assertPromoMediaSize(role: "image" | "video" | "poster", byteLength: number): void {
+  const max = role === "video" ? MAX_PROMO_VIDEO_BYTES : MAX_PROMO_IMAGE_BYTES;
+  if (byteLength > max) {
+    const mb = max / (1024 * 1024);
+    throw new ConvexError({
+      code: "BAD_REQUEST",
+      message: `File too large (max ${mb}MB for ${role === "video" ? "video" : "image"}).`,
+    });
+  }
+}
 
 type EntryMetadata = {
   storageId: Id<"_storage">;
@@ -72,7 +108,7 @@ type EntryMetadata = {
   /**
    * ✅ system kind:
    * - kb: indexed and listed on /files
-   * - brand_logo/avatar: assets only (not indexed, not listed)
+   * - brand_logo/avatar/promo_media: assets only (not indexed, not listed)
    *
    * NOTE: old data might have used `category` for folder. We keep backward compatibility.
    */
@@ -160,7 +196,19 @@ export const addFile = action({
     category: v.optional(v.string()),
 
     // new param (system kind)
-    kind: v.optional(v.union(v.literal("kb"), v.literal("brand_logo"), v.literal("avatar"))),
+    kind: v.optional(
+      v.union(
+        v.literal("kb"),
+        v.literal("brand_logo"),
+        v.literal("avatar"),
+        v.literal("promo_media"),
+      ),
+    ),
+
+    /** Required when kind is promo_media: which promo field the file fills */
+    promoMediaRole: v.optional(
+      v.union(v.literal("image"), v.literal("video"), v.literal("poster")),
+    ),
 
     // new param (folder)
     folder: v.optional(v.string()),
@@ -186,6 +234,7 @@ export const addFile = action({
       // - anything else => folder (kb)
       if (legacyCategory === "brand_logo") kind = "brand_logo";
       else if (legacyCategory === "avatar") kind = "avatar";
+      else if (legacyCategory === "promo_media") kind = "promo_media";
       else kind = "kb";
     }
 
@@ -205,11 +254,23 @@ export const addFile = action({
     const filename = args.filename?.trim() || "document";
     const safeMimeType = sanitizeMimeType(args.mimeType, filename, bytes);
 
+    if (kind === "promo_media") {
+      const role = args.promoMediaRole;
+      if (!role) {
+        throw new ConvexError({
+          code: "BAD_REQUEST",
+          message: "promoMediaRole is required for promo media uploads (image, video, or poster).",
+        });
+      }
+      assertPromoMediaSize(role, bytes.byteLength);
+      assertPromoMediaMime(role, safeMimeType);
+    }
+
     const blob = new Blob([bytes], { type: safeMimeType });
     const storageId = await ctx.storage.store(blob);
 
     // ✅ Assets: store only, return URL
-    if (kind === "brand_logo" || kind === "avatar") {
+    if (kind === "brand_logo" || kind === "avatar" || kind === "promo_media") {
       const urlFromConvex = await ctx.storage.getUrl(storageId);
       const url = urlFromConvex ?? buildStorageFallbackUrl(storageId);
 

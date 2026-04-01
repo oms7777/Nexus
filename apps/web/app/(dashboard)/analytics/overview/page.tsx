@@ -178,9 +178,16 @@ export default function AnalyticsOverviewPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+        <div className="max-w-3xl space-y-2">
           <div className="text-2xl font-semibold">Executive Analytics</div>
           <div className="text-sm text-muted-foreground">Pipeline performance for the selected period.</div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Different from web analytics</span> (e.g. Vercel or GA on your
+            marketing site): those tools measure page traffic. This view measures your{" "}
+            <span className="font-medium text-foreground">Inboundless funnel</span> — sessions, conversations, and
+            meetings from the widget on <span className="font-medium text-foreground">your customers&apos; sites</span>,
+            broken down by source, page, and geography (and optionally by sales territory below).
+          </p>
         </div>
         <RangePills value={days} onChange={setDays} />
       </div>
@@ -223,7 +230,7 @@ export default function AnalyticsOverviewPage() {
           <div className="xl:col-span-2">
             <CardShell
               title="Attribution & territories"
-              subtitle="What drives pipeline outcomes"
+              subtitle="Widget pipeline — not your hosting provider’s page analytics"
               right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
             >
               <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
@@ -250,10 +257,43 @@ export default function AnalyticsOverviewPage() {
                 </div>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-4 space-y-8">
+                {/* 1) Marketing-style global geography — all visitors we can place on the map; not filtered by sales territories */}
+                {useCountriesTable ? (
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-sm font-medium">Where your visitors come from</div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Marketing view: worldwide visitor geography for the selected period (top countries by activity).
+                        Not tied to <span className="font-medium text-foreground">Team &amp; Territories</span> — that’s
+                        for sales routing below.
+                      </p>
+                    </div>
+                    <MiniTable
+                      columns={["Country", "Sessions • Conversations • Meetings"]}
+                      rows={topCountries.slice(0, 8).map((t: any) => [
+                        normalizeLabel(t.countryLabel ?? t.countryCode),
+                        `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                      ])}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      “Unattributed” means we couldn’t infer a country for some visits (network, privacy, or missing
+                      location signal) — not a sales territory issue.
+                    </p>
+                  </div>
+                ) : null}
+
+                {/* 2) Sales territory drill-down — same data filtered by configured territory country lists */}
                 {canShowZoneDrilldown ? (
-                  <div className="space-y-3">
-                    <div className="mb-1 text-sm font-medium">Top zones</div>
+                  <div className="space-y-3 border-t border-border/60 pt-6">
+                    <div>
+                      <div className="text-sm font-medium">By sales territory</div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Uses your <span className="font-medium text-foreground">Team &amp; Territories</span> definitions.
+                        Shows performance inside each zone (e.g. which countries in “Europe” matter for routing), not total
+                        global traffic.
+                      </p>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {zoneTerritoriesWithCountries.map((z: any) => {
                         const active = String(z.territoryKey) === selectedZoneTerritoryKey;
@@ -275,12 +315,11 @@ export default function AnalyticsOverviewPage() {
                       })}
                     </div>
 
-                    <div className="mt-2 mb-2 text-sm font-medium">
-                      Top countries in{" "}
+                    <div className="text-sm font-medium">
+                      Countries in{" "}
                       {zoneTerritoriesWithCountries.find(
                         (z: any) => String(z.territoryKey) === selectedZoneTerritoryKey,
-                      )?.territoryLabel ??
-                        selectedZoneTerritoryKey}
+                      )?.territoryLabel ?? selectedZoneTerritoryKey}
                     </div>
                     <MiniTable
                       columns={["Country", "Sessions • Conversations • Meetings"]}
@@ -289,42 +328,31 @@ export default function AnalyticsOverviewPage() {
                         `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
                       ])}
                     />
-
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      Tip: “Unknown/Unattributed” usually means geo is missing (no countryCode captured yet).
-                    </div>
+                    {countriesInSelectedZone.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No attributed traffic in this territory for the period (or geo missing for those visits).
+                      </p>
+                    ) : null}
                   </div>
-                ) : (
-                  canShowZoneDrilldown ? null : useCountriesTable ? (
-                    <>
-                      <div className="mb-2 text-sm font-medium">Top countries</div>
-                      <MiniTable
-                        columns={["Country", "Sessions • Conversations • Meetings"]}
-                        rows={topCountries.slice(0, 8).map((t: any) => [
-                          normalizeLabel(t.countryLabel ?? t.countryCode),
-                          `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                        ])}
-                      />
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Tip: “Unknown/Unattributed” usually means geo is missing (no countryCode captured yet).
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="mb-2 text-sm font-medium">Top territories</div>
-                      <MiniTable
-                        columns={["Territory", "Sessions • Conversations • Meetings"]}
-                        rows={topTerritories.slice(0, 8).map((t: any) => [
-                          normalizeLabel(t.territoryLabel ?? t.territoryKey),
-                          `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                        ])}
-                      />
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Tip: “Unknown/Unattributed” usually means geo is missing (no countryCode captured yet).
-                      </div>
-                    </>
-                  )
-                )}
+                ) : null}
+
+                {/* Fallback: no country-level geo yet — show territory rollup only */}
+                {!useCountriesTable ? (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">Top territories</div>
+                    <p className="text-xs text-muted-foreground">
+                      Country-level “where visitors come from” will show once we can attribute visits to a country for this
+                      period.
+                    </p>
+                    <MiniTable
+                      columns={["Territory", "Sessions • Conversations • Meetings"]}
+                      rows={topTerritories.slice(0, 8).map((t: any) => [
+                        normalizeLabel(t.territoryLabel ?? t.territoryKey),
+                        `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                      ])}
+                    />
+                  </div>
+                ) : null}
               </div>
             </CardShell>
           </div>

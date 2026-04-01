@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import { useForm, SubmitHandler, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
 import { Button } from "@workspace/ui/components/button";
@@ -17,6 +17,10 @@ import { Separator } from "@workspace/ui/components/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@workspace/ui/components/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select";
 import { toast } from "sonner";
+import { Loader2, Upload } from "lucide-react";
+
+const MAX_PROMO_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_PROMO_VIDEO_BYTES = 50 * 1024 * 1024;
 
 const PromoSchema = z.object({
   id: z.string().optional(),
@@ -104,8 +108,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const list = useQuery(api.private.promos.listByOrg, {});
   const upsert = useMutation(api.private.promos.upsert);
   const remove = useMutation(api.private.promos.remove);
+  const addFile = useAction(api.private.files.addFile);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [uploadingPoster, setUploadingPoster] = useState(false);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const videoFileInputRef = useRef<HTMLInputElement | null>(null);
+  const posterFileInputRef = useRef<HTMLInputElement | null>(null);
   const [sequenceUxMode, setSequenceUxMode] = useState<"simple" | "advanced">("simple");
 
   const form = useForm<PromoForm>({
@@ -141,6 +152,47 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     control: form.control,
     name: "ctas",
   });
+
+  const handlePromoMediaUpload = async (
+    file: File | undefined,
+    role: "image" | "video" | "poster",
+    setUploading: (v: boolean) => void,
+    setField: (url: string) => void,
+    inputRef: RefObject<HTMLInputElement | null>,
+  ) => {
+    if (!file) return;
+    const max = role === "video" ? MAX_PROMO_VIDEO_BYTES : MAX_PROMO_IMAGE_BYTES;
+    if (file.size > max) {
+      toast.error(`File too large (max ${max / (1024 * 1024)}MB)`);
+      return;
+    }
+    try {
+      setUploading(true);
+      const bytes = await file.arrayBuffer();
+      const res = await addFile({
+        filename: file.name,
+        mimeType: file.type || "application/octet-stream",
+        bytes,
+        kind: "promo_media",
+        promoMediaRole: role,
+      });
+      const url = (res as { url?: string })?.url;
+      if (!url) {
+        toast.error("Upload failed (no URL returned)");
+        return;
+      }
+      setField(url);
+      toast.success(
+        role === "video" ? "Video uploaded" : role === "poster" ? "Poster uploaded" : "Image uploaded",
+      );
+    } catch (e) {
+      console.error(e);
+      toast.error("Upload failed");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
 
   /* ----------------- Presets ----------------- */
 
@@ -857,26 +909,131 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </div>
                       <div>
                         <Label>Image URL (optional)</Label>
-                        <Input
-                          {...form.register("imageUrl")}
-                          placeholder="https://.../promo-image.webp"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            className="flex-1"
+                            {...form.register("imageUrl")}
+                            placeholder="https://.../promo-image.webp"
+                          />
+                          <input
+                            ref={imageFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) =>
+                              handlePromoMediaUpload(
+                                e.target.files?.[0],
+                                "image",
+                                setUploadingImage,
+                                (url) => form.setValue("imageUrl", url, { shouldDirty: true }),
+                                imageFileInputRef,
+                              )
+                            }
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="shrink-0"
+                            disabled={uploadingImage}
+                            title="Upload image"
+                            onClick={() => imageFileInputRef.current?.click()}
+                          >
+                            {uploadingImage ? (
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                            ) : (
+                              <Upload className="h-4 w-4" aria-hidden />
+                            )}
+                          </Button>
+                        </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Paste a URL or upload (max 8MB). Used when no video is set.
+                        </p>
                       </div>
                       <div>
                         <Label>Video URL (optional)</Label>
-                        <Input
-                          {...form.register("videoUrl")}
-                          placeholder="https://.../promo-video.mp4"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            className="flex-1"
+                            {...form.register("videoUrl")}
+                            placeholder="https://.../promo-video.mp4"
+                          />
+                          <input
+                            ref={videoFileInputRef}
+                            type="file"
+                            accept="video/mp4,video/webm,video/quicktime,video/*"
+                            className="hidden"
+                            onChange={(e) =>
+                              handlePromoMediaUpload(
+                                e.target.files?.[0],
+                                "video",
+                                setUploadingVideo,
+                                (url) => form.setValue("videoUrl", url, { shouldDirty: true }),
+                                videoFileInputRef,
+                              )
+                            }
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="shrink-0"
+                            disabled={uploadingVideo}
+                            title="Upload video"
+                            onClick={() => videoFileInputRef.current?.click()}
+                          >
+                            {uploadingVideo ? (
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                            ) : (
+                              <Upload className="h-4 w-4" aria-hidden />
+                            )}
+                          </Button>
+                        </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Direct file URL (MP4/WebM), not a YouTube page. Upload up to 50MB or paste a CDN link.
+                        </p>
                       </div>
                       <div>
                         <Label>Video poster URL (optional)</Label>
-                        <Input
-                          {...form.register("videoPosterUrl")}
-                          placeholder="https://.../video-poster.jpg"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            className="flex-1"
+                            {...form.register("videoPosterUrl")}
+                            placeholder="https://.../video-poster.jpg"
+                          />
+                          <input
+                            ref={posterFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) =>
+                              handlePromoMediaUpload(
+                                e.target.files?.[0],
+                                "poster",
+                                setUploadingPoster,
+                                (url) => form.setValue("videoPosterUrl", url, { shouldDirty: true }),
+                                posterFileInputRef,
+                              )
+                            }
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="shrink-0"
+                            disabled={uploadingPoster}
+                            title="Upload poster image"
+                            onClick={() => posterFileInputRef.current?.click()}
+                          >
+                            {uploadingPoster ? (
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                            ) : (
+                              <Upload className="h-4 w-4" aria-hidden />
+                            )}
+                          </Button>
+                        </div>
                         <p className="mt-1 text-[11px] text-muted-foreground">
-                          If video is set, poster image improves loading and fallback.
+                          If video is set, poster image improves loading and fallback (max 8MB).
                         </p>
                       </div>
                     </div>
