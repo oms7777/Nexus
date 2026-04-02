@@ -39,13 +39,11 @@ type PromoEmbedItem = {
   body?: string;
   imageUrl?: string;
   videoUrl?: string;
-  videoPosterUrl?: string;
   primary?: string;
   secondary?: string;
   primaryCta?: Cta;
   secondaryCta?: Cta;
   avatars: string[];
-  badgeText?: string;
   privacyUrl?: string;
   theme?: ThemePayload;
   brandLogoUrl?: string;
@@ -342,13 +340,11 @@ export default function SmartPromo() {
       body: promoDoc.card?.body,
       imageUrl: (promoDoc as any)?.card?.imageUrl,
       videoUrl: (promoDoc as any)?.card?.videoUrl,
-      videoPosterUrl: (promoDoc as any)?.card?.videoPosterUrl,
       primary: promoDoc.primaryCta?.label,
       secondary: promoDoc.secondaryCta?.label,
       primaryCta: promoDoc.primaryCta,
       secondaryCta: promoDoc.secondaryCta,
       avatars,
-      badgeText: promoDoc.card?.badgeText || undefined,
       privacyUrl,
       theme,
       brandLogoUrl,
@@ -393,10 +389,6 @@ export default function SmartPromo() {
             typeof step?.videoUrl === "string" && step.videoUrl.trim().length > 0
               ? step.videoUrl.trim()
               : base.videoUrl,
-          videoPosterUrl:
-            typeof step?.videoPosterUrl === "string" && step.videoPosterUrl.trim().length > 0
-              ? step.videoPosterUrl.trim()
-              : base.videoPosterUrl,
         },
         promoDoc,
         step,

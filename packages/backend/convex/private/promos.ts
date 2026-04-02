@@ -64,10 +64,8 @@ const ctaV = v.object({
 const cardV = v.object({
   title: v.string(),
   body: v.string(),
-  badgeText: v.optional(v.string()),
   imageUrl: v.optional(v.string()),
   videoUrl: v.optional(v.string()),
-  videoPosterUrl: v.optional(v.string()),
 });
 
 const identityModeV = v.union(
@@ -88,7 +86,6 @@ const sequenceStepV = v.object({
   body: v.optional(v.string()),
   imageUrl: v.optional(v.string()),
   videoUrl: v.optional(v.string()),
-  videoPosterUrl: v.optional(v.string()),
   ctaList: v.optional(v.array(ctaV)),
   ctaEmphasisMode: v.optional(ctaEmphasisModeV),
 });

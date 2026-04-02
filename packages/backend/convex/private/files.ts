@@ -88,7 +88,7 @@ function normalizePromoVideoMime(filename: string, mime: string, bytes: ArrayBuf
 }
 
 function assertPromoMediaMime(
-  role: "image" | "video" | "poster",
+  role: "image" | "video",
   mime: string,
 ): void {
   const m = (mime || "").toLowerCase();
@@ -109,7 +109,7 @@ function assertPromoMediaMime(
   }
 }
 
-function assertPromoMediaSize(role: "image" | "video" | "poster", byteLength: number): void {
+function assertPromoMediaSize(role: "image" | "video", byteLength: number): void {
   const max = role === "video" ? MAX_PROMO_VIDEO_BYTES : MAX_PROMO_IMAGE_BYTES;
   if (byteLength > max) {
     const mb = max / (1024 * 1024);
@@ -227,7 +227,7 @@ export const addFile = action({
 
     /** Required when kind is promo_media: which promo field the file fills */
     promoMediaRole: v.optional(
-      v.union(v.literal("image"), v.literal("video"), v.literal("poster")),
+      v.union(v.literal("image"), v.literal("video")),
     ),
 
     // new param (folder)
@@ -279,7 +279,7 @@ export const addFile = action({
       if (!role) {
         throw new ConvexError({
           code: "BAD_REQUEST",
-          message: "promoMediaRole is required for promo media uploads (image, video, or poster).",
+          message: "promoMediaRole is required for promo media uploads (image or video).",
         });
       }
       if (role === "video") {

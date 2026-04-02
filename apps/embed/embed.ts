@@ -32,13 +32,11 @@ type PromoPayload = {
   body?: string;
   imageUrl?: string;
   videoUrl?: string;
-  videoPosterUrl?: string;
   primary?: string;
   secondary?: string;
   primaryCta?: SimpleCta;
   secondaryCta?: SimpleCta;
   avatars?: string[];
-  badgeText?: string;
   privacyUrl?: string;
   theme?: ThemePayload;
   brandLogoUrl?: string;
@@ -1077,29 +1075,16 @@ type NudgeKind = "promo" | "suggestions" | null;
       }
     }
 
-    const badgeHtml = payload.badgeText
-      ? `<span style="
-           position:absolute; left:12px; top:10px;
-           background:#10b981; color:#fff; font-size:11px; line-height:1;
-           padding:4px 6px; border-radius:6px; font-weight:600;">
-           ${escapeHtml(payload.badgeText)}
-         </span>`
-      : "";
-
     const title =
       payload.title || "Discover the right solution for your business project.";
     const body = payload.body || "Chat with our assistant or book a 15-min demo.";
     const safeImage = payload.imageUrl ? escapeAttr(payload.imageUrl) : "";
     const safeVideo = payload.videoUrl ? escapeAttr(payload.videoUrl) : "";
-    const safeVideoPoster = payload.videoPosterUrl
-      ? escapeAttr(payload.videoPosterUrl)
-      : "";
     const mediaHtml = safeVideo
       ? `
         <div style="margin-top:10px;">
           <video
             src="${safeVideo}"
-            ${safeVideoPoster ? `poster="${safeVideoPoster}"` : ""}
             muted
             playsinline
             preload="metadata"
@@ -1250,7 +1235,6 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     nudge!.innerHTML = `
       <div style="position:relative">
-        ${badgeHtml}
         <div style="display:flex;gap:10px;align-items:flex-start">
           <div style="display:flex;align-items:center;min-width:56px;padding-top:4px">
             ${identityHtml}

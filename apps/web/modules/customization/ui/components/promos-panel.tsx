@@ -32,6 +32,16 @@ import {
 const MAX_PROMO_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PROMO_VIDEO_BYTES = 50 * 1024 * 1024;
 
+/** Default buttons when a sequence nudge has none configured (save + new steps). */
+const DEFAULT_NUDGE_CTAS: Array<{
+  kind: "open_chat" | "open_booking";
+  label: string;
+  url?: string;
+}> = [
+  { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
+  { kind: "open_booking", label: "Book a meeting", url: "" },
+];
+
 const PromoSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1),
@@ -44,10 +54,8 @@ const PromoSchema = z.object({
 
   title: z.string().min(1),
   body: z.string().min(1),
-  badgeText: z.string().optional(),
   imageUrl: z.string().optional(),
   videoUrl: z.string().optional(),
-  videoPosterUrl: z.string().optional(),
   identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
 
   // ✅ persisted
@@ -73,7 +81,6 @@ const PromoSchema = z.object({
         body: z.string().optional(),
         imageUrl: z.string().optional(),
         videoUrl: z.string().optional(),
-        videoPosterUrl: z.string().optional(),
         ctas: z
           .array(
             z.object({
@@ -220,14 +227,14 @@ function SequenceStepCtaFields({
   register,
   watch,
   setValue,
-  emphasisMode,
+  emphasisFallback,
 }: {
   stepIndex: number;
   control: Control<PromoForm>;
   register: ReturnType<typeof useForm<PromoForm>>["register"];
   watch: ReturnType<typeof useForm<PromoForm>>["watch"];
   setValue: ReturnType<typeof useForm<PromoForm>>["setValue"];
-  emphasisMode: PromoForm["ctaEmphasisMode"];
+  emphasisFallback: PromoForm["ctaEmphasisMode"];
 }) {
   const { fields, append, remove } = useFieldArray({
     control,
@@ -235,16 +242,16 @@ function SequenceStepCtaFields({
   });
 
   const stepEmphasis =
-    watch(`sequenceSteps.${stepIndex}.ctaEmphasisMode` as const) ?? emphasisMode ?? "first_primary";
+    watch(`sequenceSteps.${stepIndex}.ctaEmphasisMode` as const) ?? emphasisFallback ?? "first_primary";
   const len = fields.length;
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200/80 bg-slate-50/50 p-3">
+    <div className="space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <Label className="text-xs font-medium">Buttons for this nudge</Label>
+          <Label className="text-xs font-medium">Call-to-actions</Label>
           <p className="text-[11px] text-muted-foreground">
-            Leave empty to use the default buttons from “Message” below.
+            Buttons for this nudge only. Add, remove, and set which one is primary.
           </p>
         </div>
         <Button
@@ -291,7 +298,9 @@ function SequenceStepCtaFields({
 
       <div className="space-y-2">
         {fields.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No step-specific buttons — defaults apply.</p>
+          <p className="text-xs text-muted-foreground">
+            At least one button is required — use “Add button” or save to apply chat + book defaults.
+          </p>
         ) : null}
         {fields.map((field, ctaIdx) => (
           <div key={field.id} className="space-y-2 rounded-md border bg-background p-2 text-sm">
@@ -386,7 +395,6 @@ function PromoSequenceStoryboard({
     body?: string;
     imageUrl?: string;
     videoUrl?: string;
-    videoPosterUrl?: string;
   }>;
   maxSteps: number;
   showDelayMs: number;
@@ -475,7 +483,6 @@ function PromoSequenceStoryboard({
                         key={vid}
                         className="h-full w-full object-cover"
                         src={vid}
-                        poster={(step?.videoPosterUrl?.trim() || "").trim() || undefined}
                         muted
                         playsInline
                         loop
@@ -556,10 +563,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
-  const [uploadingPoster, setUploadingPoster] = useState(false);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const videoFileInputRef = useRef<HTMLInputElement | null>(null);
-  const posterFileInputRef = useRef<HTMLInputElement | null>(null);
   const [sequenceUxMode, setSequenceUxMode] = useState<"simple" | "advanced">("simple");
 
   const form = useForm<PromoForm>({
@@ -570,10 +575,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       showNudge: true,
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
-      badgeText: "Live",
       imageUrl: "",
       videoUrl: "",
-      videoPosterUrl: "",
       pathPrefix: "/",
       pathMode: "prefix", // "/" + prefix = all pages
       identityMode: "auto",
@@ -617,7 +620,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const handlePromoMediaUpload = async (
     file: File | undefined,
-    role: "image" | "video" | "poster",
+    role: "image" | "video",
     setUploading: (v: boolean) => void,
     setField: (url: string) => void,
     inputRef: RefObject<HTMLInputElement | null>,
@@ -644,9 +647,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         return;
       }
       setField(url);
-      toast.success(
-        role === "video" ? "Video uploaded" : role === "poster" ? "Poster uploaded" : "Image uploaded",
-      );
+      toast.success(role === "video" ? "Video uploaded" : "Image uploaded");
     } catch (e) {
       console.error(e);
       toast.error("Upload failed");
@@ -659,7 +660,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const handleSequenceStepMediaUpload = async (
     file: File | undefined,
     index: number,
-    role: "image" | "video" | "poster",
+    role: "image" | "video",
     inputEl: HTMLInputElement | null,
   ) => {
     if (!file) return;
@@ -684,10 +685,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         toast.error("Upload failed (no URL returned)");
         return;
       }
-      const fieldName =
-        role === "image" ? "imageUrl" : role === "video" ? "videoUrl" : "videoPosterUrl";
+      const fieldName = role === "image" ? "imageUrl" : "videoUrl";
       form.setValue(`sequenceSteps.${index}.${fieldName}` as any, url, { shouldDirty: true });
-      toast.success(role === "video" ? "Video uploaded" : role === "poster" ? "Poster uploaded" : "Image uploaded");
+      toast.success(role === "video" ? "Video uploaded" : "Image uploaded");
     } catch (e) {
       console.error(e);
       toast.error("Upload failed");
@@ -708,10 +708,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       showNudge: form.getValues("showNudge") ?? true,
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
-      badgeText: "Live",
       imageUrl: form.getValues("imageUrl") ?? "",
       videoUrl: form.getValues("videoUrl") ?? "",
-      videoPosterUrl: form.getValues("videoPosterUrl") ?? "",
       pathPrefix: form.getValues("pathPrefix") || "/",
       pathMode: form.getValues("pathMode") ?? "prefix",
       identityMode: form.getValues("identityMode") ?? "auto",
@@ -743,10 +741,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       showNudge: form.getValues("showNudge") ?? true,
       title: "Scale freely, adapt quickly",
       body: "Book a short call to learn how we help teams like yours.",
-      badgeText: "Promo",
       imageUrl: form.getValues("imageUrl") ?? "",
       videoUrl: form.getValues("videoUrl") ?? "",
-      videoPosterUrl: form.getValues("videoPosterUrl") ?? "",
       pathPrefix: form.getValues("pathPrefix") || "/",
       pathMode: form.getValues("pathMode") ?? "prefix",
       identityMode: form.getValues("identityMode") ?? "auto",
@@ -787,8 +783,19 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathMode: values.pathMode ?? "prefix",
     };
 
-    const rawCtas =
+    const seqStepsRaw = values.sequenceSteps ?? [];
+    const perNudgeLayout = (values.sequenceEnabled !== false) && seqStepsRaw.length > 0;
+
+    let rawCtas =
       (values.ctas || []).filter((c) => c && c.label && c.label.trim().length > 0) || [];
+    let mode = values.ctaEmphasisMode ?? "first_primary";
+
+    if (perNudgeLayout) {
+      const first = seqStepsRaw[0];
+      const firstRow = (first?.ctas || []).filter((c) => c && c.label && c.label.trim().length > 0);
+      rawCtas = (firstRow.length ? firstRow : DEFAULT_NUDGE_CTAS) as typeof rawCtas;
+      mode = first?.ctaEmphasisMode ?? mode;
+    }
 
     const ctaList = rawCtas.map((c) => ({
       kind: c.kind,
@@ -796,7 +803,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       url: c.kind === "open_url" ? c.url : undefined,
     }));
 
-    const mode = values.ctaEmphasisMode ?? "first_primary";
     const primaryIndex = getPrimaryIndex(mode, ctaList.length);
 
     const primaryCta =
@@ -809,17 +815,21 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     const secondaryCta =
       ctaList.length > 1 ? ctaList.find((_, idx) => idx !== primaryIndex) : undefined;
 
-    const seqStepsRaw = values.sequenceSteps ?? [];
     const maxSeq = Math.min(10, Math.max(values.maxSequenceItems ?? 3, seqStepsRaw.length));
 
     const seqStepsPersist = seqStepsRaw.map((step) => {
-      const rowCtas = (step.ctas || []).filter((c) => c && c.label && c.label.trim().length > 0);
+      const rowCtasRaw = (step.ctas || []).filter((c) => c && c.label && c.label.trim().length > 0);
+      const rowCtas = perNudgeLayout
+        ? rowCtasRaw.length > 0
+          ? rowCtasRaw
+          : DEFAULT_NUDGE_CTAS
+        : rowCtasRaw;
+
       const row: {
         title?: string;
         body?: string;
         imageUrl?: string;
         videoUrl?: string;
-        videoPosterUrl?: string;
         ctaList?: { kind: "open_chat" | "open_booking" | "open_url"; label: string; url?: string }[];
         ctaEmphasisMode?: PromoForm["ctaEmphasisMode"];
       } = {
@@ -827,15 +837,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         body: step.body?.trim() || undefined,
         imageUrl: step.imageUrl?.trim() || undefined,
         videoUrl: step.videoUrl?.trim() || undefined,
-        videoPosterUrl: step.videoPosterUrl?.trim() || undefined,
       };
+
       if (rowCtas.length > 0) {
         row.ctaList = rowCtas.map((c) => ({
           kind: c.kind,
           label: c.label.trim(),
           url: c.kind === "open_url" ? c.url : undefined,
         }));
-        row.ctaEmphasisMode = step.ctaEmphasisMode ?? values.ctaEmphasisMode ?? "first_primary";
+        row.ctaEmphasisMode =
+          step.ctaEmphasisMode ?? (perNudgeLayout ? "first_primary" : values.ctaEmphasisMode ?? "first_primary");
       }
       return row;
     });
@@ -850,10 +861,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         card: {
           title: values.title,
           body: values.body,
-          badgeText: values.badgeText || undefined,
-          imageUrl: values.imageUrl?.trim() || undefined,
-          videoUrl: values.videoUrl?.trim() || undefined,
-          videoPosterUrl: values.videoPosterUrl?.trim() || undefined,
+          imageUrl: perNudgeLayout ? undefined : values.imageUrl?.trim() || undefined,
+          videoUrl: perNudgeLayout ? undefined : values.videoUrl?.trim() || undefined,
         },
         primaryCta,
         secondaryCta,
@@ -890,10 +899,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       showNudge: true,
       title: "Get help fast or schedule time",
       body: "Talk to the assistant now or book a 15-min demo.",
-      badgeText: "Live",
       imageUrl: "",
       videoUrl: "",
-      videoPosterUrl: "",
       pathPrefix: "/",
       pathMode: "prefix",
       identityMode: "auto",
@@ -950,10 +957,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       showNudge: p.showNudge !== false,
       title: p.card?.title ?? "",
       body: p.card?.body ?? "",
-      badgeText: p.card?.badgeText ?? "",
       imageUrl: p.card?.imageUrl ?? "",
       videoUrl: p.card?.videoUrl ?? "",
-      videoPosterUrl: p.card?.videoPosterUrl ?? "",
       pathPrefix: p.rules?.pathPrefix ?? "/",
       pathMode: (p.rules?.pathMode as "prefix" | "exact") ?? "prefix",
       identityMode: (p.identityMode as "auto" | "logo" | "avatars") ?? "auto",
@@ -971,7 +976,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
             body: s.body ?? "",
             imageUrl: s.imageUrl ?? "",
             videoUrl: s.videoUrl ?? "",
-            videoPosterUrl: s.videoPosterUrl ?? "",
             ctas:
               Array.isArray(s.ctaList) && s.ctaList.length > 0
                 ? s.ctaList.map((c: any) => ({
@@ -994,10 +998,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const previewTitle = form.watch("title") || "Get help fast or schedule time";
   const previewBody = form.watch("body") || "Talk to the assistant now or book a 15-min demo.";
-  const previewBadge = form.watch("badgeText") || "Live";
   const previewImageUrl = (form.watch("imageUrl") || "").trim();
   const previewVideoUrl = (form.watch("videoUrl") || "").trim();
-  const previewVideoPosterUrl = (form.watch("videoPosterUrl") || "").trim();
 
   const rawPreviewCtas = form.watch("ctas") || [];
   const previewCtas = rawPreviewCtas.filter((c) => c && c.label && c.label.trim().length > 0);
@@ -1014,6 +1016,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const sequenceCountWatch = Number(form.watch("maxSequenceItems") ?? 3);
   const animationPresetWatch = form.watch("animationPreset") ?? "soft_slide";
   const sequenceStepsWatch = form.watch("sequenceSteps") ?? [];
+  const perNudgeLayout = sequenceEnabledWatch && sequenceStepFields.length > 0;
 
   const primaryColor = theme?.primaryColor || "#a855f7";
   const primaryTextColor = theme?.primaryTextColor || "#ffffff";
@@ -1048,10 +1051,18 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const previewBodyEff = previewStepRow?.body?.trim() || previewBody;
   const previewImageEff = previewStepRow?.imageUrl?.trim() || previewImageUrl;
   const previewVideoEff = previewStepRow?.videoUrl?.trim() || previewVideoUrl;
-  const previewPosterEff = previewStepRow?.videoPosterUrl?.trim() || previewVideoPosterUrl;
-  const previewCtasEff = stepLocalCtas.length > 0 ? stepLocalCtas : effectivePreviewCtas;
-  const previewEmphasisEff =
-    stepLocalCtas.length > 0
+  const previewCtasEff = perNudgeLayout
+    ? stepLocalCtas.length > 0
+      ? stepLocalCtas
+      : DEFAULT_NUDGE_CTAS
+    : stepLocalCtas.length > 0
+      ? stepLocalCtas
+      : effectivePreviewCtas;
+  const previewEmphasisEff = perNudgeLayout
+    ? stepLocalCtas.length > 0
+      ? previewStepRow?.ctaEmphasisMode ?? emphasisMode
+      : previewStepRow?.ctaEmphasisMode ?? "first_primary"
+    : stepLocalCtas.length > 0
       ? previewStepRow?.ctaEmphasisMode ?? emphasisMode
       : emphasisMode;
 
@@ -1385,10 +1396,13 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       selectedPreviewIndex={clampedStoryIdx}
                       onSelectNudgeIndex={setStoryPreviewIndex}
                       onAppendStep={() => {
-                        appendSequenceStep({ ctas: [] });
+                        appendSequenceStep({
+                          ctas: DEFAULT_NUDGE_CTAS.map((c) => ({ ...c })),
+                          ctaEmphasisMode: "first_primary",
+                        });
                         const next = Math.min(10, sequenceCountWatch + 1);
                         form.setValue("maxSequenceItems", next);
-                        toast.success("Step added — configure media and buttons for this nudge");
+                        toast.success("Step added — edit message, CTAs, and media for this nudge");
                       }}
                     />
 
@@ -1399,9 +1413,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                             Step media (per nudge)
                           </Label>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            One row = one nudge in order. Upload image/video per step, or leave empty to reuse the base
-                            message &amp; media in the section below. Optional title overrides the main title for that
-                            step only.
+                            Each row is one nudge: message, buttons, then media. Empty title or body falls back to the
+                            defaults above.
                           </p>
                         </div>
 
@@ -1416,7 +1429,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           {sequenceStepFields.map((field, index) => (
                             <div
                               key={field.id}
-                              className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                              className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs font-bold uppercase tracking-wide text-slate-700">
@@ -1435,73 +1448,22 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
                               <div className="grid gap-3 sm:grid-cols-2">
                                 <div>
-                                  <Label className="text-xs">Title override (optional)</Label>
+                                  <Label className="text-xs">Title</Label>
                                   <Input
                                     className="h-9 text-sm"
                                     {...form.register(`sequenceSteps.${index}.title` as const)}
-                                    placeholder="Uses main title if empty"
+                                    placeholder="Uses default title above if empty"
                                   />
                                 </div>
                                 <div>
-                                  <Label className="text-xs">Body override (optional)</Label>
+                                  <Label className="text-xs">Body</Label>
                                   <Textarea
                                     rows={2}
                                     className="min-h-[72px] text-sm"
                                     {...form.register(`sequenceSteps.${index}.body` as const)}
-                                    placeholder="Uses main body if empty"
+                                    placeholder="Uses default body above if empty"
                                   />
                                 </div>
-                              </div>
-
-                              <div className="grid gap-4 md:grid-cols-3">
-                                <MediaUploadOnly
-                                  label="Image (optional)"
-                                  hint="Max 8MB. Used if no video for this step."
-                                  value={(form.watch(`sequenceSteps.${index}.imageUrl` as const) || "").trim()}
-                                  uploading={uploadingStepKey === `${index}-image`}
-                                  accept="image/*"
-                                  inputId={`seq-step-${index}-img`}
-                                  onPick={(file, el) =>
-                                    handleSequenceStepMediaUpload(file, index, "image", el)
-                                  }
-                                  onClear={() =>
-                                    form.setValue(`sequenceSteps.${index}.imageUrl` as const, "", {
-                                      shouldDirty: true,
-                                    })
-                                  }
-                                />
-                                <MediaUploadOnly
-                                  label="Video (optional)"
-                                  hint="MP4 / WebM, max 50MB. Overrides image when set."
-                                  value={(form.watch(`sequenceSteps.${index}.videoUrl` as const) || "").trim()}
-                                  uploading={uploadingStepKey === `${index}-video`}
-                                  accept="video/mp4,video/webm,video/quicktime,video/*"
-                                  inputId={`seq-step-${index}-vid`}
-                                  onPick={(file, el) =>
-                                    handleSequenceStepMediaUpload(file, index, "video", el)
-                                  }
-                                  onClear={() =>
-                                    form.setValue(`sequenceSteps.${index}.videoUrl` as const, "", {
-                                      shouldDirty: true,
-                                    })
-                                  }
-                                />
-                                <MediaUploadOnly
-                                  label="Video poster (optional)"
-                                  hint="Max 8MB. Shown before video loads."
-                                  value={(form.watch(`sequenceSteps.${index}.videoPosterUrl` as const) || "").trim()}
-                                  uploading={uploadingStepKey === `${index}-poster`}
-                                  accept="image/*"
-                                  inputId={`seq-step-${index}-poster`}
-                                  onPick={(file, el) =>
-                                    handleSequenceStepMediaUpload(file, index, "poster", el)
-                                  }
-                                  onClear={() =>
-                                    form.setValue(`sequenceSteps.${index}.videoPosterUrl` as const, "", {
-                                      shouldDirty: true,
-                                    })
-                                  }
-                                />
                               </div>
 
                               <SequenceStepCtaFields
@@ -1510,8 +1472,46 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                 register={form.register}
                                 watch={form.watch}
                                 setValue={form.setValue}
-                                emphasisMode={emphasisMode}
+                                emphasisFallback={emphasisMode}
                               />
+
+                              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+                                <Label className="mb-2 block text-xs font-medium text-slate-700">Media</Label>
+                                <div className="grid gap-4 md:grid-cols-2">
+                                  <MediaUploadOnly
+                                    label="Image (optional)"
+                                    hint="Max 8MB. Used if no video for this step."
+                                    value={(form.watch(`sequenceSteps.${index}.imageUrl` as const) || "").trim()}
+                                    uploading={uploadingStepKey === `${index}-image`}
+                                    accept="image/*"
+                                    inputId={`seq-step-${index}-img`}
+                                    onPick={(file, el) =>
+                                      handleSequenceStepMediaUpload(file, index, "image", el)
+                                    }
+                                    onClear={() =>
+                                      form.setValue(`sequenceSteps.${index}.imageUrl` as const, "", {
+                                        shouldDirty: true,
+                                      })
+                                    }
+                                  />
+                                  <MediaUploadOnly
+                                    label="Video (optional)"
+                                    hint="MP4 / WebM, max 50MB. Overrides image when set."
+                                    value={(form.watch(`sequenceSteps.${index}.videoUrl` as const) || "").trim()}
+                                    uploading={uploadingStepKey === `${index}-video`}
+                                    accept="video/mp4,video/webm,video/quicktime,video/*"
+                                    inputId={`seq-step-${index}-vid`}
+                                    onPick={(file, el) =>
+                                      handleSequenceStepMediaUpload(file, index, "video", el)
+                                    }
+                                    onClear={() =>
+                                      form.setValue(`sequenceSteps.${index}.videoUrl` as const, "", {
+                                        shouldDirty: true,
+                                      })
+                                    }
+                                  />
+                                </div>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1523,7 +1523,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           className="w-full border-dashed"
                           disabled={sequenceStepFields.length >= 10}
                           onClick={() => {
-                            appendSequenceStep({ ctas: [] });
+                            appendSequenceStep({
+                              ctas: DEFAULT_NUDGE_CTAS.map((c) => ({ ...c })),
+                              ctaEmphasisMode: "first_primary",
+                            });
                             form.setValue(
                               "maxSequenceItems",
                               Math.min(10, sequenceCountWatch + 1),
@@ -1625,15 +1628,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     ) : null}
                   </section>
 
-                  {/* Message & CTAs */}
-                  <section className="space-y-4 rounded-xl border bg-muted/40 p-4">
+                  {/* Message (+ optional global media/CTAs when not using per-nudge sequence) */}
+                  <section className="space-y-4 rounded-2xl border bg-muted/40 p-4">
                     <div className="space-y-1">
                       <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Message & buttons
+                        {perNudgeLayout ? "Default message (fallback)" : "Message & buttons"}
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        Default title, body, and media for the promo. With a sequence, each nudge can override
-                        text/media; buttons below are the default unless you add step-specific buttons.
+                        {perNudgeLayout
+                          ? "Default title and body when a nudge leaves those fields empty. Media and call-to-actions are set inside each nudge below."
+                          : "Title, body, optional media, and buttons for this promo (single nudge or sequence without step rows yet)."}
                       </p>
                     </div>
 
@@ -1646,209 +1650,192 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         <Label>Body</Label>
                         <Textarea rows={3} {...form.register("body")} />
                       </div>
-                      <div className="max-w-xs">
-                        <Label>Badge (optional)</Label>
-                        <Input {...form.register("badgeText")} placeholder="Live" />
-                      </div>
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <MediaUploadOnly
-                          label="Image (optional)"
-                          hint="Max 8MB. Shown when no video is set."
-                          value={previewImageUrl}
-                          uploading={uploadingImage}
-                          accept="image/*"
-                          inputId="promo-base-image"
-                          fileInputRef={imageFileInputRef}
-                          onPick={(file, el) =>
-                            handlePromoMediaUpload(
-                              file,
-                              "image",
-                              setUploadingImage,
-                              (url) => form.setValue("imageUrl", url, { shouldDirty: true }),
-                              imageFileInputRef,
-                            )
-                          }
-                          onClear={() => form.setValue("imageUrl", "", { shouldDirty: true })}
-                        />
-                        <MediaUploadOnly
-                          label="Video (optional)"
-                          hint="MP4 / WebM, max 50MB."
-                          value={previewVideoUrl}
-                          uploading={uploadingVideo}
-                          accept="video/mp4,video/webm,video/quicktime,video/*"
-                          inputId="promo-base-video"
-                          fileInputRef={videoFileInputRef}
-                          onPick={(file, el) =>
-                            handlePromoMediaUpload(
-                              file,
-                              "video",
-                              setUploadingVideo,
-                              (url) => form.setValue("videoUrl", url, { shouldDirty: true }),
-                              videoFileInputRef,
-                            )
-                          }
-                          onClear={() => form.setValue("videoUrl", "", { shouldDirty: true })}
-                        />
-                        <MediaUploadOnly
-                          label="Video poster (optional)"
-                          hint="Max 8MB. Improves load and fallback."
-                          value={previewVideoPosterUrl}
-                          uploading={uploadingPoster}
-                          accept="image/*"
-                          inputId="promo-base-poster"
-                          fileInputRef={posterFileInputRef}
-                          onPick={(file, el) =>
-                            handlePromoMediaUpload(
-                              file,
-                              "poster",
-                              setUploadingPoster,
-                              (url) => form.setValue("videoPosterUrl", url, { shouldDirty: true }),
-                              posterFileInputRef,
-                            )
-                          }
-                          onClear={() => form.setValue("videoPosterUrl", "", { shouldDirty: true })}
-                        />
-                      </div>
+                      {!perNudgeLayout ? (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <MediaUploadOnly
+                            label="Image (optional)"
+                            hint="Max 8MB. Shown when no video is set."
+                            value={previewImageUrl}
+                            uploading={uploadingImage}
+                            accept="image/*"
+                            inputId="promo-base-image"
+                            fileInputRef={imageFileInputRef}
+                            onPick={(file, el) =>
+                              handlePromoMediaUpload(
+                                file,
+                                "image",
+                                setUploadingImage,
+                                (url) => form.setValue("imageUrl", url, { shouldDirty: true }),
+                                imageFileInputRef,
+                              )
+                            }
+                            onClear={() => form.setValue("imageUrl", "", { shouldDirty: true })}
+                          />
+                          <MediaUploadOnly
+                            label="Video (optional)"
+                            hint="MP4 / WebM, max 50MB."
+                            value={previewVideoUrl}
+                            uploading={uploadingVideo}
+                            accept="video/mp4,video/webm,video/quicktime,video/*"
+                            inputId="promo-base-video"
+                            fileInputRef={videoFileInputRef}
+                            onPick={(file, el) =>
+                              handlePromoMediaUpload(
+                                file,
+                                "video",
+                                setUploadingVideo,
+                                (url) => form.setValue("videoUrl", url, { shouldDirty: true }),
+                                videoFileInputRef,
+                              )
+                            }
+                            onClear={() => form.setValue("videoUrl", "", { shouldDirty: true })}
+                          />
+                        </div>
+                      ) : null}
                     </div>
 
-                    {/* CTA emphasis */}
-                    <div className="rounded-lg bg-background px-3 py-2 text-xs">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="font-medium text-slate-700">Default CTA emphasis</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Used for the default buttons and as fallback when a nudge has no own buttons.
-                          </p>
-                        </div>
+                    {!perNudgeLayout ? (
+                      <>
+                        {/* CTA emphasis */}
+                        <div className="rounded-xl bg-background px-3 py-2 text-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="font-medium text-slate-700">CTA emphasis</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                Which button uses the primary (filled) style.
+                              </p>
+                            </div>
 
-                        <div className="inline-flex flex-wrap gap-2">
-                          {[
-                            { k: "first_primary", label: "First primary" },
-                            { k: "last_primary", label: "Last primary" },
-                            { k: "all_primary", label: "All primary" },
-                            { k: "none_primary", label: "None primary" },
-                          ].map((opt) => (
-                            <Button
-                              key={opt.k}
-                              type="button"
-                              size="sm"
-                              variant={emphasisMode === opt.k ? "default" : "outline"}
-                              className="h-7 rounded-full px-3 text-[11px]"
-                              onClick={() =>
-                                form.setValue("ctaEmphasisMode", opt.k as PromoForm["ctaEmphasisMode"])
-                              }
-                            >
-                              {opt.label}
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    {/* Multi-CTA list */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label>Default call-to-actions</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Shown when a sequence nudge does not define its own buttons.
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => append({ kind: "open_chat", label: "New CTA", url: "" })}
-                        >
-                          Add CTA
-                        </Button>
-                      </div>
-
-                      <div className="space-y-3">
-                        {fields.length === 0 && (
-                          <p className="text-xs text-muted-foreground">No CTA yet. Add at least one.</p>
-                        )}
-
-                        {fields.map((field, index) => (
-                          <div
-                            key={field.id}
-                            className="space-y-2 rounded-lg border bg-background p-3 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)]"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-medium uppercase tracking-wide text-slate-700">
-                                  CTA #{index + 1}
-                                </span>
-
-                                {isPrimaryButton(emphasisMode, index, fields.length) && (
-                                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
-                                    Primary
-                                  </span>
-                                )}
-                              </div>
-
-                              {fields.length > 1 && (
+                            <div className="inline-flex flex-wrap gap-2">
+                              {[
+                                { k: "first_primary", label: "First primary" },
+                                { k: "last_primary", label: "Last primary" },
+                                { k: "all_primary", label: "All primary" },
+                                { k: "none_primary", label: "None primary" },
+                              ].map((opt) => (
                                 <Button
+                                  key={opt.k}
                                   type="button"
                                   size="sm"
-                                  variant="ghost"
-                                  className="text-xs text-muted-foreground hover:text-destructive"
-                                  onClick={() => removeCta(index)}
-                                >
-                                  Remove
-                                </Button>
-                              )}
-                            </div>
-
-                            <div className="flex flex-col gap-2 md:flex-row">
-                              <div className="md:w-40">
-                                <Label className="text-xs">Type</Label>
-                                <Select
-                                  value={form.watch(`ctas.${index}.kind`) || "open_chat"}
-                                  onValueChange={(v) =>
-                                    form.setValue(
-                                      `ctas.${index}.kind`,
-                                      v as "open_chat" | "open_booking" | "open_url",
-                                    )
+                                  variant={emphasisMode === opt.k ? "default" : "outline"}
+                                  className="h-7 rounded-full px-3 text-[11px]"
+                                  onClick={() =>
+                                    form.setValue("ctaEmphasisMode", opt.k as PromoForm["ctaEmphasisMode"])
                                   }
                                 >
-                                  <SelectTrigger className="h-8 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="open_chat">Open chat</SelectItem>
-                                    <SelectItem value="open_booking">Open booking</SelectItem>
-                                    <SelectItem value="open_url">Open URL</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              <div className="flex-1">
-                                <Label className="text-xs">Label</Label>
-                                <Input
-                                  className="h-8 text-sm"
-                                  {...form.register(`ctas.${index}.label` as const)}
-                                  placeholder="Button label"
-                                />
-                              </div>
+                                  {opt.label}
+                                </Button>
+                              ))}
                             </div>
-
-                            {form.watch(`ctas.${index}.kind`) === "open_url" && (
-                              <div>
-                                <Label className="text-xs">URL</Label>
-                                <Input
-                                  className="h-8 text-sm"
-                                  {...form.register(`ctas.${index}.url` as const)}
-                                  placeholder="https://…"
-                                />
-                              </div>
-                            )}
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                        </div>
+
+                        <Separator />
+
+                        {/* Multi-CTA list */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label>Call-to-actions</Label>
+                              <p className="text-xs text-muted-foreground">
+                                Buttons shown in the promo (vertical stack).
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => append({ kind: "open_chat", label: "New CTA", url: "" })}
+                            >
+                              Add CTA
+                            </Button>
+                          </div>
+
+                          <div className="space-y-3">
+                            {fields.length === 0 && (
+                              <p className="text-xs text-muted-foreground">No CTA yet. Add at least one.</p>
+                            )}
+
+                            {fields.map((field, index) => (
+                              <div
+                                key={field.id}
+                                className="space-y-2 rounded-xl border bg-background p-3 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)]"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium uppercase tracking-wide text-slate-700">
+                                      CTA #{index + 1}
+                                    </span>
+
+                                    {isPrimaryButton(emphasisMode, index, fields.length) && (
+                                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
+                                        Primary
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {fields.length > 1 && (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-xs text-muted-foreground hover:text-destructive"
+                                      onClick={() => removeCta(index)}
+                                    >
+                                      Remove
+                                    </Button>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-col gap-2 md:flex-row">
+                                  <div className="md:w-40">
+                                    <Label className="text-xs">Type</Label>
+                                    <Select
+                                      value={form.watch(`ctas.${index}.kind`) || "open_chat"}
+                                      onValueChange={(v) =>
+                                        form.setValue(
+                                          `ctas.${index}.kind`,
+                                          v as "open_chat" | "open_booking" | "open_url",
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="open_chat">Open chat</SelectItem>
+                                        <SelectItem value="open_booking">Open booking</SelectItem>
+                                        <SelectItem value="open_url">Open URL</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+
+                                  <div className="flex-1">
+                                    <Label className="text-xs">Label</Label>
+                                    <Input
+                                      className="h-8 text-sm"
+                                      {...form.register(`ctas.${index}.label` as const)}
+                                      placeholder="Button label"
+                                    />
+                                  </div>
+                                </div>
+
+                                {form.watch(`ctas.${index}.kind`) === "open_url" && (
+                                  <div>
+                                    <Label className="text-xs">URL</Label>
+                                    <Input
+                                      className="h-8 text-sm"
+                                      {...form.register(`ctas.${index}.url` as const)}
+                                      placeholder="https://…"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
 
                     <div className="flex justify-end border-t pt-3">
                       <Button type="submit">{form.watch("id") ? "Update promo" : "Save promo"}</Button>
@@ -1901,14 +1888,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       )}
 
                       <div className="min-w-0 space-y-1">
-                        {previewBadge && (
-                          <div
-                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                            style={{ backgroundColor: `${primaryColor}1A`, color: primaryColor }}
-                          >
-                            {previewBadge}
-                          </div>
-                        )}
                         <div className="truncate text-sm font-semibold text-slate-900">
                           {previewTitleEff}
                         </div>
@@ -1922,7 +1901,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         key={previewVideoEff}
                         className="h-28 w-full rounded-lg border object-cover"
                         src={previewVideoEff}
-                        poster={previewPosterEff || undefined}
                         muted
                         playsInline
                         loop
