@@ -490,6 +490,7 @@ export default defineSchema({
             v.literal("none"),
           ),
         ),
+        sequenceLoop: v.optional(v.boolean()),
         sequenceSteps: v.optional(
           v.array(
             v.object({
@@ -498,6 +499,27 @@ export default defineSchema({
               imageUrl: v.optional(v.string()),
               videoUrl: v.optional(v.string()),
               videoPosterUrl: v.optional(v.string()),
+              ctaList: v.optional(
+                v.array(
+                  v.object({
+                    kind: v.union(
+                      v.literal("open_chat"),
+                      v.literal("open_booking"),
+                      v.literal("open_url"),
+                    ),
+                    label: v.string(),
+                    url: v.optional(v.string()),
+                  }),
+                ),
+              ),
+              ctaEmphasisMode: v.optional(
+                v.union(
+                  v.literal("first_primary"),
+                  v.literal("last_primary"),
+                  v.literal("all_primary"),
+                  v.literal("none_primary"),
+                ),
+              ),
             }),
           ),
         ),

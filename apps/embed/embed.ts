@@ -51,6 +51,8 @@ type PromoSequencePayload = {
   items: PromoPayload[];
   settings?: {
     sequenceEnabled?: boolean;
+    /** When true, after the last nudge the sequence restarts from nudge 1 until dismiss. */
+    sequenceLoop?: boolean;
     showDelayAfterNavMs?: number;
     autoCloseMs?: number;
     betweenPopupsMs?: number;
@@ -655,7 +657,15 @@ type NudgeKind = "promo" | "suggestions" | null;
         animatePromoOutAndRemove();
 
         const next = idx + 1;
+        const loop = promoSequenceSettings?.sequenceLoop === true;
         if (next >= promoSequenceItems.length) {
+          if (loop && promoSequenceItems.length > 0) {
+            promoNextTimer = window.setTimeout(() => {
+              promoNextTimer = null;
+              showOne(0);
+            }, betweenPopupsMs);
+            return;
+          }
           cancelPromoSequence();
           nudgeKind = null;
           hasNudgePayload = false;

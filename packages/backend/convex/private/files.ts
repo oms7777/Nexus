@@ -67,6 +67,26 @@ type SystemKind = "kb" | "brand_logo" | "avatar" | "promo_media";
 const MAX_PROMO_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PROMO_VIDEO_BYTES = 50 * 1024 * 1024;
 
+function isMp4Magic(bytes: ArrayBuffer): boolean {
+  if (bytes.byteLength < 12) return false;
+  const v = new Uint8Array(bytes);
+  // ISO BMFF: size (4) + "ftyp" (4) at offset 4
+  return v[4] === 0x66 && v[5] === 0x74 && v[6] === 0x79 && v[7] === 0x70;
+}
+
+/** Browsers often send video/mp4 as empty type or application/octet-stream — normalize before validation. */
+function normalizePromoVideoMime(filename: string, mime: string, bytes: ArrayBuffer): string {
+  const m = (mime || "").trim().toLowerCase();
+  if (m.startsWith("video/")) return mime.trim();
+  const ext = (filename.split(".").pop() || "").toLowerCase();
+  if (ext === "mp4" || ext === "m4v") return "video/mp4";
+  if (ext === "webm") return "video/webm";
+  if (ext === "mov") return "video/quicktime";
+  if (ext === "ogv" || ext === "ogg") return "video/ogg";
+  if (isMp4Magic(bytes)) return "video/mp4";
+  return mime.trim();
+}
+
 function assertPromoMediaMime(
   role: "image" | "video" | "poster",
   mime: string,
@@ -252,7 +272,7 @@ export const addFile = action({
 
     const bytes = args.bytes;
     const filename = args.filename?.trim() || "document";
-    const safeMimeType = sanitizeMimeType(args.mimeType, filename, bytes);
+    let safeMimeType = sanitizeMimeType(args.mimeType, filename, bytes);
 
     if (kind === "promo_media") {
       const role = args.promoMediaRole;
@@ -261,6 +281,9 @@ export const addFile = action({
           code: "BAD_REQUEST",
           message: "promoMediaRole is required for promo media uploads (image, video, or poster).",
         });
+      }
+      if (role === "video") {
+        safeMimeType = normalizePromoVideoMime(filename, safeMimeType, bytes);
       }
       assertPromoMediaSize(role, bytes.byteLength);
       assertPromoMediaMime(role, safeMimeType);

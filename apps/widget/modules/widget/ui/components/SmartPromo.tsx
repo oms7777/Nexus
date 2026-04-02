@@ -28,6 +28,69 @@ type ThemePayload = {
   chatBubbleColor?: string;
 };
 
+type CtaEmphasisMode =
+  | "first_primary"
+  | "last_primary"
+  | "all_primary"
+  | "none_primary";
+
+type PromoEmbedItem = {
+  title?: string;
+  body?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  videoPosterUrl?: string;
+  primary?: string;
+  secondary?: string;
+  primaryCta?: Cta;
+  secondaryCta?: Cta;
+  avatars: string[];
+  badgeText?: string;
+  privacyUrl?: string;
+  theme?: ThemePayload;
+  brandLogoUrl?: string;
+  identityMode?: "auto" | "logo" | "avatars";
+  ctaList?: { kind: string; label: string; url?: string }[];
+  canUseVoice?: boolean;
+};
+
+function primaryIndexForEmphasis(mode: CtaEmphasisMode | undefined, len: number) {
+  if (!len) return 0;
+  const m = mode ?? "first_primary";
+  if (m === "last_primary") return Math.max(0, len - 1);
+  return 0;
+}
+
+/** Per-step CTA list overrides promo-level CTAs when non-empty. */
+function mergeStepCtas(
+  base: PromoEmbedItem,
+  promoDoc: Doc<"promos">,
+  step: {
+    ctaList?: Cta[] | null;
+    ctaEmphasisMode?: CtaEmphasisMode | null;
+  },
+): PromoEmbedItem {
+  const stepList = (Array.isArray(step?.ctaList) ? step.ctaList : []).filter(
+    (c): c is Cta => !!c && typeof c.label === "string" && c.label.trim().length > 0,
+  );
+  if (!stepList.length) return base;
+
+  const mode = (step.ctaEmphasisMode ?? promoDoc.ctaEmphasisMode ?? "first_primary") as CtaEmphasisMode;
+  const pi = primaryIndexForEmphasis(mode, stepList.length);
+  const primaryCta = stepList[pi] ?? stepList[0]!;
+  const secondaryCta =
+    stepList.length > 1 ? stepList.find((_, i) => i !== pi) : undefined;
+
+  return {
+    ...base,
+    primary: primaryCta.label,
+    secondary: secondaryCta?.label,
+    primaryCta,
+    secondaryCta,
+    ctaList: stepList.map((c) => ({ kind: c.kind, label: c.label, url: c.url })),
+  };
+}
+
 type SuggestionsPayload = {
   greetMessage?: string;
   suggestions: string[];
@@ -255,7 +318,7 @@ export default function SmartPromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, consentGiven, contactSessionId, currentConvId]);
 
-  const makePromoPayload = (promoDoc: Doc<"promos">) => {
+  const makePromoPayload = (promoDoc: Doc<"promos">): PromoEmbedItem => {
 
     const avatars: string[] =
       (Array.isArray(memberAvatars) && memberAvatars.length
@@ -310,29 +373,35 @@ export default function SmartPromo() {
       Math.min(10, Math.floor(settings.maxSequenceItems ?? rawSteps.length)),
     );
     const steps = rawSteps.slice(0, cap);
-    return steps.map((step: any) => ({
-      ...base,
-      title:
-        typeof step?.title === "string" && step.title.trim().length > 0
-          ? step.title.trim()
-          : base.title,
-      body:
-        typeof step?.body === "string" && step.body.trim().length > 0
-          ? step.body.trim()
-          : base.body,
-      imageUrl:
-        typeof step?.imageUrl === "string" && step.imageUrl.trim().length > 0
-          ? step.imageUrl.trim()
-          : base.imageUrl,
-      videoUrl:
-        typeof step?.videoUrl === "string" && step.videoUrl.trim().length > 0
-          ? step.videoUrl.trim()
-          : base.videoUrl,
-      videoPosterUrl:
-        typeof step?.videoPosterUrl === "string" && step.videoPosterUrl.trim().length > 0
-          ? step.videoPosterUrl.trim()
-          : base.videoPosterUrl,
-    }));
+    return steps.map((step: any) =>
+      mergeStepCtas(
+        {
+          ...base,
+          title:
+            typeof step?.title === "string" && step.title.trim().length > 0
+              ? step.title.trim()
+              : base.title,
+          body:
+            typeof step?.body === "string" && step.body.trim().length > 0
+              ? step.body.trim()
+              : base.body,
+          imageUrl:
+            typeof step?.imageUrl === "string" && step.imageUrl.trim().length > 0
+              ? step.imageUrl.trim()
+              : base.imageUrl,
+          videoUrl:
+            typeof step?.videoUrl === "string" && step.videoUrl.trim().length > 0
+              ? step.videoUrl.trim()
+              : base.videoUrl,
+          videoPosterUrl:
+            typeof step?.videoPosterUrl === "string" && step.videoPosterUrl.trim().length > 0
+              ? step.videoPosterUrl.trim()
+              : base.videoPosterUrl,
+        },
+        promoDoc,
+        step,
+      ),
+    );
   };
 
   const makeSuggestionsPayload = (): SuggestionsPayload | null => {
@@ -410,6 +479,7 @@ export default function SmartPromo() {
 
     const sequenceSettings = {
       sequenceEnabled: firstSettings.sequenceEnabled ?? true,
+      sequenceLoop: firstSettings.sequenceLoop === true,
       showDelayAfterNavMs: firstSettings.showDelayAfterNavMs ?? 2500,
       autoCloseMs: firstSettings.autoCloseMs ?? 4500,
       betweenPopupsMs: firstSettings.betweenPopupsMs ?? 10000,
@@ -421,7 +491,7 @@ export default function SmartPromo() {
       items
         .map(
           (x) =>
-            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}`,
+            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}:${JSON.stringify((x as any).ctaList || [])}`,
         )
         .join("|"),
       JSON.stringify(sequenceSettings),

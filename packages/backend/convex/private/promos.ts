@@ -89,10 +89,13 @@ const sequenceStepV = v.object({
   imageUrl: v.optional(v.string()),
   videoUrl: v.optional(v.string()),
   videoPosterUrl: v.optional(v.string()),
+  ctaList: v.optional(v.array(ctaV)),
+  ctaEmphasisMode: v.optional(ctaEmphasisModeV),
 });
 
 const promoSettingsV = v.object({
   sequenceEnabled: v.optional(v.boolean()),
+  sequenceLoop: v.optional(v.boolean()),
   showDelayAfterNavMs: v.optional(v.number()),
   autoCloseMs: v.optional(v.number()),
   betweenPopupsMs: v.optional(v.number()),
