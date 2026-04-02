@@ -443,6 +443,10 @@ export default defineSchema({
       body: v.string(),
       imageUrl: v.optional(v.string()),
       videoUrl: v.optional(v.string()),
+      /** @deprecated Ignored by UI; kept optional so legacy rows pass schema validation. */
+      videoPosterUrl: v.optional(v.string()),
+      /** @deprecated Ignored by UI; kept optional so legacy rows pass schema validation. */
+      badgeText: v.optional(v.string()),
     }),
     primaryCta: v.object({
       kind: v.union(v.literal("open_chat"), v.literal("open_booking"), v.literal("open_url")),
@@ -496,6 +500,10 @@ export default defineSchema({
               body: v.optional(v.string()),
               imageUrl: v.optional(v.string()),
               videoUrl: v.optional(v.string()),
+              /** @deprecated Ignored by UI; kept optional so legacy rows pass schema validation. */
+              videoPosterUrl: v.optional(v.string()),
+              /** @deprecated Ignored by UI; kept optional so legacy rows pass schema validation. */
+              badgeText: v.optional(v.string()),
               ctaList: v.optional(
                 v.array(
                   v.object({
