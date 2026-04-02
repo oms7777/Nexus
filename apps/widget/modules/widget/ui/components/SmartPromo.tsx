@@ -295,6 +295,46 @@ export default function SmartPromo() {
     };
   };
 
+  const expandPromoToItems = (promoDoc: Doc<"promos">) => {
+    const base = makePromoPayload(promoDoc);
+    const settings = (promoDoc as any).settings ?? {};
+    if (settings.sequenceEnabled === false) {
+      return [base];
+    }
+    const rawSteps = settings.sequenceSteps;
+    if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+      return [base];
+    }
+    const cap = Math.max(
+      1,
+      Math.min(10, Math.floor(settings.maxSequenceItems ?? rawSteps.length)),
+    );
+    const steps = rawSteps.slice(0, cap);
+    return steps.map((step: any) => ({
+      ...base,
+      title:
+        typeof step?.title === "string" && step.title.trim().length > 0
+          ? step.title.trim()
+          : base.title,
+      body:
+        typeof step?.body === "string" && step.body.trim().length > 0
+          ? step.body.trim()
+          : base.body,
+      imageUrl:
+        typeof step?.imageUrl === "string" && step.imageUrl.trim().length > 0
+          ? step.imageUrl.trim()
+          : base.imageUrl,
+      videoUrl:
+        typeof step?.videoUrl === "string" && step.videoUrl.trim().length > 0
+          ? step.videoUrl.trim()
+          : base.videoUrl,
+      videoPosterUrl:
+        typeof step?.videoPosterUrl === "string" && step.videoPosterUrl.trim().length > 0
+          ? step.videoPosterUrl.trim()
+          : base.videoPosterUrl,
+    }));
+  };
+
   const makeSuggestionsPayload = (): SuggestionsPayload | null => {
     if (!ws) return null;
 
@@ -365,7 +405,7 @@ export default function SmartPromo() {
 
     if (!matchedPromos.length) return;
 
-    const items = matchedPromos.map((p) => makePromoPayload(p));
+    const items = matchedPromos.flatMap((p) => expandPromoToItems(p));
     const firstSettings = (matchedPromos[0] as any)?.settings ?? {};
 
     const sequenceSettings = {
@@ -378,7 +418,12 @@ export default function SmartPromo() {
     };
 
     const key = [
-      items.map((x) => `${x.title || ""}:${x.body || ""}`).join("|"),
+      items
+        .map(
+          (x) =>
+            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}`,
+        )
+        .join("|"),
       JSON.stringify(sequenceSettings),
     ].join("__");
 

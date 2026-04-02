@@ -75,7 +75,7 @@ export const WidgetView = ({ organizationId }: Props) => {
 
   return (
     <ErrorBoundary fallback={<RefreshFallback />}>
-      <main className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-muted">
+      <main className="flex h-full w-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-background shadow-[0_2px_8px_rgba(15,23,42,0.06),0_16px_40px_-12px_rgba(15,23,42,0.12)] ring-1 ring-slate-900/[0.04]">
         {/* ✅ Injecte les couleurs dès que widgetSettings est chargé */}
         <WidgetThemeVars />
 

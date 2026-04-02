@@ -83,6 +83,14 @@ const ctaEmphasisModeV = v.union(
   v.literal("none_primary"),
 );
 
+const sequenceStepV = v.object({
+  title: v.optional(v.string()),
+  body: v.optional(v.string()),
+  imageUrl: v.optional(v.string()),
+  videoUrl: v.optional(v.string()),
+  videoPosterUrl: v.optional(v.string()),
+});
+
 const promoSettingsV = v.object({
   sequenceEnabled: v.optional(v.boolean()),
   showDelayAfterNavMs: v.optional(v.number()),
@@ -97,6 +105,7 @@ const promoSettingsV = v.object({
       v.literal("none"),
     ),
   ),
+  sequenceSteps: v.optional(v.array(sequenceStepV)),
 });
 
 export const listByOrg = query({

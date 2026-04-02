@@ -490,6 +490,17 @@ export default defineSchema({
             v.literal("none"),
           ),
         ),
+        sequenceSteps: v.optional(
+          v.array(
+            v.object({
+              title: v.optional(v.string()),
+              body: v.optional(v.string()),
+              imageUrl: v.optional(v.string()),
+              videoUrl: v.optional(v.string()),
+              videoPosterUrl: v.optional(v.string()),
+            }),
+          ),
+        ),
       })
     ),
     identityMode: v.optional(v.union(v.literal("auto"), v.literal("logo"), v.literal("avatars"))),

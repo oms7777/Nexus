@@ -1278,34 +1278,55 @@ export const WidgetChatScreen = () => {
     >
       {/* Boutons flottants (mêmes pour tous les layouts) */}
       {typeof window !== "undefined" && window !== window.parent && (
-        <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5">
           <button
             type="button"
             onClick={startBookingLikePromo}
             title="Book a meeting"
-            className="size-9 flex items-center justify-center rounded-full shadow-md transition-all hover:scale-105"
+            className="size-9 flex items-center justify-center rounded-full border border-white/20 shadow-md transition-all hover:scale-[1.03] active:scale-[0.98]"
             style={{ backgroundColor: "var(--widget-primary)", color: "var(--widget-primary-text)" }}
           >
-            <CalendarIcon className="size-4" />
+            <CalendarIcon className="size-4" aria-hidden />
           </button>
           <button
             type="button"
             onClick={() => window.parent?.postMessage({ type: "close" }, "*")}
             title="Close"
-            className="size-9 flex items-center justify-center rounded-full bg-muted shadow-md transition-all hover:scale-105 hover:bg-muted/80"
+            className="size-9 flex items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-600 shadow-md transition-all hover:bg-slate-50 active:scale-[0.98]"
             aria-label="Close"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
       )}
       {isFullWidth && canUseVoice && (
-        <div className="absolute top-3 left-3 z-10">
+        <div className="absolute top-4 left-4 z-10">
           <VoiceCallButton />
         </div>
       )}
+
+      {/* Header: who you’re talking to + short promise (clarity like modern B2B widgets) */}
+      <div className="relative z-10 shrink-0 border-b border-slate-200/60 bg-gradient-to-b from-slate-50/95 to-white px-4 pb-3.5 pt-4 sm:pt-5">
+        <div className="flex items-start gap-3 pr-[5.75rem]">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+            <img
+              src={brandLogoUrl}
+              alt=""
+              className="h-full w-full object-contain p-1.5"
+            />
+          </div>
+          <div className="min-w-0 pt-0.5">
+            <h2 className="truncate text-[15px] font-semibold leading-tight tracking-tight text-slate-900">
+              Chat
+            </h2>
+            <p className="mt-0.5 text-[12px] leading-snug text-slate-500">
+              Ask anything — we’ll route you to the right person or a time to meet.
+            </p>
+          </div>
+        </div>
+      </div>
 
       <div className="flex-1 min-h-0"> 
         <AIConversation className="h-full flex flex-col">
@@ -1321,6 +1342,7 @@ export const WidgetChatScreen = () => {
               return (
                 <AIMessage key={i} from={isUser ? "user" : "assistant"}>
                   <AIMessageContent
+                    className="rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed shadow-sm"
                     style={
                       isUser
                         ? { backgroundColor: themePrimary, color: themePrimaryText, borderColor: "transparent" }
@@ -1684,21 +1706,29 @@ export const WidgetChatScreen = () => {
 
       {/* suggestions: show at start (below greet) */}
       {suggestions.length > 0 && uiMsgs.length <= 1 && (
-        <div className="flex w-full flex-wrap gap-2 px-3 pb-2">
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="rounded-full border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition"
-              onClick={() => {
-                if (isSendingRef.current) return;
-                form.setValue("message", s, { shouldValidate: true });
-                form.handleSubmit(onSubmit)();
-              }}
-            >
-              {s}
-            </button>
-          ))}
+        <div className="border-t border-slate-100/90 bg-gradient-to-b from-slate-50/60 to-slate-50/30 px-3 py-3">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500">
+            Quick replies
+          </p>
+          <div className="flex w-full flex-wrap gap-2">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="rounded-2xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white hover:shadow-md active:scale-[0.99]"
+                style={{
+                  borderColor: "color-mix(in srgb, var(--widget-primary) 22%, transparent)",
+                }}
+                onClick={() => {
+                  if (isSendingRef.current) return;
+                  form.setValue("message", s, { shouldValidate: true });
+                  form.handleSubmit(onSubmit)();
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1707,12 +1737,12 @@ export const WidgetChatScreen = () => {
       <Form {...(form as any)}>
         <AIInput
           className={cn(
-            "flex flex-row items-end gap-2 !divide-y-0 border-0 border-t bg-transparent px-3 py-2",
+            "flex flex-row items-end gap-2 !divide-y-0 border-0 border-t border-slate-200/70 bg-gradient-to-t from-slate-100/50 to-slate-50/30 px-3 pb-3 pt-2",
             isFullWidth && "border-t"
           )}
           onSubmit={form.handleSubmit(onSubmit)}
         >
-          <div className="flex flex-1 min-w-0 items-center gap-2 rounded-full border bg-[#f4f4f5] px-3 py-1.5 shadow-sm">
+          <div className="flex flex-1 min-w-0 items-center gap-2 rounded-2xl border border-slate-200/80 bg-white px-3 py-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ring-slate-200/50 transition-shadow focus-within:ring-2 focus-within:ring-[var(--widget-primary)]/35">
             <FormField
               control={form.control as any}
               name="message"
@@ -1722,7 +1752,7 @@ export const WidgetChatScreen = () => {
                   autoFocus
                   minHeight={36}
                   maxHeight={96}
-                  className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-0 py-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-0 py-2 text-[14px] leading-snug text-slate-900 placeholder:text-slate-400 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   disabled={isPendingAssistant}
                   onChange={field.onChange}
                   onKeyDown={(e) => {
@@ -1732,7 +1762,8 @@ export const WidgetChatScreen = () => {
                       form.handleSubmit(onSubmit)();
                     }
                   }}
-                  placeholder="Type your message..."
+                  placeholder="Write your message…"
+                  aria-label="Message"
                   value={field.value}
                 />
               )}
