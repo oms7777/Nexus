@@ -44,7 +44,7 @@ function BrandHeader() {
         href="/"
         className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted"
       >
-        <img src="/logoo.jpg" alt="Inboundless" className="h-7 w-7 shrink-0" />
+        <img src="/logoo.jpg" alt="Inboundless" className="h-7 w-7 shrink-0 rounded-sm object-cover" />
         <span className={cn("font-semibold tracking-tight", labelClass)}>
           Inboundless
         </span>

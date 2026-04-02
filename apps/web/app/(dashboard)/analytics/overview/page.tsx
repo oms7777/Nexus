@@ -44,29 +44,45 @@ function normalizeLabel(s: any) {
   return v;
 }
 
-/** One-line takeaway from country rows (meetings first, else conversations). */
+function isUnknownCountryRow(c: any) {
+  return String(c?.countryCode ?? "").toUpperCase() === "UNKNOWN";
+}
+
+/** Dev / loopback hosts — not useful in “where did traffic come from” for prod. */
+function isNoiseSourceRow(s: any) {
+  const v = String(s?.source ?? "").toLowerCase();
+  return v === "localhost" || v.startsWith("127.") || v === "0.0.0.0" || v === "::1";
+}
+
+/**
+ * Short takeaway only when it adds something vs. the table (skip “100% from one country”).
+ */
 function buildGeoInsight(topCountries: any[]): string | null {
   if (!Array.isArray(topCountries) || topCountries.length === 0) return null;
   const totalMeetings = topCountries.reduce((s, c) => s + Number(c.meetings ?? 0), 0);
   const totalConv = topCountries.reduce((s, c) => s + Number(c.conversations ?? 0), 0);
 
   if (totalMeetings > 0) {
+    const withMeetings = topCountries.filter((c) => Number(c.meetings ?? 0) > 0);
+    if (withMeetings.length < 2) return null;
     const sorted = [...topCountries].sort((a, b) => Number(b.meetings ?? 0) - Number(a.meetings ?? 0));
     const top3 = sorted.slice(0, 3).filter((c) => Number(c.meetings ?? 0) > 0);
     if (top3.length === 0) return null;
     const sumTop3 = top3.reduce((s, c) => s + Number(c.meetings ?? 0), 0);
     const pct = Math.round((sumTop3 / totalMeetings) * 100);
     const names = top3.map((c) => normalizeLabel(c.countryLabel ?? c.countryCode)).join(", ");
-    return `${pct}% of meetings are from your top ${top3.length} ${top3.length === 1 ? "country" : "countries"}: ${names}.`;
+    return `${pct}% of meetings are concentrated in: ${names}.`;
   }
   if (totalConv > 0) {
+    const withConv = topCountries.filter((c) => Number(c.conversations ?? 0) > 0);
+    if (withConv.length < 2) return null;
     const sorted = [...topCountries].sort((a, b) => Number(b.conversations ?? 0) - Number(a.conversations ?? 0));
     const top3 = sorted.slice(0, 3).filter((c) => Number(c.conversations ?? 0) > 0);
     if (top3.length === 0) return null;
     const sumTop3 = top3.reduce((s, c) => s + Number(c.conversations ?? 0), 0);
     const pct = Math.round((sumTop3 / totalConv) * 100);
     const names = top3.map((c) => normalizeLabel(c.countryLabel ?? c.countryCode)).join(", ");
-    return `${pct}% of conversations are from your top ${top3.length} ${top3.length === 1 ? "country" : "countries"}: ${names}.`;
+    return `${pct}% of conversations are concentrated in: ${names}.`;
   }
   return null;
 }
@@ -127,9 +143,18 @@ export default function AnalyticsOverviewPage() {
   ];
 
   const topSources = Array.isArray(overview?.top_sources) ? overview.top_sources : [];
+  const topSourcesDisplay = useMemo(() => topSources.filter((s: any) => !isNoiseSourceRow(s)), [topSources]);
   const topPages = Array.isArray(overview?.top_pages) ? overview.top_pages : [];
   const topTerritories = Array.isArray(overview?.top_territories) ? overview.top_territories : [];
   const topCountries = Array.isArray((overview as any)?.top_countries) ? (overview as any).top_countries : [];
+  const unknownCountryRow = useMemo(
+    () => topCountries.find((c: any) => isUnknownCountryRow(c)),
+    [topCountries],
+  );
+  const topCountriesKnown = useMemo(
+    () => topCountries.filter((c: any) => !isUnknownCountryRow(c)),
+    [topCountries],
+  );
   const useCountriesTable = topCountries.length > 0;
   const topTerritoriesCountryCodes = Array.isArray((overview as any)?.top_territories_countryCodes)
     ? (overview as any).top_territories_countryCodes
@@ -188,7 +213,7 @@ export default function AnalyticsOverviewPage() {
       ? topCountries.filter((c: any) => selectedCountryCodeSet.has(String(c.countryCode).toUpperCase()))
       : [];
 
-  const geoInsight = useMemo(() => buildGeoInsight(topCountries), [topCountries]);
+  const geoInsight = useMemo(() => buildGeoInsight(topCountriesKnown), [topCountriesKnown]);
 
   const trendRows = (Array.isArray(trends) ? trends : []).map((r: any) => ({
     day: niceDayLabel(String(r.day)),
@@ -265,9 +290,14 @@ export default function AnalyticsOverviewPage() {
               <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                 <div>
                   <div className="mb-2 text-sm font-medium text-foreground">Top sources</div>
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Where the session came from: <span className="font-medium text-foreground">utm_source</span> if the
+                    embed sends it, else the <span className="font-medium text-foreground">referrer</span> hostname;
+                    &quot;direct&quot; = no referrer (bookmark, some apps, privacy).
+                  </p>
                   <MiniTable
                     columns={["Source", "Sessions • Conversations • Meetings"]}
-                    rows={topSources.slice(0, 8).map((s: any) => [
+                    rows={topSourcesDisplay.slice(0, 8).map((s: any) => [
                       normalizeLabel(s.source ?? "direct"),
                       `${Number(s.sessions ?? 0).toLocaleString()} • ${Number(s.conversations ?? 0).toLocaleString()} • ${Number(s.meetings ?? 0).toLocaleString()}`,
                     ])}
@@ -289,13 +319,6 @@ export default function AnalyticsOverviewPage() {
               <div className="mt-6 space-y-4 border-t border-border/60 pt-6">
                 {useCountriesTable ? (
                   <>
-                    {geoInsight ? (
-                      <div className="rounded-xl border border-fuchsia-200/60 bg-gradient-to-br from-fuchsia-50/80 to-white px-4 py-3 text-sm leading-snug text-foreground shadow-sm">
-                        <span className="font-semibold text-fuchsia-900">Insight · </span>
-                        {geoInsight}
-                      </div>
-                    ) : null}
-
                     {canShowZoneDrilldown ? (
                       <Tabs defaultValue="global" className="w-full gap-4">
                         <TabsList className="grid h-auto w-full max-w-md grid-cols-2 gap-1 rounded-xl bg-muted/80 p-1">
@@ -318,24 +341,55 @@ export default function AnalyticsOverviewPage() {
                             Top countries by activity for this period — <span className="font-medium text-foreground">all</span>{" "}
                             visitors we can place geographically (not filtered by sales zones).
                           </p>
-                          <MiniTable
-                            columns={["Country", "Sessions • Conversations • Meetings"]}
-                            rows={topCountries.slice(0, 8).map((t: any) => [
-                              normalizeLabel(t.countryLabel ?? t.countryCode),
-                              `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                            ])}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            “Unattributed” = we couldn&apos;t detect a country (privacy, network, or missing signal).
-                          </p>
+                          {geoInsight ? (
+                            <p className="border-l-2 border-fuchsia-400/70 pl-3 text-xs leading-relaxed text-muted-foreground">
+                              <span className="font-medium text-foreground">Takeaway · </span>
+                              {geoInsight}
+                            </p>
+                          ) : null}
+                          {topCountriesKnown.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              No visits could be assigned to a country this period.
+                            </p>
+                          ) : (
+                            <MiniTable
+                              columns={["Country", "Sessions • Conversations • Meetings"]}
+                              rows={topCountriesKnown.slice(0, 8).map((t: any) => [
+                                normalizeLabel(t.countryLabel ?? t.countryCode),
+                                `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                              ])}
+                            />
+                          )}
+                          {unknownCountryRow ? (
+                            <p className="text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground">Not in table:</span>{" "}
+                              {Number(unknownCountryRow.sessions ?? 0).toLocaleString()} sessions ·{" "}
+                              {Number(unknownCountryRow.conversations ?? 0).toLocaleString()} conversations ·{" "}
+                              {Number(unknownCountryRow.meetings ?? 0).toLocaleString()} meetings from visits with no
+                              country signal (privacy, VPN, or missing geo).
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              Country is shown when we receive a country code with the event.
+                            </p>
+                          )}
                         </TabsContent>
 
                         <TabsContent value="territories" className="mt-0 space-y-4 outline-none">
-                          <p className="text-xs text-muted-foreground">
-                            Same metrics, split by the zones you defined in{" "}
-                            <span className="font-medium text-foreground">Team &amp; Territories</span> — useful for
-                            routing and regional performance.
-                          </p>
+                          <div className="space-y-1.5 text-xs text-muted-foreground">
+                            <p>
+                              Same numbers as <span className="font-medium text-foreground">Global</span>, but only countries
+                              that belong to each <span className="font-medium text-foreground">sales zone</span> you set
+                              in Team &amp; Territories — so you can read performance per region (e.g. “Europe”) without
+                              mixing in the rest of the world.
+                            </p>
+                            <p>
+                              <span className="font-medium text-foreground">Why only one pill (e.g. Europe)?</span> Not
+                              hardcoded: we list zones that have a country list, excluding “Whole world”, up to four — and
+                              only if that zone has attributed traffic this period. If most activity maps to one zone, you
+                              may see a single tab until other regions get traffic.
+                            </p>
+                          </div>
                           <div className="flex flex-wrap gap-2">
                             {zoneTerritoriesWithCountries.map((z: any) => {
                               const active = String(z.territoryKey) === selectedZoneTerritoryKey;
@@ -386,16 +440,38 @@ export default function AnalyticsOverviewPage() {
                           Top countries for this period (org-wide). Sales-zone breakdown appears when territory country
                           lists overlap with attributed visits.
                         </p>
-                        <MiniTable
-                          columns={["Country", "Sessions • Conversations • Meetings"]}
-                          rows={topCountries.slice(0, 8).map((t: any) => [
-                            normalizeLabel(t.countryLabel ?? t.countryCode),
-                            `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                          ])}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          “Unattributed” = we couldn&apos;t detect a country (privacy, network, or missing signal).
-                        </p>
+                        {geoInsight ? (
+                          <p className="border-l-2 border-fuchsia-400/70 pl-3 text-xs leading-relaxed text-muted-foreground">
+                            <span className="font-medium text-foreground">Takeaway · </span>
+                            {geoInsight}
+                          </p>
+                        ) : null}
+                        {topCountriesKnown.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            No visits could be assigned to a country this period.
+                          </p>
+                        ) : (
+                          <MiniTable
+                            columns={["Country", "Sessions • Conversations • Meetings"]}
+                            rows={topCountriesKnown.slice(0, 8).map((t: any) => [
+                              normalizeLabel(t.countryLabel ?? t.countryCode),
+                              `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                            ])}
+                          />
+                        )}
+                        {unknownCountryRow ? (
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">Not in table:</span>{" "}
+                            {Number(unknownCountryRow.sessions ?? 0).toLocaleString()} sessions ·{" "}
+                            {Number(unknownCountryRow.conversations ?? 0).toLocaleString()} conversations ·{" "}
+                            {Number(unknownCountryRow.meetings ?? 0).toLocaleString()} meetings from visits with no
+                            country signal (privacy, VPN, or missing geo).
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Country is shown when we receive a country code with the event.
+                          </p>
+                        )}
                       </div>
                     )}
                   </>
