@@ -21,6 +21,7 @@ import {
 } from "recharts";
 
 import { BrandPill, RangePills, CardShell, StatCard, MiniTable } from "@/modules/analytics/shared/analytics-primitives";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 
 function makeRange(days: number) {
   const toTs = Date.now();
@@ -41,6 +42,33 @@ function normalizeLabel(s: any) {
   if (lower === "unknown") return "Unattributed";
   if (lower === "other") return "Other";
   return v;
+}
+
+/** One-line takeaway from country rows (meetings first, else conversations). */
+function buildGeoInsight(topCountries: any[]): string | null {
+  if (!Array.isArray(topCountries) || topCountries.length === 0) return null;
+  const totalMeetings = topCountries.reduce((s, c) => s + Number(c.meetings ?? 0), 0);
+  const totalConv = topCountries.reduce((s, c) => s + Number(c.conversations ?? 0), 0);
+
+  if (totalMeetings > 0) {
+    const sorted = [...topCountries].sort((a, b) => Number(b.meetings ?? 0) - Number(a.meetings ?? 0));
+    const top3 = sorted.slice(0, 3).filter((c) => Number(c.meetings ?? 0) > 0);
+    if (top3.length === 0) return null;
+    const sumTop3 = top3.reduce((s, c) => s + Number(c.meetings ?? 0), 0);
+    const pct = Math.round((sumTop3 / totalMeetings) * 100);
+    const names = top3.map((c) => normalizeLabel(c.countryLabel ?? c.countryCode)).join(", ");
+    return `${pct}% of meetings are from your top ${top3.length} ${top3.length === 1 ? "country" : "countries"}: ${names}.`;
+  }
+  if (totalConv > 0) {
+    const sorted = [...topCountries].sort((a, b) => Number(b.conversations ?? 0) - Number(a.conversations ?? 0));
+    const top3 = sorted.slice(0, 3).filter((c) => Number(c.conversations ?? 0) > 0);
+    if (top3.length === 0) return null;
+    const sumTop3 = top3.reduce((s, c) => s + Number(c.conversations ?? 0), 0);
+    const pct = Math.round((sumTop3 / totalConv) * 100);
+    const names = top3.map((c) => normalizeLabel(c.countryLabel ?? c.countryCode)).join(", ");
+    return `${pct}% of conversations are from your top ${top3.length} ${top3.length === 1 ? "country" : "countries"}: ${names}.`;
+  }
+  return null;
 }
 
 export default function AnalyticsOverviewPage() {
@@ -160,6 +188,8 @@ export default function AnalyticsOverviewPage() {
       ? topCountries.filter((c: any) => selectedCountryCodeSet.has(String(c.countryCode).toUpperCase()))
       : [];
 
+  const geoInsight = useMemo(() => buildGeoInsight(topCountries), [topCountries]);
+
   const trendRows = (Array.isArray(trends) ? trends : []).map((r: any) => ({
     day: niceDayLabel(String(r.day)),
     sessions: Number(r.sessions ?? 0),
@@ -178,15 +208,14 @@ export default function AnalyticsOverviewPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="max-w-3xl space-y-2">
-          <div className="text-2xl font-semibold">Executive Analytics</div>
-          <div className="text-sm text-muted-foreground">Pipeline performance for the selected period.</div>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            <span className="font-medium text-foreground">Different from web analytics</span> (e.g. Vercel or GA on your
-            marketing site): those tools measure page traffic. This view measures your{" "}
-            <span className="font-medium text-foreground">Inboundless funnel</span> — sessions, conversations, and
-            meetings from the widget on <span className="font-medium text-foreground">your customers&apos; sites</span>,
-            broken down by source, page, and geography (and optionally by sales territory below).
+        <div className="max-w-2xl space-y-2">
+          <div className="text-2xl font-semibold tracking-tight">Executive Analytics</div>
+          <p className="text-sm text-muted-foreground">
+            Inboundless funnel on your customers&apos; sites — not the same as site traffic tools (GA, hosting).
+          </p>
+          <p className="text-xs text-muted-foreground/90">
+            <span className="font-medium text-foreground">Everyone in your organization</span> sees the same numbers
+            here. Geography tabs below are views of the same data — global vs. your sales zones in Team &amp; Territories.
           </p>
         </div>
         <RangePills value={days} onChange={setDays} />
@@ -229,13 +258,13 @@ export default function AnalyticsOverviewPage() {
         <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
           <div className="xl:col-span-2">
             <CardShell
-              title="Attribution & territories"
-              subtitle="Widget pipeline — not your hosting provider’s page analytics"
+              title="Sources, pages & geography"
+              subtitle="Traffic and outcomes by source, page, then country — pick a lens below."
               right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
             >
-              <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+              <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                 <div>
-                  <div className="mb-2 text-sm font-medium">Top sources</div>
+                  <div className="mb-2 text-sm font-medium text-foreground">Top sources</div>
                   <MiniTable
                     columns={["Source", "Sessions • Conversations • Meetings"]}
                     rows={topSources.slice(0, 8).map((s: any) => [
@@ -246,7 +275,7 @@ export default function AnalyticsOverviewPage() {
                 </div>
 
                 <div>
-                  <div className="mb-2 text-sm font-medium">Top pages</div>
+                  <div className="mb-2 text-sm font-medium text-foreground">Top pages</div>
                   <MiniTable
                     columns={["Page", "Sessions • Conversations • Meetings"]}
                     rows={topPages.slice(0, 8).map((p: any) => [
@@ -257,92 +286,127 @@ export default function AnalyticsOverviewPage() {
                 </div>
               </div>
 
-              <div className="mt-4 space-y-8">
-                {/* 1) Marketing-style global geography — all visitors we can place on the map; not filtered by sales territories */}
+              <div className="mt-6 space-y-4 border-t border-border/60 pt-6">
                 {useCountriesTable ? (
-                  <div className="space-y-2">
-                    <div>
-                      <div className="text-sm font-medium">Where your visitors come from</div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Marketing view: worldwide visitor geography for the selected period (top countries by activity).
-                        Not tied to <span className="font-medium text-foreground">Team &amp; Territories</span> — that’s
-                        for sales routing below.
-                      </p>
-                    </div>
-                    <MiniTable
-                      columns={["Country", "Sessions • Conversations • Meetings"]}
-                      rows={topCountries.slice(0, 8).map((t: any) => [
-                        normalizeLabel(t.countryLabel ?? t.countryCode),
-                        `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                      ])}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      “Unattributed” means we couldn’t infer a country for some visits (network, privacy, or missing
-                      location signal) — not a sales territory issue.
-                    </p>
-                  </div>
-                ) : null}
-
-                {/* 2) Sales territory drill-down — same data filtered by configured territory country lists */}
-                {canShowZoneDrilldown ? (
-                  <div className="space-y-3 border-t border-border/60 pt-6">
-                    <div>
-                      <div className="text-sm font-medium">By sales territory</div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Uses your <span className="font-medium text-foreground">Team &amp; Territories</span> definitions.
-                        Shows performance inside each zone (e.g. which countries in “Europe” matter for routing), not total
-                        global traffic.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {zoneTerritoriesWithCountries.map((z: any) => {
-                        const active = String(z.territoryKey) === selectedZoneTerritoryKey;
-                        return (
-                          <button
-                            key={z.territoryKey}
-                            type="button"
-                            onClick={() => setSelectedZoneTerritoryKey(String(z.territoryKey))}
-                            className={[
-                              "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                              active
-                                ? "bg-gradient-to-r from-fuchsia-600 to-rose-500 border-fuchsia-200 text-white"
-                                : "bg-white border-slate-200 text-muted-foreground hover:bg-fuchsia-50/40 hover:text-foreground",
-                            ].join(" ")}
-                          >
-                            {z.territoryLabel ?? z.territoryKey}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="text-sm font-medium">
-                      Countries in{" "}
-                      {zoneTerritoriesWithCountries.find(
-                        (z: any) => String(z.territoryKey) === selectedZoneTerritoryKey,
-                      )?.territoryLabel ?? selectedZoneTerritoryKey}
-                    </div>
-                    <MiniTable
-                      columns={["Country", "Sessions • Conversations • Meetings"]}
-                      rows={countriesInSelectedZone.slice(0, 8).map((t: any) => [
-                        normalizeLabel(t.countryLabel ?? t.countryCode),
-                        `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                      ])}
-                    />
-                    {countriesInSelectedZone.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        No attributed traffic in this territory for the period (or geo missing for those visits).
-                      </p>
+                  <>
+                    {geoInsight ? (
+                      <div className="rounded-xl border border-fuchsia-200/60 bg-gradient-to-br from-fuchsia-50/80 to-white px-4 py-3 text-sm leading-snug text-foreground shadow-sm">
+                        <span className="font-semibold text-fuchsia-900">Insight · </span>
+                        {geoInsight}
+                      </div>
                     ) : null}
-                  </div>
+
+                    {canShowZoneDrilldown ? (
+                      <Tabs defaultValue="global" className="w-full gap-4">
+                        <TabsList className="grid h-auto w-full max-w-md grid-cols-2 gap-1 rounded-xl bg-muted/80 p-1">
+                          <TabsTrigger
+                            value="global"
+                            className="rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                          >
+                            Global
+                          </TabsTrigger>
+                          <TabsTrigger
+                            value="territories"
+                            className="rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                          >
+                            Sales territories
+                          </TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="global" className="mt-0 space-y-3 outline-none">
+                          <p className="text-xs text-muted-foreground">
+                            Top countries by activity for this period — <span className="font-medium text-foreground">all</span>{" "}
+                            visitors we can place geographically (not filtered by sales zones).
+                          </p>
+                          <MiniTable
+                            columns={["Country", "Sessions • Conversations • Meetings"]}
+                            rows={topCountries.slice(0, 8).map((t: any) => [
+                              normalizeLabel(t.countryLabel ?? t.countryCode),
+                              `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                            ])}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            “Unattributed” = we couldn&apos;t detect a country (privacy, network, or missing signal).
+                          </p>
+                        </TabsContent>
+
+                        <TabsContent value="territories" className="mt-0 space-y-4 outline-none">
+                          <p className="text-xs text-muted-foreground">
+                            Same metrics, split by the zones you defined in{" "}
+                            <span className="font-medium text-foreground">Team &amp; Territories</span> — useful for
+                            routing and regional performance.
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {zoneTerritoriesWithCountries.map((z: any) => {
+                              const active = String(z.territoryKey) === selectedZoneTerritoryKey;
+                              return (
+                                <button
+                                  key={z.territoryKey}
+                                  type="button"
+                                  onClick={() => setSelectedZoneTerritoryKey(String(z.territoryKey))}
+                                  className={[
+                                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                                    active
+                                      ? "bg-gradient-to-r from-fuchsia-600 to-rose-500 border-fuchsia-200 text-white shadow-sm"
+                                      : "border-slate-200 bg-white text-muted-foreground hover:border-fuchsia-200/60 hover:bg-fuchsia-50/50 hover:text-foreground",
+                                  ].join(" ")}
+                                >
+                                  {z.territoryLabel ?? z.territoryKey}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div>
+                            <div className="mb-2 text-sm font-medium">
+                              Countries in{" "}
+                              {zoneTerritoriesWithCountries.find(
+                                (z: any) => String(z.territoryKey) === selectedZoneTerritoryKey,
+                              )?.territoryLabel ?? selectedZoneTerritoryKey}
+                            </div>
+                            <MiniTable
+                              columns={["Country", "Sessions • Conversations • Meetings"]}
+                              rows={countriesInSelectedZone.slice(0, 8).map((t: any) => [
+                                normalizeLabel(t.countryLabel ?? t.countryCode),
+                                `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                              ])}
+                            />
+                            {countriesInSelectedZone.length === 0 ? (
+                              <p className="mt-2 text-xs text-muted-foreground">
+                                No attributed traffic in this zone for the period, or geo is missing for those visits.
+                              </p>
+                            ) : null}
+                          </div>
+                        </TabsContent>
+                      </Tabs>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="text-sm font-medium">Countries</div>
+                        <p className="text-xs text-muted-foreground">
+                          Top countries for this period (org-wide). Sales-zone breakdown appears when territory country
+                          lists overlap with attributed visits.
+                        </p>
+                        <MiniTable
+                          columns={["Country", "Sessions • Conversations • Meetings"]}
+                          rows={topCountries.slice(0, 8).map((t: any) => [
+                            normalizeLabel(t.countryLabel ?? t.countryCode),
+                            `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
+                          ])}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          “Unattributed” = we couldn&apos;t detect a country (privacy, network, or missing signal).
+                        </p>
+                      </div>
+                    )}
+                  </>
                 ) : null}
 
-                {/* Fallback: no country-level geo yet — show territory rollup only */}
                 {!useCountriesTable ? (
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">Top territories</div>
+                  <div className="space-y-3">
+                    <div className="text-sm font-medium">Territories (summary)</div>
                     <p className="text-xs text-muted-foreground">
-                      Country-level “where visitors come from” will show once we can attribute visits to a country for this
-                      period.
+                      Country-level detail will show once visits can be attributed to a country. Until then, here is the
+                      rollup by sales territory.
                     </p>
                     <MiniTable
                       columns={["Territory", "Sessions • Conversations • Meetings"]}
