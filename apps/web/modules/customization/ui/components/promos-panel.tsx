@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { cn } from "@workspace/ui/lib/utils";
 import {
   ArrowRight,
+  ChevronLeft,
   ChevronRight,
   Clock,
   Copy,
@@ -575,17 +576,23 @@ function PromoSequenceStoryboard({
   useEffect(() => {
     if (dragFrom === null) return;
     const move = (e: PointerEvent) => {
+      // Avoid horizontal scroll stealing the gesture inside overflow-x-auto.
+      e.preventDefault();
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const zone = el?.closest("[data-nudge-drop-index]");
       if (zone) {
         const v = zone.getAttribute("data-nudge-drop-index");
         if (v !== null) {
           const idx = parseInt(v, 10);
-          if (!Number.isNaN(idx)) setDropTarget(idx);
+          if (!Number.isNaN(idx)) {
+            // Sync ref immediately: pointerup can fire before React re-renders from setState.
+            dropTargetRef.current = idx;
+            setDropTarget(idx);
+          }
         }
       }
     };
-    window.addEventListener("pointermove", move);
+    window.addEventListener("pointermove", move, { passive: false });
     return () => window.removeEventListener("pointermove", move);
   }, [dragFrom]);
 
@@ -647,7 +654,7 @@ function PromoSequenceStoryboard({
               </span>
               <span className="text-muted-foreground">
                 Press and hold the grip, move over another card or a <span className="font-medium">+pause</span> gap,
-                then release to reorder.
+                then release to reorder — or use the <span className="font-medium">‹ ›</span> arrows on each card.
               </span>
             </p>
           ) : hasStepRows ? (
@@ -657,7 +664,13 @@ function PromoSequenceStoryboard({
           ) : null}
         </div>
 
-        <div className="flex items-stretch gap-1 overflow-x-auto pb-1 pt-0.5 [scrollbar-width:thin]">
+        <div
+          className={cn(
+            "flex items-stretch gap-1 overflow-x-auto pb-1 pt-0.5 [scrollbar-width:thin]",
+            dragFrom !== null && "touch-none select-none",
+          )}
+          style={dragFrom !== null ? { touchAction: "none" } : undefined}
+        >
           {/* T0 */}
           <div className="flex min-w-[88px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-3 text-center shadow-sm">
             <Clock className="h-4 w-4 text-slate-400" aria-hidden />
@@ -683,7 +696,16 @@ function PromoSequenceStoryboard({
                 <div
                   data-nudge-drop-index={i}
                   onPointerEnter={() => {
-                    if (dragFrom !== null) setDropTarget(i);
+                    if (dragFrom !== null) {
+                      dropTargetRef.current = i;
+                      setDropTarget(i);
+                    }
+                  }}
+                  onPointerMove={() => {
+                    if (dragFrom !== null) {
+                      dropTargetRef.current = i;
+                      setDropTarget(i);
+                    }
                   }}
                   className={cn(
                     "flex w-[158px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.04] transition hover:border-violet-200",
@@ -697,12 +719,18 @@ function PromoSequenceStoryboard({
                   <div className="flex items-stretch gap-0 border-b border-slate-100 bg-slate-50/80">
                     {canReorder ? (
                       <div
-                        className="flex w-10 shrink-0 cursor-grab touch-none select-none flex-col items-center justify-center border-r border-slate-200/80 bg-white text-slate-500 hover:bg-violet-50 hover:text-violet-800 active:cursor-grabbing"
+                        className={cn(
+                          "flex w-11 shrink-0 cursor-grab touch-none select-none flex-col items-center justify-center border-r border-slate-200/80 bg-white text-slate-500 hover:bg-violet-50 hover:text-violet-800 active:cursor-grabbing",
+                          dragFrom === i && "bg-violet-100 text-violet-800",
+                        )}
                         title="Drag to reorder"
                         aria-label={`Reorder nudge ${i + 1}`}
                         onPointerDown={(e) => {
+                          if (e.button !== 0) return;
                           e.preventDefault();
                           e.stopPropagation();
+                          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                          dropTargetRef.current = i;
                           setDragFrom(i);
                           setDropTarget(i);
                         }}
@@ -718,6 +746,38 @@ function PromoSequenceStoryboard({
                     >
                       Nudge {i + 1}
                     </button>
+                    {canReorder ? (
+                      <div className="flex shrink-0 flex-col justify-center gap-0 border-l border-slate-200/80 bg-white py-0.5 pr-0.5">
+                        <button
+                          type="button"
+                          className="flex h-5 w-5 items-center justify-center rounded text-slate-500 hover:bg-violet-50 hover:text-violet-800 disabled:pointer-events-none disabled:opacity-25"
+                          title="Move earlier in sequence"
+                          aria-label={`Move nudge ${i + 1} earlier in sequence`}
+                          disabled={i === 0}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onReorderSteps?.(i, i - 1);
+                          }}
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-5 w-5 items-center justify-center rounded text-slate-500 hover:bg-violet-50 hover:text-violet-800 disabled:pointer-events-none disabled:opacity-25"
+                          title="Move later in sequence"
+                          aria-label={`Move nudge ${i + 1} later in sequence`}
+                          disabled={i >= cardCount - 1}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onReorderSteps?.(i, i + 1);
+                          }}
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     type="button"
@@ -764,10 +824,19 @@ function PromoSequenceStoryboard({
                   <div
                     data-nudge-drop-index={i + 1}
                     onPointerEnter={() => {
-                      if (dragFrom !== null) setDropTarget(i + 1);
+                      if (dragFrom !== null) {
+                        dropTargetRef.current = i + 1;
+                        setDropTarget(i + 1);
+                      }
+                    }}
+                    onPointerMove={() => {
+                      if (dragFrom !== null) {
+                        dropTargetRef.current = i + 1;
+                        setDropTarget(i + 1);
+                      }
                     }}
                     className={cn(
-                      "flex min-h-[120px] w-[52px] shrink-0 flex-col items-center justify-center gap-0.5 px-0.5",
+                      "flex min-h-[120px] min-w-[64px] w-[64px] shrink-0 flex-col items-center justify-center gap-0.5 px-1",
                       canReorder && "rounded-lg border border-dashed border-transparent hover:border-violet-300 hover:bg-violet-50/40",
                       canReorder &&
                         dragFrom !== null &&
