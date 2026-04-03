@@ -1426,6 +1426,94 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </div>
                     </div>
 
+                    {sequenceUxMode === "advanced" ? (
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div>
+                          <Label>Max sequence items</Label>
+                          <Input
+                            type="number"
+                            {...form.register("maxSequenceItems", { valueAsNumber: true })}
+                            min={1}
+                            max={10}
+                          />
+                        </div>
+
+                        <div>
+                          <Label>First popup delay (seconds)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={Number((showDelayWatch / 1000).toFixed(1))}
+                            onChange={(e) => {
+                              const s = Number(e.target.value || 0);
+                              form.setValue("showDelayAfterNavMs", Math.max(0, Math.round(s * 1000)));
+                            }}
+                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Current: <span className="font-medium">{formatDuration(showDelayWatch)}</span>
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label>Auto-close after (seconds)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={Number((autoCloseWatch / 1000).toFixed(1))}
+                            onChange={(e) => {
+                              const s = Number(e.target.value || 0);
+                              form.setValue("autoCloseMs", Math.max(0, Math.round(s * 1000)));
+                            }}
+                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Current: <span className="font-medium">{formatDuration(autoCloseWatch)}</span>
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label>Delay before next popup (seconds)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={Number((betweenWatch / 1000).toFixed(1))}
+                            onChange={(e) => {
+                              const s = Number(e.target.value || 0);
+                              form.setValue("betweenPopupsMs", Math.max(0, Math.round(s * 1000)));
+                            }}
+                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Example: <code>10</code> = next nudge appears 10 seconds later.
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label>Animation style</Label>
+                          <Select
+                            value={animationPresetWatch}
+                            onValueChange={(v) =>
+                              form.setValue(
+                                "animationPreset",
+                                v as "soft_slide" | "ppt_pop" | "cinematic" | "none",
+                              )
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Soft slide" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="soft_slide">Soft slide</SelectItem>
+                              <SelectItem value="ppt_pop">PPT pop</SelectItem>
+                              <SelectItem value="cinematic">Cinematic</SelectItem>
+                              <SelectItem value="none">No animation</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    ) : null}
+
                     <PromoSequenceStoryboard
                       sequenceEnabled={sequenceEnabledWatch}
                       sequenceSteps={sequenceStepsWatch}
@@ -1473,7 +1561,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           {sequenceStepFields.map((field, index) => (
                             <div
                               key={field.id}
-                              className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setStoryPreviewIndex(index)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setStoryPreviewIndex(index);
+                                }
+                              }}
+                              className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm outline-none ring-offset-2 transition hover:border-violet-200 focus-visible:ring-2 focus-visible:ring-violet-400"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs font-bold uppercase tracking-wide text-slate-700">
@@ -1484,7 +1581,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                   variant="ghost"
                                   size="sm"
                                   className="h-7 text-xs text-muted-foreground hover:text-destructive"
-                                  onClick={() => removeSequenceStep(index)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeSequenceStep(index);
+                                  }}
                                 >
                                   Remove step
                                 </Button>
@@ -1580,94 +1680,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           <Plus className="mr-2 h-4 w-4" aria-hidden />
                           Add step
                         </Button>
-                      </div>
-                    ) : null}
-
-                    {sequenceUxMode === "advanced" ? (
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div>
-                          <Label>Max sequence items</Label>
-                          <Input
-                            type="number"
-                            {...form.register("maxSequenceItems", { valueAsNumber: true })}
-                            min={1}
-                            max={10}
-                          />
-                        </div>
-
-                        <div>
-                          <Label>First popup delay (seconds)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={Number((showDelayWatch / 1000).toFixed(1))}
-                            onChange={(e) => {
-                              const s = Number(e.target.value || 0);
-                              form.setValue("showDelayAfterNavMs", Math.max(0, Math.round(s * 1000)));
-                            }}
-                          />
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Current: <span className="font-medium">{formatDuration(showDelayWatch)}</span>
-                          </p>
-                        </div>
-
-                        <div>
-                          <Label>Auto-close after (seconds)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={Number((autoCloseWatch / 1000).toFixed(1))}
-                            onChange={(e) => {
-                              const s = Number(e.target.value || 0);
-                              form.setValue("autoCloseMs", Math.max(0, Math.round(s * 1000)));
-                            }}
-                          />
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Current: <span className="font-medium">{formatDuration(autoCloseWatch)}</span>
-                          </p>
-                        </div>
-
-                        <div>
-                          <Label>Delay before next popup (seconds)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={Number((betweenWatch / 1000).toFixed(1))}
-                            onChange={(e) => {
-                              const s = Number(e.target.value || 0);
-                              form.setValue("betweenPopupsMs", Math.max(0, Math.round(s * 1000)));
-                            }}
-                          />
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Example: <code>10</code> = next nudge appears 10 seconds later.
-                          </p>
-                        </div>
-
-                        <div>
-                          <Label>Animation style</Label>
-                          <Select
-                            value={animationPresetWatch}
-                            onValueChange={(v) =>
-                              form.setValue(
-                                "animationPreset",
-                                v as "soft_slide" | "ppt_pop" | "cinematic" | "none",
-                              )
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Soft slide" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="soft_slide">Soft slide</SelectItem>
-                              <SelectItem value="ppt_pop">PPT pop</SelectItem>
-                              <SelectItem value="cinematic">Cinematic</SelectItem>
-                              <SelectItem value="none">No animation</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
                       </div>
                     ) : null}
                   </section>
@@ -1928,13 +1940,17 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       )}
 
                       <div className="min-w-0 space-y-1">
-                        <div className="truncate text-sm font-semibold text-slate-900">
-                          {previewTitleEff}
-                        </div>
+                        {previewTitleEff ? (
+                          <div className="truncate text-sm font-semibold text-slate-900">
+                            {previewTitleEff}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 
-                    <p className="text-xs leading-relaxed text-slate-600">{previewBodyEff}</p>
+                    {previewBodyEff ? (
+                      <p className="text-xs leading-relaxed text-slate-600">{previewBodyEff}</p>
+                    ) : null}
 
                     {previewVideoEff ? (
                       <video

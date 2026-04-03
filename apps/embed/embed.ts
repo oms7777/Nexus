@@ -123,7 +123,12 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   // Pending CTA when user clicks nudge before widget is ready
-  let pendingCta: { type: "run-cta" | "run-secondary-cta" | "open-chat"; index?: number } | null = null;
+  let pendingCta: {
+    type: "run-cta" | "run-secondary-cta" | "open-chat";
+    index?: number;
+    kind?: SimpleCta["kind"];
+    url?: string;
+  } | null = null;
   let pendingCtaTimeout: number | null = null;
 
   // Tracking
@@ -446,7 +451,12 @@ type NudgeKind = "promo" | "suggestions" | null;
         sendParentLocation();
         if (pendingCta) {
           if (pendingCta.type === "run-cta" && typeof pendingCta.index === "number") {
-            postToWidget({ type: "nexus:run-cta", index: pendingCta.index });
+            postToWidget({
+              type: "nexus:run-cta",
+              index: pendingCta.index,
+              kind: pendingCta.kind,
+              url: pendingCta.url,
+            });
           } else if (pendingCta.type === "run-secondary-cta") {
             postToWidget({ type: "nexus:run-secondary-cta" });
           } else if (pendingCta.type === "open-chat") {
@@ -1076,8 +1086,13 @@ type NudgeKind = "promo" | "suggestions" | null;
     }
 
     const title =
-      payload.title || "Discover the right solution for your business project.";
-    const body = payload.body || "Chat with our assistant or book a 15-min demo.";
+      typeof payload.title === "string"
+        ? payload.title
+        : "Discover the right solution for your business project.";
+    const body =
+      typeof payload.body === "string"
+        ? payload.body
+        : "Chat with our assistant or book a 15-min demo.";
     const safeImage = payload.imageUrl ? escapeAttr(payload.imageUrl) : "";
     const safeVideo = payload.videoUrl ? escapeAttr(payload.videoUrl) : "";
     const mediaHtml = safeVideo
@@ -1242,12 +1257,20 @@ type NudgeKind = "promo" | "suggestions" | null;
             ${identityHtml}
           </div>
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:700;font-size:14px;color:#111827;">
+            ${
+              title.trim().length
+                ? `<div style="font-weight:700;font-size:14px;color:#111827;">
               ${escapeHtml(title)}
-            </div>
-            <div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;word-break:break-word;">
+            </div>`
+                : ""
+            }
+            ${
+              body.trim().length
+                ? `<div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;word-break:break-word;">
               ${escapeHtml(body)}
-            </div>
+            </div>`
+                : ""
+            }
 
             ${mediaHtml}
 
@@ -1357,12 +1380,34 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   function runNudgeCta(index: number) {
-    pendingCta = { type: "run-cta", index };
+    const p = pendingPromoPayload;
+    let kind: SimpleCta["kind"] | undefined;
+    let url: string | undefined;
+    if (p?.ctaList && p.ctaList.length > 0) {
+      const c = p.ctaList[index];
+      kind = c?.kind;
+      url = c?.url;
+    } else if (p) {
+      if (index === 0 && p.primaryCta) {
+        kind = p.primaryCta.kind;
+        url = p.primaryCta.url;
+      } else if (index === 1 && p.secondaryCta) {
+        kind = p.secondaryCta.kind;
+        url = p.secondaryCta.url;
+      }
+    }
+
+    pendingCta = { type: "run-cta", index, kind, url };
     show();
     if (pendingCtaTimeout) window.clearTimeout(pendingCtaTimeout);
     pendingCtaTimeout = window.setTimeout(() => {
       if (pendingCta && pendingCta.type === "run-cta") {
-        postToWidget({ type: "nexus:run-cta", index: pendingCta.index! });
+        postToWidget({
+          type: "nexus:run-cta",
+          index: pendingCta.index!,
+          kind: pendingCta.kind,
+          url: pendingCta.url,
+        });
       }
       pendingCtaTimeout = null;
     }, 800);

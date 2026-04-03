@@ -289,6 +289,21 @@ export default function SmartPromo() {
       }
 
       if (t === "nexus:run-cta" && typeof e.data.index === "number") {
+        const kind = e.data.kind as Cta["kind"] | undefined;
+        const url = e.data.url as string | undefined;
+        if (kind === "open_chat") {
+          void ensureAndStart("chat");
+          return;
+        }
+        if (kind === "open_booking") {
+          void ensureAndStart("book");
+          return;
+        }
+        if (kind === "open_url" && url) {
+          window.open(url, "_blank", "noopener,noreferrer");
+          return;
+        }
+
         const idx = e.data.index as number;
         const p = promoRef.current;
 
