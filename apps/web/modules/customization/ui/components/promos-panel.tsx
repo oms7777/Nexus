@@ -1,6 +1,13 @@
 "use client";
 
-import { useRef, useState, useEffect, useMemo, type RefObject } from "react";
+import {
+  useRef,
+  useState,
+  useEffect,
+  useMemo,
+  type RefObject,
+  type DragEvent,
+} from "react";
 import { useForm, SubmitHandler, useFieldArray, type Control } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -34,6 +41,22 @@ import {
 
 const MAX_PROMO_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PROMO_VIDEO_BYTES = 50 * 1024 * 1024;
+
+/** Surface Convex / network errors in toasts (bundler may wrap `ConvexError`). */
+function promoSaveErrorMessage(err: unknown): string {
+  const msg =
+    typeof err === "object" && err !== null && "message" in err
+      ? String((err as { message: string }).message)
+      : String(err);
+  const lower = msg.toLowerCase();
+  if (lower.includes("payment_required") || lower.includes("growth/enterprise")) {
+    return "Page-based promos require a Growth or Enterprise plan.";
+  }
+  if (lower.includes("unauthorized") || lower.includes("organization not found")) {
+    return "You must be signed in with an organization to save promos.";
+  }
+  return msg.length > 200 ? `${msg.slice(0, 200)}…` : msg;
+}
 
 /** After react-hook-form `move(from, to)` on the step array, fix the selected storyboard index. */
 function adjustSelectedIndexAfterMove(selected: number, from: number, to: number): number {
@@ -200,6 +223,14 @@ const MEDIA_PLACEMENT_OPTIONS: {
   { value: "left", label: "Media left" },
   { value: "right", label: "Media right" },
 ];
+
+/** Preview column width reflects nudge size tier (embed uses the same tiers). */
+const NUDGE_PREVIEW_MAX_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, string> = {
+  sm: "max-w-[17rem]",
+  md: "max-w-sm",
+  lg: "max-w-md",
+  xl: "max-w-xl",
+};
 
 type ThemePreview = {
   primaryColor?: string | null;
@@ -467,7 +498,7 @@ function SequenceStepCtaFields({
 function PromoSequenceStoryboard({
   sequenceEnabled,
   sequenceSteps,
-  maxSteps,
+  stepRowIds,
   showDelayMs,
   autoCloseMs,
   betweenMs,
@@ -489,7 +520,8 @@ function PromoSequenceStoryboard({
     imageUrl?: string;
     videoUrl?: string;
   }>;
-  maxSteps: number;
+  /** Stable keys from `useFieldArray` — avoids broken drag/drop after reorder. */
+  stepRowIds: string[];
   showDelayMs: number;
   autoCloseMs: number;
   betweenMs: number;
@@ -517,9 +549,9 @@ function PromoSequenceStoryboard({
     );
   }
 
-  const cap = Math.max(1, Math.min(10, Math.floor(maxSteps)));
   const hasStepRows = sequenceSteps.length > 0;
-  const cardCount = hasStepRows ? Math.min(sequenceSteps.length, cap) : 1;
+  /** Show every saved step in the editor (do not hide steps when maxSequenceItems lags). */
+  const cardCount = hasStepRows ? Math.min(sequenceSteps.length, 10) : 1;
   const anim = ANIM_LABEL[animationPreset] ?? animationPreset;
   const canReorder = Boolean(onReorderSteps && hasStepRows && cardCount > 1);
 
@@ -563,7 +595,8 @@ function PromoSequenceStoryboard({
                 Drag
               </span>
               <span className="text-muted-foreground">
-                Grab the handle on the left of a card, then drop on another card to reorder.
+                Drag from the grip, then drop on a card or on a <span className="font-medium">+pause</span> gap to
+                insert between nudges (e.g. move nudge 3 before nudge 1).
               </span>
             </p>
           ) : hasStepRows ? (
@@ -593,13 +626,21 @@ function PromoSequenceStoryboard({
             const titleShow = hasStepRows
               ? (step?.title?.trim() || "Title")
               : ((step?.title?.trim() || baseTitle).trim() || "Title");
+            const rowKey = stepRowIds[i] ?? `nudge-${i}`;
+            const readDragFrom = (e: DragEvent<HTMLDivElement>) => {
+              const raw =
+                e.dataTransfer.getData("application/nexus-nudge-index") ||
+                e.dataTransfer.getData("text/plain");
+              return parseInt(raw, 10);
+            };
             return (
-              <div key={i} className="flex shrink-0 items-stretch gap-1">
+              <div key={rowKey} className="flex shrink-0 items-stretch gap-1">
                 <div
                   onDragOver={
                     canReorder
                       ? (e) => {
                           e.preventDefault();
+                          e.stopPropagation();
                           e.dataTransfer.dropEffect = "move";
                           setDragOverIndex(i);
                         }
@@ -609,9 +650,9 @@ function PromoSequenceStoryboard({
                     canReorder
                       ? (e) => {
                           e.preventDefault();
+                          e.stopPropagation();
                           setDragOverIndex(null);
-                          const fromStr = e.dataTransfer.getData("application/nexus-nudge-index");
-                          const from = parseInt(fromStr, 10);
+                          const from = readDragFrom(e);
                           if (Number.isNaN(from) || from === i) return;
                           onReorderSteps?.(from, i);
                         }
@@ -632,6 +673,7 @@ function PromoSequenceStoryboard({
                         aria-label={`Drag to reorder nudge ${i + 1}`}
                         onDragStart={(e) => {
                           e.dataTransfer.setData("application/nexus-nudge-index", String(i));
+                          e.dataTransfer.setData("text/plain", String(i));
                           e.dataTransfer.effectAllowed = "move";
                         }}
                         onDragEnd={() => setDragOverIndex(null)}
@@ -657,6 +699,7 @@ function PromoSequenceStoryboard({
                       {vid ? (
                         <video
                           key={vid}
+                          draggable={false}
                           className="h-full w-full object-cover"
                           src={vid}
                           muted
@@ -666,7 +709,7 @@ function PromoSequenceStoryboard({
                           preload="metadata"
                         />
                       ) : img ? (
-                        <img src={img} alt="" className="h-full w-full object-cover" />
+                        <img draggable={false} src={img} alt="" className="h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
                           <Film className="h-6 w-6 text-slate-300" aria-hidden />
@@ -689,7 +732,35 @@ function PromoSequenceStoryboard({
                 </div>
 
                 {i < cardCount - 1 ? (
-                  <div className="flex w-[52px] shrink-0 flex-col items-center justify-center gap-0.5 px-0.5">
+                  <div
+                    className={cn(
+                      "flex min-h-[120px] w-[52px] shrink-0 flex-col items-center justify-center gap-0.5 px-0.5",
+                      canReorder && "rounded-lg border border-dashed border-transparent hover:border-violet-300 hover:bg-violet-50/40",
+                    )}
+                    onDragOver={
+                      canReorder
+                        ? (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.dataTransfer.dropEffect = "move";
+                          }
+                        : undefined
+                    }
+                    onDrop={
+                      canReorder
+                        ? (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDragOverIndex(null);
+                            const from = readDragFrom(e);
+                            const to = i + 1;
+                            if (Number.isNaN(from) || from === to) return;
+                            onReorderSteps?.(from, to);
+                          }
+                        : undefined
+                    }
+                    title={canReorder ? "Drop here to insert between these nudges" : undefined}
+                  >
                     <ArrowRight className="h-4 w-4 text-violet-400" aria-hidden />
                     <span className="rounded-md bg-violet-50 px-1.5 py-1 text-center text-[10px] font-semibold leading-tight text-violet-900">
                       +{formatDuration(betweenMs)}
@@ -1061,8 +1132,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     });
 
     try {
+      const promoId = typeof values.id === "string" && values.id.trim().length > 0 ? values.id.trim() : undefined;
       await upsert({
-        _id: (values.id as any) || undefined,
+        _id: promoId as any,
         name: values.name,
         active: values.active,
         showNudge: values.showNudge ?? true,
@@ -1097,7 +1169,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       setDialogOpen(false);
     } catch (e) {
       console.error(e);
-      toast.error("Failed to save promo");
+      toast.error(promoSaveErrorMessage(e));
     }
   };
 
@@ -1277,7 +1349,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       toast.success("Duplicated — open the copy to change page path or name");
     } catch (e) {
       console.error(e);
-      toast.error("Duplicate failed");
+      toast.error(promoSaveErrorMessage(e));
     }
   }
 
@@ -1360,6 +1432,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       ? previewStepRow?.ctaEmphasisMode ?? emphasisMode
       : emphasisMode;
 
+  const previewNudgeSizeTier: NonNullable<PromoForm["nudgeSize"]> =
+    (perNudgeLayout
+      ? (previewStepRow as { nudgeSize?: PromoForm["nudgeSize"] } | undefined)?.nudgeSize
+      : form.watch("nudgeSize")) ?? "md";
+
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
@@ -1376,7 +1453,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
             className="
               w-full
               max-w-[95vw]
-              sm:max-w-[1200px]
+              sm:max-w-[min(96vw,1360px)]
               max-h-[85vh]
               overflow-hidden
               rounded-xl
@@ -1399,7 +1476,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                 px-6
                 pb-6
                 pt-0
-                md:grid-cols-[2fr_1fr]
+                md:grid-cols-[minmax(0,1.35fr)_minmax(420px,1fr)]
               "
             >
               {/* Left column: form (scrollable) */}
@@ -1770,7 +1847,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     <PromoSequenceStoryboard
                       sequenceEnabled={sequenceUiEnabled}
                       sequenceSteps={sequenceStepsWatch}
-                      maxSteps={sequenceCountWatch}
+                      stepRowIds={sequenceStepFields.map((f) => f.id)}
                       showDelayMs={showDelayWatch}
                       autoCloseMs={autoCloseWatch}
                       betweenMs={betweenWatch}
@@ -1876,7 +1953,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
                               <div className="rounded-xl border-2 border-violet-200/70 bg-violet-50/30 p-3">
                                 <p className="mb-3 text-xs font-bold uppercase tracking-wide text-violet-900">
-                                  Layout / mise en page
+                                  Layout
                                 </p>
                                 <p className="mb-3 text-[11px] text-muted-foreground">
                                   Size of the card and where media sits relative to text (per nudge).
@@ -2288,7 +2365,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               </div>
 
               {/* Right column: preview */}
-              <div className="hidden min-w-[360px] pl-4 md:flex md:flex-col">
+              <div className="hidden min-w-[min(100%,420px)] pl-2 md:flex md:flex-col lg:min-w-[460px]">
                 <div className="mb-2 space-y-1">
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Live preview
@@ -2301,9 +2378,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         : "Message and media from the fields on the left."}
                   </p>
                 </div>
-                <div className="flex flex-1 items-center justify-center rounded-xl border bg-slate-50 px-4 py-6">
+                <div className="flex flex-1 items-center justify-center overflow-x-auto rounded-xl border bg-slate-50 px-3 py-6">
                   <div
-                    className="w-full max-w-sm space-y-3 rounded-2xl border p-4 shadow-lg shadow-slate-200"
+                    className={cn(
+                      "w-full space-y-3 rounded-2xl border p-4 shadow-lg shadow-slate-200 transition-[max-width]",
+                      NUDGE_PREVIEW_MAX_CLASS[previewNudgeSizeTier],
+                    )}
                     style={{ backgroundColor: nudgeBackgroundColor }}
                   >
                     <div className="flex items-center gap-3">
@@ -2547,7 +2627,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     } as any);
                   } catch (e) {
                     console.error(e);
-                    toast.error("Update failed");
+                    toast.error(promoSaveErrorMessage(e));
                   }
                 }}
               />
