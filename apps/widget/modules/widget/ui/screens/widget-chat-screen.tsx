@@ -1321,9 +1321,6 @@ export const WidgetChatScreen = () => {
             <h2 className="truncate text-[15px] font-semibold leading-tight tracking-tight text-slate-900">
               Chat
             </h2>
-            <p className="mt-0.5 text-[12px] leading-snug text-slate-500">
-              Ask anything — we’ll route you to the right person or a time to meet.
-            </p>
           </div>
         </div>
       </div>
@@ -1333,7 +1330,7 @@ export const WidgetChatScreen = () => {
           <AIConversationContent
             className={cn(
               "flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden",
-              isFullWidth && "pt-12 px-3"
+              isFullWidth && "px-3 pt-2"
             )}
           >
             {uiMsgs.map((m, i) => {
@@ -1706,16 +1703,13 @@ export const WidgetChatScreen = () => {
 
       {/* suggestions: show at start (below greet) */}
       {suggestions.length > 0 && uiMsgs.length <= 1 && (
-        <div className="border-t border-slate-100/90 bg-gradient-to-b from-slate-50/60 to-slate-50/30 px-3 py-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500">
-            Quick replies
-          </p>
-          <div className="flex w-full flex-wrap gap-2">
+        <div className="border-t border-slate-100/90 bg-gradient-to-b from-slate-50/60 to-slate-50/30 px-3 py-1.5">
+          <div className="flex w-full flex-wrap gap-1.5">
             {suggestions.map((s) => (
               <button
                 key={s}
                 type="button"
-                className="rounded-2xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white hover:shadow-md active:scale-[0.99]"
+                className="rounded-xl border border-slate-200/90 bg-white px-2.5 py-1.5 text-left text-[11px] font-medium leading-snug text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white hover:shadow-md active:scale-[0.99]"
                 style={{
                   borderColor: "color-mix(in srgb, var(--widget-primary) 22%, transparent)",
                 }}
