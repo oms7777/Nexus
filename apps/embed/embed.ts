@@ -43,7 +43,81 @@ type PromoPayload = {
   identityMode?: "auto" | "logo" | "avatars";
   ctaList?: SimpleCta[];
   canUseVoice?: boolean;
+  nudgeSize?: "sm" | "md" | "lg" | "xl";
+  mediaPlacement?: "top" | "bottom" | "left" | "right";
 };
+
+type NudgeSize = "sm" | "md" | "lg" | "xl";
+type MediaPlacement = "top" | "bottom" | "left" | "right";
+
+type NudgeLayoutSpec = {
+  width: number;
+  mediaH: number;
+  padY: number;
+  padX: number;
+  titlePx: number;
+  bodyPx: number;
+  splitMediaW: number;
+};
+
+function normalizeNudgeSize(v: unknown): NudgeSize {
+  if (v === "sm" || v === "md" || v === "lg" || v === "xl") return v;
+  return "md";
+}
+
+function normalizeMediaPlacement(v: unknown): MediaPlacement {
+  if (v === "top" || v === "bottom" || v === "left" || v === "right") return v;
+  return "bottom";
+}
+
+function nudgeLayoutSpec(size: NudgeSize): NudgeLayoutSpec {
+  const presets: Record<NudgeSize, NudgeLayoutSpec> = {
+    sm: {
+      width: 280,
+      mediaH: 88,
+      padY: 8,
+      padX: 10,
+      titlePx: 13,
+      bodyPx: 13,
+      splitMediaW: 100,
+    },
+    md: {
+      width: 320,
+      mediaH: 112,
+      padY: 10,
+      padX: 12,
+      titlePx: 14,
+      bodyPx: 14,
+      splitMediaW: 120,
+    },
+    lg: {
+      width: 400,
+      mediaH: 140,
+      padY: 11,
+      padX: 13,
+      titlePx: 15,
+      bodyPx: 14,
+      splitMediaW: 140,
+    },
+    xl: {
+      width: 480,
+      mediaH: 200,
+      padY: 12,
+      padX: 14,
+      titlePx: 16,
+      bodyPx: 15,
+      splitMediaW: 160,
+    },
+  };
+  return presets[size];
+}
+
+function applyNudgeBoxStyles(el: HTMLDivElement, spec: NudgeLayoutSpec) {
+  el.style.width = `${spec.width}px`;
+  el.style.maxWidth = `min(${spec.width}px, calc(100vw - 96px))`;
+  el.style.padding = `${spec.padY}px ${spec.padX}px`;
+  el.style.fontSize = `${spec.bodyPx}px`;
+}
 
 type PromoSequencePayload = {
   items: PromoPayload[];
@@ -973,6 +1047,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     const micBg = palette.chatBubbleColor || palette.primaryColor || "#a855f7";
     const micFg = palette.primaryTextColor || "#ffffff";
     const canUseVoice = payload.canUseVoice !== false;
+    const spec = nudgeLayoutSpec(normalizeNudgeSize(payload.nudgeSize));
 
     if (!nudge) {
       nudge = document.createElement("div");
@@ -980,14 +1055,11 @@ type NudgeKind = "promo" | "suggestions" | null;
       nudge.style.cssText = `
         all: unset;
         position: fixed;
-        width: 320px; max-width: min(320px, calc(100vw - 96px));
         z-index: 2147483001;
         background: ${nudgeBg};
         border: 1px solid rgba(229,231,235,.95); border-radius: 14px;
         box-shadow: 0 8px 24px rgba(0,0,0,.12);
-        padding: 10px 12px;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
-        font-size: 14px;
         line-height: 1.4;
         opacity: 0; transform: translateY(10px) scale(0.985);
         transition: opacity .18s ease, transform .18s ease;
@@ -1010,6 +1082,8 @@ type NudgeKind = "promo" | "suggestions" | null;
       `;
       document.body.appendChild(caret);
     }
+
+    applyNudgeBoxStyles(nudge!, spec);
 
     const avatars = Array.isArray(payload.avatars) ? payload.avatars.slice(0, 3) : [];
 
@@ -1095,30 +1169,52 @@ type NudgeKind = "promo" | "suggestions" | null;
         : "Chat with our assistant or book a 15-min demo.";
     const safeImage = payload.imageUrl ? escapeAttr(payload.imageUrl) : "";
     const safeVideo = payload.videoUrl ? escapeAttr(payload.videoUrl) : "";
-    const mediaHtml = safeVideo
-      ? `
-        <div style="margin-top:10px;">
-          <video
+    const hasMedia = !!(safeVideo || safeImage);
+    const placement = !hasMedia ? "bottom" : normalizeMediaPlacement(payload.mediaPlacement);
+
+    const mediaCore = safeVideo
+      ? `<video
             src="${safeVideo}"
             muted
             autoplay
             loop
             playsinline
             preload="auto"
-            style="width:100%;height:112px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
-          ></video>
-        </div>
-      `
+            style="width:100%;height:${spec.mediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
+          ></video>`
       : safeImage
-        ? `
-        <div style="margin-top:10px;">
-          <img
+        ? `<img
             src="${safeImage}"
             alt="Promo media"
-            style="width:100%;height:112px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
-          />
-        </div>
-      `
+            style="width:100%;height:${spec.mediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
+          />`
+        : "";
+
+    const titleBlock =
+      title.trim().length > 0
+        ? `<div style="font-weight:700;font-size:${spec.titlePx}px;color:#111827;line-height:1.2;">
+              ${escapeHtml(title)}
+            </div>`
+        : "";
+    const bodyBlock =
+      body.trim().length > 0
+        ? `<div style="margin-top:6px;color:#4b5563;font-size:${spec.bodyPx}px;line-height:1.4;word-break:break-word;">
+              ${escapeHtml(body)}
+            </div>`
+        : "";
+
+    const mediaBottomBlock =
+      hasMedia && placement === "bottom"
+        ? `<div style="margin-top:10px;">
+          ${mediaCore}
+        </div>`
+        : "";
+
+    const heroBlock =
+      hasMedia && placement === "top"
+        ? `<div style="margin: -${spec.padY}px -${spec.padX}px 10px -${spec.padX}px;">
+          ${mediaCore}
+        </div>`
         : "";
 
     const buttonsHtml = hasMulti
@@ -1250,37 +1346,8 @@ type NudgeKind = "promo" | "suggestions" | null;
       `
       : "";
 
-    nudge!.innerHTML = `
-      <div style="position:relative">
-        <div style="display:flex;gap:10px;align-items:flex-start">
-          <div style="display:flex;align-items:center;min-width:56px;padding-top:4px">
-            ${identityHtml}
-          </div>
-          <div style="flex:1;min-width:0;">
-            ${
-              title.trim().length
-                ? `<div style="font-weight:700;font-size:14px;color:#111827;">
-              ${escapeHtml(title)}
-            </div>`
-                : ""
-            }
-            ${
-              body.trim().length
-                ? `<div style="margin-top:6px;color:#4b5563;font-size:14px;line-height:1.4;word-break:break-word;">
-              ${escapeHtml(body)}
-            </div>`
-                : ""
-            }
-
-            ${mediaHtml}
-
-            ${micHtml}
-
-            ${buttonsHtml}
-
-            ${
-              payload.privacyUrl
-                ? `<div style="margin-top:10px">
+    const privacyBlock = payload.privacyUrl
+      ? `<div style="margin-top:10px">
                     <a href="${escapeAttr(
                       payload.privacyUrl,
                     )}" target="_blank" rel="noopener noreferrer"
@@ -1288,18 +1355,91 @@ type NudgeKind = "promo" | "suggestions" | null;
                       This chat may be recorded. View our privacy policy.
                     </a>
                   </div>`
-                : ""
-            }
-          </div>
-          <button id="nexus-close" title="Close"
+      : "";
+
+    const closeBtnHtml = `<button id="nexus-close" title="Close"
             style="
               all: unset;
               border-radius:9999px;
               width:20px;height:20px;
               display:flex;align-items:center;justify-content:center;
               color:#9ca3af;cursor:pointer;font-size:16px;line-height:16px;
-            ">×</button>
-        </div>
+            ">×</button>`;
+
+    const identityCol = `<div style="display:flex;align-items:center;min-width:56px;padding-top:4px">
+            ${identityHtml}
+          </div>`;
+
+    let mainRowHtml = "";
+    if (placement === "top") {
+      mainRowHtml = `
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${identityCol}
+          <div style="flex:1;min-width:0;">
+            ${titleBlock}
+            ${bodyBlock}
+            ${micHtml}
+            ${buttonsHtml}
+            ${privacyBlock}
+          </div>
+          ${closeBtnHtml}
+        </div>`;
+    } else if (placement === "left") {
+      mainRowHtml = `
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${identityCol}
+          <div style="flex:1;min-width:0;display:flex;flex-direction:row;gap:10px;align-items:flex-start">
+            <div style="width:${spec.splitMediaW}px;flex-shrink:0;">
+              ${hasMedia ? mediaCore : ""}
+            </div>
+            <div style="flex:1;min-width:0;">
+              ${titleBlock}
+              ${bodyBlock}
+              ${micHtml}
+              ${buttonsHtml}
+              ${privacyBlock}
+            </div>
+          </div>
+          ${closeBtnHtml}
+        </div>`;
+    } else if (placement === "right") {
+      mainRowHtml = `
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${identityCol}
+          <div style="flex:1;min-width:0;display:flex;flex-direction:row;gap:10px;align-items:flex-start">
+            <div style="flex:1;min-width:0;">
+              ${titleBlock}
+              ${bodyBlock}
+              ${micHtml}
+              ${buttonsHtml}
+              ${privacyBlock}
+            </div>
+            <div style="width:${spec.splitMediaW}px;flex-shrink:0;">
+              ${hasMedia ? mediaCore : ""}
+            </div>
+          </div>
+          ${closeBtnHtml}
+        </div>`;
+    } else {
+      mainRowHtml = `
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${identityCol}
+          <div style="flex:1;min-width:0;">
+            ${titleBlock}
+            ${bodyBlock}
+            ${mediaBottomBlock}
+            ${micHtml}
+            ${buttonsHtml}
+            ${privacyBlock}
+          </div>
+          ${closeBtnHtml}
+        </div>`;
+    }
+
+    nudge!.innerHTML = `
+      <div style="position:relative">
+        ${heroBlock}
+        ${mainRowHtml}
       </div>
     `;
 

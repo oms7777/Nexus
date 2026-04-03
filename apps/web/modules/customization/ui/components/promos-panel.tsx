@@ -75,6 +75,12 @@ const PromoSchema = z.object({
   body: z.string(),
   imageUrl: z.string().optional(),
   videoUrl: z.string().optional(),
+  /** Host-page nudge width tier (single nudge or when no sequence steps). */
+  nudgeSize: z.enum(["sm", "md", "lg", "xl"]).optional(),
+  /** Image/video position relative to text. */
+  mediaPlacement: z
+    .enum(["top", "bottom", "left", "right"])
+    .optional(),
   identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
 
   // ✅ persisted
@@ -112,6 +118,10 @@ const PromoSchema = z.object({
         ctaEmphasisMode: z
           .enum(["first_primary", "last_primary", "all_primary", "none_primary"])
           .optional(),
+        nudgeSize: z.enum(["sm", "md", "lg", "xl"]).optional(),
+        mediaPlacement: z
+          .enum(["top", "bottom", "left", "right"])
+          .optional(),
       }),
     )
     .max(10)
@@ -148,6 +158,23 @@ const PromoSchema = z.object({
   });
 
 type PromoForm = z.infer<typeof PromoSchema>;
+
+const NUDGE_SIZE_OPTIONS: { value: NonNullable<PromoForm["nudgeSize"]>; label: string }[] = [
+  { value: "sm", label: "Compact" },
+  { value: "md", label: "Standard" },
+  { value: "lg", label: "Large" },
+  { value: "xl", label: "Highlight" },
+];
+
+const MEDIA_PLACEMENT_OPTIONS: {
+  value: NonNullable<PromoForm["mediaPlacement"]>;
+  label: string;
+}[] = [
+  { value: "top", label: "Media above text" },
+  { value: "bottom", label: "Media below text" },
+  { value: "left", label: "Media left" },
+  { value: "right", label: "Media right" },
+];
 
 type ThemePreview = {
   primaryColor?: string | null;
@@ -629,6 +656,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       animationPreset: "soft_slide",
       sequenceLoop: false,
       sequenceSteps: [],
+      nudgeSize: "md",
+      mediaPlacement: "bottom",
       ctas: [
         { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
         { kind: "open_booking", label: "Book a meeting", url: "" },
@@ -888,11 +917,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         videoUrl?: string;
         ctaList?: { kind: "open_chat" | "open_booking" | "open_url"; label: string; url?: string }[];
         ctaEmphasisMode?: PromoForm["ctaEmphasisMode"];
+        nudgeSize?: PromoForm["nudgeSize"];
+        mediaPlacement?: PromoForm["mediaPlacement"];
       } = {
         title: step.title?.trim() || undefined,
         body: step.body?.trim() || undefined,
         imageUrl: step.imageUrl?.trim() || undefined,
         videoUrl: step.videoUrl?.trim() || undefined,
+        nudgeSize: step.nudgeSize ?? undefined,
+        mediaPlacement: step.mediaPlacement ?? undefined,
       };
 
       if (rowCtas.length > 0) {
@@ -919,6 +952,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           body: cardBody,
           imageUrl: perNudgeLayout ? undefined : values.imageUrl?.trim() || undefined,
           videoUrl: perNudgeLayout ? undefined : values.videoUrl?.trim() || undefined,
+          nudgeSize: perNudgeLayout ? undefined : values.nudgeSize ?? undefined,
+          mediaPlacement: perNudgeLayout ? undefined : values.mediaPlacement ?? undefined,
         },
         primaryCta,
         secondaryCta,
@@ -969,6 +1004,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       animationPreset: "soft_slide",
       sequenceLoop: false,
       sequenceSteps: [],
+      nudgeSize: "md",
+      mediaPlacement: "bottom",
       ctas: [
         { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
         { kind: "open_booking", label: "Book a meeting", url: "" },
@@ -994,6 +1031,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                 }))
               : [],
           ctaEmphasisMode: s.ctaEmphasisMode,
+          nudgeSize: s.nudgeSize ?? "md",
+          mediaPlacement: s.mediaPlacement ?? "bottom",
         }))
       : [];
 
@@ -1052,6 +1091,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       animationPreset: p.settings?.animationPreset ?? "soft_slide",
       sequenceLoop: p.settings?.sequenceLoop === true,
       sequenceSteps: sequenceStepsMapped,
+      nudgeSize: (p.card as { nudgeSize?: PromoForm["nudgeSize"] })?.nudgeSize ?? "md",
+      mediaPlacement:
+        (p.card as { mediaPlacement?: PromoForm["mediaPlacement"] })?.mediaPlacement ?? "bottom",
       ctas: ctasForForm,
     });
 
@@ -1082,6 +1124,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           body: String(card?.body ?? ""),
           imageUrl: card?.imageUrl || undefined,
           videoUrl: card?.videoUrl || undefined,
+          nudgeSize: (card as { nudgeSize?: PromoForm["nudgeSize"] })?.nudgeSize,
+          mediaPlacement: (card as { mediaPlacement?: PromoForm["mediaPlacement"] })
+            ?.mediaPlacement,
         },
         primaryCta: p.primaryCta,
         secondaryCta: p.secondaryCta,
@@ -1607,6 +1652,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                         appendSequenceStep({
                           ctas: DEFAULT_NUDGE_CTAS.map((c) => ({ ...c })),
                           ctaEmphasisMode: "first_primary",
+                          nudgeSize: "md",
+                          mediaPlacement: "bottom",
                         });
                         const next = Math.min(10, sequenceCountWatch + 1);
                         form.setValue("maxSequenceItems", next);
@@ -1686,6 +1733,63 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                 </div>
                               </div>
 
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div>
+                                  <Label className="text-xs">Nudge size</Label>
+                                  <p className="mb-1.5 text-[11px] text-muted-foreground">
+                                    Width on the host page (compact → highlight).
+                                  </p>
+                                  <Select
+                                    value={form.watch(`sequenceSteps.${index}.nudgeSize`) ?? "md"}
+                                    onValueChange={(v) =>
+                                      form.setValue(
+                                        `sequenceSteps.${index}.nudgeSize`,
+                                        v as NonNullable<PromoForm["nudgeSize"]>,
+                                        { shouldDirty: true },
+                                      )
+                                    }
+                                  >
+                                    <SelectTrigger className="h-9 text-sm">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {NUDGE_SIZE_OPTIONS.map((o) => (
+                                        <SelectItem key={o.value} value={o.value}>
+                                          {o.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs">Media layout</Label>
+                                  <p className="mb-1.5 text-[11px] text-muted-foreground">
+                                    Where image or video sits relative to text.
+                                  </p>
+                                  <Select
+                                    value={form.watch(`sequenceSteps.${index}.mediaPlacement`) ?? "bottom"}
+                                    onValueChange={(v) =>
+                                      form.setValue(
+                                        `sequenceSteps.${index}.mediaPlacement`,
+                                        v as NonNullable<PromoForm["mediaPlacement"]>,
+                                        { shouldDirty: true },
+                                      )
+                                    }
+                                  >
+                                    <SelectTrigger className="h-9 text-sm">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {MEDIA_PLACEMENT_OPTIONS.map((o) => (
+                                        <SelectItem key={o.value} value={o.value}>
+                                          {o.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
                               <SequenceStepCtaFields
                                 stepIndex={index}
                                 control={form.control}
@@ -1746,6 +1850,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                             appendSequenceStep({
                               ctas: DEFAULT_NUDGE_CTAS.map((c) => ({ ...c })),
                               ctaEmphasisMode: "first_primary",
+                              nudgeSize: "md",
+                              mediaPlacement: "bottom",
                             });
                             form.setValue(
                               "maxSequenceItems",
@@ -1821,6 +1927,61 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                               }
                               onClear={() => form.setValue("videoUrl", "", { shouldDirty: true })}
                             />
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <Label className="text-xs">Nudge size</Label>
+                            <p className="mb-1.5 text-[11px] text-muted-foreground">
+                              Width on the host page (embed).
+                            </p>
+                            <Select
+                              value={form.watch("nudgeSize") ?? "md"}
+                              onValueChange={(v) =>
+                                form.setValue("nudgeSize", v as NonNullable<PromoForm["nudgeSize"]>, {
+                                  shouldDirty: true,
+                                })
+                              }
+                            >
+                              <SelectTrigger className="h-9 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {NUDGE_SIZE_OPTIONS.map((o) => (
+                                  <SelectItem key={o.value} value={o.value}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Media layout</Label>
+                            <p className="mb-1.5 text-[11px] text-muted-foreground">
+                              Where image or video sits relative to text.
+                            </p>
+                            <Select
+                              value={form.watch("mediaPlacement") ?? "bottom"}
+                              onValueChange={(v) =>
+                                form.setValue(
+                                  "mediaPlacement",
+                                  v as NonNullable<PromoForm["mediaPlacement"]>,
+                                  { shouldDirty: true },
+                                )
+                              }
+                            >
+                              <SelectTrigger className="h-9 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {MEDIA_PLACEMENT_OPTIONS.map((o) => (
+                                  <SelectItem key={o.value} value={o.value}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
 

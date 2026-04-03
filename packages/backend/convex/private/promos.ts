@@ -61,11 +61,27 @@ const ctaV = v.object({
   url: v.optional(v.string()),
 });
 
+const nudgeSizeV = v.union(
+  v.literal("sm"),
+  v.literal("md"),
+  v.literal("lg"),
+  v.literal("xl"),
+);
+
+const mediaPlacementV = v.union(
+  v.literal("top"),
+  v.literal("bottom"),
+  v.literal("left"),
+  v.literal("right"),
+);
+
 const cardV = v.object({
   title: v.string(),
   body: v.string(),
   imageUrl: v.optional(v.string()),
   videoUrl: v.optional(v.string()),
+  nudgeSize: v.optional(nudgeSizeV),
+  mediaPlacement: v.optional(mediaPlacementV),
 });
 
 const identityModeV = v.union(
@@ -88,6 +104,8 @@ const sequenceStepV = v.object({
   videoUrl: v.optional(v.string()),
   ctaList: v.optional(v.array(ctaV)),
   ctaEmphasisMode: v.optional(ctaEmphasisModeV),
+  nudgeSize: v.optional(nudgeSizeV),
+  mediaPlacement: v.optional(mediaPlacementV),
 });
 
 const promoSettingsV = v.object({

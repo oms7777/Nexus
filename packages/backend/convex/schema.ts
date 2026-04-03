@@ -447,6 +447,19 @@ export default defineSchema({
       videoPosterUrl: v.optional(v.string()),
       /** @deprecated Ignored by UI; kept optional so legacy rows pass schema validation. */
       badgeText: v.optional(v.string()),
+      /** Embed nudge width / typography tier (optional). */
+      nudgeSize: v.optional(
+        v.union(v.literal("sm"), v.literal("md"), v.literal("lg"), v.literal("xl")),
+      ),
+      /** Where image/video sits relative to text (optional). */
+      mediaPlacement: v.optional(
+        v.union(
+          v.literal("top"),
+          v.literal("bottom"),
+          v.literal("left"),
+          v.literal("right"),
+        ),
+      ),
     }),
     primaryCta: v.object({
       kind: v.union(v.literal("open_chat"), v.literal("open_booking"), v.literal("open_url")),
@@ -523,6 +536,17 @@ export default defineSchema({
                   v.literal("last_primary"),
                   v.literal("all_primary"),
                   v.literal("none_primary"),
+                ),
+              ),
+              nudgeSize: v.optional(
+                v.union(v.literal("sm"), v.literal("md"), v.literal("lg"), v.literal("xl")),
+              ),
+              mediaPlacement: v.optional(
+                v.union(
+                  v.literal("top"),
+                  v.literal("bottom"),
+                  v.literal("left"),
+                  v.literal("right"),
                 ),
               ),
             }),

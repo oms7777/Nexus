@@ -34,6 +34,9 @@ type CtaEmphasisMode =
   | "all_primary"
   | "none_primary";
 
+type NudgeSize = "sm" | "md" | "lg" | "xl";
+type MediaPlacement = "top" | "bottom" | "left" | "right";
+
 type PromoEmbedItem = {
   title?: string;
   body?: string;
@@ -50,6 +53,10 @@ type PromoEmbedItem = {
   identityMode?: "auto" | "logo" | "avatars";
   ctaList?: { kind: string; label: string; url?: string }[];
   canUseVoice?: boolean;
+  /** Host-page nudge width tier. */
+  nudgeSize?: NudgeSize;
+  /** Image/video position relative to text. */
+  mediaPlacement?: MediaPlacement;
 };
 
 function primaryIndexForEmphasis(mode: CtaEmphasisMode | undefined, len: number) {
@@ -350,6 +357,13 @@ export default function SmartPromo() {
         ? ctaList.map((c) => ({ kind: c.kind, label: c.label, url: c.url }))
         : undefined;
 
+    const card = (promoDoc as any)?.card as
+      | {
+          nudgeSize?: NudgeSize;
+          mediaPlacement?: MediaPlacement;
+        }
+      | undefined;
+
     return {
       title: promoDoc.card?.title,
       body: promoDoc.card?.body,
@@ -366,6 +380,8 @@ export default function SmartPromo() {
       identityMode: promoDoc.identityMode ?? "auto",
       ctaList: simpleCtaList,
       canUseVoice,
+      nudgeSize: card?.nudgeSize,
+      mediaPlacement: card?.mediaPlacement,
     };
   };
 
@@ -404,6 +420,9 @@ export default function SmartPromo() {
             typeof step?.videoUrl === "string" && step.videoUrl.trim().length > 0
               ? step.videoUrl.trim()
               : base.videoUrl,
+          nudgeSize: (step?.nudgeSize as NudgeSize | undefined) ?? base.nudgeSize,
+          mediaPlacement:
+            (step?.mediaPlacement as MediaPlacement | undefined) ?? base.mediaPlacement,
         },
         promoDoc,
         step,
@@ -498,7 +517,7 @@ export default function SmartPromo() {
       items
         .map(
           (x) =>
-            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}:${JSON.stringify((x as any).ctaList || [])}`,
+            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}:${(x as PromoEmbedItem).nudgeSize || ""}:${(x as PromoEmbedItem).mediaPlacement || ""}:${JSON.stringify((x as any).ctaList || [])}`,
         )
         .join("|"),
       JSON.stringify(sequenceSettings),
