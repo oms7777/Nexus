@@ -130,6 +130,7 @@ type PromoSequencePayload = {
     betweenPopupsMs?: number;
     maxSequenceItems?: number;
     animationPreset?: "soft_slide" | "ppt_pop" | "cinematic" | "none";
+    sequenceRandomOrder?: boolean;
   };
 };
 

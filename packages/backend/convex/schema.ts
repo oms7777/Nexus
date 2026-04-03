@@ -506,6 +506,8 @@ export default defineSchema({
           ),
         ),
         sequenceLoop: v.optional(v.boolean()),
+        /** When true, the widget shuffles step order before each embed send (visitor sees random order). */
+        sequenceRandomOrder: v.optional(v.boolean()),
         sequenceSteps: v.optional(
           v.array(
             v.object({

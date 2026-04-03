@@ -430,6 +430,17 @@ export default function SmartPromo() {
     );
   };
 
+  function shufflePromoItems<T>(arr: T[]): T[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i];
+      a[i] = a[j]!;
+      a[j] = t!;
+    }
+    return a;
+  }
+
   const makeSuggestionsPayload = (): SuggestionsPayload | null => {
     if (!ws) return null;
 
@@ -500,12 +511,18 @@ export default function SmartPromo() {
 
     if (!matchedPromos.length) return;
 
-    const items = matchedPromos.flatMap((p) => expandPromoToItems(p));
+    const itemsRaw = matchedPromos.flatMap((p) => expandPromoToItems(p));
     const firstSettings = (matchedPromos[0] as any)?.settings ?? {};
+    const sequenceRandomOrder = firstSettings.sequenceRandomOrder === true;
+    const items =
+      sequenceRandomOrder && itemsRaw.length > 1
+        ? shufflePromoItems(itemsRaw)
+        : itemsRaw;
 
     const sequenceSettings = {
       sequenceEnabled: firstSettings.sequenceEnabled ?? true,
       sequenceLoop: firstSettings.sequenceLoop === true,
+      sequenceRandomOrder,
       showDelayAfterNavMs: firstSettings.showDelayAfterNavMs ?? 2500,
       autoCloseMs: firstSettings.autoCloseMs ?? 4500,
       betweenPopupsMs: firstSettings.betweenPopupsMs ?? 10000,
@@ -514,7 +531,7 @@ export default function SmartPromo() {
     };
 
     const key = [
-      items
+      itemsRaw
         .map(
           (x) =>
             `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}:${(x as PromoEmbedItem).nudgeSize || ""}:${(x as PromoEmbedItem).mediaPlacement || ""}:${JSON.stringify((x as any).ctaList || [])}`,

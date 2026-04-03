@@ -24,6 +24,7 @@ import {
   Clock,
   Copy,
   Film,
+  GripVertical,
   Layers,
   Loader2,
   Plus,
@@ -33,6 +34,17 @@ import {
 
 const MAX_PROMO_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PROMO_VIDEO_BYTES = 50 * 1024 * 1024;
+
+/** After react-hook-form `move(from, to)` on the step array, fix the selected storyboard index. */
+function adjustSelectedIndexAfterMove(selected: number, from: number, to: number): number {
+  if (selected === from) return to;
+  if (from < to) {
+    if (selected > from && selected <= to) return selected - 1;
+  } else if (from > to) {
+    if (selected >= to && selected < from) return selected + 1;
+  }
+  return selected;
+}
 
 /** Default buttons when a sequence nudge has none configured (save + new steps). */
 /** Client-side filter on promo list (name, path, headline, body snippet). */
@@ -98,6 +110,8 @@ const PromoSchema = z.object({
 
   /** After the last nudge, restart the sequence until the visitor dismisses. */
   sequenceLoop: z.boolean().optional(),
+  /** Shuffle nudge order when showing the sequence on the host page. */
+  sequenceRandomOrder: z.boolean().optional(),
 
   sequenceSteps: z
     .array(
@@ -138,9 +152,20 @@ const PromoSchema = z.object({
     .optional(),
 })
   .superRefine((data, ctx) => {
-    const perNudge =
-      (data.sequenceEnabled !== false) && (data.sequenceSteps?.length ?? 0) > 0;
-    if (perNudge) return;
+    const seqOn = data.sequenceEnabled !== false;
+    const stepCount = data.sequenceSteps?.length ?? 0;
+
+    if (seqOn) {
+      if (stepCount === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Add at least one step (storyboard), or turn off Sequence.",
+          path: ["sequenceSteps"],
+        });
+      }
+      return;
+    }
+
     if (!data.title.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -453,6 +478,9 @@ function PromoSequenceStoryboard({
   onAppendStep,
   selectedPreviewIndex,
   onSelectNudgeIndex,
+  onReorderSteps,
+  sequenceRandomOrder,
+  onSequenceRandomOrderChange,
 }: {
   sequenceEnabled: boolean;
   sequenceSteps: Array<{
@@ -472,7 +500,12 @@ function PromoSequenceStoryboard({
   onAppendStep: () => void;
   selectedPreviewIndex: number;
   onSelectNudgeIndex: (i: number) => void;
+  onReorderSteps?: (fromIndex: number, toIndex: number) => void;
+  sequenceRandomOrder: boolean;
+  onSequenceRandomOrderChange: (v: boolean) => void;
 }) {
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
   if (!sequenceEnabled) {
     return (
       <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center">
@@ -488,18 +521,41 @@ function PromoSequenceStoryboard({
   const hasStepRows = sequenceSteps.length > 0;
   const cardCount = hasStepRows ? Math.min(sequenceSteps.length, cap) : 1;
   const anim = ANIM_LABEL[animationPreset] ?? animationPreset;
+  const canReorder = Boolean(onReorderSteps && hasStepRows && cardCount > 1);
 
   return (
     <div className="space-y-3">
       <div className="relative rounded-xl border border-slate-200/80 bg-gradient-to-b from-slate-50/90 to-white p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-            <Layers className="h-3.5 w-3.5 text-violet-500" aria-hidden />
-            Storyboard
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <Layers className="h-3.5 w-3.5 shrink-0 text-violet-500" aria-hidden />
+              Storyboard
+            </div>
+            {canReorder ? (
+              <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                Drag ⋮⋮ to reorder
+              </span>
+            ) : null}
           </div>
-          <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-medium text-violet-800">
-            {anim}
-          </span>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200/80 bg-white px-2.5 py-1 shadow-sm">
+              <Switch
+                id="sequence-random-order"
+                checked={sequenceRandomOrder}
+                onCheckedChange={(v) => onSequenceRandomOrderChange(!!v)}
+              />
+              <Label
+                htmlFor="sequence-random-order"
+                className="cursor-pointer text-[10px] font-medium leading-tight text-slate-700"
+              >
+                Random order on site
+              </Label>
+            </div>
+            <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-medium text-violet-800">
+              {anim}
+            </span>
+          </div>
         </div>
 
         <div className="flex items-stretch gap-1 overflow-x-auto pb-1 pt-0.5 [scrollbar-width:thin]">
@@ -534,15 +590,56 @@ function PromoSequenceStoryboard({
                       onSelectNudgeIndex(i);
                     }
                   }}
+                  onDragOver={
+                    canReorder
+                      ? (e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          setDragOverIndex(i);
+                        }
+                      : undefined
+                  }
+                  onDragLeave={canReorder ? () => setDragOverIndex(null) : undefined}
+                  onDrop={
+                    canReorder
+                      ? (e) => {
+                          e.preventDefault();
+                          setDragOverIndex(null);
+                          const fromStr = e.dataTransfer.getData("application/nexus-nudge-index");
+                          const from = parseInt(fromStr, 10);
+                          if (Number.isNaN(from) || from === i) return;
+                          onReorderSteps?.(from, i);
+                        }
+                      : undefined
+                  }
                   className={cn(
                     "flex w-[148px] cursor-pointer flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.04] outline-none transition hover:border-violet-200",
                     selectedPreviewIndex === i && "ring-2 ring-violet-500 ring-offset-2",
+                    canReorder && dragOverIndex === i && "ring-2 ring-violet-400 ring-offset-1",
                   )}
                 >
-                  <div className="border-b border-slate-100 bg-slate-50/80 px-2 py-1.5 text-center">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                  <div className="flex items-center gap-1 border-b border-slate-100 bg-slate-50/80 px-1.5 py-1">
+                    {canReorder ? (
+                      <span
+                        className="shrink-0 cursor-grab touch-none rounded p-0.5 text-slate-400 hover:bg-slate-200/80 hover:text-slate-700 active:cursor-grabbing"
+                        draggable
+                        aria-label="Drag to reorder nudges"
+                        title="Drag to reorder"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("application/nexus-nudge-index", String(i));
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragEnd={() => setDragOverIndex(null)}
+                      >
+                        <GripVertical className="h-3.5 w-3.5" aria-hidden />
+                      </span>
+                    ) : null}
+                    <span className="min-w-0 flex-1 text-center text-[10px] font-bold uppercase tracking-wider text-slate-600">
                       Nudge {i + 1}
                     </span>
+                    {canReorder ? <span className="w-5 shrink-0" aria-hidden /> : null}
                   </div>
                   <div className="relative aspect-[16/10] bg-slate-100">
                     {vid ? (
@@ -616,6 +713,13 @@ function PromoSequenceStoryboard({
         and buttons per step). Timing above applies between nudges. Multiple{" "}
         <span className="font-medium text-foreground">promos</span> that match the same URL still queue after this
         sequence.
+        {sequenceRandomOrder ? (
+          <>
+            {" "}
+            <span className="font-medium text-foreground">Random order</span> shuffles which nudge appears first on each
+            page load (saved order below is still used when random is off).
+          </>
+        ) : null}
       </p>
     </div>
   );
@@ -655,6 +759,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       maxSequenceItems: 3,
       animationPreset: "soft_slide",
       sequenceLoop: false,
+      sequenceRandomOrder: false,
       sequenceSteps: [],
       nudgeSize: "md",
       mediaPlacement: "bottom",
@@ -674,6 +779,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     fields: sequenceStepFields,
     append: appendSequenceStep,
     remove: removeSequenceStep,
+    move: moveSequenceStep,
   } = useFieldArray({
     control: form.control,
     name: "sequenceSteps",
@@ -796,6 +902,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       maxSequenceItems: form.getValues("maxSequenceItems") ?? 3,
       animationPreset: form.getValues("animationPreset") ?? "soft_slide",
       sequenceLoop: form.getValues("sequenceLoop") ?? false,
+      sequenceRandomOrder: form.getValues("sequenceRandomOrder") ?? false,
       sequenceSteps: form.getValues("sequenceSteps") ?? [],
       ctas:
         existingCtas && existingCtas.length
@@ -829,6 +936,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       maxSequenceItems: form.getValues("maxSequenceItems") ?? 3,
       animationPreset: form.getValues("animationPreset") ?? "soft_slide",
       sequenceLoop: form.getValues("sequenceLoop") ?? false,
+      sequenceRandomOrder: form.getValues("sequenceRandomOrder") ?? false,
       sequenceSteps: form.getValues("sequenceSteps") ?? [],
       ctas:
         existingCtas && existingCtas.length
@@ -963,6 +1071,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         settings: {
           sequenceEnabled: values.sequenceEnabled ?? true,
           sequenceLoop: values.sequenceLoop === true,
+          sequenceRandomOrder: values.sequenceRandomOrder === true,
           showDelayAfterNavMs: values.showDelayAfterNavMs ?? 2500,
           autoCloseMs: values.autoCloseMs ?? 4500,
           betweenPopupsMs: values.betweenPopupsMs ?? 10000,
@@ -1003,6 +1112,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       maxSequenceItems: 3,
       animationPreset: "soft_slide",
       sequenceLoop: false,
+      sequenceRandomOrder: false,
       sequenceSteps: [],
       nudgeSize: "md",
       mediaPlacement: "bottom",
@@ -1090,6 +1200,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       maxSequenceItems: p.settings?.maxSequenceItems ?? 3,
       animationPreset: p.settings?.animationPreset ?? "soft_slide",
       sequenceLoop: p.settings?.sequenceLoop === true,
+      sequenceRandomOrder: (p.settings as { sequenceRandomOrder?: boolean })?.sequenceRandomOrder === true,
       sequenceSteps: sequenceStepsMapped,
       nudgeSize: (p.card as { nudgeSize?: PromoForm["nudgeSize"] })?.nudgeSize ?? "md",
       mediaPlacement:
@@ -1137,6 +1248,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           ? {
               sequenceEnabled: (p.settings as { sequenceEnabled?: boolean }).sequenceEnabled,
               sequenceLoop: (p.settings as { sequenceLoop?: boolean }).sequenceLoop,
+              sequenceRandomOrder: (p.settings as { sequenceRandomOrder?: boolean }).sequenceRandomOrder,
               showDelayAfterNavMs: (p.settings as { showDelayAfterNavMs?: number }).showDelayAfterNavMs,
               autoCloseMs: (p.settings as { autoCloseMs?: number }).autoCloseMs,
               betweenPopupsMs: (p.settings as { betweenPopupsMs?: number }).betweenPopupsMs,
@@ -1648,6 +1760,20 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       baseTitle={perNudgeLayout ? "" : previewTitle}
                       selectedPreviewIndex={clampedStoryIdx}
                       onSelectNudgeIndex={setStoryPreviewIndex}
+                      sequenceRandomOrder={form.watch("sequenceRandomOrder") ?? false}
+                      onSequenceRandomOrderChange={(v) =>
+                        form.setValue("sequenceRandomOrder", v, { shouldDirty: true })
+                      }
+                      onReorderSteps={
+                        sequenceStepFields.length > 1
+                          ? (from, to) => {
+                              moveSequenceStep(from, to);
+                              setStoryPreviewIndex((prev) =>
+                                adjustSelectedIndexAfterMove(prev, from, to),
+                              );
+                            }
+                          : undefined
+                      }
                       onAppendStep={() => {
                         appendSequenceStep({
                           ctas: DEFAULT_NUDGE_CTAS.map((c) => ({ ...c })),
@@ -1867,15 +1993,15 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   </section>
 
                   <section className="space-y-4 rounded-2xl border bg-muted/40 p-4">
-                    {!perNudgeLayout ? (
+                    {!sequenceEnabledWatch ? (
                       <>
                         <div className="space-y-1">
                           <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                             Message and buttons
                           </Label>
                           <p className="text-xs text-muted-foreground">
-                            Title, body, optional media, and buttons for this promo (single nudge or sequence without
-                            step rows yet).
+                            Title, body, optional media, and CTAs for a <span className="font-medium">single</span>{" "}
+                            nudge (Sequence is off).
                           </p>
                         </div>
 
@@ -2126,7 +2252,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </>
                     ) : null}
 
-                    <div className="flex justify-end border-t pt-3">
+                    <div
+                      className={cn(
+                        "flex justify-end pt-3",
+                        !sequenceEnabledWatch && "border-t",
+                      )}
+                    >
                       <Button type="submit">{form.watch("id") ? "Update promo" : "Save promo"}</Button>
                     </div>
                   </section>
@@ -2142,7 +2273,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     {sequenceEnabledWatch && sequenceStepsWatch.length > 0
                       ? `Nudge ${clampedStoryIdx + 1} of ${sequenceStepsWatch.length} — click a storyboard card to switch.`
-                      : "Message and media from the fields on the left."}
+                      : sequenceEnabledWatch
+                        ? "Add steps under “Step media” — each step has its own message and buttons."
+                        : "Message and media from the fields on the left."}
                   </p>
                 </div>
                 <div className="flex flex-1 items-center justify-center rounded-xl border bg-slate-50 px-4 py-6">

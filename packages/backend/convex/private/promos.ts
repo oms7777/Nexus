@@ -111,6 +111,7 @@ const sequenceStepV = v.object({
 const promoSettingsV = v.object({
   sequenceEnabled: v.optional(v.boolean()),
   sequenceLoop: v.optional(v.boolean()),
+  sequenceRandomOrder: v.optional(v.boolean()),
   showDelayAfterNavMs: v.optional(v.number()),
   autoCloseMs: v.optional(v.number()),
   betweenPopupsMs: v.optional(v.number()),
