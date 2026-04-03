@@ -2,7 +2,6 @@
 import { mutation, query } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
 
-type Plan = "starter" | "growth" | "enterprise";
 type PathMode = "prefix" | "exact";
 
 function requireOrgId(identity: any) {
@@ -21,7 +20,8 @@ function isSubActive(sub: any) {
   return status === "active" || status === "trial";
 }
 
-async function requireAdvancedPromos(ctx: any, organizationId: string) {
+/** Any active or trial subscription can manage page promos (Starter included). */
+async function requirePromoSubscription(ctx: any, organizationId: string) {
   const sub = await ctx.db
     .query("subscriptions")
     .withIndex("by_organization_id", (q: any) =>
@@ -29,12 +29,11 @@ async function requireAdvancedPromos(ctx: any, organizationId: string) {
     )
     .unique();
 
-  const plan = (sub?.plan ?? "starter") as Plan;
-
-  if (!isSubActive(sub) || !(plan === "growth" || plan === "enterprise")) {
+  if (!isSubActive(sub)) {
     throw new ConvexError({
       code: "PAYMENT_REQUIRED",
-      message: "Page-based promos are available on Growth/Enterprise plans only.",
+      message:
+        "An active subscription is required to manage promos. Start a trial or upgrade your plan.",
     });
   }
 }
@@ -159,7 +158,7 @@ export const upsert = mutation({
     const identity = await ctx.auth.getUserIdentity();
     const organizationId = requireOrgId(identity);
 
-    await requireAdvancedPromos(ctx, organizationId);
+    await requirePromoSubscription(ctx, organizationId);
 
     const now = Date.now();
 
@@ -200,7 +199,7 @@ export const remove = mutation({
     const identity = await ctx.auth.getUserIdentity();
     const organizationId = requireOrgId(identity);
 
-    await requireAdvancedPromos(ctx, organizationId);
+    await requirePromoSubscription(ctx, organizationId);
 
     await ctx.db.delete(_id);
     return { ok: true };

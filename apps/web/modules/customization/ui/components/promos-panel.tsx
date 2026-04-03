@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useRef,
-  useState,
-  useEffect,
-  useMemo,
-  type RefObject,
-  type DragEvent,
-} from "react";
+import { useRef, useState, useEffect, useMemo, type RefObject } from "react";
 import { useForm, SubmitHandler, useFieldArray, type Control } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,7 +14,14 @@ import { Textarea } from "@workspace/ui/components/textarea";
 import { Label } from "@workspace/ui/components/label";
 import { Switch } from "@workspace/ui/components/switch";
 import { Separator } from "@workspace/ui/components/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@workspace/ui/components/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@workspace/ui/components/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select";
 import { toast } from "sonner";
 import { cn } from "@workspace/ui/lib/utils";
@@ -44,16 +44,25 @@ const MAX_PROMO_VIDEO_BYTES = 50 * 1024 * 1024;
 
 /** Surface Convex / network errors in toasts (bundler may wrap `ConvexError`). */
 function promoSaveErrorMessage(err: unknown): string {
+  if (typeof err === "object" && err !== null) {
+    const data = (err as { data?: { message?: string; code?: string } }).data;
+    if (data?.message && typeof data.message === "string") {
+      return data.message.length > 220 ? `${data.message.slice(0, 220)}…` : data.message;
+    }
+  }
   const msg =
     typeof err === "object" && err !== null && "message" in err
       ? String((err as { message: string }).message)
       : String(err);
   const lower = msg.toLowerCase();
-  if (lower.includes("payment_required") || lower.includes("growth/enterprise")) {
-    return "Page-based promos require a Growth or Enterprise plan.";
+  if (lower.includes("payment_required") || lower.includes("subscription is required")) {
+    return "An active subscription is required to save promos (or your trial may have ended).";
   }
   if (lower.includes("unauthorized") || lower.includes("organization not found")) {
     return "You must be signed in with an organization to save promos.";
+  }
+  if (msg.includes("Server Error") && msg.length < 40) {
+    return "Could not save (server rejected the request). Check Convex logs or your subscription status.";
   }
   return msg.length > 200 ? `${msg.slice(0, 200)}…` : msg;
 }
@@ -536,7 +545,49 @@ function PromoSequenceStoryboard({
   sequenceRandomOrder: boolean;
   onSequenceRandomOrderChange: (v: boolean) => void;
 }) {
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  /** Pointer-based reorder (works in scrollable storyboard; HTML5 drag is unreliable here). */
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const dragFromRef = useRef<number | null>(null);
+  const dropTargetRef = useRef<number | null>(null);
+  dragFromRef.current = dragFrom;
+  dropTargetRef.current = dropTarget;
+
+  useEffect(() => {
+    if (dragFrom === null) return;
+    const finish = () => {
+      const from = dragFromRef.current;
+      const to = dropTargetRef.current;
+      if (from !== null && to !== null && from !== to) {
+        onReorderSteps?.(from, to);
+      }
+      setDragFrom(null);
+      setDropTarget(null);
+    };
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    return () => {
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+  }, [dragFrom, onReorderSteps]);
+
+  useEffect(() => {
+    if (dragFrom === null) return;
+    const move = (e: PointerEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const zone = el?.closest("[data-nudge-drop-index]");
+      if (zone) {
+        const v = zone.getAttribute("data-nudge-drop-index");
+        if (v !== null) {
+          const idx = parseInt(v, 10);
+          if (!Number.isNaN(idx)) setDropTarget(idx);
+        }
+      }
+    };
+    window.addEventListener("pointermove", move);
+    return () => window.removeEventListener("pointermove", move);
+  }, [dragFrom]);
 
   if (!sequenceEnabled) {
     return (
@@ -595,8 +646,8 @@ function PromoSequenceStoryboard({
                 Drag
               </span>
               <span className="text-muted-foreground">
-                Drag from the grip, then drop on a card or on a <span className="font-medium">+pause</span> gap to
-                insert between nudges (e.g. move nudge 3 before nudge 1).
+                Press and hold the grip, move over another card or a <span className="font-medium">+pause</span> gap,
+                then release to reorder.
               </span>
             </p>
           ) : hasStepRows ? (
@@ -627,56 +678,34 @@ function PromoSequenceStoryboard({
               ? (step?.title?.trim() || "Title")
               : ((step?.title?.trim() || baseTitle).trim() || "Title");
             const rowKey = stepRowIds[i] ?? `nudge-${i}`;
-            const readDragFrom = (e: DragEvent<HTMLDivElement>) => {
-              const raw =
-                e.dataTransfer.getData("application/nexus-nudge-index") ||
-                e.dataTransfer.getData("text/plain");
-              return parseInt(raw, 10);
-            };
             return (
               <div key={rowKey} className="flex shrink-0 items-stretch gap-1">
                 <div
-                  onDragOver={
-                    canReorder
-                      ? (e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          e.dataTransfer.dropEffect = "move";
-                          setDragOverIndex(i);
-                        }
-                      : undefined
-                  }
-                  onDrop={
-                    canReorder
-                      ? (e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setDragOverIndex(null);
-                          const from = readDragFrom(e);
-                          if (Number.isNaN(from) || from === i) return;
-                          onReorderSteps?.(from, i);
-                        }
-                      : undefined
-                  }
+                  data-nudge-drop-index={i}
+                  onPointerEnter={() => {
+                    if (dragFrom !== null) setDropTarget(i);
+                  }}
                   className={cn(
                     "flex w-[158px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.04] transition hover:border-violet-200",
                     selectedPreviewIndex === i && "ring-2 ring-violet-500 ring-offset-2",
-                    canReorder && dragOverIndex === i && "ring-2 ring-violet-400 ring-offset-1",
+                    canReorder &&
+                      dragFrom !== null &&
+                      dropTarget === i &&
+                      "ring-2 ring-violet-400 ring-offset-1",
                   )}
                 >
                   <div className="flex items-stretch gap-0 border-b border-slate-100 bg-slate-50/80">
                     {canReorder ? (
                       <div
-                        draggable
-                        className="flex w-10 shrink-0 cursor-grab touch-manipulation flex-col items-center justify-center border-r border-slate-200/80 bg-white text-slate-500 hover:bg-violet-50 hover:text-violet-800 active:cursor-grabbing"
+                        className="flex w-10 shrink-0 cursor-grab touch-none select-none flex-col items-center justify-center border-r border-slate-200/80 bg-white text-slate-500 hover:bg-violet-50 hover:text-violet-800 active:cursor-grabbing"
                         title="Drag to reorder"
-                        aria-label={`Drag to reorder nudge ${i + 1}`}
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("application/nexus-nudge-index", String(i));
-                          e.dataTransfer.setData("text/plain", String(i));
-                          e.dataTransfer.effectAllowed = "move";
+                        aria-label={`Reorder nudge ${i + 1}`}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragFrom(i);
+                          setDropTarget(i);
                         }}
-                        onDragEnd={() => setDragOverIndex(null)}
                         onClick={(e) => e.stopPropagation()}
                       >
                         <GripVertical className="h-4 w-4" aria-hidden />
@@ -733,33 +762,19 @@ function PromoSequenceStoryboard({
 
                 {i < cardCount - 1 ? (
                   <div
+                    data-nudge-drop-index={i + 1}
+                    onPointerEnter={() => {
+                      if (dragFrom !== null) setDropTarget(i + 1);
+                    }}
                     className={cn(
                       "flex min-h-[120px] w-[52px] shrink-0 flex-col items-center justify-center gap-0.5 px-0.5",
                       canReorder && "rounded-lg border border-dashed border-transparent hover:border-violet-300 hover:bg-violet-50/40",
+                      canReorder &&
+                        dragFrom !== null &&
+                        dropTarget === i + 1 &&
+                        "border-violet-400 bg-violet-50/50",
                     )}
-                    onDragOver={
-                      canReorder
-                        ? (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            e.dataTransfer.dropEffect = "move";
-                          }
-                        : undefined
-                    }
-                    onDrop={
-                      canReorder
-                        ? (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDragOverIndex(null);
-                            const from = readDragFrom(e);
-                            const to = i + 1;
-                            if (Number.isNaN(from) || from === to) return;
-                            onReorderSteps?.(from, to);
-                          }
-                        : undefined
-                    }
-                    title={canReorder ? "Drop here to insert between these nudges" : undefined}
+                    title={canReorder ? "Release here to insert between these nudges" : undefined}
                   >
                     <ArrowRight className="h-4 w-4 text-violet-400" aria-hidden />
                     <span className="rounded-md bg-violet-50 px-1.5 py-1 text-center text-[10px] font-semibold leading-tight text-violet-900">
@@ -1464,6 +1479,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               <DialogTitle className="text-base font-semibold">
                 {form.watch("id") ? "Edit promo" : "Create a promo"}
               </DialogTitle>
+              <DialogDescription className="sr-only">
+                Configure targeting, sequence, media, and buttons for this promo. Changes apply to the embedded
+                widget on matching pages.
+              </DialogDescription>
             </DialogHeader>
 
             <div
