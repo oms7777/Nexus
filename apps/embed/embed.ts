@@ -1086,8 +1086,10 @@ type NudgeKind = "promo" | "suggestions" | null;
           <video
             src="${safeVideo}"
             muted
+            autoplay
+            loop
             playsinline
-            preload="metadata"
+            preload="auto"
             style="width:100%;height:112px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
           ></video>
         </div>
@@ -1277,6 +1279,14 @@ type NudgeKind = "promo" | "suggestions" | null;
         </div>
       </div>
     `;
+
+    const promoVideoEl = nudge!.querySelector("video");
+    if (promoVideoEl) {
+      promoVideoEl.muted = true;
+      void promoVideoEl.play().catch(() => {
+        /* autoplay policy: attribute may still start playback when allowed */
+      });
+    }
 
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
     const voiceBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-voice");

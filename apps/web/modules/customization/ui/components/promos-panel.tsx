@@ -52,8 +52,8 @@ const PromoSchema = z.object({
   pathPrefix: z.string().optional(),
   pathMode: z.enum(["prefix", "exact"]).optional(),
 
-  title: z.string().min(1),
-  body: z.string().min(1),
+  title: z.string(),
+  body: z.string(),
   imageUrl: z.string().optional(),
   videoUrl: z.string().optional(),
   identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
@@ -107,7 +107,26 @@ const PromoSchema = z.object({
       }),
     )
     .optional(),
-});
+})
+  .superRefine((data, ctx) => {
+    const perNudge =
+      (data.sequenceEnabled !== false) && (data.sequenceSteps?.length ?? 0) > 0;
+    if (perNudge) return;
+    if (!data.title.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Title is required",
+        path: ["title"],
+      });
+    }
+    if (!data.body.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Body is required",
+        path: ["body"],
+      });
+    }
+  });
 
 type PromoForm = z.infer<typeof PromoSchema>;
 
@@ -454,7 +473,9 @@ function PromoSequenceStoryboard({
             const step = hasStepRows ? sequenceSteps[i] : undefined;
             const vid = (step?.videoUrl?.trim() || baseVideoUrl).trim();
             const img = (step?.imageUrl?.trim() || baseImageUrl).trim();
-            const titleShow = (step?.title?.trim() || baseTitle).trim() || "Title";
+            const titleShow = hasStepRows
+              ? (step?.title?.trim() || "Title")
+              : ((step?.title?.trim() || baseTitle).trim() || "Title");
             return (
               <div key={i} className="flex shrink-0 items-stretch gap-1">
                 <div
@@ -506,7 +527,7 @@ function PromoSequenceStoryboard({
                   <div className="space-y-0.5 px-2 py-2">
                     <p className="line-clamp-2 text-[11px] font-medium leading-snug text-slate-800">{titleShow}</p>
                     <p className="text-[9px] leading-tight text-muted-foreground">
-                      {hasStepRows ? "Saved step — overrides base media if set" : "Uses base message & media"}
+                      {hasStepRows ? "This step’s title and media" : "Uses base message and media"}
                     </p>
                   </div>
                 </div>
@@ -545,10 +566,10 @@ function PromoSequenceStoryboard({
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         <span className="font-medium text-foreground">How it works:</span> each row in{" "}
-        <span className="font-medium text-foreground">Step media</span> becomes one nudge in order (photo/video/title
-        optional per step; empty fields fall back to the base message below). Timing above applies between nudges.
-        Multiple <span className="font-medium text-foreground">promos</span> that match the same URL still queue after
-        this sequence.
+        <span className="font-medium text-foreground">Step media</span> becomes one nudge in order (title, body, media,
+        and buttons per step). Timing above applies between nudges. Multiple{" "}
+        <span className="font-medium text-foreground">promos</span> that match the same URL still queue after this
+        sequence.
       </p>
     </div>
   );
@@ -817,6 +838,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
     const maxSeq = Math.min(10, Math.max(values.maxSequenceItems ?? 3, seqStepsRaw.length));
 
+    const firstStep = seqStepsRaw[0];
+    const cardTitle =
+      perNudgeLayout && firstStep
+        ? (firstStep.title?.trim() || "")
+        : values.title;
+    const cardBody =
+      perNudgeLayout && firstStep
+        ? (firstStep.body?.trim() || "")
+        : values.body;
+
     const seqStepsPersist = seqStepsRaw.map((step) => {
       const rowCtasRaw = (step.ctas || []).filter((c) => c && c.label && c.label.trim().length > 0);
       const rowCtas = perNudgeLayout
@@ -859,8 +890,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         showNudge: values.showNudge ?? true,
         rules,
         card: {
-          title: values.title,
-          body: values.body,
+          title: cardTitle,
+          body: cardBody,
           imageUrl: perNudgeLayout ? undefined : values.imageUrl?.trim() || undefined,
           videoUrl: perNudgeLayout ? undefined : values.videoUrl?.trim() || undefined,
         },
@@ -923,6 +954,27 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   }
 
   function openForEdit(p: any) {
+    const sequenceStepsMapped = Array.isArray(p.settings?.sequenceSteps)
+      ? p.settings.sequenceSteps.map((s: any) => ({
+          title: s.title ?? "",
+          body: s.body ?? "",
+          imageUrl: s.imageUrl ?? "",
+          videoUrl: s.videoUrl ?? "",
+          ctas:
+            Array.isArray(s.ctaList) && s.ctaList.length > 0
+              ? s.ctaList.map((c: any) => ({
+                  kind: c.kind,
+                  label: c.label ?? "",
+                  url: c.url ?? "",
+                }))
+              : [],
+          ctaEmphasisMode: s.ctaEmphasisMode,
+        }))
+      : [];
+
+    const useFirstNudgeForCard =
+      sequenceStepsMapped.length > 0 && (p.settings?.sequenceEnabled !== false);
+
     const existingList = (p.ctaList ?? []) as {
       kind: "open_chat" | "open_booking" | "open_url";
       label: string;
@@ -955,8 +1007,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       name: p.name ?? "",
       active: !!p.active,
       showNudge: p.showNudge !== false,
-      title: p.card?.title ?? "",
-      body: p.card?.body ?? "",
+      title: useFirstNudgeForCard
+        ? (sequenceStepsMapped[0]?.title || p.card?.title || "")
+        : (p.card?.title ?? ""),
+      body: useFirstNudgeForCard
+        ? (sequenceStepsMapped[0]?.body || p.card?.body || "")
+        : (p.card?.body ?? ""),
       imageUrl: p.card?.imageUrl ?? "",
       videoUrl: p.card?.videoUrl ?? "",
       pathPrefix: p.rules?.pathPrefix ?? "/",
@@ -970,23 +1026,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       maxSequenceItems: p.settings?.maxSequenceItems ?? 3,
       animationPreset: p.settings?.animationPreset ?? "soft_slide",
       sequenceLoop: p.settings?.sequenceLoop === true,
-      sequenceSteps: Array.isArray(p.settings?.sequenceSteps)
-        ? p.settings.sequenceSteps.map((s: any) => ({
-            title: s.title ?? "",
-            body: s.body ?? "",
-            imageUrl: s.imageUrl ?? "",
-            videoUrl: s.videoUrl ?? "",
-            ctas:
-              Array.isArray(s.ctaList) && s.ctaList.length > 0
-                ? s.ctaList.map((c: any) => ({
-                    kind: c.kind,
-                    label: c.label ?? "",
-                    url: c.url ?? "",
-                  }))
-                : [],
-            ctaEmphasisMode: s.ctaEmphasisMode,
-          }))
-        : [],
+      sequenceSteps: sequenceStepsMapped,
       ctas: ctasForForm,
     });
 
@@ -1047,10 +1087,14 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       ? sequenceStepsWatch[clampedStoryIdx]
       : undefined;
   const stepLocalCtas = (previewStepRow?.ctas || []).filter((c) => c?.label?.trim());
-  const previewTitleEff = previewStepRow?.title?.trim() || previewTitle;
-  const previewBodyEff = previewStepRow?.body?.trim() || previewBody;
-  const previewImageEff = previewStepRow?.imageUrl?.trim() || previewImageUrl;
-  const previewVideoEff = previewStepRow?.videoUrl?.trim() || previewVideoUrl;
+  const previewTitleEff =
+    previewStepRow?.title?.trim() || (perNudgeLayout ? "" : previewTitle);
+  const previewBodyEff =
+    previewStepRow?.body?.trim() || (perNudgeLayout ? "" : previewBody);
+  const previewImageEff =
+    previewStepRow?.imageUrl?.trim() || (perNudgeLayout ? "" : previewImageUrl);
+  const previewVideoEff =
+    previewStepRow?.videoUrl?.trim() || (perNudgeLayout ? "" : previewVideoUrl);
   const previewCtasEff = perNudgeLayout
     ? stepLocalCtas.length > 0
       ? stepLocalCtas
@@ -1390,9 +1434,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       autoCloseMs={autoCloseWatch}
                       betweenMs={betweenWatch}
                       animationPreset={animationPresetWatch}
-                      baseVideoUrl={previewVideoUrl}
-                      baseImageUrl={previewImageUrl}
-                      baseTitle={previewTitle}
+                      baseVideoUrl={perNudgeLayout ? "" : previewVideoUrl}
+                      baseImageUrl={perNudgeLayout ? "" : previewImageUrl}
+                      baseTitle={perNudgeLayout ? "" : previewTitle}
                       selectedPreviewIndex={clampedStoryIdx}
                       onSelectNudgeIndex={setStoryPreviewIndex}
                       onAppendStep={() => {
@@ -1413,8 +1457,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                             Step media (per nudge)
                           </Label>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Each row is one nudge: message, buttons, then media. Empty title or body falls back to the
-                            defaults above.
+                            Each row is one nudge: title, body, buttons, then media. Fill the text fields you want
+                            visitors to see for that step.
                           </p>
                         </div>
 
@@ -1452,7 +1496,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                   <Input
                                     className="h-9 text-sm"
                                     {...form.register(`sequenceSteps.${index}.title` as const)}
-                                    placeholder="Uses default title above if empty"
+                                    placeholder="Headline for this nudge"
                                   />
                                 </div>
                                 <div>
@@ -1461,7 +1505,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                     rows={2}
                                     className="min-h-[72px] text-sm"
                                     {...form.register(`sequenceSteps.${index}.body` as const)}
-                                    placeholder="Uses default body above if empty"
+                                    placeholder="Supporting text (optional)"
                                   />
                                 </div>
                               </div>
@@ -1628,74 +1672,70 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     ) : null}
                   </section>
 
-                  {/* Message (+ optional global media/CTAs when not using per-nudge sequence) */}
                   <section className="space-y-4 rounded-2xl border bg-muted/40 p-4">
-                    <div className="space-y-1">
-                      <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {perNudgeLayout ? "Default message (fallback)" : "Message & buttons"}
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        {perNudgeLayout
-                          ? "Default title and body when a nudge leaves those fields empty. Media and call-to-actions are set inside each nudge below."
-                          : "Title, body, optional media, and buttons for this promo (single nudge or sequence without step rows yet)."}
-                      </p>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div>
-                        <Label>Title</Label>
-                        <Input {...form.register("title")} />
-                      </div>
-                      <div>
-                        <Label>Body</Label>
-                        <Textarea rows={3} {...form.register("body")} />
-                      </div>
-                      {!perNudgeLayout ? (
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <MediaUploadOnly
-                            label="Image (optional)"
-                            hint="Max 8MB. Shown when no video is set."
-                            value={previewImageUrl}
-                            uploading={uploadingImage}
-                            accept="image/*"
-                            inputId="promo-base-image"
-                            fileInputRef={imageFileInputRef}
-                            onPick={(file, el) =>
-                              handlePromoMediaUpload(
-                                file,
-                                "image",
-                                setUploadingImage,
-                                (url) => form.setValue("imageUrl", url, { shouldDirty: true }),
-                                imageFileInputRef,
-                              )
-                            }
-                            onClear={() => form.setValue("imageUrl", "", { shouldDirty: true })}
-                          />
-                          <MediaUploadOnly
-                            label="Video (optional)"
-                            hint="MP4 / WebM, max 50MB."
-                            value={previewVideoUrl}
-                            uploading={uploadingVideo}
-                            accept="video/mp4,video/webm,video/quicktime,video/*"
-                            inputId="promo-base-video"
-                            fileInputRef={videoFileInputRef}
-                            onPick={(file, el) =>
-                              handlePromoMediaUpload(
-                                file,
-                                "video",
-                                setUploadingVideo,
-                                (url) => form.setValue("videoUrl", url, { shouldDirty: true }),
-                                videoFileInputRef,
-                              )
-                            }
-                            onClear={() => form.setValue("videoUrl", "", { shouldDirty: true })}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-
                     {!perNudgeLayout ? (
                       <>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Message and buttons
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            Title, body, optional media, and buttons for this promo (single nudge or sequence without
+                            step rows yet).
+                          </p>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div>
+                            <Label>Title</Label>
+                            <Input {...form.register("title")} />
+                          </div>
+                          <div>
+                            <Label>Body</Label>
+                            <Textarea rows={3} {...form.register("body")} />
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <MediaUploadOnly
+                              label="Image (optional)"
+                              hint="Max 8MB. Shown when no video is set."
+                              value={previewImageUrl}
+                              uploading={uploadingImage}
+                              accept="image/*"
+                              inputId="promo-base-image"
+                              fileInputRef={imageFileInputRef}
+                              onPick={(file, el) =>
+                                handlePromoMediaUpload(
+                                  file,
+                                  "image",
+                                  setUploadingImage,
+                                  (url) => form.setValue("imageUrl", url, { shouldDirty: true }),
+                                  imageFileInputRef,
+                                )
+                              }
+                              onClear={() => form.setValue("imageUrl", "", { shouldDirty: true })}
+                            />
+                            <MediaUploadOnly
+                              label="Video (optional)"
+                              hint="MP4 / WebM, max 50MB."
+                              value={previewVideoUrl}
+                              uploading={uploadingVideo}
+                              accept="video/mp4,video/webm,video/quicktime,video/*"
+                              inputId="promo-base-video"
+                              fileInputRef={videoFileInputRef}
+                              onPick={(file, el) =>
+                                handlePromoMediaUpload(
+                                  file,
+                                  "video",
+                                  setUploadingVideo,
+                                  (url) => form.setValue("videoUrl", url, { shouldDirty: true }),
+                                  videoFileInputRef,
+                                )
+                              }
+                              onClear={() => form.setValue("videoUrl", "", { shouldDirty: true })}
+                            />
+                          </div>
+                        </div>
+
                         {/* CTA emphasis */}
                         <div className="rounded-xl bg-background px-3 py-2 text-xs">
                           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1853,7 +1893,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     {sequenceEnabledWatch && sequenceStepsWatch.length > 0
                       ? `Nudge ${clampedStoryIdx + 1} of ${sequenceStepsWatch.length} — click a storyboard card to switch.`
-                      : "Default message and media (no per-step overrides in preview)."}
+                      : "Message and media from the fields on the left."}
                   </p>
                 </div>
                 <div className="flex flex-1 items-center justify-center rounded-xl border bg-slate-50 px-4 py-6">

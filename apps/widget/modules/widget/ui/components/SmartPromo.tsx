@@ -376,11 +376,11 @@ export default function SmartPromo() {
           title:
             typeof step?.title === "string" && step.title.trim().length > 0
               ? step.title.trim()
-              : base.title,
+              : "",
           body:
             typeof step?.body === "string" && step.body.trim().length > 0
               ? step.body.trim()
-              : base.body,
+              : "",
           imageUrl:
             typeof step?.imageUrl === "string" && step.imageUrl.trim().length > 0
               ? step.imageUrl.trim()
