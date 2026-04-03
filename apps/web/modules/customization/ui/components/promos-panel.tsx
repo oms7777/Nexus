@@ -339,9 +339,9 @@ function SequenceStepCtaFields({
     <div className="space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <Label className="text-xs font-medium">Call-to-actions</Label>
+          <Label className="text-xs font-medium">Buttons for this step</Label>
           <p className="text-[11px] text-muted-foreground">
-            Buttons for this nudge only. Add, remove, and set which one is primary.
+            Per-nudge CTAs. Add, remove, and set which one is primary.
           </p>
         </div>
         <Button
@@ -526,20 +526,19 @@ function PromoSequenceStoryboard({
   return (
     <div className="space-y-3">
       <div className="relative rounded-xl border border-slate-200/80 bg-gradient-to-b from-slate-50/90 to-white p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="mb-3 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
               <Layers className="h-3.5 w-3.5 shrink-0 text-violet-500" aria-hidden />
               Storyboard
             </div>
-            {canReorder ? (
-              <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                Drag ⋮⋮ to reorder
-              </span>
-            ) : null}
+            <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-medium text-violet-800">
+              {anim}
+            </span>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="flex items-center gap-2 rounded-lg border border-slate-200/80 bg-white px-2.5 py-1 shadow-sm">
+
+          <div className="flex flex-col gap-2 rounded-lg border border-violet-200/90 bg-violet-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
               <Switch
                 id="sequence-random-order"
                 checked={sequenceRandomOrder}
@@ -547,15 +546,31 @@ function PromoSequenceStoryboard({
               />
               <Label
                 htmlFor="sequence-random-order"
-                className="cursor-pointer text-[10px] font-medium leading-tight text-slate-700"
+                className="cursor-pointer text-sm font-semibold leading-snug text-slate-900"
               >
                 Random order on site
               </Label>
             </div>
-            <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-medium text-violet-800">
-              {anim}
-            </span>
+            <p className="text-[11px] leading-snug text-muted-foreground sm:max-w-[55%] sm:text-right">
+              Shuffles which nudge appears first on each page load (editor order is kept when this is off).
+            </p>
           </div>
+
+          {canReorder ? (
+            <p className="flex flex-wrap items-center gap-2 text-[11px] text-violet-900">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 font-medium shadow-sm ring-1 ring-violet-200">
+                <GripVertical className="h-4 w-4 text-violet-600" aria-hidden />
+                Drag
+              </span>
+              <span className="text-muted-foreground">
+                Grab the handle on the left of a card, then drop on another card to reorder.
+              </span>
+            </p>
+          ) : hasStepRows ? (
+            <p className="text-[11px] text-muted-foreground">
+              Add a second step to enable drag-and-drop reordering.
+            </p>
+          ) : null}
         </div>
 
         <div className="flex items-stretch gap-1 overflow-x-auto pb-1 pt-0.5 [scrollbar-width:thin]">
@@ -581,15 +596,6 @@ function PromoSequenceStoryboard({
             return (
               <div key={i} className="flex shrink-0 items-stretch gap-1">
                 <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onSelectNudgeIndex(i)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onSelectNudgeIndex(i);
-                    }
-                  }}
                   onDragOver={
                     canReorder
                       ? (e) => {
@@ -599,7 +605,6 @@ function PromoSequenceStoryboard({
                         }
                       : undefined
                   }
-                  onDragLeave={canReorder ? () => setDragOverIndex(null) : undefined}
                   onDrop={
                     canReorder
                       ? (e) => {
@@ -613,66 +618,74 @@ function PromoSequenceStoryboard({
                       : undefined
                   }
                   className={cn(
-                    "flex w-[148px] cursor-pointer flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.04] outline-none transition hover:border-violet-200",
+                    "flex w-[158px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.04] transition hover:border-violet-200",
                     selectedPreviewIndex === i && "ring-2 ring-violet-500 ring-offset-2",
                     canReorder && dragOverIndex === i && "ring-2 ring-violet-400 ring-offset-1",
                   )}
                 >
-                  <div className="flex items-center gap-1 border-b border-slate-100 bg-slate-50/80 px-1.5 py-1">
+                  <div className="flex items-stretch gap-0 border-b border-slate-100 bg-slate-50/80">
                     {canReorder ? (
-                      <span
-                        className="shrink-0 cursor-grab touch-none rounded p-0.5 text-slate-400 hover:bg-slate-200/80 hover:text-slate-700 active:cursor-grabbing"
+                      <div
                         draggable
-                        aria-label="Drag to reorder nudges"
+                        className="flex w-10 shrink-0 cursor-grab touch-manipulation flex-col items-center justify-center border-r border-slate-200/80 bg-white text-slate-500 hover:bg-violet-50 hover:text-violet-800 active:cursor-grabbing"
                         title="Drag to reorder"
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
+                        aria-label={`Drag to reorder nudge ${i + 1}`}
                         onDragStart={(e) => {
                           e.dataTransfer.setData("application/nexus-nudge-index", String(i));
                           e.dataTransfer.effectAllowed = "move";
                         }}
                         onDragEnd={() => setDragOverIndex(null)}
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <GripVertical className="h-3.5 w-3.5" aria-hidden />
-                      </span>
-                    ) : null}
-                    <span className="min-w-0 flex-1 text-center text-[10px] font-bold uppercase tracking-wider text-slate-600">
-                      Nudge {i + 1}
-                    </span>
-                    {canReorder ? <span className="w-5 shrink-0" aria-hidden /> : null}
-                  </div>
-                  <div className="relative aspect-[16/10] bg-slate-100">
-                    {vid ? (
-                      <video
-                        key={vid}
-                        className="h-full w-full object-cover"
-                        src={vid}
-                        muted
-                        playsInline
-                        loop
-                        autoPlay
-                        preload="metadata"
-                      />
-                    ) : img ? (
-                      <img src={img} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
-                        <Film className="h-6 w-6 text-slate-300" aria-hidden />
-                        <span className="text-[9px] text-muted-foreground">
-                          Upload per step below
-                        </span>
+                        <GripVertical className="h-4 w-4" aria-hidden />
                       </div>
-                    )}
-                    <div className="absolute bottom-1 right-1 rounded bg-black/55 px-1.5 py-0.5 text-[9px] font-medium text-white">
-                      {formatDuration(autoCloseMs)} on screen
+                    ) : null}
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 px-1 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-100"
+                      onClick={() => onSelectNudgeIndex(i)}
+                    >
+                      Nudge {i + 1}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="w-full cursor-pointer border-0 bg-transparent p-0 text-left outline-none"
+                    onClick={() => onSelectNudgeIndex(i)}
+                  >
+                    <div className="relative aspect-[16/10] bg-slate-100">
+                      {vid ? (
+                        <video
+                          key={vid}
+                          className="h-full w-full object-cover"
+                          src={vid}
+                          muted
+                          playsInline
+                          loop
+                          autoPlay
+                          preload="metadata"
+                        />
+                      ) : img ? (
+                        <img src={img} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
+                          <Film className="h-6 w-6 text-slate-300" aria-hidden />
+                          <span className="text-[9px] text-muted-foreground">
+                            Upload per step below
+                          </span>
+                        </div>
+                      )}
+                      <div className="absolute bottom-1 right-1 rounded bg-black/55 px-1.5 py-0.5 text-[9px] font-medium text-white">
+                        {formatDuration(autoCloseMs)} on screen
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-0.5 px-2 py-2">
-                    <p className="line-clamp-2 text-[11px] font-medium leading-snug text-slate-800">{titleShow}</p>
-                    <p className="text-[9px] leading-tight text-muted-foreground">
-                      {hasStepRows ? "This step’s title and media" : "Uses base message and media"}
-                    </p>
-                  </div>
+                    <div className="space-y-0.5 px-2 py-2">
+                      <p className="line-clamp-2 text-[11px] font-medium leading-snug text-slate-800">{titleShow}</p>
+                      <p className="text-[9px] leading-tight text-muted-foreground">
+                        {hasStepRows ? "This step’s title and media" : "Uses base message and media"}
+                      </p>
+                    </div>
+                  </button>
                 </div>
 
                 {i < cardCount - 1 ? (
@@ -736,7 +749,6 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const videoFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [sequenceUxMode, setSequenceUxMode] = useState<"simple" | "advanced">("simple");
 
   const form = useForm<PromoForm>({
     resolver: zodResolver(PromoSchema),
@@ -1193,7 +1205,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       pathMode: (p.rules?.pathMode as "prefix" | "exact") ?? "prefix",
       identityMode: (p.identityMode as "auto" | "logo" | "avatars") ?? "auto",
       ctaEmphasisMode: (p.ctaEmphasisMode as PromoForm["ctaEmphasisMode"]) ?? "first_primary",
-      sequenceEnabled: p.settings?.sequenceEnabled ?? true,
+      // If saved steps exist, force sequence UI on (legacy promos had steps with sequence off).
+      sequenceEnabled:
+        sequenceStepsMapped.length > 0 ? true : (p.settings?.sequenceEnabled ?? true),
       showDelayAfterNavMs: p.settings?.showDelayAfterNavMs ?? 2500,
       autoCloseMs: p.settings?.autoCloseMs ?? 4500,
       betweenPopupsMs: p.settings?.betweenPopupsMs ?? 10000,
@@ -1283,13 +1297,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const pathMode = form.watch("pathMode") ?? "prefix";
   const pathPrefix = form.watch("pathPrefix") ?? "/";
   const sequenceEnabledWatch = form.watch("sequenceEnabled") ?? true;
+  /** Storyboard + step editor + hide global message when sequence is on or at least one step row exists. */
+  const sequenceUiEnabled =
+    sequenceEnabledWatch || sequenceStepFields.length > 0;
   const showDelayWatch = Number(form.watch("showDelayAfterNavMs") ?? 2500);
   const autoCloseWatch = Number(form.watch("autoCloseMs") ?? 4500);
   const betweenWatch = Number(form.watch("betweenPopupsMs") ?? 10000);
   const sequenceCountWatch = Number(form.watch("maxSequenceItems") ?? 3);
   const animationPresetWatch = form.watch("animationPreset") ?? "soft_slide";
   const sequenceStepsWatch = form.watch("sequenceSteps") ?? [];
-  const perNudgeLayout = sequenceEnabledWatch && sequenceStepFields.length > 0;
+  const perNudgeLayout = sequenceUiEnabled && sequenceStepFields.length > 0;
 
   const primaryColor = theme?.primaryColor || "#a855f7";
   const primaryTextColor = theme?.primaryTextColor || "#ffffff";
@@ -1311,12 +1328,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         ];
 
   const stepCountForStory =
-    sequenceEnabledWatch && sequenceStepsWatch.length > 0 ? sequenceStepsWatch.length : 0;
+    sequenceUiEnabled && sequenceStepsWatch.length > 0 ? sequenceStepsWatch.length : 0;
   const clampedStoryIdx =
     stepCountForStory > 0 ? Math.min(Math.max(0, storyPreviewIndex), stepCountForStory - 1) : 0;
 
   const previewStepRow =
-    sequenceEnabledWatch && sequenceStepsWatch.length > 0
+    sequenceUiEnabled && sequenceStepsWatch.length > 0
       ? sequenceStepsWatch[clampedStoryIdx]
       : undefined;
   const stepLocalCtas = (previewStepRow?.ctas || []).filter((c) => c?.label?.trim());
@@ -1544,34 +1561,37 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={sequenceUxMode === "simple" ? "default" : "outline"}
-                          onClick={() => setSequenceUxMode("simple")}
-                        >
-                          Simple
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={sequenceUxMode === "advanced" ? "default" : "outline"}
-                          onClick={() => setSequenceUxMode("advanced")}
-                        >
-                          Advanced
-                        </Button>
+                      <div className="flex flex-wrap items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs font-medium">Enable sequence</Label>
+                          <Switch
+                            checked={sequenceEnabledWatch}
+                            onCheckedChange={(v) => form.setValue("sequenceEnabled", v)}
+                          />
+                        </div>
+                        {sequenceUiEnabled ? (
+                          <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
+                            <Switch
+                              id="sequence-random-order-header"
+                              checked={form.watch("sequenceRandomOrder") ?? false}
+                              onCheckedChange={(v) => form.setValue("sequenceRandomOrder", !!v)}
+                            />
+                            <Label
+                              htmlFor="sequence-random-order-header"
+                              className="cursor-pointer text-xs font-semibold text-slate-800"
+                            >
+                              Random order
+                            </Label>
+                          </div>
+                        ) : null}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Label className="text-xs">Enable sequence</Label>
-                        <Switch
-                          checked={sequenceEnabledWatch}
-                          onCheckedChange={(v) => form.setValue("sequenceEnabled", v)}
-                        />
-                      </div>
+                      <p className="max-w-md text-[11px] text-muted-foreground">
+                        When on, configure nudges in the storyboard and under &quot;Step media&quot; (title, layout, buttons,
+                        media per step). Random order shuffles the first nudge on each load.
+                      </p>
                     </div>
 
-                    {sequenceEnabledWatch ? (
+                    {sequenceUiEnabled ? (
                       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-violet-200/80 bg-violet-50/40 px-3 py-2.5">
                         <div className="flex items-center gap-2">
                           <Label className="text-xs font-medium">Loop sequence</Label>
@@ -1659,7 +1679,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </div>
                     </div>
 
-                    {sequenceUxMode === "advanced" ? (
+                    {sequenceUiEnabled ? (
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div>
                           <Label>Max sequence items</Label>
@@ -1748,7 +1768,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     ) : null}
 
                     <PromoSequenceStoryboard
-                      sequenceEnabled={sequenceEnabledWatch}
+                      sequenceEnabled={sequenceUiEnabled}
                       sequenceSteps={sequenceStepsWatch}
                       maxSteps={sequenceCountWatch}
                       showDelayMs={showDelayWatch}
@@ -1787,7 +1807,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       }}
                     />
 
-                    {sequenceEnabledWatch ? (
+                    {sequenceUiEnabled ? (
                       <div className="space-y-3 rounded-xl border border-violet-200/60 bg-gradient-to-br from-violet-50/40 to-white p-4">
                         <div>
                           <Label className="text-xs font-semibold uppercase tracking-wide text-violet-900/90">
@@ -1810,21 +1830,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           {sequenceStepFields.map((field, index) => (
                             <div
                               key={field.id}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setStoryPreviewIndex(index)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  setStoryPreviewIndex(index);
-                                }
-                              }}
-                              className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm outline-none ring-offset-2 transition hover:border-violet-200 focus-visible:ring-2 focus-visible:ring-violet-400"
+                              className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-200"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-bold uppercase tracking-wide text-slate-700">
+                                <button
+                                  type="button"
+                                  className="text-left text-xs font-bold uppercase tracking-wide text-slate-700 hover:text-violet-700"
+                                  onClick={() => setStoryPreviewIndex(index)}
+                                >
                                   Nudge {index + 1}
-                                </span>
+                                </button>
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -1859,60 +1874,68 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                 </div>
                               </div>
 
-                              <div className="grid gap-3 sm:grid-cols-2">
-                                <div>
-                                  <Label className="text-xs">Nudge size</Label>
-                                  <p className="mb-1.5 text-[11px] text-muted-foreground">
-                                    Width on the host page (compact → highlight).
-                                  </p>
-                                  <Select
-                                    value={form.watch(`sequenceSteps.${index}.nudgeSize`) ?? "md"}
-                                    onValueChange={(v) =>
-                                      form.setValue(
-                                        `sequenceSteps.${index}.nudgeSize`,
-                                        v as NonNullable<PromoForm["nudgeSize"]>,
-                                        { shouldDirty: true },
-                                      )
-                                    }
-                                  >
-                                    <SelectTrigger className="h-9 text-sm">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {NUDGE_SIZE_OPTIONS.map((o) => (
-                                        <SelectItem key={o.value} value={o.value}>
-                                          {o.label}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <div>
-                                  <Label className="text-xs">Media layout</Label>
-                                  <p className="mb-1.5 text-[11px] text-muted-foreground">
-                                    Where image or video sits relative to text.
-                                  </p>
-                                  <Select
-                                    value={form.watch(`sequenceSteps.${index}.mediaPlacement`) ?? "bottom"}
-                                    onValueChange={(v) =>
-                                      form.setValue(
-                                        `sequenceSteps.${index}.mediaPlacement`,
-                                        v as NonNullable<PromoForm["mediaPlacement"]>,
-                                        { shouldDirty: true },
-                                      )
-                                    }
-                                  >
-                                    <SelectTrigger className="h-9 text-sm">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {MEDIA_PLACEMENT_OPTIONS.map((o) => (
-                                        <SelectItem key={o.value} value={o.value}>
-                                          {o.label}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                              <div className="rounded-xl border-2 border-violet-200/70 bg-violet-50/30 p-3">
+                                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-violet-900">
+                                  Layout / mise en page
+                                </p>
+                                <p className="mb-3 text-[11px] text-muted-foreground">
+                                  Size of the card and where media sits relative to text (per nudge).
+                                </p>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <div>
+                                    <Label className="text-xs">Nudge size</Label>
+                                    <p className="mb-1.5 text-[11px] text-muted-foreground">
+                                      Width on the host page (compact → highlight).
+                                    </p>
+                                    <Select
+                                      value={form.watch(`sequenceSteps.${index}.nudgeSize`) ?? "md"}
+                                      onValueChange={(v) =>
+                                        form.setValue(
+                                          `sequenceSteps.${index}.nudgeSize`,
+                                          v as NonNullable<PromoForm["nudgeSize"]>,
+                                          { shouldDirty: true },
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="h-9 text-sm">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {NUDGE_SIZE_OPTIONS.map((o) => (
+                                          <SelectItem key={o.value} value={o.value}>
+                                            {o.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">Media layout</Label>
+                                    <p className="mb-1.5 text-[11px] text-muted-foreground">
+                                      Where image or video sits relative to text.
+                                    </p>
+                                    <Select
+                                      value={form.watch(`sequenceSteps.${index}.mediaPlacement`) ?? "bottom"}
+                                      onValueChange={(v) =>
+                                        form.setValue(
+                                          `sequenceSteps.${index}.mediaPlacement`,
+                                          v as NonNullable<PromoForm["mediaPlacement"]>,
+                                          { shouldDirty: true },
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="h-9 text-sm">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {MEDIA_PLACEMENT_OPTIONS.map((o) => (
+                                          <SelectItem key={o.value} value={o.value}>
+                                            {o.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                 </div>
                               </div>
 
@@ -1993,7 +2016,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   </section>
 
                   <section className="space-y-4 rounded-2xl border bg-muted/40 p-4">
-                    {!sequenceEnabledWatch ? (
+                    {!sequenceUiEnabled ? (
                       <>
                         <div className="space-y-1">
                           <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -2255,7 +2278,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     <div
                       className={cn(
                         "flex justify-end pt-3",
-                        !sequenceEnabledWatch && "border-t",
+                        !sequenceUiEnabled && "border-t",
                       )}
                     >
                       <Button type="submit">{form.watch("id") ? "Update promo" : "Save promo"}</Button>
@@ -2271,9 +2294,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     Live preview
                   </div>
                   <p className="text-[11px] leading-snug text-muted-foreground">
-                    {sequenceEnabledWatch && sequenceStepsWatch.length > 0
+                    {sequenceUiEnabled && sequenceStepsWatch.length > 0
                       ? `Nudge ${clampedStoryIdx + 1} of ${sequenceStepsWatch.length} — click a storyboard card to switch.`
-                      : sequenceEnabledWatch
+                      : sequenceUiEnabled
                         ? "Add steps under “Step media” — each step has its own message and buttons."
                         : "Message and media from the fields on the left."}
                   </p>
@@ -2370,7 +2393,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
                     <p className="text-[10px] text-slate-400">Preview uses your branding colors.</p>
 
-                    {sequenceEnabledWatch && sequenceStepsWatch.length > 0 ? (
+                    {sequenceUiEnabled && sequenceStepsWatch.length > 0 ? (
                       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 rounded-lg border border-slate-200/80 bg-white/60 px-4 py-2.5">
                         <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
                           Nudges
@@ -2387,7 +2410,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           ))}
                         </div>
                       </div>
-                    ) : sequenceEnabledWatch && sequenceCountWatch > 1 ? (
+                    ) : sequenceUiEnabled && sequenceCountWatch > 1 ? (
                       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 rounded-lg border border-slate-200/80 bg-white/60 px-4 py-2.5">
                         <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
                           Sequence
