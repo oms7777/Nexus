@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, type RefObject } from "react";
+import { useRef, useState, useEffect, useMemo, type RefObject } from "react";
 import { useForm, SubmitHandler, useFieldArray, type Control } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,10 +22,12 @@ import {
   ArrowRight,
   ChevronRight,
   Clock,
+  Copy,
   Film,
   Layers,
   Loader2,
   Plus,
+  Search,
   Upload,
 } from "lucide-react";
 
@@ -33,6 +35,23 @@ const MAX_PROMO_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PROMO_VIDEO_BYTES = 50 * 1024 * 1024;
 
 /** Default buttons when a sequence nudge has none configured (save + new steps). */
+/** Client-side filter on promo list (name, path, headline, body snippet). */
+function promoDocMatchesSearch(
+  p: {
+    name?: string;
+    rules?: { pathPrefix?: string; pathMode?: string };
+    card?: { title?: string; body?: string };
+  },
+  query: string,
+) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const parts = [p.name, p.rules?.pathPrefix, p.rules?.pathMode, p.card?.title, p.card?.body]
+    .filter((x): x is string => typeof x === "string" && x.length > 0)
+    .map((x) => x.toLowerCase());
+  return parts.some((s) => s.includes(q));
+}
+
 const DEFAULT_NUDGE_CTAS: Array<{
   kind: "open_chat" | "open_booking";
   label: string;
@@ -634,10 +653,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const [uploadingStepKey, setUploadingStepKey] = useState<string | null>(null);
   /** Storyboard nudge index — drives the right-hand preview when sequence has steps. */
   const [storyPreviewIndex, setStoryPreviewIndex] = useState(0);
+  const [promoListSearch, setPromoListSearch] = useState("");
 
   useEffect(() => {
     if (dialogOpen) setStoryPreviewIndex(0);
   }, [dialogOpen]);
+
+  const filteredPromoList = useMemo(() => {
+    if (!list?.length) return [];
+    return list.filter((p) => promoDocMatchesSearch(p, promoListSearch));
+  }, [list, promoListSearch]);
 
   const handlePromoMediaUpload = async (
     file: File | undefined,
@@ -1032,6 +1057,57 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
     setStoryPreviewIndex(0);
     setDialogOpen(true);
+  }
+
+  async function duplicatePromo(p: Record<string, unknown>) {
+    try {
+      const base = String(p.name ?? "Promo").trim() || "Promo";
+      const rules = p.rules as { pathPrefix?: string; pathMode?: "prefix" | "exact" } | undefined;
+      const card = p.card as {
+        title?: string;
+        body?: string;
+        imageUrl?: string;
+        videoUrl?: string;
+      };
+      await upsert({
+        name: `${base} (copy)`,
+        active: !!p.active,
+        showNudge: p.showNudge !== false,
+        rules: {
+          pathPrefix: rules?.pathPrefix,
+          pathMode: rules?.pathMode ?? "prefix",
+        },
+        card: {
+          title: String(card?.title ?? ""),
+          body: String(card?.body ?? ""),
+          imageUrl: card?.imageUrl || undefined,
+          videoUrl: card?.videoUrl || undefined,
+        },
+        primaryCta: p.primaryCta,
+        secondaryCta: p.secondaryCta,
+        identityMode: (p.identityMode as PromoForm["identityMode"]) ?? "auto",
+        ctaList: p.ctaList as PromoForm["ctas"] | undefined,
+        ctaEmphasisMode: p.ctaEmphasisMode as PromoForm["ctaEmphasisMode"],
+        settings: p.settings
+          ? {
+              sequenceEnabled: (p.settings as { sequenceEnabled?: boolean }).sequenceEnabled,
+              sequenceLoop: (p.settings as { sequenceLoop?: boolean }).sequenceLoop,
+              showDelayAfterNavMs: (p.settings as { showDelayAfterNavMs?: number }).showDelayAfterNavMs,
+              autoCloseMs: (p.settings as { autoCloseMs?: number }).autoCloseMs,
+              betweenPopupsMs: (p.settings as { betweenPopupsMs?: number }).betweenPopupsMs,
+              maxSequenceItems: (p.settings as { maxSequenceItems?: number }).maxSequenceItems,
+              animationPreset: (p.settings as { animationPreset?: PromoForm["animationPreset"] })
+                .animationPreset,
+              sequenceSteps: (p.settings as { sequenceSteps?: PromoForm["sequenceSteps"] })
+                .sequenceSteps,
+            }
+          : undefined,
+      } as any);
+      toast.success("Duplicated — open the copy to change page path or name");
+    } catch (e) {
+      console.error(e);
+      toast.error("Duplicate failed");
+    }
   }
 
   /* ----------------- Preview values ----------------- */
@@ -2047,9 +2123,32 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       <CardContent className="space-y-4">
         <Separator />
 
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            One promo = one URL rule. Duplicate to reuse the same content on another path.
+          </p>
+          <div className="relative w-full sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={promoListSearch}
+              onChange={(e) => setPromoListSearch(e.target.value)}
+              placeholder="Search name or path…"
+              className="h-9 pl-8"
+              aria-label="Filter promos"
+            />
+          </div>
+        </div>
+
         {!list?.length && <p className="text-sm text-muted-foreground">No promos yet.</p>}
 
-        {list?.map((p) => (
+        {!!list?.length && !filteredPromoList.length && (
+          <p className="text-sm text-muted-foreground">No promos match your search.</p>
+        )}
+
+        {filteredPromoList.map((p) => (
           <div
             key={p._id}
             className="flex items-center justify-between gap-4 rounded-lg border bg-background px-3 py-2.5 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)] transition-colors hover:bg-muted/60"
@@ -2137,6 +2236,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               />
               <Button variant="outline" size="sm" onClick={() => openForEdit(p)}>
                 Edit
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                title="Copy content and targeting into a new promo"
+                onClick={() => duplicatePromo(p as Record<string, unknown>)}
+              >
+                <Copy className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Duplicate
               </Button>
               <Button
                 variant="outline"
