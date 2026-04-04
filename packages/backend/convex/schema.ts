@@ -9,6 +9,9 @@ export default defineSchema({
 
     plan: v.union(v.literal("starter"), v.literal("growth"), v.literal("enterprise")),
 
+    /** Remove after `migrateSubscriptionShape` has cleaned all rows (Convex rejects unknown keys under `.addons`). */
+    enterpriseTier: v.optional(v.union(v.literal("light"), v.literal("core"), v.literal("heavy"))),
+
     status: v.union(v.literal("active"), v.literal("paused"), v.literal("trial")),
 
     addons: v.object({
@@ -16,6 +19,14 @@ export default defineSchema({
       salesforce: v.boolean(),
       voice: v.boolean(),
       advancedAnalytics: v.boolean(),
+      /** Legacy — required in schema until every document is migrated (deploy fails otherwise). */
+      highVolumeTraffic: v.optional(v.boolean()),
+      voiceHighVolume: v.optional(v.boolean()),
+      voiceAi: v.optional(v.boolean()),
+      voiceAiHighVolume: v.optional(v.boolean()),
+      sso: v.optional(v.boolean()),
+      securityPackPlus: v.optional(v.boolean()),
+      compliancePack: v.optional(v.boolean()),
     }),
 
     limits: v.object({
