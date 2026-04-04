@@ -554,12 +554,12 @@ function previewMediaHeightPx(
   return Math.max(56, Math.round(base * mult));
 }
 
-/** Preview column width reflects nudge size tier (embed uses the same tiers). */
+/** Preview card max width in the editor (can be wider than the embed for a roomier live preview). */
 const NUDGE_PREVIEW_MAX_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, string> = {
-  sm: "max-w-[17rem]",
-  md: "max-w-sm",
-  lg: "max-w-md",
-  xl: "max-w-xl",
+  sm: "max-w-[18rem]",
+  md: "max-w-[22rem]",
+  lg: "max-w-lg",
+  xl: "max-w-2xl",
 };
 
 /**
@@ -567,10 +567,10 @@ const NUDGE_PREVIEW_MAX_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, strin
  * Uses `object-contain` on the media so the full frame is visible in the editor (embed still uses cover).
  */
 const PREVIEW_SPLIT_MEDIA_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, string> = {
-  sm: "w-[min(42%,11rem)] min-w-[7.25rem] max-w-[13rem] shrink-0",
-  md: "w-[min(42%,12.5rem)] min-w-[8.25rem] max-w-[14.5rem] shrink-0",
-  lg: "w-[min(42%,14rem)] min-w-[9.25rem] max-w-[16rem] shrink-0",
-  xl: "w-[min(44%,16rem)] min-w-[10rem] max-w-[17.5rem] shrink-0",
+  sm: "w-[min(46%,12rem)] min-w-[8rem] max-w-[15rem] shrink-0",
+  md: "w-[min(46%,14rem)] min-w-[9.5rem] max-w-[17rem] shrink-0",
+  lg: "w-[min(46%,16rem)] min-w-[11rem] max-w-[19rem] shrink-0",
+  xl: "w-[min(48%,20rem)] min-w-[12rem] max-w-[22rem] shrink-0",
 };
 
 type ThemePreview = {
@@ -1912,9 +1912,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     <video
       key={previewVideoEff}
       className={cn(
-        "h-full w-full",
-        previewLegacyMediaObjectContain ? "object-contain" : "object-cover",
+        "block",
+        previewLegacyMediaObjectContain
+          ? "max-h-full max-w-full object-contain"
+          : "h-full w-full object-cover",
       )}
+      style={previewLegacyMediaObjectContain ? { objectFit: "contain" as const } : undefined}
       src={previewVideoEff}
       muted
       playsInline
@@ -1925,9 +1928,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   ) : previewImageEff ? (
     <img
       className={cn(
-        "h-full w-full",
-        previewLegacyMediaObjectContain ? "object-contain" : "object-cover",
+        previewLegacyMediaObjectContain
+          ? "max-h-full max-w-full object-contain"
+          : "h-full w-full object-cover",
       )}
+      style={previewLegacyMediaObjectContain ? { objectFit: "contain" as const } : undefined}
       src={previewImageEff}
       alt="Promo media"
     />
@@ -2168,9 +2173,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           <DialogContent
             className="
               w-full
-              max-w-[95vw]
-              sm:max-w-[min(96vw,1360px)]
-              max-h-[85vh]
+              max-w-[98vw]
+              sm:max-w-[min(98vw,1680px)]
+              max-h-[92vh]
               overflow-hidden
               rounded-xl
               p-0
@@ -2189,14 +2194,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
             <div
               className="
                 grid
-                h-[75vh]
+                h-[min(78vh,920px)]
+                min-h-[min(70vh,640px)]
                 grid-cols-1
                 gap-6
                 overflow-hidden
                 px-6
                 pb-6
                 pt-0
-                md:grid-cols-[minmax(0,1.2fr)_minmax(500px,1.15fr)]
+                md:grid-cols-[minmax(280px,1.05fr)_minmax(560px,1.35fr)]
+                lg:grid-cols-[minmax(300px,1fr)_minmax(620px,1.45fr)]
               "
             >
               {/* Left column: form (scrollable) */}
@@ -3166,7 +3173,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               </div>
 
               {/* Right column: preview */}
-              <div className="hidden min-w-[min(100%,500px)] pl-2 md:flex md:flex-col lg:min-w-[540px]">
+              <div className="hidden min-w-[min(100%,560px)] pl-2 md:flex md:flex-col lg:min-w-[600px]">
                 <div className="mb-2 space-y-1">
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Live preview
