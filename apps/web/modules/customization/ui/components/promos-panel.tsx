@@ -562,12 +562,15 @@ const NUDGE_PREVIEW_MAX_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, strin
   xl: "max-w-xl",
 };
 
-/** Split-column media width in preview (aligns with embed `splitMediaW`). */
+/**
+ * Split-column media in live preview: wider than embed `splitMediaW` so side layouts stay legible.
+ * Uses `object-contain` on the media so the full frame is visible in the editor (embed still uses cover).
+ */
 const PREVIEW_SPLIT_MEDIA_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, string> = {
-  sm: "w-[100px] shrink-0",
-  md: "w-[120px] shrink-0",
-  lg: "w-[140px] shrink-0",
-  xl: "w-[160px] shrink-0",
+  sm: "w-[min(42%,11rem)] min-w-[7.25rem] max-w-[13rem] shrink-0",
+  md: "w-[min(42%,12.5rem)] min-w-[8.25rem] max-w-[14.5rem] shrink-0",
+  lg: "w-[min(42%,14rem)] min-w-[9.25rem] max-w-[16rem] shrink-0",
+  xl: "w-[min(44%,16rem)] min-w-[10rem] max-w-[17.5rem] shrink-0",
 };
 
 type ThemePreview = {
@@ -1901,10 +1904,17 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         ? "bottom"
         : previewMediaPlacementEff;
 
+  /** Side-by-side preview: show full frame (letterbox) so wide video isn’t cropped in the editor. */
+  const previewLegacyMediaObjectContain =
+    previewPlacementResolved === "left" || previewPlacementResolved === "right";
+
   const previewLegacyMediaEl = previewVideoEff ? (
     <video
       key={previewVideoEff}
-      className="h-full w-full object-cover"
+      className={cn(
+        "h-full w-full",
+        previewLegacyMediaObjectContain ? "object-contain" : "object-cover",
+      )}
       src={previewVideoEff}
       muted
       playsInline
@@ -1913,7 +1923,14 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       preload="metadata"
     />
   ) : previewImageEff ? (
-    <img className="h-full w-full object-cover" src={previewImageEff} alt="Promo media" />
+    <img
+      className={cn(
+        "h-full w-full",
+        previewLegacyMediaObjectContain ? "object-contain" : "object-cover",
+      )}
+      src={previewImageEff}
+      alt="Promo media"
+    />
   ) : null;
 
   const previewBlocksInner = previewBlocksSanitized.map((b) =>
@@ -2048,7 +2065,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           <div className="flex min-w-0 flex-1 gap-2.5">
             <div
               className={cn(
-                "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+                "flex items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
                 PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
               )}
               style={{ height: previewMediaPx }}
@@ -2076,7 +2093,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
             </div>
             <div
               className={cn(
-                "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+                "flex items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
                 PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
               )}
               style={{ height: previewMediaPx }}
@@ -2179,7 +2196,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                 px-6
                 pb-6
                 pt-0
-                md:grid-cols-[minmax(0,1.35fr)_minmax(420px,1fr)]
+                md:grid-cols-[minmax(0,1.2fr)_minmax(500px,1.15fr)]
               "
             >
               {/* Left column: form (scrollable) */}
@@ -3149,7 +3166,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               </div>
 
               {/* Right column: preview */}
-              <div className="hidden min-w-[min(100%,420px)] pl-2 md:flex md:flex-col lg:min-w-[460px]">
+              <div className="hidden min-w-[min(100%,500px)] pl-2 md:flex md:flex-col lg:min-w-[540px]">
                 <div className="mb-2 space-y-1">
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Live preview
@@ -3172,7 +3189,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   >
                     {previewNudgeMain}
 
-                    <p className="text-[10px] text-slate-400">Preview uses your branding colors.</p>
+                    <p className="text-[10px] text-slate-400">
+                      Preview uses your branding colors. Media left/right shows the full frame here; the embedded
+                      nudge uses a narrow column and may crop to fill it.
+                    </p>
 
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0 ? (
                       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 rounded-lg border border-slate-200/80 bg-white/60 px-4 py-2.5">
