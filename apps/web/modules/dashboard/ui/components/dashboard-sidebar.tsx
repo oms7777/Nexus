@@ -82,8 +82,6 @@ export const DashboardSidebar = () => {
     pathname === url || pathname.startsWith(`${url}/`);
 
   const f = ent.features;
-  /** Setup page: widget script + org id for every active/trial org; CRM blocks are inside the page. */
-  const canSeeIntegrations = !!ent.isActive;
   const canUseVoice = !!f.canUseVoice;
   const canUseBooking = !!f.canUseBooking;
   const canUseAdvancedAnalytics = !!f.canUseAdvancedAnalytics;
@@ -145,10 +143,10 @@ export const DashboardSidebar = () => {
       { title: "Team & Territories", url: "/team", icon: Users },
       { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen },
       { title: "Widget Customization", url: "/customization", icon: SlidersHorizontal },
-      canSeeIntegrations && { title: "Integrations", url: "/integrations", icon: InboxIcon },
+      { title: "Integrations", url: "/integrations", icon: InboxIcon },
       canUseVoice && { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
     ].filter(Boolean) as { title: string; url: string; icon: any }[];
-  }, [ent.isLoading, canSeeIntegrations, canUseVoice]);
+  }, [ent.isLoading, canUseVoice]);
 
   const labelClass = "group-data-[collapsible=icon]:hidden";
   const iconClass = "size-5";

@@ -212,6 +212,12 @@ export const IntegrationsView = () => {
           <div className="space-y-2">
             <h1 className="text-2xl md:text-4xl">Setup & Integrations</h1>
             <p className="text-muted-foreground">Connect your tools and add the widget to your website.</p>
+            {!ent.isActive ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Plan not active yet (e.g. Starter before go-live)—you can still copy the install snippet below. Full
+                behavior may require an active or trial plan.
+              </p>
+            ) : null}
           </div>
 
           {/* Org ID */}
