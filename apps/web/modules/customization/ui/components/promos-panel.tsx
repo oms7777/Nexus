@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useMemo, type RefObject } from "react";
+import { useRef, useState, useEffect, useMemo, type RefObject, type ReactNode } from "react";
 import { useForm, SubmitHandler, useFieldArray, type Control } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -560,6 +560,14 @@ const NUDGE_PREVIEW_MAX_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, strin
   md: "max-w-sm",
   lg: "max-w-md",
   xl: "max-w-xl",
+};
+
+/** Split-column media width in preview (aligns with embed `splitMediaW`). */
+const PREVIEW_SPLIT_MEDIA_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, string> = {
+  sm: "w-[100px] shrink-0",
+  md: "w-[120px] shrink-0",
+  lg: "w-[140px] shrink-0",
+  xl: "w-[160px] shrink-0",
 };
 
 type ThemePreview = {
@@ -1884,6 +1892,250 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const previewBlocksSanitized = sanitizeContentBlocksForPersist(previewContentBlocksRaw) ?? [];
   const previewHasBlocks = previewBlocksSanitized.length > 0;
 
+  const previewHasLegacyMedia = !!(previewVideoEff || previewImageEff);
+  /** Same resolution as `embed.ts`: no media → bottom; `framed` kept. */
+  const previewPlacementResolved: NonNullable<PromoForm["mediaPlacement"]> =
+    previewMediaPlacementEff === "framed"
+      ? "framed"
+      : !previewHasLegacyMedia
+        ? "bottom"
+        : previewMediaPlacementEff;
+
+  const previewLegacyMediaEl = previewVideoEff ? (
+    <video
+      key={previewVideoEff}
+      className="h-full w-full object-cover"
+      src={previewVideoEff}
+      muted
+      playsInline
+      loop
+      autoPlay
+      preload="metadata"
+    />
+  ) : previewImageEff ? (
+    <img className="h-full w-full object-cover" src={previewImageEff} alt="Promo media" />
+  ) : null;
+
+  const previewBlocksInner = previewBlocksSanitized.map((b) =>
+    b.type === "text" ? (
+      <p key={b.id} className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600">
+        {b.text}
+      </p>
+    ) : b.type === "image" ? (
+      <img
+        key={b.id}
+        src={b.url}
+        alt=""
+        className="w-full rounded-lg border object-cover"
+        style={{ height: previewMediaPx }}
+      />
+    ) : (
+      <video
+        key={b.id}
+        className="w-full rounded-lg border object-cover"
+        style={{ height: previewMediaPx }}
+        src={b.url}
+        muted
+        playsInline
+        loop
+        autoPlay
+        preload="metadata"
+      />
+    ),
+  );
+
+  const previewTitleEl = previewTitleEff ? (
+    <div className="text-sm font-semibold leading-snug text-slate-900">{previewTitleEff}</div>
+  ) : null;
+
+  const previewBodyEl = previewBodyEff ? (
+    <p className="text-xs leading-relaxed text-slate-600">{previewBodyEff}</p>
+  ) : null;
+
+  const previewIdentityCol = (
+    <div className="flex w-14 shrink-0 flex-col items-center gap-1 pt-0.5 sm:w-[3.25rem]">
+      {showLogo && brandLogoUrl ? (
+        <img
+          src={brandLogoUrl}
+          alt="Logo"
+          className="h-9 w-9 rounded-full border bg-white object-contain"
+        />
+      ) : null}
+      {showAvatars && (
+        <div className="flex -space-x-1">
+          <div className="h-7 w-7 rounded-full border border-white bg-slate-200" />
+          <div className="h-7 w-7 rounded-full border border-white bg-slate-300" />
+          <div className="h-7 w-7 rounded-full border border-white bg-slate-400" />
+        </div>
+      )}
+      {!showLogo && !showAvatars && (
+        <div
+          className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
+          style={{ backgroundColor: chatBubbleColor, color: primaryTextColor }}
+        >
+          AI
+        </div>
+      )}
+    </div>
+  );
+
+  const previewCtasBlock = (
+    <div className="space-y-2">
+      {previewCtasEff.map((cta, index) => {
+        const primary = isPrimaryButton(previewEmphasisEff, index, previewCtasEff.length);
+        const style = primary
+          ? { backgroundColor: primaryColor, color: primaryTextColor, borderColor: primaryColor }
+          : { backgroundColor: secondaryColor, color: secondaryTextColor, borderColor: primaryColor };
+        return (
+          <Button
+            key={index}
+            type="button"
+            size="sm"
+            className="h-8 w-full justify-center text-sm"
+            variant={primary ? "default" : "outline"}
+            style={style}
+          >
+            {cta.label}
+          </Button>
+        );
+      })}
+    </div>
+  );
+
+  let previewNudgeMain: ReactNode;
+  if (previewHasBlocks) {
+    previewNudgeMain = (
+      <>
+        <div className="flex gap-3 items-start">
+          {previewIdentityCol}
+          <div className="min-w-0 flex-1 space-y-2">
+            {previewTitleEl}
+            {previewMediaPlacementEff === "framed" ? (
+              <div className="space-y-2 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+                {previewBlocksInner}
+              </div>
+            ) : (
+              <div className="space-y-2">{previewBlocksInner}</div>
+            )}
+          </div>
+        </div>
+        {previewCtasBlock}
+      </>
+    );
+  } else if (previewPlacementResolved === "top" && previewHasLegacyMedia) {
+    previewNudgeMain = (
+      <>
+        <div className="-mx-4 -mt-4 mb-2 overflow-hidden rounded-t-2xl border-b border-slate-200/90 bg-slate-100">
+          <div className="w-full overflow-hidden" style={{ height: previewMediaPx }}>
+            {previewLegacyMediaEl}
+          </div>
+        </div>
+        <div className="flex gap-3 items-start">
+          {previewIdentityCol}
+          <div className="min-w-0 flex-1 space-y-2">
+            {previewTitleEl}
+            {previewBodyEl}
+          </div>
+        </div>
+        {previewCtasBlock}
+      </>
+    );
+  } else if (previewPlacementResolved === "left" && previewHasLegacyMedia) {
+    previewNudgeMain = (
+      <>
+        <div className="flex gap-3 items-start">
+          {previewIdentityCol}
+          <div className="flex min-w-0 flex-1 gap-2.5">
+            <div
+              className={cn(
+                "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+                PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
+              )}
+              style={{ height: previewMediaPx }}
+            >
+              {previewLegacyMediaEl}
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              {previewTitleEl}
+              {previewBodyEl}
+            </div>
+          </div>
+        </div>
+        {previewCtasBlock}
+      </>
+    );
+  } else if (previewPlacementResolved === "right" && previewHasLegacyMedia) {
+    previewNudgeMain = (
+      <>
+        <div className="flex gap-3 items-start">
+          {previewIdentityCol}
+          <div className="flex min-w-0 flex-1 gap-2.5">
+            <div className="min-w-0 flex-1 space-y-2">
+              {previewTitleEl}
+              {previewBodyEl}
+            </div>
+            <div
+              className={cn(
+                "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+                PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
+              )}
+              style={{ height: previewMediaPx }}
+            >
+              {previewLegacyMediaEl}
+            </div>
+          </div>
+        </div>
+        {previewCtasBlock}
+      </>
+    );
+  } else if (previewPlacementResolved === "framed") {
+    previewNudgeMain = (
+      <>
+        <div className="flex gap-3 items-start">
+          {previewIdentityCol}
+          <div className="min-w-0 flex-1 space-y-2">
+            {previewTitleEl}
+            {previewBodyEl || previewHasLegacyMedia ? (
+              <div className="space-y-2 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+                {previewBodyEl}
+                {previewHasLegacyMedia ? (
+                  <div
+                    className="mt-2 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-100"
+                    style={{ height: previewMediaPx }}
+                  >
+                    {previewLegacyMediaEl}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {previewCtasBlock}
+      </>
+    );
+  } else {
+    previewNudgeMain = (
+      <>
+        <div className="flex gap-3 items-start">
+          {previewIdentityCol}
+          <div className="min-w-0 flex-1 space-y-2">
+            {previewTitleEl}
+            {previewBodyEl}
+            {previewHasLegacyMedia ? (
+              <div
+                className="overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                style={{ height: previewMediaPx }}
+              >
+                {previewLegacyMediaEl}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {previewCtasBlock}
+      </>
+    );
+  }
+
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
@@ -2411,15 +2663,16 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                 <p className="mb-3 text-[11px] text-muted-foreground">
                                   Card <span className="font-medium">width</span> and media{" "}
                                   <span className="font-medium">height</span> are independent.{" "}
-                                  <span className="font-medium">Media layout</span> controls where the image/video
-                                  sits; &quot;Content panel&quot; groups body + media in a light box under the title
-                                  (good for brochure-style promos).
+                                  <span className="font-medium">Media layout</span> is reflected in the live preview
+                                  next to this form. &quot;Content panel&quot; groups body + media in a light box.
+                                  Structured content blocks always stack vertically on the site.
                                 </p>
                                 <div className="grid gap-3 sm:grid-cols-2">
                                   <div>
-                                    <Label className="text-xs">Nudge size</Label>
+                                    <Label className="text-xs">Card width</Label>
                                     <p className="mb-1.5 text-[11px] text-muted-foreground">
-                                      Card width on the host page (compact → highlight).
+                                      How wide the nudge is on the visitor&apos;s site. Overall height still grows with
+                                      text; use Media height for the image/video strip.
                                     </p>
                                     <Select
                                       value={form.watch(`sequenceSteps.${index}.nudgeSize`) ?? "md"}
@@ -2446,7 +2699,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                   <div>
                                     <Label className="text-xs">Media height</Label>
                                     <p className="mb-1.5 text-[11px] text-muted-foreground">
-                                      How tall the image or video strip is (scales with nudge size).
+                                      Height of the media area only (scales with card width tier).
                                     </p>
                                     <Select
                                       value={form.watch(`sequenceSteps.${index}.mediaHeight`) ?? "standard"}
@@ -2652,9 +2905,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div>
-                            <Label className="text-xs">Nudge size</Label>
+                            <Label className="text-xs">Card width</Label>
                             <p className="mb-1.5 text-[11px] text-muted-foreground">
-                              Card width on the host page (embed).
+                              How wide the nudge is on the visitor&apos;s site. Height still follows text length; use
+                              Media height for the media strip.
                             </p>
                             <Select
                               value={form.watch("nudgeSize") ?? "md"}
@@ -2679,7 +2933,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           <div>
                             <Label className="text-xs">Media height</Label>
                             <p className="mb-1.5 text-[11px] text-muted-foreground">
-                              How tall the image or video strip is.
+                              Height of the photo/video area only.
                             </p>
                             <Select
                               value={form.watch("mediaHeight") ?? "standard"}
@@ -2902,10 +3156,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   </div>
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0
-                      ? `Nudge ${clampedStoryIdx + 1} of ${sequenceStepsWatch.length} — click a storyboard card to switch.`
+                      ? `Nudge ${clampedStoryIdx + 1} of ${sequenceStepsWatch.length} — click a storyboard card to switch. Layout (top/left/right/bottom/panel) matches the embed.`
                       : sequenceUiEnabled
-                        ? "Add steps under “Step media” — each step has its own message and buttons."
-                        : "Message and media from the fields on the left."}
+                        ? "Add steps under “Step media” — each step has its own message and buttons. Per-step layout matches the embed once steps exist."
+                        : "Message, media position, and sizing match the embedded nudge on your site."}
                   </p>
                 </div>
                 <div className="flex flex-1 items-center justify-center overflow-x-auto rounded-xl border bg-slate-50 px-3 py-6">
@@ -2916,191 +3170,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     )}
                     style={{ backgroundColor: nudgeBackgroundColor }}
                   >
-                    <div className="flex items-center gap-3">
-                      {showLogo && brandLogoUrl ? (
-                        <img
-                          src={brandLogoUrl}
-                          alt="Logo"
-                          className="h-9 w-9 rounded-full border bg-white object-contain"
-                        />
-                      ) : null}
-
-                      {showAvatars && (
-                        <div className="flex -space-x-1">
-                          <div className="h-7 w-7 rounded-full border border-white bg-slate-200" />
-                          <div className="h-7 w-7 rounded-full border border-white bg-slate-300" />
-                          <div className="h-7 w-7 rounded-full border border-white bg-slate-400" />
-                        </div>
-                      )}
-
-                      {!showLogo && !showAvatars && (
-                        <div
-                          className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
-                          style={{ backgroundColor: chatBubbleColor, color: primaryTextColor }}
-                        >
-                          AI
-                        </div>
-                      )}
-
-                      <div className="min-w-0 space-y-1">
-                        {previewTitleEff ? (
-                          <div className="truncate text-sm font-semibold text-slate-900">
-                            {previewTitleEff}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {previewHasBlocks ? (
-                      previewMediaPlacementEff === "framed" ? (
-                        <div className="space-y-2 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
-                          {previewBlocksSanitized.map((b) =>
-                            b.type === "text" ? (
-                              <p
-                                key={b.id}
-                                className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600"
-                              >
-                                {b.text}
-                              </p>
-                            ) : b.type === "image" ? (
-                              <img
-                                key={b.id}
-                                src={b.url}
-                                alt=""
-                                className="w-full rounded-lg border object-cover"
-                                style={{ height: previewMediaPx }}
-                              />
-                            ) : (
-                              <video
-                                key={b.id}
-                                className="w-full rounded-lg border object-cover"
-                                style={{ height: previewMediaPx }}
-                                src={b.url}
-                                muted
-                                playsInline
-                                loop
-                                autoPlay
-                                preload="metadata"
-                              />
-                            ),
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {previewBlocksSanitized.map((b) =>
-                            b.type === "text" ? (
-                              <p
-                                key={b.id}
-                                className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600"
-                              >
-                                {b.text}
-                              </p>
-                            ) : b.type === "image" ? (
-                              <img
-                                key={b.id}
-                                src={b.url}
-                                alt=""
-                                className="w-full rounded-lg border object-cover"
-                                style={{ height: previewMediaPx }}
-                              />
-                            ) : (
-                              <video
-                                key={b.id}
-                                className="w-full rounded-lg border object-cover"
-                                style={{ height: previewMediaPx }}
-                                src={b.url}
-                                muted
-                                playsInline
-                                loop
-                                autoPlay
-                                preload="metadata"
-                              />
-                            ),
-                          )}
-                        </div>
-                      )
-                    ) : previewMediaPlacementEff === "framed" &&
-                      (previewBodyEff || previewVideoEff || previewImageEff) ? (
-                      <div className="space-y-2 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
-                        {previewBodyEff ? (
-                          <p className="text-xs leading-relaxed text-slate-600">{previewBodyEff}</p>
-                        ) : null}
-                        {previewVideoEff ? (
-                          <video
-                            key={previewVideoEff}
-                            className="w-full rounded-lg border object-cover"
-                            style={{ height: previewMediaPx }}
-                            src={previewVideoEff}
-                            muted
-                            playsInline
-                            loop
-                            autoPlay
-                            preload="metadata"
-                          />
-                        ) : previewImageEff ? (
-                          <img
-                            className="w-full rounded-lg border object-cover"
-                            style={{ height: previewMediaPx }}
-                            src={previewImageEff}
-                            alt="Promo media"
-                          />
-                        ) : null}
-                      </div>
-                    ) : (
-                      <>
-                        {previewBodyEff ? (
-                          <p className="text-xs leading-relaxed text-slate-600">{previewBodyEff}</p>
-                        ) : null}
-
-                        {previewVideoEff ? (
-                          <video
-                            key={previewVideoEff}
-                            className="w-full rounded-lg border object-cover"
-                            style={{ height: previewMediaPx }}
-                            src={previewVideoEff}
-                            muted
-                            playsInline
-                            loop
-                            autoPlay
-                            preload="metadata"
-                          />
-                        ) : previewImageEff ? (
-                          <img
-                            className="w-full rounded-lg border object-cover"
-                            style={{ height: previewMediaPx }}
-                            src={previewImageEff}
-                            alt="Promo media"
-                          />
-                        ) : null}
-                      </>
-                    )}
-
-                    <div className="space-y-2">
-                      {previewCtasEff.map((cta, index) => {
-                        const primary = isPrimaryButton(
-                          previewEmphasisEff,
-                          index,
-                          previewCtasEff.length,
-                        );
-
-                        const style = primary
-                          ? { backgroundColor: primaryColor, color: primaryTextColor, borderColor: primaryColor }
-                          : { backgroundColor: secondaryColor, color: secondaryTextColor, borderColor: primaryColor };
-
-                        return (
-                          <Button
-                            key={index}
-                            type="button"
-                            size="sm"
-                            className="h-8 w-full justify-center text-sm"
-                            variant={primary ? "default" : "outline"}
-                            style={style}
-                          >
-                            {cta.label}
-                          </Button>
-                        );
-                      })}
-                    </div>
+                    {previewNudgeMain}
 
                     <p className="text-[10px] text-slate-400">Preview uses your branding colors.</p>
 
