@@ -291,6 +291,32 @@ function sanitizeContentBlocksForPersist(
   return out.length ? out : undefined;
 }
 
+/** Live preview only: keep draft / in-progress URLs so layout (e.g. media left/right) updates immediately. */
+function lenientContentBlocksForPreview(
+  blocks: NudgeContentBlockForm[] | undefined,
+): NudgeContentBlockForm[] {
+  if (!blocks?.length) return [];
+  const out: NudgeContentBlockForm[] = [];
+  for (const b of blocks) {
+    if (out.length >= MAX_NUDGE_CONTENT_BLOCKS) break;
+    if (b.type === "text") {
+      const t = (b.text ?? "").trim();
+      if (t) out.push({ ...b, text: t });
+    } else {
+      const u = (b.url ?? "").trim();
+      if (!/^https?:\/\//i.test(u)) continue;
+      try {
+        const x = new URL(u);
+        if (x.protocol !== "http:" && x.protocol !== "https:") continue;
+        out.push({ ...b, url: u });
+      } catch {
+        continue;
+      }
+    }
+  }
+  return out;
+}
+
 function normalizeContentBlocksFromApi(raw: unknown): NudgeContentBlockForm[] {
   if (!Array.isArray(raw)) return [];
   const out: NudgeContentBlockForm[] = [];
@@ -338,8 +364,9 @@ function PromoNudgeContentBlocksFields({
       <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
         Stack paragraphs and media in order. Plain text only (no HTML). Image/video blocks need{" "}
         <span className="font-medium">https</span> URLs. When you add blocks, they replace the classic body + single
-        media on the live site. Layout is vertical; use <span className="font-medium">Content panel</span> in Layout for
-        a framed look.
+        media on the site. With <span className="font-medium">exactly one</span> image or video block,{" "}
+        <span className="font-medium">Media left / right</span> in Layout places it beside the text (same as the
+        embedded nudge). Use <span className="font-medium">Content panel</span> for a framed stack.
       </p>
 
       <div className="mt-3 space-y-2">
@@ -411,8 +438,9 @@ function PromoNudgeContentBlocksFields({
             ) : (
               <div className="space-y-1.5">
                 <Input
-                  className="h-8 text-xs"
+                  className="h-8 truncate font-mono text-[11px] leading-tight"
                   value={block.url}
+                  title={block.url || undefined}
                   onChange={(e) => {
                     const next = blocks.map((b, i) =>
                       i === idx ? { ...b, url: e.target.value } : b,
@@ -421,6 +449,10 @@ function PromoNudgeContentBlocksFields({
                   }}
                   placeholder="https://…"
                 />
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  Visitors only see the video or image — not this address. Long URLs (e.g. after upload) are normal;
+                  they are not shown on your site.
+                </p>
                 {block.type === "image" && imgHint ? (
                   <Button
                     type="button"
@@ -1887,15 +1919,18 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const previewMediaPx = previewMediaHeightPx(previewNudgeSizeTier, previewMediaHeightEff);
 
+  /** Field-level watch so the preview updates when blocks change on the active story step. */
   const previewContentBlocksRaw = (
     perNudgeLayout
-      ? (previewStepRow as { contentBlocks?: NudgeContentBlockForm[] } | undefined)?.contentBlocks
+      ? (form.watch(`sequenceSteps.${clampedStoryIdx}.contentBlocks` as never) as
+          | NudgeContentBlockForm[]
+          | undefined)
       : form.watch("contentBlocks")
   ) as NudgeContentBlockForm[] | undefined;
-  const previewBlocksSanitized = sanitizeContentBlocksForPersist(previewContentBlocksRaw) ?? [];
-  const previewHasBlocks = previewBlocksSanitized.length > 0;
+  const previewBlocksEffective = lenientContentBlocksForPreview(previewContentBlocksRaw);
+  const previewHasBlocks = previewBlocksEffective.length > 0;
 
-  const previewBlockMediaBlocks = previewBlocksSanitized.filter(
+  const previewBlockMediaBlocks = previewBlocksEffective.filter(
     (b): b is Extract<NudgeContentBlockForm, { type: "image" } | { type: "video" }> =>
       b.type === "image" || b.type === "video",
   );
@@ -1919,20 +1954,20 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewSingleBlockMedia != null &&
     (previewPlacementResolved === "left" || previewPlacementResolved === "right");
 
-  /** Side-by-side preview: show full frame (letterbox) so wide video isn’t cropped in the editor. */
-  const previewLegacyMediaObjectContain =
-    previewPlacementResolved === "left" || previewPlacementResolved === "right";
+  /** Editor preview: letterbox so wide video isn’t cropped (left/right always; Compact card width too). */
+  const previewMediaUseContain =
+    previewPlacementResolved === "left" ||
+    previewPlacementResolved === "right" ||
+    previewNudgeSizeTier === "sm";
 
   const previewLegacyMediaEl = previewVideoEff ? (
     <video
       key={previewVideoEff}
       className={cn(
         "block",
-        previewLegacyMediaObjectContain
-          ? "max-h-full max-w-full object-contain"
-          : "h-full w-full object-cover",
+        previewMediaUseContain ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
       )}
-      style={previewLegacyMediaObjectContain ? { objectFit: "contain" as const } : undefined}
+      style={previewMediaUseContain ? { objectFit: "contain" as const } : undefined}
       src={previewVideoEff}
       muted
       playsInline
@@ -1943,45 +1978,65 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   ) : previewImageEff ? (
     <img
       className={cn(
-        previewLegacyMediaObjectContain
-          ? "max-h-full max-w-full object-contain"
-          : "h-full w-full object-cover",
+        previewMediaUseContain ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
       )}
-      style={previewLegacyMediaObjectContain ? { objectFit: "contain" as const } : undefined}
+      style={previewMediaUseContain ? { objectFit: "contain" as const } : undefined}
       src={previewImageEff}
       alt="Promo media"
     />
   ) : null;
 
-  const previewBlocksInner = previewBlocksSanitized.map((b) =>
+  const previewBlocksInner = previewBlocksEffective.map((b) =>
     b.type === "text" ? (
       <p key={b.id} className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600">
         {b.text}
       </p>
     ) : b.type === "image" ? (
-      <img
+      <div
         key={b.id}
-        src={b.url}
-        alt=""
-        className="w-full rounded-lg border object-cover"
+        className={cn(
+          "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+          previewMediaUseContain && "flex items-center justify-center",
+        )}
         style={{ height: previewMediaPx }}
-      />
+      >
+        <img
+          src={b.url}
+          alt=""
+          className={cn(
+            "rounded-lg border-0",
+            previewMediaUseContain ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
+          )}
+          style={previewMediaUseContain ? { objectFit: "contain" as const } : undefined}
+        />
+      </div>
     ) : (
-      <video
+      <div
         key={b.id}
-        className="w-full rounded-lg border object-cover"
+        className={cn(
+          "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+          previewMediaUseContain && "flex items-center justify-center",
+        )}
         style={{ height: previewMediaPx }}
-        src={b.url}
-        muted
-        playsInline
-        loop
-        autoPlay
-        preload="metadata"
-      />
+      >
+        <video
+          className={cn(
+            "block rounded-lg border-0",
+            previewMediaUseContain ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
+          )}
+          style={previewMediaUseContain ? { objectFit: "contain" as const } : undefined}
+          src={b.url}
+          muted
+          playsInline
+          loop
+          autoPlay
+          preload="metadata"
+        />
+      </div>
     ),
   );
 
-  const previewTextBlocksOnly = previewBlocksSanitized.filter((b) => b.type === "text");
+  const previewTextBlocksOnly = previewBlocksEffective.filter((b) => b.type === "text");
   const previewTextBlocksInner = previewTextBlocksOnly.map((b) => (
     <p key={b.id} className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600">
       {b.text}
@@ -2145,7 +2200,13 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewNudgeMain = (
       <>
         <div className="-mx-4 -mt-4 mb-2 overflow-hidden rounded-t-2xl border-b border-slate-200/90 bg-slate-100">
-          <div className="w-full overflow-hidden" style={{ height: previewMediaPx }}>
+          <div
+            className={cn(
+              "w-full overflow-hidden",
+              previewMediaUseContain && "flex items-center justify-center",
+            )}
+            style={{ height: previewMediaPx }}
+          >
             {previewLegacyMediaEl}
           </div>
         </div>
@@ -2219,7 +2280,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                 {previewBodyEl}
                 {previewHasLegacyMedia ? (
                   <div
-                    className="mt-2 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-100"
+                    className={cn(
+                      "mt-2 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-100",
+                      previewMediaUseContain && "flex items-center justify-center",
+                    )}
                     style={{ height: previewMediaPx }}
                   >
                     {previewLegacyMediaEl}
@@ -2242,7 +2306,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
             {previewBodyEl}
             {previewHasLegacyMedia ? (
               <div
-                className="overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                className={cn(
+                  "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+                  previewMediaUseContain && "flex items-center justify-center",
+                )}
                 style={{ height: previewMediaPx }}
               >
                 {previewLegacyMediaEl}
@@ -2733,7 +2800,13 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           {sequenceStepFields.map((field, index) => (
                             <div
                               key={field.id}
-                              className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-200"
+                              tabIndex={-1}
+                              onFocusCapture={() => setStoryPreviewIndex(index)}
+                              className={cn(
+                                "space-y-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-200",
+                                clampedStoryIdx === index &&
+                                  "ring-2 ring-violet-500/35 ring-offset-2 border-violet-200",
+                              )}
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <button
@@ -2784,9 +2857,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                 <p className="mb-3 text-[11px] text-muted-foreground">
                                   Card <span className="font-medium">width</span> and media{" "}
                                   <span className="font-medium">height</span> are independent.{" "}
-                                  <span className="font-medium">Media layout</span> is reflected in the live preview
-                                  next to this form. &quot;Content panel&quot; groups body + media in a light box.
-                                  Structured content blocks always stack vertically on the site.
+                                  <span className="font-medium">Media layout</span> matches the live preview (and the
+                                  embed). One image/video in structured content can sit left/right like step media.
+                                  <span className="font-medium"> Nudge card background</span> is set under{" "}
+                                  <span className="font-medium">Widget → Branding &amp; Chat</span> (Nudge background)
+                                  for all promos today.
                                 </p>
                                 <div className="grid gap-3 sm:grid-cols-2">
                                   <div>
@@ -3082,7 +3157,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                             <Label className="text-xs">Media layout</Label>
                             <p className="mb-1.5 text-[11px] text-muted-foreground">
                               Where image or video sits; &quot;Content panel&quot; = body + media in a light box under
-                              the title.
+                              the title. One image/video in structured content can use left/right. Nudge background:
+                              Branding &amp; Chat → Nudge background.
                             </p>
                             <Select
                               value={form.watch("mediaPlacement") ?? "bottom"}
@@ -3277,10 +3353,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                   </div>
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0
-                      ? `Nudge ${clampedStoryIdx + 1} of ${sequenceStepsWatch.length} — click a storyboard card to switch. Layout (top/left/right/bottom/panel) matches the embed.`
+                      ? `Nudge ${clampedStoryIdx + 1} of ${sequenceStepsWatch.length} — updates when you work in a step below or tap the dots.`
                       : sequenceUiEnabled
-                        ? "Add steps under “Step media” — each step has its own message and buttons. Per-step layout matches the embed once steps exist."
-                        : "Message, media position, and sizing match the embedded nudge on your site."}
+                        ? "Add steps under “Step media” — each step has its own message and buttons."
+                        : "What visitors see on your site (colors from Branding)."}
                   </p>
                 </div>
                 <div className="flex flex-1 items-center justify-center overflow-x-auto rounded-xl border bg-slate-50 px-3 py-6">
@@ -3294,8 +3370,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     {previewNudgeMain}
 
                     <p className="text-[10px] text-slate-400">
-                      Preview uses your branding colors. Media left/right shows the full frame here; the embedded
-                      nudge uses a narrow column and may crop to fill it.
+                      Branding colors. Side media may be letterboxed here; on the site it can crop slightly.
                     </p>
 
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0 ? (
