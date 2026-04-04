@@ -3370,7 +3370,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     {previewNudgeMain}
 
                     <p className="text-[10px] text-slate-400">
-                      Branding colors. Side media may be letterboxed here; on the site it can crop slightly.
+                      Branding colors. Side media uses letterboxing on the site too (full frame visible).
                     </p>
 
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0 ? (

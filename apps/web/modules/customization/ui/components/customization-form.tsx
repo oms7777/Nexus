@@ -35,7 +35,24 @@ import { useMutation, useAction, useQuery } from "convex/react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import z from "zod";
-import { widgetSettingsSchema } from "../../schemas";
+import {
+  widgetSettingsSchema,
+  coerceHexForNativeColorInput,
+  normalizeHexTextInput,
+} from "../../schemas";
+
+function firstNestedFormErrorMessage(errors: unknown): string | null {
+  if (!errors || typeof errors !== "object") return null;
+  for (const v of Object.values(errors as Record<string, unknown>)) {
+    if (v && typeof v === "object" && "message" in v) {
+      const m = (v as { message?: unknown }).message;
+      if (typeof m === "string" && m.trim()) return m;
+    }
+    const inner = firstNestedFormErrorMessage(v);
+    if (inner) return inner;
+  }
+  return null;
+}
 import { MessageCircle } from "lucide-react";
 import PromosPanel from "./promos-panel";
 import PageNudgesPanel from "./page-nudges-panel";
@@ -207,7 +224,12 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
 
   const onError = (errors: unknown) => {
     console.error("RHF/Zod validation errors:", errors);
-    toast.error("Validation error — check highlighted fields");
+    const hint = firstNestedFormErrorMessage(errors);
+    toast.error(
+      hint
+        ? `${hint} (see fields marked below.)`
+        : "Validation error — check highlighted fields",
+    );
   };
 
   const consentEnabled = form.watch("consent")?.enabled ?? true;
@@ -368,11 +390,21 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                             <FormLabel>Primary color</FormLabel>
                             <div className="flex items-center gap-2">
                               <FormControl>
-                                <Input {...field} placeholder="#a855f7" />
+                                <Input
+                                  {...field}
+                                  placeholder="#a855f7"
+                                  autoComplete="off"
+                                  onBlur={(e) => {
+                                    const n = normalizeHexTextInput(e.target.value);
+                                    if (n !== e.target.value) field.onChange(n);
+                                    field.onBlur();
+                                  }}
+                                />
                               </FormControl>
                               <input
                                 type="color"
-                                value={field.value || "#a855f7"}
+                                aria-label="Pick primary color"
+                                value={coerceHexForNativeColorInput(field.value, "#a855f7")}
                                 onChange={(e) => field.onChange(e.target.value)}
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
@@ -393,11 +425,21 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                             <FormLabel>Primary text color</FormLabel>
                             <div className="flex items-center gap-2">
                               <FormControl>
-                                <Input {...field} placeholder="#ffffff" />
+                                <Input
+                                  {...field}
+                                  placeholder="#ffffff"
+                                  autoComplete="off"
+                                  onBlur={(e) => {
+                                    const n = normalizeHexTextInput(e.target.value);
+                                    if (n !== e.target.value) field.onChange(n);
+                                    field.onBlur();
+                                  }}
+                                />
                               </FormControl>
                               <input
                                 type="color"
-                                value={field.value || "#ffffff"}
+                                aria-label="Pick primary text color"
+                                value={coerceHexForNativeColorInput(field.value, "#ffffff")}
                                 onChange={(e) => field.onChange(e.target.value)}
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
@@ -418,11 +460,21 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                             <FormLabel>Secondary button background</FormLabel>
                             <div className="flex items-center gap-2">
                               <FormControl>
-                                <Input {...field} placeholder="#ffffff" />
+                                <Input
+                                  {...field}
+                                  placeholder="#ffffff"
+                                  autoComplete="off"
+                                  onBlur={(e) => {
+                                    const n = normalizeHexTextInput(e.target.value);
+                                    if (n !== e.target.value) field.onChange(n);
+                                    field.onBlur();
+                                  }}
+                                />
                               </FormControl>
                               <input
                                 type="color"
-                                value={field.value || "#ffffff"}
+                                aria-label="Pick secondary button background"
+                                value={coerceHexForNativeColorInput(field.value, "#ffffff")}
                                 onChange={(e) => field.onChange(e.target.value)}
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
@@ -443,11 +495,21 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                             <FormLabel>Secondary CTA text color</FormLabel>
                             <div className="flex items-center gap-2">
                               <FormControl>
-                                <Input {...field} placeholder="#0f172a" />
+                                <Input
+                                  {...field}
+                                  placeholder="#0f172a"
+                                  autoComplete="off"
+                                  onBlur={(e) => {
+                                    const n = normalizeHexTextInput(e.target.value);
+                                    if (n !== e.target.value) field.onChange(n);
+                                    field.onBlur();
+                                  }}
+                                />
                               </FormControl>
                               <input
                                 type="color"
-                                value={field.value || "#0f172a"}
+                                aria-label="Pick secondary CTA text color"
+                                value={coerceHexForNativeColorInput(field.value, "#0f172a")}
                                 onChange={(e) => field.onChange(e.target.value)}
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
@@ -468,11 +530,21 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                             <FormLabel>Nudge background</FormLabel>
                             <div className="flex items-center gap-2">
                               <FormControl>
-                                <Input {...field} placeholder="#ffffff" />
+                                <Input
+                                  {...field}
+                                  placeholder="#ffffff"
+                                  autoComplete="off"
+                                  onBlur={(e) => {
+                                    const n = normalizeHexTextInput(e.target.value);
+                                    if (n !== e.target.value) field.onChange(n);
+                                    field.onBlur();
+                                  }}
+                                />
                               </FormControl>
                               <input
                                 type="color"
-                                value={field.value || "#ffffff"}
+                                aria-label="Pick nudge background"
+                                value={coerceHexForNativeColorInput(field.value, "#ffffff")}
                                 onChange={(e) => field.onChange(e.target.value)}
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />
@@ -493,11 +565,21 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                             <FormLabel>Chat bubble color</FormLabel>
                             <div className="flex items-center gap-2">
                               <FormControl>
-                                <Input {...field} placeholder="#d946ef" />
+                                <Input
+                                  {...field}
+                                  placeholder="#d946ef"
+                                  autoComplete="off"
+                                  onBlur={(e) => {
+                                    const n = normalizeHexTextInput(e.target.value);
+                                    if (n !== e.target.value) field.onChange(n);
+                                    field.onBlur();
+                                  }}
+                                />
                               </FormControl>
                               <input
                                 type="color"
-                                value={field.value || "#d946ef"}
+                                aria-label="Pick chat bubble color"
+                                value={coerceHexForNativeColorInput(field.value, "#d946ef")}
                                 onChange={(e) => field.onChange(e.target.value)}
                                 className="h-9 w-9 cursor-pointer rounded border"
                               />

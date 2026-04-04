@@ -143,6 +143,23 @@ function wrapNudgeMediaWithCta(innerHtml: string, ctaIndex: number | null): stri
   return `<div tabindex="0" role="link" data-promo-media-cta="${ctaIndex}" title="Open link" style="cursor:pointer;display:block;line-height:0;border-radius:10px;overflow:hidden;outline-offset:2px;">${innerHtml}</div>`;
 }
 
+/** Legacy step image/video: `contain` in narrow side columns avoids cropping wide video; `cover` for full-width strips. */
+function promoLegacyMediaInnerHtml(
+  safeVideo: string,
+  safeImage: string,
+  effectiveMediaH: number,
+  objectFit: "cover" | "contain",
+): string {
+  const box = `width:100%;height:${effectiveMediaH}px;object-fit:${objectFit};border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;display:block;`;
+  if (safeVideo) {
+    return `<video src="${safeVideo}" muted autoplay loop playsinline preload="auto" style="${box}"></video>`;
+  }
+  if (safeImage) {
+    return `<img src="${safeImage}" alt="Promo media" style="${box}" />`;
+  }
+  return "";
+}
+
 function normalizeContentBlocksFromPayload(raw: unknown): NudgeContentBlock[] {
   if (!Array.isArray(raw)) return [];
   const out: NudgeContentBlock[] = [];
@@ -948,7 +965,10 @@ type NudgeKind = "promo" | "suggestions" | null;
     if (!button) return;
     if (fabRevealed) return;
 
-    if (!theme && !brandLogoUrl && !hasNudgePayload) return;
+    // Show the launcher as soon as the widget iframe has loaded, using default colors until
+    // nexus:theme / suggestions / promo arrive. Otherwise a blocked iframe or slow Convex
+    // left the FAB invisible forever (opacity 0).
+    if (!theme && !brandLogoUrl && !hasNudgePayload && !iframeLoaded) return;
 
     fabRevealed = true;
     button.style.opacity = "1";
@@ -1323,24 +1343,20 @@ type NudgeKind = "promo" | "suggestions" | null;
       (rawPlacement === "left" || rawPlacement === "right") &&
       singleContentMediaBlock != null;
 
-    const mediaCoreRaw = safeVideo
-      ? `<video
-            src="${safeVideo}"
-            muted
-            autoplay
-            loop
-            playsinline
-            preload="auto"
-            style="width:100%;height:${effectiveMediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
-          ></video>`
-      : safeImage
-        ? `<img
-            src="${safeImage}"
-            alt="Promo media"
-            style="width:100%;height:${effectiveMediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
-          />`
-        : "";
-    const mediaCore = wrapNudgeMediaWithCta(mediaCoreRaw, promoMediaUrlCtaIndex);
+    const mediaCoreStackRaw = promoLegacyMediaInnerHtml(
+      safeVideo,
+      safeImage,
+      effectiveMediaH,
+      "cover",
+    );
+    const mediaCoreSplitRaw = promoLegacyMediaInnerHtml(
+      safeVideo,
+      safeImage,
+      effectiveMediaH,
+      "contain",
+    );
+    const mediaCoreStack = wrapNudgeMediaWithCta(mediaCoreStackRaw, promoMediaUrlCtaIndex);
+    const mediaCoreSplit = wrapNudgeMediaWithCta(mediaCoreSplitRaw, promoMediaUrlCtaIndex);
 
     const titleBlock =
       title.trim().length > 0
@@ -1358,14 +1374,14 @@ type NudgeKind = "promo" | "suggestions" | null;
     const mediaBottomBlock =
       !useContentBlocks && hasMedia && placement === "bottom"
         ? `<div style="margin-top:10px;">
-          ${mediaCore}
+          ${mediaCoreStack}
         </div>`
         : "";
 
     const heroBlock =
       !useContentBlocks && hasMedia && placement === "top"
         ? `<div style="margin: -${spec.padY}px -${spec.padX}px 10px -${spec.padX}px;">
-          ${mediaCore}
+          ${mediaCoreStack}
         </div>`
         : "";
 
@@ -1522,7 +1538,7 @@ type NudgeKind = "promo" | "suggestions" | null;
             ${identityHtml}
           </div>`;
 
-    const splitMediaStyle = `width:100%;height:${effectiveMediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;`;
+    const splitMediaStyle = `width:100%;height:${effectiveMediaH}px;object-fit:contain;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;display:block;`;
     const buildSideMediaFromBlock = (b: Extract<NudgeContentBlock, { type: "image" } | { type: "video" }>) =>
       wrapNudgeMediaWithCta(
         b.type === "video"
@@ -1631,7 +1647,7 @@ type NudgeKind = "promo" | "suggestions" | null;
           ${identityCol}
           <div style="flex:1;min-width:0;display:flex;flex-direction:row;gap:10px;align-items:flex-start">
             <div style="width:${spec.splitMediaW}px;flex-shrink:0;">
-              ${hasMedia ? mediaCore : ""}
+              ${hasMedia ? mediaCoreSplit : ""}
             </div>
             <div style="flex:1;min-width:0;">
               ${titleBlock}
@@ -1656,7 +1672,7 @@ type NudgeKind = "promo" | "suggestions" | null;
               ${privacyBlock}
             </div>
             <div style="width:${spec.splitMediaW}px;flex-shrink:0;">
-              ${hasMedia ? mediaCore : ""}
+              ${hasMedia ? mediaCoreSplit : ""}
             </div>
           </div>
           ${closeBtnHtml}
@@ -1669,7 +1685,7 @@ type NudgeKind = "promo" | "suggestions" | null;
             </div>`
           : "";
       const mediaInFrame = hasMedia
-        ? `<div style="margin-top:${body.trim().length > 0 ? "10px" : "0"};">${mediaCore}</div>`
+        ? `<div style="margin-top:${body.trim().length > 0 ? "10px" : "0"};">${mediaCoreStack}</div>`
         : "";
       const framedInner = `${bodyInFrame}${mediaInFrame}`;
       const framedWrap =

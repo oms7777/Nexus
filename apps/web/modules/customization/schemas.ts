@@ -1,5 +1,53 @@
 import z from "zod";
 
+/** #RGB or #RRGGBB only — blocks pasted HTML/scripts in color fields. */
+const THEME_HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+/** Empty / undefined allowed; any non-empty string must be valid hex. */
+export const themeHexColorSchema = z.union([
+  z.undefined(),
+  z
+    .string()
+    .refine((s) => s.trim() === "" || THEME_HEX_RE.test(s.trim()), {
+      message:
+        "Use a hex color (#RGB or #RRGGBB), e.g. #E31E24. Don’t paste widget code or URLs in color fields.",
+    }),
+]);
+
+/**
+ * `type="color"` requires #RRGGBB; expand 3-digit hex. Invalid input → fallback (never pass garbage to the browser).
+ */
+export function coerceHexForNativeColorInput(raw: string | undefined, fallback: string): string {
+  const fb = THEME_HEX_RE.test((fallback || "").trim()) ? fallback.trim() : "#a855f7";
+  if (raw == null || raw.trim() === "") return fb;
+  let t = raw.trim();
+  if (!t.startsWith("#") && /^[0-9a-fA-F]{3}$/i.test(t)) t = `#${t}`;
+  if (!t.startsWith("#") && /^[0-9a-fA-F]{6}$/i.test(t)) t = `#${t}`;
+  if (!THEME_HEX_RE.test(t)) return fb;
+  if (t.length === 4) {
+    const h = t.slice(1);
+    return `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}`.toLowerCase();
+  }
+  return t.toLowerCase();
+}
+
+/** If user typed `E31E24` without `#`, add it before validation. */
+export function normalizeHexTextInput(raw: string): string {
+  const t = raw.trim();
+  if (!t) return t;
+  if (THEME_HEX_RE.test(t)) return t.length === 4 ? expandHex3To6(t) : t.toLowerCase();
+  const withHash = t.startsWith("#") ? t : `#${t}`;
+  if (THEME_HEX_RE.test(withHash))
+    return withHash.length === 4 ? expandHex3To6(withHash) : withHash.toLowerCase();
+  return raw;
+}
+
+function expandHex3To6(h: string): string {
+  const x = h.startsWith("#") ? h.slice(1) : h;
+  if (x.length !== 3) return h;
+  return `#${x[0]}${x[0]}${x[1]}${x[1]}${x[2]}${x[2]}`.toLowerCase();
+}
+
 /**
  * Widget Settings (Branding, Chat, Consent)
  * ----------------------------------------
@@ -29,16 +77,19 @@ export const widgetSettingsSchema = z
     // -------------------------
     // Branding
     // -------------------------
-    brandLogoUrl: z.string().url().optional().or(z.literal("")),
+    brandLogoUrl: z.union([
+      z.literal(""),
+      z.string().url("Enter a valid https URL for the logo, or leave empty."),
+    ]),
 
     theme: z
       .object({
-        primaryColor: z.string().optional(),
-        primaryTextColor: z.string().optional(),
-        secondaryColor: z.string().optional(),
-        secondaryTextColor: z.string().optional(),
-        nudgeBackgroundColor: z.string().optional(),
-        chatBubbleColor: z.string().optional(),
+        primaryColor: themeHexColorSchema,
+        primaryTextColor: themeHexColorSchema,
+        secondaryColor: themeHexColorSchema,
+        secondaryTextColor: themeHexColorSchema,
+        nudgeBackgroundColor: themeHexColorSchema,
+        chatBubbleColor: themeHexColorSchema,
       })
       .partial()
       .optional(),
