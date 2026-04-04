@@ -31,7 +31,7 @@ import {
 } from "@workspace/ui/components/sidebar";
 
 import { cn } from "@workspace/ui/lib/utils";
-import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 

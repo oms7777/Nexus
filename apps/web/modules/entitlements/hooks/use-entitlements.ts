@@ -1,4 +1,4 @@
-// apps/web/modules/billing/hooks/use-entitlements.ts
+// apps/web/modules/entitlements/hooks/use-entitlements.ts
 "use client";
 
 import { useQuery } from "convex/react";

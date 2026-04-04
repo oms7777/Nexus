@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { VapiView } from "@/modules/plugins/ui/views/vapi-view";
-import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
 const Page = () => {
   const ent = useEntitlements();

@@ -5,7 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
 
-import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
 import { RangePills } from "@/modules/analytics/shared/analytics-primitives";
 import { LockedSignalsAdvancedCard } from "@/modules/analytics/signals/components/LockedSignalsAdvancedCard";

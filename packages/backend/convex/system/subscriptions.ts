@@ -64,13 +64,6 @@ function defaultLimits() {
   };
 }
 
-function mapClerkStatusToLocal(s: string): "active" | "paused" | "trial" {
-  const val = (s || "").toLowerCase();
-  if (val === "active") return "active";
-  if (val === "trial" || val === "trialing") return "trial";
-  return "paused";
-}
-
 /* ------------------------------ Queries ------------------------------ */
 
 export const getByOrganizationId = internalQuery({
@@ -189,59 +182,12 @@ export const setPlanForOrg = internalMutation({
   },
 });
 
-export const setStatusFromClerk = internalMutation({
-  args: {
-    organizationId: v.string(),
-    clerkStatus: v.string(),
-  },
-  handler: async (ctx, { organizationId, clerkStatus }) => {
-    const status = mapClerkStatusToLocal(clerkStatus);
-
-    const existing = await ctx.db
-      .query("subscriptions")
-      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
-      .unique();
-
-    const now = Date.now();
-
-    if (existing) {
-      const ex = existing as Record<string, unknown>;
-      const planRaw = ex.plan as string | undefined;
-      const plan =
-        planRaw === "growth" || planRaw === "enterprise" || planRaw === "starter"
-          ? planRaw
-          : "starter";
-
-      await ctx.db.patch(existing._id, {
-        status,
-        plan,
-        addons: normalizeAddons(ex.addons as Record<string, unknown>),
-        limits: (ex.limits as (typeof existing)["limits"]) ?? defaultLimits(),
-        startedAt: (ex.startedAt as number) ?? now,
-        updatedAt: now,
-      });
-      return { ok: true, id: existing._id, created: false };
-    }
-
-    const id = await ctx.db.insert("subscriptions", {
-      organizationId,
-      plan: "starter",
-      status,
-      addons: defaultAddons(),
-      limits: defaultLimits(),
-      startedAt: now,
-      updatedAt: now,
-    });
-
-    return { ok: true, id, created: true };
-  },
-});
-
 /**
- * One-time migration after slimming `subscriptions.addons` and dropping `enterpriseTier`.
- * Run: `npx convex run internal/system/subscriptions:migrateBillingShape`
+ * Normalizes every `subscriptions` row to the current schema (slim `addons`, no `enterpriseTier`).
+ * Idempotent. Run before deploy if deploy fails on “extra field” in `.addons`.
+ * `npx convex run internal/system/subscriptions:migrateSubscriptionShape`
  */
-export const migrateBillingShape = internalMutation({
+export const migrateSubscriptionShape = internalMutation({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db.query("subscriptions").collect();

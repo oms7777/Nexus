@@ -34,7 +34,7 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 
-import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
 type Membership = {
   id: string;

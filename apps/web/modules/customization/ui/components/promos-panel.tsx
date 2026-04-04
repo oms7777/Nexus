@@ -60,13 +60,13 @@ function promoSaveErrorMessage(err: unknown): string {
       : String(err);
   const lower = msg.toLowerCase();
   if (lower.includes("payment_required") || lower.includes("subscription is required")) {
-    return "An active subscription is required to save promos (or your trial may have ended).";
+    return "An active plan or trial is required to save promos.";
   }
   if (lower.includes("unauthorized") || lower.includes("organization not found")) {
     return "You must be signed in with an organization to save promos.";
   }
   if (msg.includes("Server Error") && msg.length < 40) {
-    return "Could not save (server rejected the request). Check Convex logs or your subscription status.";
+    return "Could not save (server rejected the request). Check Convex logs or your org plan status.";
   }
   return msg.length > 200 ? `${msg.slice(0, 200)}…` : msg;
 }

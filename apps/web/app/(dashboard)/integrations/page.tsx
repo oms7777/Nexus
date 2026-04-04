@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { IntegrationsView } from "@/modules/integrations/ui/views/integrations-view";
-import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
 const Page = () => {
   const ent = useEntitlements();

@@ -3,7 +3,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  /* ---------- Billing / Settings ---------- */
+  /* ---------- Org plan & limits (Convex source of truth; no payment provider) ---------- */
   subscriptions: defineTable({
     organizationId: v.string(),
 

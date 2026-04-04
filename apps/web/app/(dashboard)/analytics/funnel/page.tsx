@@ -6,7 +6,7 @@ import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 
-import { useEntitlements } from "@/modules/billing/hooks/use-entitlements";
+import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
 import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/EngagementFunnelChart";
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
@@ -257,9 +257,8 @@ export default function AnalyticsFunnelPage() {
           <LockedFunnelCard reason={extractReason(err)} showPlanBadges={showPlanBadges} />
 
           <div className="text-xs text-muted-foreground">
-            If you believe this is a mistake, check your subscription record in Convex table
-            <span className="font-medium"> subscriptions </span>
-            for this organization.
+            If this looks wrong, check the <span className="font-medium">subscriptions</span> row for this org in
+            Convex (plan / status / addons).
           </div>
         </div>
       )}

@@ -74,40 +74,6 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         );
       }
 
-      case "subscription.updated": {
-        const subscription = event.data as {
-          status?: string;
-          payer?: { organization_id?: string };
-        };
-
-        const organizationId = subscription?.payer?.organization_id;
-        if (!organizationId) return new Response("Missing Organization ID", { status: 400 });
-
-        await ctx.runMutation(internal.system.subscriptions.setStatusFromClerk, {
-          organizationId,
-          clerkStatus: subscription.status ?? "paused",
-        });
-
-        const sub = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, { organizationId });
-
-        // ✅ Seat cap = limits.reps (Starter 3, Growth 10, Enterprise 9999...)
-        const seatCap = Math.max(1, Number(sub?.limits?.reps ?? 1));
-
-        await clerkClient.organizations.updateOrganization(organizationId, {
-          maxAllowedMemberships: seatCap,
-        });
-
-        return new Response(
-          JSON.stringify({
-            ok: true,
-            handled: "subscription.updated",
-            organizationId,
-            maxAllowedMemberships: seatCap,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-
       default:
         return new Response(JSON.stringify({ ok: true, ignored: true, type: event.type }), {
           status: 200,
