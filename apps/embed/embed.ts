@@ -27,6 +27,11 @@ type SimpleCta = {
   url?: string;
 };
 
+type NudgeContentBlock =
+  | { type: "text"; id: string; text: string }
+  | { type: "image"; id: string; url: string }
+  | { type: "video"; id: string; url: string };
+
 type PromoPayload = {
   title?: string;
   body?: string;
@@ -44,11 +49,15 @@ type PromoPayload = {
   ctaList?: SimpleCta[];
   canUseVoice?: boolean;
   nudgeSize?: "sm" | "md" | "lg" | "xl";
-  mediaPlacement?: "top" | "bottom" | "left" | "right";
+  mediaPlacement?: "top" | "bottom" | "left" | "right" | "framed";
+  mediaHeight?: "compact" | "standard" | "tall" | "hero";
+  /** Safe ordered blocks; when non-empty, replaces legacy body + single image/video in the nudge. */
+  contentBlocks?: NudgeContentBlock[];
 };
 
 type NudgeSize = "sm" | "md" | "lg" | "xl";
-type MediaPlacement = "top" | "bottom" | "left" | "right";
+type MediaPlacement = "top" | "bottom" | "left" | "right" | "framed";
+type MediaHeight = "compact" | "standard" | "tall" | "hero";
 
 type NudgeLayoutSpec = {
   width: number;
@@ -66,8 +75,103 @@ function normalizeNudgeSize(v: unknown): NudgeSize {
 }
 
 function normalizeMediaPlacement(v: unknown): MediaPlacement {
-  if (v === "top" || v === "bottom" || v === "left" || v === "right") return v;
+  if (v === "top" || v === "bottom" || v === "left" || v === "right" || v === "framed")
+    return v;
   return "bottom";
+}
+
+function normalizeMediaHeight(v: unknown): MediaHeight {
+  if (v === "compact" || v === "standard" || v === "tall" || v === "hero") return v;
+  return "standard";
+}
+
+function resolveMediaPixelHeight(spec: NudgeLayoutSpec, h: MediaHeight): number {
+  const mult =
+    h === "compact" ? 0.72 : h === "standard" ? 1 : h === "tall" ? 1.38 : 1.85;
+  return Math.max(56, Math.round(spec.mediaH * mult));
+}
+
+const MAX_NUDGE_CONTENT_BLOCKS = 8;
+const MAX_NUDGE_BLOCK_TEXT_LEN = 1500;
+const NUDGE_BLOCK_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+function isSafeHttpUrlForNudge(s: string): boolean {
+  try {
+    const u = new URL(String(s).trim());
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function escapeHtmlNudge(s: string) {
+  return s.replace(
+    /[&<>"']/g,
+    (m) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[m]!,
+  );
+}
+
+function escapeAttrNudge(s: string) {
+  return s.replace(/"/g, "&quot;");
+}
+
+function normalizeContentBlocksFromPayload(raw: unknown): NudgeContentBlock[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NudgeContentBlock[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const id = typeof o.id === "string" ? o.id : "";
+    if (!NUDGE_BLOCK_ID_RE.test(id)) continue;
+    const t = o.type;
+    if (t === "text" && typeof o.text === "string") {
+      const text = o.text.slice(0, MAX_NUDGE_BLOCK_TEXT_LEN);
+      if (text.trim().length > 0) out.push({ type: "text", id, text });
+    } else if (t === "image" && typeof o.url === "string") {
+      const url = o.url.trim().slice(0, 2048);
+      if (url && isSafeHttpUrlForNudge(url)) out.push({ type: "image", id, url });
+    } else if (t === "video" && typeof o.url === "string") {
+      const url = o.url.trim().slice(0, 2048);
+      if (url && isSafeHttpUrlForNudge(url)) out.push({ type: "video", id, url });
+    }
+    if (out.length >= MAX_NUDGE_CONTENT_BLOCKS) break;
+  }
+  return out;
+}
+
+function buildContentBlocksStackHtml(
+  blocks: NudgeContentBlock[],
+  spec: NudgeLayoutSpec,
+  mediaH: number,
+): string {
+  const mediaStyle = `width:100%;height:${mediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;`;
+  const parts: string[] = [];
+  for (const b of blocks) {
+    const top = parts.length > 0 ? "10px" : "0";
+    if (b.type === "text") {
+      parts.push(
+        `<div style="margin-top:${top};color:#4b5563;font-size:${spec.bodyPx}px;line-height:1.4;word-break:break-word;">${escapeHtmlNudge(b.text.trim())}</div>`,
+      );
+    } else if (b.type === "image") {
+      const u = escapeAttrNudge(b.url);
+      parts.push(
+        `<div style="margin-top:${top};"><img src="${u}" alt="" style="${mediaStyle}" /></div>`,
+      );
+    } else {
+      const u = escapeAttrNudge(b.url);
+      parts.push(
+        `<div style="margin-top:${top};"><video src="${u}" muted autoplay loop playsinline preload="auto" style="${mediaStyle}"></video></div>`,
+      );
+    }
+  }
+  return parts.join("");
 }
 
 function nudgeLayoutSpec(size: NudgeSize): NudgeLayoutSpec {
@@ -1049,6 +1153,9 @@ type NudgeKind = "promo" | "suggestions" | null;
     const micFg = palette.primaryTextColor || "#ffffff";
     const canUseVoice = payload.canUseVoice !== false;
     const spec = nudgeLayoutSpec(normalizeNudgeSize(payload.nudgeSize));
+    const effectiveMediaH = resolveMediaPixelHeight(spec, normalizeMediaHeight(payload.mediaHeight));
+    const contentBlocksNorm = normalizeContentBlocksFromPayload(payload.contentBlocks);
+    const useContentBlocks = contentBlocksNorm.length > 0;
 
     if (!nudge) {
       nudge = document.createElement("div");
@@ -1171,7 +1278,13 @@ type NudgeKind = "promo" | "suggestions" | null;
     const safeImage = payload.imageUrl ? escapeAttr(payload.imageUrl) : "";
     const safeVideo = payload.videoUrl ? escapeAttr(payload.videoUrl) : "";
     const hasMedia = !!(safeVideo || safeImage);
-    const placement = !hasMedia ? "bottom" : normalizeMediaPlacement(payload.mediaPlacement);
+    const rawPlacement = normalizeMediaPlacement(payload.mediaPlacement);
+    const placement: MediaPlacement =
+      rawPlacement === "framed"
+        ? "framed"
+        : !hasMedia
+          ? "bottom"
+          : rawPlacement;
 
     const mediaCore = safeVideo
       ? `<video
@@ -1181,13 +1294,13 @@ type NudgeKind = "promo" | "suggestions" | null;
             loop
             playsinline
             preload="auto"
-            style="width:100%;height:${spec.mediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
+            style="width:100%;height:${effectiveMediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
           ></video>`
       : safeImage
         ? `<img
             src="${safeImage}"
             alt="Promo media"
-            style="width:100%;height:${spec.mediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
+            style="width:100%;height:${effectiveMediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
           />`
         : "";
 
@@ -1205,14 +1318,14 @@ type NudgeKind = "promo" | "suggestions" | null;
         : "";
 
     const mediaBottomBlock =
-      hasMedia && placement === "bottom"
+      !useContentBlocks && hasMedia && placement === "bottom"
         ? `<div style="margin-top:10px;">
           ${mediaCore}
         </div>`
         : "";
 
     const heroBlock =
-      hasMedia && placement === "top"
+      !useContentBlocks && hasMedia && placement === "top"
         ? `<div style="margin: -${spec.padY}px -${spec.padX}px 10px -${spec.padX}px;">
           ${mediaCore}
         </div>`
@@ -1372,7 +1485,34 @@ type NudgeKind = "promo" | "suggestions" | null;
           </div>`;
 
     let mainRowHtml = "";
-    if (placement === "top") {
+    if (useContentBlocks) {
+      const blocksStackHtml = buildContentBlocksStackHtml(contentBlocksNorm, spec, effectiveMediaH);
+      const blocksWrapped =
+        rawPlacement === "framed" && blocksStackHtml
+          ? `<div style="
+                margin-top:8px;
+                padding:12px;
+                border-radius:12px;
+                background:#fafafa;
+                border:1px solid rgba(229,231,235,.95);
+                box-shadow:inset 0 1px 0 rgba(255,255,255,.9);
+              ">${blocksStackHtml}</div>`
+          : blocksStackHtml
+            ? `<div style="margin-top:6px;">${blocksStackHtml}</div>`
+            : "";
+      mainRowHtml = `
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${identityCol}
+          <div style="flex:1;min-width:0;">
+            ${titleBlock}
+            ${blocksWrapped}
+            ${micHtml}
+            ${buttonsHtml}
+            ${privacyBlock}
+          </div>
+          ${closeBtnHtml}
+        </div>`;
+    } else if (placement === "top") {
       mainRowHtml = `
         <div style="display:flex;gap:10px;align-items:flex-start">
           ${identityCol}
@@ -1421,6 +1561,40 @@ type NudgeKind = "promo" | "suggestions" | null;
           </div>
           ${closeBtnHtml}
         </div>`;
+    } else if (placement === "framed") {
+      const bodyInFrame =
+        body.trim().length > 0
+          ? `<div style="margin-top:0;color:#4b5563;font-size:${spec.bodyPx}px;line-height:1.4;word-break:break-word;">
+              ${escapeHtml(body)}
+            </div>`
+          : "";
+      const mediaInFrame = hasMedia
+        ? `<div style="margin-top:${body.trim().length > 0 ? "10px" : "0"};">${mediaCore}</div>`
+        : "";
+      const framedInner = `${bodyInFrame}${mediaInFrame}`;
+      const framedWrap =
+        framedInner.trim().length > 0
+          ? `<div style="
+                margin-top:8px;
+                padding:12px;
+                border-radius:12px;
+                background:#fafafa;
+                border:1px solid rgba(229,231,235,.95);
+                box-shadow:inset 0 1px 0 rgba(255,255,255,.9);
+              ">${framedInner}</div>`
+          : "";
+      mainRowHtml = `
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${identityCol}
+          <div style="flex:1;min-width:0;">
+            ${titleBlock}
+            ${framedWrap}
+            ${micHtml}
+            ${buttonsHtml}
+            ${privacyBlock}
+          </div>
+          ${closeBtnHtml}
+        </div>`;
     } else {
       mainRowHtml = `
         <div style="display:flex;gap:10px;align-items:flex-start">
@@ -1444,13 +1618,13 @@ type NudgeKind = "promo" | "suggestions" | null;
       </div>
     `;
 
-    const promoVideoEl = nudge!.querySelector("video");
-    if (promoVideoEl) {
+    nudge!.querySelectorAll("video").forEach((el) => {
+      const promoVideoEl = el as HTMLVideoElement;
       promoVideoEl.muted = true;
       void promoVideoEl.play().catch(() => {
         /* autoplay policy: attribute may still start playback when allowed */
       });
-    }
+    });
 
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
     const voiceBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-voice");

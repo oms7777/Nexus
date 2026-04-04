@@ -458,6 +458,36 @@ export default defineSchema({
           v.literal("bottom"),
           v.literal("left"),
           v.literal("right"),
+          v.literal("framed"),
+        ),
+      ),
+      mediaHeight: v.optional(
+        v.union(
+          v.literal("compact"),
+          v.literal("standard"),
+          v.literal("tall"),
+          v.literal("hero"),
+        ),
+      ),
+      contentBlocks: v.optional(
+        v.array(
+          v.union(
+            v.object({
+              type: v.literal("text"),
+              id: v.string(),
+              text: v.string(),
+            }),
+            v.object({
+              type: v.literal("image"),
+              id: v.string(),
+              url: v.string(),
+            }),
+            v.object({
+              type: v.literal("video"),
+              id: v.string(),
+              url: v.string(),
+            }),
+          ),
         ),
       ),
     }),
@@ -549,6 +579,36 @@ export default defineSchema({
                   v.literal("bottom"),
                   v.literal("left"),
                   v.literal("right"),
+                  v.literal("framed"),
+                ),
+              ),
+              mediaHeight: v.optional(
+                v.union(
+                  v.literal("compact"),
+                  v.literal("standard"),
+                  v.literal("tall"),
+                  v.literal("hero"),
+                ),
+              ),
+              contentBlocks: v.optional(
+                v.array(
+                  v.union(
+                    v.object({
+                      type: v.literal("text"),
+                      id: v.string(),
+                      text: v.string(),
+                    }),
+                    v.object({
+                      type: v.literal("image"),
+                      id: v.string(),
+                      url: v.string(),
+                    }),
+                    v.object({
+                      type: v.literal("video"),
+                      id: v.string(),
+                      url: v.string(),
+                    }),
+                  ),
                 ),
               ),
             }),

@@ -27,8 +27,10 @@ import { toast } from "sonner";
 import { cn } from "@workspace/ui/lib/utils";
 import {
   ArrowRight,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Clock,
   Copy,
   Film,
@@ -37,6 +39,7 @@ import {
   Loader2,
   Plus,
   Search,
+  Trash2,
   Upload,
 } from "lucide-react";
 
@@ -106,6 +109,46 @@ const DEFAULT_NUDGE_CTAS: Array<{
   { kind: "open_booking", label: "Book a meeting", url: "" },
 ];
 
+const MAX_NUDGE_CONTENT_BLOCKS = 8;
+
+function newNudgeContentBlockId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  }
+  return `b_${Math.random().toString(36).slice(2, 12)}`;
+}
+
+const nudgeBlockIdZ = z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/);
+
+const nudgeBlockUrlZ = z.string().max(2048).refine((s) => {
+  try {
+    const u = new URL(s.trim());
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
+}, "Must be an http(s) URL");
+
+const nudgeContentBlockSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    id: nudgeBlockIdZ,
+    text: z.string().max(1500),
+  }),
+  z.object({
+    type: z.literal("image"),
+    id: nudgeBlockIdZ,
+    url: nudgeBlockUrlZ,
+  }),
+  z.object({
+    type: z.literal("video"),
+    id: nudgeBlockIdZ,
+    url: nudgeBlockUrlZ,
+  }),
+]);
+
+const contentBlocksFieldSchema = z.array(nudgeContentBlockSchema).max(MAX_NUDGE_CONTENT_BLOCKS).optional();
+
 const PromoSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1),
@@ -122,10 +165,14 @@ const PromoSchema = z.object({
   videoUrl: z.string().optional(),
   /** Host-page nudge width tier (single nudge or when no sequence steps). */
   nudgeSize: z.enum(["sm", "md", "lg", "xl"]).optional(),
+  /** Image/video area height tier (independent of width). */
+  mediaHeight: z.enum(["compact", "standard", "tall", "hero"]).optional(),
   /** Image/video position relative to text. */
   mediaPlacement: z
-    .enum(["top", "bottom", "left", "right"])
+    .enum(["top", "bottom", "left", "right", "framed"])
     .optional(),
+  /** Ordered text/image/video blocks; when set, replaces body + single media on the host (plain text + http(s) URLs only). */
+  contentBlocks: contentBlocksFieldSchema,
   identityMode: z.enum(["auto", "logo", "avatars"]).optional(),
 
   // ✅ persisted
@@ -166,9 +213,11 @@ const PromoSchema = z.object({
           .enum(["first_primary", "last_primary", "all_primary", "none_primary"])
           .optional(),
         nudgeSize: z.enum(["sm", "md", "lg", "xl"]).optional(),
+        mediaHeight: z.enum(["compact", "standard", "tall", "hero"]).optional(),
         mediaPlacement: z
-          .enum(["top", "bottom", "left", "right"])
+          .enum(["top", "bottom", "left", "right", "framed"])
           .optional(),
+        contentBlocks: contentBlocksFieldSchema,
       }),
     )
     .max(10)
@@ -216,6 +265,244 @@ const PromoSchema = z.object({
   });
 
 type PromoForm = z.infer<typeof PromoSchema>;
+type NudgeContentBlockForm = z.infer<typeof nudgeContentBlockSchema>;
+
+function sanitizeContentBlocksForPersist(
+  blocks: NudgeContentBlockForm[] | undefined,
+): NudgeContentBlockForm[] | undefined {
+  if (!blocks?.length) return undefined;
+  const out: NudgeContentBlockForm[] = [];
+  for (const b of blocks) {
+    if (out.length >= MAX_NUDGE_CONTENT_BLOCKS) break;
+    if (b.type === "text") {
+      const t = b.text.trim();
+      if (t) out.push({ ...b, text: t });
+    } else {
+      const u = b.url.trim();
+      try {
+        const x = new URL(u);
+        if (x.protocol !== "http:" && x.protocol !== "https:") continue;
+        out.push({ ...b, url: u });
+      } catch {
+        continue;
+      }
+    }
+  }
+  return out.length ? out : undefined;
+}
+
+function normalizeContentBlocksFromApi(raw: unknown): NudgeContentBlockForm[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NudgeContentBlockForm[] = [];
+  for (const b of raw) {
+    if (!b || typeof b !== "object") continue;
+    const o = b as Record<string, unknown>;
+    const id = typeof o.id === "string" ? o.id : "";
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) continue;
+    if (o.type === "text" && typeof o.text === "string") {
+      out.push({ type: "text", id, text: o.text.slice(0, 1500) });
+    } else if (o.type === "image" && typeof o.url === "string") {
+      out.push({ type: "image", id, url: o.url.slice(0, 2048) });
+    } else if (o.type === "video" && typeof o.url === "string") {
+      out.push({ type: "video", id, url: o.url.slice(0, 2048) });
+    }
+    if (out.length >= MAX_NUDGE_CONTENT_BLOCKS) break;
+  }
+  return out;
+}
+
+function PromoNudgeContentBlocksFields({
+  watch,
+  setValue,
+  name,
+  stepImageUrl,
+  stepVideoUrl,
+}: {
+  watch: ReturnType<typeof useForm<PromoForm>>["watch"];
+  setValue: ReturnType<typeof useForm<PromoForm>>["setValue"];
+  name: "contentBlocks" | `sequenceSteps.${number}.contentBlocks`;
+  stepImageUrl?: string;
+  stepVideoUrl?: string;
+}) {
+  const blocks = (watch(name as never) ?? []) as NudgeContentBlockForm[];
+  const setBlocks = (next: NudgeContentBlockForm[]) => {
+    setValue(name as never, next as never, { shouldDirty: true });
+  };
+
+  const imgHint = (stepImageUrl ?? "").trim();
+  const vidHint = (stepVideoUrl ?? "").trim();
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-700">Structured content (optional)</p>
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+        Stack paragraphs and media in order. Plain text only (no HTML). Image/video blocks need{" "}
+        <span className="font-medium">https</span> URLs. When you add blocks, they replace the classic body + single
+        media on the live site. Layout is vertical; use <span className="font-medium">Content panel</span> in Layout for
+        a framed look.
+      </p>
+
+      <div className="mt-3 space-y-2">
+        {blocks.map((block, idx) => (
+          <div
+            key={block.id}
+            className="rounded-lg border border-slate-200/90 bg-white p-2 shadow-sm"
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold uppercase text-slate-500">
+                {block.type === "text" ? "Paragraph" : block.type === "image" ? "Image URL" : "Video URL"}
+              </span>
+              <div className="flex items-center gap-0.5">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  disabled={idx === 0}
+                  title="Move up"
+                  onClick={() => {
+                    const next = [...blocks];
+                    [next[idx - 1], next[idx]] = [next[idx]!, next[idx - 1]!];
+                    setBlocks(next);
+                  }}
+                >
+                  <ChevronUp className="h-4 w-4" aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  disabled={idx >= blocks.length - 1}
+                  title="Move down"
+                  onClick={() => {
+                    const next = [...blocks];
+                    [next[idx], next[idx + 1]] = [next[idx + 1]!, next[idx]!];
+                    setBlocks(next);
+                  }}
+                >
+                  <ChevronDown className="h-4 w-4" aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  title="Remove block"
+                  onClick={() => setBlocks(blocks.filter((_, i) => i !== idx))}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </div>
+            </div>
+            {block.type === "text" ? (
+              <Textarea
+                rows={3}
+                className="text-sm"
+                value={block.text}
+                onChange={(e) => {
+                  const next = blocks.map((b, i) =>
+                    i === idx ? { ...b, text: e.target.value } : b,
+                  );
+                  setBlocks(next);
+                }}
+                placeholder="Short paragraph…"
+              />
+            ) : (
+              <div className="space-y-1.5">
+                <Input
+                  className="h-8 text-xs"
+                  value={block.url}
+                  onChange={(e) => {
+                    const next = blocks.map((b, i) =>
+                      i === idx ? { ...b, url: e.target.value } : b,
+                    );
+                    setBlocks(next);
+                  }}
+                  placeholder="https://…"
+                />
+                {block.type === "image" && imgHint ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[10px]"
+                    onClick={() => {
+                      const next = blocks.map((b, i) =>
+                        i === idx ? { ...b, url: imgHint } : b,
+                      );
+                      setBlocks(next);
+                    }}
+                  >
+                    Use this step’s image URL
+                  </Button>
+                ) : null}
+                {block.type === "video" && vidHint ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[10px]"
+                    onClick={() => {
+                      const next = blocks.map((b, i) =>
+                        i === idx ? { ...b, url: vidHint } : b,
+                      );
+                      setBlocks(next);
+                    }}
+                  >
+                    Use this step’s video URL
+                  </Button>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          disabled={blocks.length >= MAX_NUDGE_CONTENT_BLOCKS}
+          onClick={() =>
+            setBlocks([...blocks, { type: "text", id: newNudgeContentBlockId(), text: "" }])
+          }
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" aria-hidden />
+          Paragraph
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          disabled={blocks.length >= MAX_NUDGE_CONTENT_BLOCKS}
+          onClick={() =>
+            setBlocks([...blocks, { type: "image", id: newNudgeContentBlockId(), url: "" }])
+          }
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" aria-hidden />
+          Image URL
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          disabled={blocks.length >= MAX_NUDGE_CONTENT_BLOCKS}
+          onClick={() =>
+            setBlocks([...blocks, { type: "video", id: newNudgeContentBlockId(), url: "" }])
+          }
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" aria-hidden />
+          Video URL
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 const NUDGE_SIZE_OPTIONS: { value: NonNullable<PromoForm["nudgeSize"]>; label: string }[] = [
   { value: "sm", label: "Compact" },
@@ -232,7 +519,40 @@ const MEDIA_PLACEMENT_OPTIONS: {
   { value: "bottom", label: "Media below text" },
   { value: "left", label: "Media left" },
   { value: "right", label: "Media right" },
+  {
+    value: "framed",
+    label: "Content panel (body + media in a light box)",
+  },
 ];
+
+const MEDIA_HEIGHT_OPTIONS: {
+  value: NonNullable<PromoForm["mediaHeight"]>;
+  label: string;
+}[] = [
+  { value: "compact", label: "Compact" },
+  { value: "standard", label: "Standard" },
+  { value: "tall", label: "Tall" },
+  { value: "hero", label: "Hero" },
+];
+
+/** Base media strip height per width tier — must stay in sync with `embed.ts` nudgeLayoutSpec.mediaH. */
+const NUDGE_SIZE_MEDIA_BASE_PX: Record<NonNullable<PromoForm["nudgeSize"]>, number> = {
+  sm: 88,
+  md: 112,
+  lg: 140,
+  xl: 200,
+};
+
+function previewMediaHeightPx(
+  nudgeSize: PromoForm["nudgeSize"] | undefined,
+  mediaHeight: PromoForm["mediaHeight"] | undefined,
+): number {
+  const base = NUDGE_SIZE_MEDIA_BASE_PX[nudgeSize ?? "md"];
+  const h = mediaHeight ?? "standard";
+  const mult =
+    h === "compact" ? 0.72 : h === "standard" ? 1 : h === "tall" ? 1.38 : 1.85;
+  return Math.max(56, Math.round(base * mult));
+}
 
 /** Preview column width reflects nudge size tier (embed uses the same tiers). */
 const NUDGE_PREVIEW_MAX_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, string> = {
@@ -929,7 +1249,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       sequenceRandomOrder: false,
       sequenceSteps: [],
       nudgeSize: "md",
+      mediaHeight: "standard",
       mediaPlacement: "bottom",
+      contentBlocks: [],
       ctas: [
         { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
         { kind: "open_booking", label: "Book a meeting", url: "" },
@@ -1193,14 +1515,20 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         ctaList?: { kind: "open_chat" | "open_booking" | "open_url"; label: string; url?: string }[];
         ctaEmphasisMode?: PromoForm["ctaEmphasisMode"];
         nudgeSize?: PromoForm["nudgeSize"];
+        mediaHeight?: PromoForm["mediaHeight"];
         mediaPlacement?: PromoForm["mediaPlacement"];
+        contentBlocks?: NudgeContentBlockForm[];
       } = {
         title: step.title?.trim() || undefined,
         body: step.body?.trim() || undefined,
         imageUrl: step.imageUrl?.trim() || undefined,
         videoUrl: step.videoUrl?.trim() || undefined,
         nudgeSize: step.nudgeSize ?? undefined,
+        mediaHeight: step.mediaHeight ?? undefined,
         mediaPlacement: step.mediaPlacement ?? undefined,
+        contentBlocks: sanitizeContentBlocksForPersist(
+          step.contentBlocks as NudgeContentBlockForm[] | undefined,
+        ),
       };
 
       if (rowCtas.length > 0) {
@@ -1229,7 +1557,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           imageUrl: perNudgeLayout ? undefined : values.imageUrl?.trim() || undefined,
           videoUrl: perNudgeLayout ? undefined : values.videoUrl?.trim() || undefined,
           nudgeSize: perNudgeLayout ? undefined : values.nudgeSize ?? undefined,
+          mediaHeight: perNudgeLayout ? undefined : values.mediaHeight ?? undefined,
           mediaPlacement: perNudgeLayout ? undefined : values.mediaPlacement ?? undefined,
+          contentBlocks: perNudgeLayout
+            ? undefined
+            : sanitizeContentBlocksForPersist(values.contentBlocks),
         },
         primaryCta,
         secondaryCta,
@@ -1283,7 +1615,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       sequenceRandomOrder: false,
       sequenceSteps: [],
       nudgeSize: "md",
+      mediaHeight: "standard",
       mediaPlacement: "bottom",
+      contentBlocks: [],
       ctas: [
         { kind: "open_chat", label: "Chat with AI Assistant", url: "" },
         { kind: "open_booking", label: "Book a meeting", url: "" },
@@ -1310,7 +1644,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               : [],
           ctaEmphasisMode: s.ctaEmphasisMode,
           nudgeSize: s.nudgeSize ?? "md",
+          mediaHeight: s.mediaHeight ?? "standard",
           mediaPlacement: s.mediaPlacement ?? "bottom",
+          contentBlocks: normalizeContentBlocksFromApi(s.contentBlocks),
         }))
       : [];
 
@@ -1373,8 +1709,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       sequenceRandomOrder: (p.settings as { sequenceRandomOrder?: boolean })?.sequenceRandomOrder === true,
       sequenceSteps: sequenceStepsMapped,
       nudgeSize: (p.card as { nudgeSize?: PromoForm["nudgeSize"] })?.nudgeSize ?? "md",
+      mediaHeight: (p.card as { mediaHeight?: PromoForm["mediaHeight"] })?.mediaHeight ?? "standard",
       mediaPlacement:
         (p.card as { mediaPlacement?: PromoForm["mediaPlacement"] })?.mediaPlacement ?? "bottom",
+      contentBlocks: normalizeContentBlocksFromApi(
+        (p.card as { contentBlocks?: unknown })?.contentBlocks,
+      ),
       ctas: ctasForForm,
     });
 
@@ -1406,8 +1746,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           imageUrl: card?.imageUrl || undefined,
           videoUrl: card?.videoUrl || undefined,
           nudgeSize: (card as { nudgeSize?: PromoForm["nudgeSize"] })?.nudgeSize,
+          mediaHeight: (card as { mediaHeight?: PromoForm["mediaHeight"] })?.mediaHeight,
           mediaPlacement: (card as { mediaPlacement?: PromoForm["mediaPlacement"] })
             ?.mediaPlacement,
+          contentBlocks: (card as { contentBlocks?: NudgeContentBlockForm[] })?.contentBlocks,
         },
         primaryCta: p.primaryCta,
         secondaryCta: p.secondaryCta,
@@ -1520,6 +1862,27 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     (perNudgeLayout
       ? (previewStepRow as { nudgeSize?: PromoForm["nudgeSize"] } | undefined)?.nudgeSize
       : form.watch("nudgeSize")) ?? "md";
+
+  const previewMediaHeightEff: NonNullable<PromoForm["mediaHeight"]> =
+    (perNudgeLayout
+      ? (previewStepRow as { mediaHeight?: PromoForm["mediaHeight"] } | undefined)?.mediaHeight
+      : form.watch("mediaHeight")) ?? "standard";
+
+  const previewMediaPlacementEff: NonNullable<PromoForm["mediaPlacement"]> =
+    (perNudgeLayout
+      ? (previewStepRow as { mediaPlacement?: PromoForm["mediaPlacement"] } | undefined)
+          ?.mediaPlacement
+      : form.watch("mediaPlacement")) ?? "bottom";
+
+  const previewMediaPx = previewMediaHeightPx(previewNudgeSizeTier, previewMediaHeightEff);
+
+  const previewContentBlocksRaw = (
+    perNudgeLayout
+      ? (previewStepRow as { contentBlocks?: NudgeContentBlockForm[] } | undefined)?.contentBlocks
+      : form.watch("contentBlocks")
+  ) as NudgeContentBlockForm[] | undefined;
+  const previewBlocksSanitized = sanitizeContentBlocksForPersist(previewContentBlocksRaw) ?? [];
+  const previewHasBlocks = previewBlocksSanitized.length > 0;
 
   return (
     <Card>
@@ -1964,7 +2327,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           ctas: DEFAULT_NUDGE_CTAS.map((c) => ({ ...c })),
                           ctaEmphasisMode: "first_primary",
                           nudgeSize: "md",
+                          mediaHeight: "standard",
                           mediaPlacement: "bottom",
+                          contentBlocks: [],
                         });
                         const next = Math.min(10, sequenceCountWatch + 1);
                         form.setValue("maxSequenceItems", next);
@@ -2044,13 +2409,17 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                   Layout
                                 </p>
                                 <p className="mb-3 text-[11px] text-muted-foreground">
-                                  Size of the card and where media sits relative to text (per nudge).
+                                  Card <span className="font-medium">width</span> and media{" "}
+                                  <span className="font-medium">height</span> are independent.{" "}
+                                  <span className="font-medium">Media layout</span> controls where the image/video
+                                  sits; &quot;Content panel&quot; groups body + media in a light box under the title
+                                  (good for brochure-style promos).
                                 </p>
                                 <div className="grid gap-3 sm:grid-cols-2">
                                   <div>
                                     <Label className="text-xs">Nudge size</Label>
                                     <p className="mb-1.5 text-[11px] text-muted-foreground">
-                                      Width on the host page (compact → highlight).
+                                      Card width on the host page (compact → highlight).
                                     </p>
                                     <Select
                                       value={form.watch(`sequenceSteps.${index}.nudgeSize`) ?? "md"}
@@ -2075,9 +2444,36 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                     </Select>
                                   </div>
                                   <div>
+                                    <Label className="text-xs">Media height</Label>
+                                    <p className="mb-1.5 text-[11px] text-muted-foreground">
+                                      How tall the image or video strip is (scales with nudge size).
+                                    </p>
+                                    <Select
+                                      value={form.watch(`sequenceSteps.${index}.mediaHeight`) ?? "standard"}
+                                      onValueChange={(v) =>
+                                        form.setValue(
+                                          `sequenceSteps.${index}.mediaHeight`,
+                                          v as NonNullable<PromoForm["mediaHeight"]>,
+                                          { shouldDirty: true },
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="h-9 text-sm">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {MEDIA_HEIGHT_OPTIONS.map((o) => (
+                                          <SelectItem key={o.value} value={o.value}>
+                                            {o.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="sm:col-span-2">
                                     <Label className="text-xs">Media layout</Label>
                                     <p className="mb-1.5 text-[11px] text-muted-foreground">
-                                      Where image or video sits relative to text.
+                                      Where image or video sits relative to the title and body.
                                     </p>
                                     <Select
                                       value={form.watch(`sequenceSteps.${index}.mediaPlacement`) ?? "bottom"}
@@ -2103,6 +2499,14 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                                   </div>
                                 </div>
                               </div>
+
+                              <PromoNudgeContentBlocksFields
+                                watch={form.watch}
+                                setValue={form.setValue}
+                                name={`sequenceSteps.${index}.contentBlocks`}
+                                stepImageUrl={form.watch(`sequenceSteps.${index}.imageUrl`)}
+                                stepVideoUrl={form.watch(`sequenceSteps.${index}.videoUrl`)}
+                              />
 
                               <SequenceStepCtaFields
                                 stepIndex={index}
@@ -2165,7 +2569,9 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                               ctas: DEFAULT_NUDGE_CTAS.map((c) => ({ ...c })),
                               ctaEmphasisMode: "first_primary",
                               nudgeSize: "md",
+                              mediaHeight: "standard",
                               mediaPlacement: "bottom",
+                              contentBlocks: [],
                             });
                             form.setValue(
                               "maxSequenceItems",
@@ -2248,7 +2654,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                           <div>
                             <Label className="text-xs">Nudge size</Label>
                             <p className="mb-1.5 text-[11px] text-muted-foreground">
-                              Width on the host page (embed).
+                              Card width on the host page (embed).
                             </p>
                             <Select
                               value={form.watch("nudgeSize") ?? "md"}
@@ -2271,9 +2677,37 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                             </Select>
                           </div>
                           <div>
+                            <Label className="text-xs">Media height</Label>
+                            <p className="mb-1.5 text-[11px] text-muted-foreground">
+                              How tall the image or video strip is.
+                            </p>
+                            <Select
+                              value={form.watch("mediaHeight") ?? "standard"}
+                              onValueChange={(v) =>
+                                form.setValue(
+                                  "mediaHeight",
+                                  v as NonNullable<PromoForm["mediaHeight"]>,
+                                  { shouldDirty: true },
+                                )
+                              }
+                            >
+                              <SelectTrigger className="h-9 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {MEDIA_HEIGHT_OPTIONS.map((o) => (
+                                  <SelectItem key={o.value} value={o.value}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="sm:col-span-2">
                             <Label className="text-xs">Media layout</Label>
                             <p className="mb-1.5 text-[11px] text-muted-foreground">
-                              Where image or video sits relative to text.
+                              Where image or video sits; &quot;Content panel&quot; = body + media in a light box under
+                              the title.
                             </p>
                             <Select
                               value={form.watch("mediaPlacement") ?? "bottom"}
@@ -2298,6 +2732,14 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                             </Select>
                           </div>
                         </div>
+
+                        <PromoNudgeContentBlocksFields
+                          watch={form.watch}
+                          setValue={form.setValue}
+                          name="contentBlocks"
+                          stepImageUrl={form.watch("imageUrl")}
+                          stepVideoUrl={form.watch("videoUrl")}
+                        />
 
                         {/* CTA emphasis */}
                         <div className="rounded-xl bg-background px-3 py-2 text-xs">
@@ -2509,28 +2951,129 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                       </div>
                     </div>
 
-                    {previewBodyEff ? (
-                      <p className="text-xs leading-relaxed text-slate-600">{previewBodyEff}</p>
-                    ) : null}
+                    {previewHasBlocks ? (
+                      previewMediaPlacementEff === "framed" ? (
+                        <div className="space-y-2 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+                          {previewBlocksSanitized.map((b) =>
+                            b.type === "text" ? (
+                              <p
+                                key={b.id}
+                                className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600"
+                              >
+                                {b.text}
+                              </p>
+                            ) : b.type === "image" ? (
+                              <img
+                                key={b.id}
+                                src={b.url}
+                                alt=""
+                                className="w-full rounded-lg border object-cover"
+                                style={{ height: previewMediaPx }}
+                              />
+                            ) : (
+                              <video
+                                key={b.id}
+                                className="w-full rounded-lg border object-cover"
+                                style={{ height: previewMediaPx }}
+                                src={b.url}
+                                muted
+                                playsInline
+                                loop
+                                autoPlay
+                                preload="metadata"
+                              />
+                            ),
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {previewBlocksSanitized.map((b) =>
+                            b.type === "text" ? (
+                              <p
+                                key={b.id}
+                                className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600"
+                              >
+                                {b.text}
+                              </p>
+                            ) : b.type === "image" ? (
+                              <img
+                                key={b.id}
+                                src={b.url}
+                                alt=""
+                                className="w-full rounded-lg border object-cover"
+                                style={{ height: previewMediaPx }}
+                              />
+                            ) : (
+                              <video
+                                key={b.id}
+                                className="w-full rounded-lg border object-cover"
+                                style={{ height: previewMediaPx }}
+                                src={b.url}
+                                muted
+                                playsInline
+                                loop
+                                autoPlay
+                                preload="metadata"
+                              />
+                            ),
+                          )}
+                        </div>
+                      )
+                    ) : previewMediaPlacementEff === "framed" &&
+                      (previewBodyEff || previewVideoEff || previewImageEff) ? (
+                      <div className="space-y-2 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+                        {previewBodyEff ? (
+                          <p className="text-xs leading-relaxed text-slate-600">{previewBodyEff}</p>
+                        ) : null}
+                        {previewVideoEff ? (
+                          <video
+                            key={previewVideoEff}
+                            className="w-full rounded-lg border object-cover"
+                            style={{ height: previewMediaPx }}
+                            src={previewVideoEff}
+                            muted
+                            playsInline
+                            loop
+                            autoPlay
+                            preload="metadata"
+                          />
+                        ) : previewImageEff ? (
+                          <img
+                            className="w-full rounded-lg border object-cover"
+                            style={{ height: previewMediaPx }}
+                            src={previewImageEff}
+                            alt="Promo media"
+                          />
+                        ) : null}
+                      </div>
+                    ) : (
+                      <>
+                        {previewBodyEff ? (
+                          <p className="text-xs leading-relaxed text-slate-600">{previewBodyEff}</p>
+                        ) : null}
 
-                    {previewVideoEff ? (
-                      <video
-                        key={previewVideoEff}
-                        className="h-28 w-full rounded-lg border object-cover"
-                        src={previewVideoEff}
-                        muted
-                        playsInline
-                        loop
-                        autoPlay
-                        preload="metadata"
-                      />
-                    ) : previewImageEff ? (
-                      <img
-                        className="h-28 w-full rounded-lg border object-cover"
-                        src={previewImageEff}
-                        alt="Promo media"
-                      />
-                    ) : null}
+                        {previewVideoEff ? (
+                          <video
+                            key={previewVideoEff}
+                            className="w-full rounded-lg border object-cover"
+                            style={{ height: previewMediaPx }}
+                            src={previewVideoEff}
+                            muted
+                            playsInline
+                            loop
+                            autoPlay
+                            preload="metadata"
+                          />
+                        ) : previewImageEff ? (
+                          <img
+                            className="w-full rounded-lg border object-cover"
+                            style={{ height: previewMediaPx }}
+                            src={previewImageEff}
+                            alt="Promo media"
+                          />
+                        ) : null}
+                      </>
+                    )}
 
                     <div className="space-y-2">
                       {previewCtasEff.map((cta, index) => {

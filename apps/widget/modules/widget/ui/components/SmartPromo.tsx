@@ -35,7 +35,13 @@ type CtaEmphasisMode =
   | "none_primary";
 
 type NudgeSize = "sm" | "md" | "lg" | "xl";
-type MediaPlacement = "top" | "bottom" | "left" | "right";
+type MediaPlacement = "top" | "bottom" | "left" | "right" | "framed";
+type MediaHeight = "compact" | "standard" | "tall" | "hero";
+
+type NudgeContentBlockPayload =
+  | { type: "text"; id: string; text: string }
+  | { type: "image"; id: string; url: string }
+  | { type: "video"; id: string; url: string };
 
 type PromoEmbedItem = {
   title?: string;
@@ -55,8 +61,12 @@ type PromoEmbedItem = {
   canUseVoice?: boolean;
   /** Host-page nudge width tier. */
   nudgeSize?: NudgeSize;
+  /** Image/video strip height tier. */
+  mediaHeight?: MediaHeight;
   /** Image/video position relative to text. */
   mediaPlacement?: MediaPlacement;
+  /** Ordered content blocks (plain text + http(s) media). */
+  contentBlocks?: NudgeContentBlockPayload[];
 };
 
 function primaryIndexForEmphasis(mode: CtaEmphasisMode | undefined, len: number) {
@@ -360,7 +370,9 @@ export default function SmartPromo() {
     const card = (promoDoc as any)?.card as
       | {
           nudgeSize?: NudgeSize;
+          mediaHeight?: MediaHeight;
           mediaPlacement?: MediaPlacement;
+          contentBlocks?: NudgeContentBlockPayload[];
         }
       | undefined;
 
@@ -381,7 +393,9 @@ export default function SmartPromo() {
       ctaList: simpleCtaList,
       canUseVoice,
       nudgeSize: card?.nudgeSize,
+      mediaHeight: card?.mediaHeight,
       mediaPlacement: card?.mediaPlacement,
+      contentBlocks: card?.contentBlocks,
     };
   };
 
@@ -421,8 +435,13 @@ export default function SmartPromo() {
               ? step.videoUrl.trim()
               : base.videoUrl,
           nudgeSize: (step?.nudgeSize as NudgeSize | undefined) ?? base.nudgeSize,
+          mediaHeight: (step?.mediaHeight as MediaHeight | undefined) ?? base.mediaHeight,
           mediaPlacement:
             (step?.mediaPlacement as MediaPlacement | undefined) ?? base.mediaPlacement,
+          contentBlocks:
+            Array.isArray(step?.contentBlocks) && step.contentBlocks.length > 0
+              ? (step.contentBlocks as NudgeContentBlockPayload[])
+              : base.contentBlocks,
         },
         promoDoc,
         step,
@@ -534,7 +553,7 @@ export default function SmartPromo() {
       itemsRaw
         .map(
           (x) =>
-            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}:${(x as PromoEmbedItem).nudgeSize || ""}:${(x as PromoEmbedItem).mediaPlacement || ""}:${JSON.stringify((x as any).ctaList || [])}`,
+            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}:${(x as PromoEmbedItem).nudgeSize || ""}:${(x as PromoEmbedItem).mediaHeight || ""}:${(x as PromoEmbedItem).mediaPlacement || ""}:${JSON.stringify((x as PromoEmbedItem).contentBlocks || [])}:${JSON.stringify((x as any).ctaList || [])}`,
         )
         .join("|"),
       JSON.stringify(sequenceSettings),
