@@ -234,6 +234,30 @@ export const IntegrationsView = () => {
             </div>
           </div>
 
+          {/* Website widget — available on every active plan (incl. Starter) */}
+          <div className="mt-8 space-y-6">
+            <div className="space-y-1">
+              <Label className="text-lg">Website widget</Label>
+              <p className="text-sm text-muted-foreground">Add the following code to your website to enable the chatbox.</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {INTEGRATIONS.map((integration) => (
+                <button
+                  key={integration.id}
+                  onClick={() => handleIntegrationClick(integration.id)}
+                  type="button"
+                  className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-accent"
+                >
+                  <Image alt={integration.title} height={32} src={integration.icon} width={32} />
+                  <p>{integration.title}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {(showSlack || showSalesforce) && <Separator className="my-8" />}
+
           {/* Slack (only if allowed) */}
           {showSlack && (
             <div className="mt-8 space-y-3 rounded-lg border bg-background p-4">
@@ -368,30 +392,6 @@ export const IntegrationsView = () => {
               </div>
             </div>
           )}
-
-          <Separator className="my-8" />
-
-          {/* Widget embed snippets (toujours ok) */}
-          <div className="space-y-6">
-            <div className="space-y-1">
-              <Label className="text-lg">Website widget</Label>
-              <p className="text-sm text-muted-foreground">Add the following code to your website to enable the chatbox.</p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {INTEGRATIONS.map((integration) => (
-                <button
-                  key={integration.id}
-                  onClick={() => handleIntegrationClick(integration.id)}
-                  type="button"
-                  className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-accent"
-                >
-                  <Image alt={integration.title} height={32} src={integration.icon} width={32} />
-                  <p>{integration.title}</p>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </>

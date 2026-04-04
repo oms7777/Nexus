@@ -82,7 +82,8 @@ export const DashboardSidebar = () => {
     pathname === url || pathname.startsWith(`${url}/`);
 
   const f = ent.features;
-  const canSeeIntegrations = !!(f.canUseSlack || f.canUseSalesforce);
+  /** Setup page: widget script + org id for every active/trial org; CRM blocks are inside the page. */
+  const canSeeIntegrations = !!ent.isActive;
   const canUseVoice = !!f.canUseVoice;
   const canUseBooking = !!f.canUseBooking;
   const canUseAdvancedAnalytics = !!f.canUseAdvancedAnalytics;

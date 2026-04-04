@@ -12,26 +12,10 @@ export const Plan = v.union(
 
 export const Status = v.union(v.literal("active"), v.literal("paused"), v.literal("trial"));
 
-export const EnterpriseTier = v.union(v.literal("light"), v.literal("core"), v.literal("heavy"));
-
-// ✅ NEW: voice + voiceHighVolume
-// ✅ KEEP: voiceAi / voiceAiHighVolume optional for backward compat
 export const Addons = v.object({
   extraWebsites: v.number(),
-  highVolumeTraffic: v.boolean(),
   salesforce: v.boolean(),
-
-  // NEW
   voice: v.boolean(),
-  voiceHighVolume: v.boolean(),
-
-  // OLD (optional)
-  voiceAi: v.optional(v.boolean()),
-  voiceAiHighVolume: v.optional(v.boolean()),
-
-  sso: v.boolean(),
-  securityPackPlus: v.boolean(),
-  compliancePack: v.boolean(),
   advancedAnalytics: v.boolean(),
 });
 
@@ -44,25 +28,27 @@ export const Limits = v.object({
   snapshotsGb: v.number(),
 });
 
+/* ----------------------------- Normalization ------------------------- */
+
+/** Maps legacy subscription.addons (and Clerk/webhook re-patches) to the current shape. */
+function normalizeAddons(a: Record<string, unknown> | undefined | null) {
+  const x = (a && typeof a === "object" ? a : {}) as Record<string, unknown>;
+  const voice = Boolean(x.voice) || Boolean(x.voiceAi);
+  return {
+    extraWebsites: Math.max(0, Math.floor(Number(x.extraWebsites) || 0)),
+    salesforce: Boolean(x.salesforce),
+    voice,
+    advancedAnalytics: Boolean(x.advancedAnalytics),
+  };
+}
+
 /* ----------------------------- Defaults ------------------------------ */
 
 function defaultAddons() {
   return {
     extraWebsites: 0,
-    highVolumeTraffic: false,
     salesforce: false,
-
-    // NEW defaults
     voice: false,
-    voiceHighVolume: false,
-
-    // OLD kept (optional)
-    // voiceAi: false,
-    // voiceAiHighVolume: false,
-
-    sso: false,
-    securityPackPlus: false,
-    compliancePack: false,
     advancedAnalytics: false,
   };
 }
@@ -129,7 +115,6 @@ export const upsertFull = internalMutation({
   args: {
     organizationId: v.string(),
     plan: Plan,
-    enterpriseTier: v.optional(EnterpriseTier),
     status: Status,
     addons: Addons,
     limits: Limits,
@@ -148,7 +133,6 @@ export const upsertFull = internalMutation({
     const payload = {
       organizationId: args.organizationId,
       plan: args.plan,
-      enterpriseTier: args.enterpriseTier,
       status: args.status,
       addons: args.addons,
       limits: args.limits,
@@ -221,12 +205,19 @@ export const setStatusFromClerk = internalMutation({
     const now = Date.now();
 
     if (existing) {
+      const ex = existing as Record<string, unknown>;
+      const planRaw = ex.plan as string | undefined;
+      const plan =
+        planRaw === "growth" || planRaw === "enterprise" || planRaw === "starter"
+          ? planRaw
+          : "starter";
+
       await ctx.db.patch(existing._id, {
         status,
-        plan: (existing as any).plan ?? "starter",
-        addons: (existing as any).addons ?? defaultAddons(),
-        limits: (existing as any).limits ?? defaultLimits(),
-        startedAt: (existing as any).startedAt ?? now,
+        plan,
+        addons: normalizeAddons(ex.addons as Record<string, unknown>),
+        limits: (ex.limits as (typeof existing)["limits"]) ?? defaultLimits(),
+        startedAt: (ex.startedAt as number) ?? now,
         updatedAt: now,
       });
       return { ok: true, id: existing._id, created: false };
@@ -243,5 +234,35 @@ export const setStatusFromClerk = internalMutation({
     });
 
     return { ok: true, id, created: true };
+  },
+});
+
+/**
+ * One-time migration after slimming `subscriptions.addons` and dropping `enterpriseTier`.
+ * Run: `npx convex run internal/system/subscriptions:migrateBillingShape`
+ */
+export const migrateBillingShape = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("subscriptions").collect();
+    const now = Date.now();
+    let migrated = 0;
+
+    for (const doc of rows) {
+      await ctx.db.replace(doc._id, {
+        organizationId: doc.organizationId,
+        plan: doc.plan,
+        status: doc.status,
+        addons: normalizeAddons(doc.addons as Record<string, unknown>),
+        limits: doc.limits,
+        startedAt: doc.startedAt,
+        trialEndsAt: doc.trialEndsAt,
+        endsAt: doc.endsAt,
+        updatedAt: now,
+      });
+      migrated += 1;
+    }
+
+    return { ok: true, migrated };
   },
 });

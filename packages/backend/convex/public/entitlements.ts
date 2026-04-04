@@ -15,8 +15,7 @@ function computeEntitlements(sub: any) {
   const canUseSlack = isActive && (plan === "growth" || plan === "enterprise");
   const canUseSalesforce = isActive && plan !== "starter" && addons.salesforce === true;
 
-  // ✅ NEW: voice flag (fallback to old voiceAi if still present)
-  const voiceEnabled = addons.voice === true || addons.voiceAi === true;
+  const voiceEnabled = addons.voice === true;
   const canUseVoice = isActive && voiceEnabled;
 
   const canUseAdvancedRouting = isActive && (plan === "growth" || plan === "enterprise");
@@ -96,26 +95,9 @@ export const getPublicPlan = query({
     const plan: Plan = (sub?.plan ?? "starter") as Plan;
     const status: string = (sub?.status ?? "paused") as string;
     const isActive = status === "active" || status === "trial";
-    type AddonsShape = {
-        salesforce?: boolean;
-        advancedAnalytics?: boolean;
-        extraWebsites?: number;
-
-        // NEW
-        voice?: boolean;
-        voiceHighVolume?: boolean;
-
-        // OLD (fallback)
-        voiceAi?: boolean;
-        voiceAiHighVolume?: boolean;
-        };
-
-    const addons = (sub?.addons ?? {}) as AddonsShape;
-
     const canUseAdvancedPromos = isActive && (plan === "growth" || plan === "enterprise");
 
-    // ✅ NEW: include voice
-    const voiceEnabled = addons.voice === true || addons.voiceAi === true;
+    const voiceEnabled = sub?.addons?.voice === true;
     const canUseVoice = isActive && voiceEnabled;
 
     return { plan, status, isActive, canUseAdvancedPromos, canUseVoice };

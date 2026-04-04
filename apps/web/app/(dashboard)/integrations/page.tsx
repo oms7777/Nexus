@@ -11,19 +11,19 @@ const Page = () => {
   const ent = useEntitlements();
   const router = useRouter();
 
-  const canSeeIntegrations = ent.features.canUseSlack || ent.features.canUseSalesforce;
+  // Widget embed + org ID: all paid/trial orgs (incl. Starter). Slack/Salesforce stay plan-gated inside the view.
+  const canAccessIntegrationsPage = ent.isActive;
 
   useEffect(() => {
     if (ent.isLoading) return;
 
-    // ✅ gating silencieux
-    if (!ent.isActive || !canSeeIntegrations) {
+    if (!canAccessIntegrationsPage) {
       router.replace("/");
     }
-  }, [ent.isLoading, ent.isActive, canSeeIntegrations, router]);
+  }, [ent.isLoading, canAccessIntegrationsPage, router]);
 
   if (ent.isLoading) return null;
-  if (!ent.isActive || !canSeeIntegrations) return null;
+  if (!canAccessIntegrationsPage) return null;
 
   return (
     <Protect>

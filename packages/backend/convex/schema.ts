@@ -9,27 +9,12 @@ export default defineSchema({
 
     plan: v.union(v.literal("starter"), v.literal("growth"), v.literal("enterprise")),
 
-    enterpriseTier: v.optional(v.union(v.literal("light"), v.literal("core"), v.literal("heavy"))),
-
     status: v.union(v.literal("active"), v.literal("paused"), v.literal("trial")),
 
     addons: v.object({
       extraWebsites: v.number(),
-      highVolumeTraffic: v.boolean(),
-
       salesforce: v.boolean(),
-
-      // ✅ NEW (canonical)
       voice: v.boolean(),
-      voiceHighVolume: v.boolean(),
-
-      // ✅ OLD (backward compat)
-      voiceAi: v.optional(v.boolean()),
-      voiceAiHighVolume: v.optional(v.boolean()),
-
-      sso: v.boolean(),
-      securityPackPlus: v.boolean(),
-      compliancePack: v.boolean(),
       advancedAnalytics: v.boolean(),
     }),
 
