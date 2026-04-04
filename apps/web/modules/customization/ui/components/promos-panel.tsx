@@ -1895,14 +1895,29 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   const previewBlocksSanitized = sanitizeContentBlocksForPersist(previewContentBlocksRaw) ?? [];
   const previewHasBlocks = previewBlocksSanitized.length > 0;
 
+  const previewBlockMediaBlocks = previewBlocksSanitized.filter(
+    (b): b is Extract<NudgeContentBlockForm, { type: "image" } | { type: "video" }> =>
+      b.type === "image" || b.type === "video",
+  );
+  const previewHasBlockMedia = previewBlockMediaBlocks.length > 0;
+  const previewSingleBlockMedia =
+    previewBlockMediaBlocks.length === 1 ? previewBlockMediaBlocks[0] : undefined;
+
   const previewHasLegacyMedia = !!(previewVideoEff || previewImageEff);
-  /** Same resolution as `embed.ts`: no media → bottom; `framed` kept. */
+  const previewHasAnyMedia = previewHasLegacyMedia || previewHasBlockMedia;
+  /** Same resolution as `embed.ts`: no media → bottom; `framed` kept. Includes image/video blocks. */
   const previewPlacementResolved: NonNullable<PromoForm["mediaPlacement"]> =
     previewMediaPlacementEff === "framed"
       ? "framed"
-      : !previewHasLegacyMedia
+      : !previewHasAnyMedia
         ? "bottom"
         : previewMediaPlacementEff;
+
+  /** One image/video block + left/right → side column (matches embed `blocksUseSideBySide`). */
+  const previewBlocksSideBySide =
+    previewHasBlocks &&
+    previewSingleBlockMedia != null &&
+    (previewPlacementResolved === "left" || previewPlacementResolved === "right");
 
   /** Side-by-side preview: show full frame (letterbox) so wide video isn’t cropped in the editor. */
   const previewLegacyMediaObjectContain =
@@ -1966,6 +1981,36 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     ),
   );
 
+  const previewTextBlocksOnly = previewBlocksSanitized.filter((b) => b.type === "text");
+  const previewTextBlocksInner = previewTextBlocksOnly.map((b) => (
+    <p key={b.id} className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600">
+      {b.text}
+    </p>
+  ));
+
+  const previewSplitBlockMediaEl =
+    previewSingleBlockMedia?.type === "video" ? (
+      <video
+        key={previewSingleBlockMedia.url}
+        className="block max-h-full max-w-full object-contain"
+        style={{ objectFit: "contain" }}
+        src={previewSingleBlockMedia.url}
+        muted
+        playsInline
+        loop
+        autoPlay
+        preload="metadata"
+      />
+    ) : previewSingleBlockMedia?.type === "image" ? (
+      <img
+        key={previewSingleBlockMedia.url}
+        className="max-h-full max-w-full object-contain"
+        style={{ objectFit: "contain" }}
+        src={previewSingleBlockMedia.url}
+        alt="Promo media"
+      />
+    ) : null;
+
   const previewTitleEl = previewTitleEff ? (
     <div className="text-sm font-semibold leading-snug text-slate-900">{previewTitleEff}</div>
   ) : null;
@@ -2025,7 +2070,59 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   );
 
   let previewNudgeMain: ReactNode;
-  if (previewHasBlocks) {
+  if (previewBlocksSideBySide && previewPlacementResolved === "left") {
+    previewNudgeMain = (
+      <>
+        <div className="flex gap-3 items-start">
+          {previewIdentityCol}
+          <div className="flex min-w-0 flex-1 gap-2.5">
+            <div
+              className={cn(
+                "flex items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+                PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
+              )}
+              style={{ height: previewMediaPx }}
+            >
+              {previewSplitBlockMediaEl}
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              {previewTitleEl}
+              {previewTextBlocksInner.length > 0 ? (
+                <div className="space-y-2">{previewTextBlocksInner}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        {previewCtasBlock}
+      </>
+    );
+  } else if (previewBlocksSideBySide && previewPlacementResolved === "right") {
+    previewNudgeMain = (
+      <>
+        <div className="flex gap-3 items-start">
+          {previewIdentityCol}
+          <div className="flex min-w-0 flex-1 gap-2.5">
+            <div className="min-w-0 flex-1 space-y-2">
+              {previewTitleEl}
+              {previewTextBlocksInner.length > 0 ? (
+                <div className="space-y-2">{previewTextBlocksInner}</div>
+              ) : null}
+            </div>
+            <div
+              className={cn(
+                "flex items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
+                PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
+              )}
+              style={{ height: previewMediaPx }}
+            >
+              {previewSplitBlockMediaEl}
+            </div>
+          </div>
+        </div>
+        {previewCtasBlock}
+      </>
+    );
+  } else if (previewHasBlocks) {
     previewNudgeMain = (
       <>
         <div className="flex gap-3 items-start">

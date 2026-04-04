@@ -122,6 +122,27 @@ function escapeAttrNudge(s: string) {
   return s.replace(/"/g, "&quot;");
 }
 
+/** First CTA index that opens an external URL (used to make promo video/image clickable). */
+function findFirstOpenUrlCtaIndex(payload: PromoPayload, ctaList: SimpleCta[]): number | null {
+  for (let i = 0; i < ctaList.length; i++) {
+    const c = ctaList[i];
+    const u = c?.url?.trim();
+    if (c?.kind === "open_url" && u && isSafeHttpUrlForNudge(u)) return i;
+  }
+  if (ctaList.length === 0) {
+    const pu = payload.primaryCta?.url?.trim();
+    if (payload.primaryCta?.kind === "open_url" && pu && isSafeHttpUrlForNudge(pu)) return 0;
+    const su = payload.secondaryCta?.url?.trim();
+    if (payload.secondaryCta?.kind === "open_url" && su && isSafeHttpUrlForNudge(su)) return 1;
+  }
+  return null;
+}
+
+function wrapNudgeMediaWithCta(innerHtml: string, ctaIndex: number | null): string {
+  if (ctaIndex == null || !innerHtml.trim()) return innerHtml;
+  return `<div tabindex="0" role="link" data-promo-media-cta="${ctaIndex}" title="Open link" style="cursor:pointer;display:block;line-height:0;border-radius:10px;overflow:hidden;outline-offset:2px;">${innerHtml}</div>`;
+}
+
 function normalizeContentBlocksFromPayload(raw: unknown): NudgeContentBlock[] {
   if (!Array.isArray(raw)) return [];
   const out: NudgeContentBlock[] = [];
@@ -150,6 +171,7 @@ function buildContentBlocksStackHtml(
   blocks: NudgeContentBlock[],
   spec: NudgeLayoutSpec,
   mediaH: number,
+  mediaCtaIndex: number | null = null,
 ): string {
   const mediaStyle = `width:100%;height:${mediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;`;
   const parts: string[] = [];
@@ -161,13 +183,15 @@ function buildContentBlocksStackHtml(
       );
     } else if (b.type === "image") {
       const u = escapeAttrNudge(b.url);
+      const core = `<img src="${u}" alt="" style="${mediaStyle}" />`;
       parts.push(
-        `<div style="margin-top:${top};"><img src="${u}" alt="" style="${mediaStyle}" /></div>`,
+        `<div style="margin-top:${top};">${wrapNudgeMediaWithCta(core, mediaCtaIndex)}</div>`,
       );
     } else {
       const u = escapeAttrNudge(b.url);
+      const core = `<video src="${u}" muted autoplay loop playsinline preload="auto" style="${mediaStyle}"></video>`;
       parts.push(
-        `<div style="margin-top:${top};"><video src="${u}" muted autoplay loop playsinline preload="auto" style="${mediaStyle}"></video></div>`,
+        `<div style="margin-top:${top};">${wrapNudgeMediaWithCta(core, mediaCtaIndex)}</div>`,
       );
     }
   }
@@ -1198,6 +1222,8 @@ type NudgeKind = "promo" | "suggestions" | null;
     const ctaList: SimpleCta[] =
       Array.isArray(payload.ctaList) && payload.ctaList.length ? payload.ctaList : [];
 
+    const promoMediaUrlCtaIndex = findFirstOpenUrlCtaIndex(payload, ctaList);
+
     const hasMulti = ctaList.length > 0;
     const identityMode: "auto" | "logo" | "avatars" = payload.identityMode || "auto";
 
@@ -1277,7 +1303,13 @@ type NudgeKind = "promo" | "suggestions" | null;
         : "Chat with our assistant or book a 15-min demo.";
     const safeImage = payload.imageUrl ? escapeAttr(payload.imageUrl) : "";
     const safeVideo = payload.videoUrl ? escapeAttr(payload.videoUrl) : "";
-    const hasMedia = !!(safeVideo || safeImage);
+    const mediaBlocksInContent = contentBlocksNorm.filter(
+      (b) => b.type === "video" || b.type === "image",
+    );
+    const hasMediaInBlocks = mediaBlocksInContent.length > 0;
+    const singleContentMediaBlock =
+      mediaBlocksInContent.length === 1 ? mediaBlocksInContent[0] : undefined;
+    const hasMedia = !!(safeVideo || safeImage) || hasMediaInBlocks;
     const rawPlacement = normalizeMediaPlacement(payload.mediaPlacement);
     const placement: MediaPlacement =
       rawPlacement === "framed"
@@ -1285,8 +1317,13 @@ type NudgeKind = "promo" | "suggestions" | null;
         : !hasMedia
           ? "bottom"
           : rawPlacement;
+    const textBlocksOnly = contentBlocksNorm.filter((b) => b.type === "text");
+    const blocksUseSideBySide =
+      useContentBlocks &&
+      (rawPlacement === "left" || rawPlacement === "right") &&
+      singleContentMediaBlock != null;
 
-    const mediaCore = safeVideo
+    const mediaCoreRaw = safeVideo
       ? `<video
             src="${safeVideo}"
             muted
@@ -1303,6 +1340,7 @@ type NudgeKind = "promo" | "suggestions" | null;
             style="width:100%;height:${effectiveMediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;"
           />`
         : "";
+    const mediaCore = wrapNudgeMediaWithCta(mediaCoreRaw, promoMediaUrlCtaIndex);
 
     const titleBlock =
       title.trim().length > 0
@@ -1484,9 +1522,71 @@ type NudgeKind = "promo" | "suggestions" | null;
             ${identityHtml}
           </div>`;
 
+    const splitMediaStyle = `width:100%;height:${effectiveMediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;`;
+    const buildSideMediaFromBlock = (b: Extract<NudgeContentBlock, { type: "image" } | { type: "video" }>) =>
+      wrapNudgeMediaWithCta(
+        b.type === "video"
+          ? `<video src="${escapeAttrNudge(b.url)}" muted autoplay loop playsinline preload="auto" style="${splitMediaStyle}"></video>`
+          : `<img src="${escapeAttrNudge(b.url)}" alt="" style="${splitMediaStyle}" />`,
+        promoMediaUrlCtaIndex,
+      );
+
     let mainRowHtml = "";
-    if (useContentBlocks) {
-      const blocksStackHtml = buildContentBlocksStackHtml(contentBlocksNorm, spec, effectiveMediaH);
+    if (useContentBlocks && blocksUseSideBySide && singleContentMediaBlock) {
+      const textStackHtml = buildContentBlocksStackHtml(
+        textBlocksOnly,
+        spec,
+        effectiveMediaH,
+        null,
+      );
+      const sideMediaHtml = buildSideMediaFromBlock(singleContentMediaBlock);
+      const textStackWrapped = textStackHtml
+        ? `<div style="margin-top:6px;">${textStackHtml}</div>`
+        : "";
+      if (rawPlacement === "left") {
+        mainRowHtml = `
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${identityCol}
+          <div style="flex:1;min-width:0;display:flex;flex-direction:row;gap:10px;align-items:flex-start">
+            <div style="width:${spec.splitMediaW}px;flex-shrink:0;">
+              ${sideMediaHtml}
+            </div>
+            <div style="flex:1;min-width:0;">
+              ${titleBlock}
+              ${textStackWrapped}
+              ${micHtml}
+              ${buttonsHtml}
+              ${privacyBlock}
+            </div>
+          </div>
+          ${closeBtnHtml}
+        </div>`;
+      } else {
+        mainRowHtml = `
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${identityCol}
+          <div style="flex:1;min-width:0;display:flex;flex-direction:row;gap:10px;align-items:flex-start">
+            <div style="flex:1;min-width:0;">
+              ${titleBlock}
+              ${textStackWrapped}
+              ${micHtml}
+              ${buttonsHtml}
+              ${privacyBlock}
+            </div>
+            <div style="width:${spec.splitMediaW}px;flex-shrink:0;">
+              ${sideMediaHtml}
+            </div>
+          </div>
+          ${closeBtnHtml}
+        </div>`;
+      }
+    } else if (useContentBlocks) {
+      const blocksStackHtml = buildContentBlocksStackHtml(
+        contentBlocksNorm,
+        spec,
+        effectiveMediaH,
+        promoMediaUrlCtaIndex,
+      );
       const blocksWrapped =
         rawPlacement === "framed" && blocksStackHtml
           ? `<div style="
@@ -1658,7 +1758,28 @@ type NudgeKind = "promo" | "suggestions" | null;
         const idx = Number(btn.getAttribute("data-cta-index") || "0");
         btn.addEventListener("click", () => runNudgeCta(idx));
       });
-    } else {
+    }
+
+    nudge!.querySelectorAll("[data-promo-media-cta]").forEach((el) => {
+      const idx = Number(el.getAttribute("data-promo-media-cta") || "");
+      if (!Number.isInteger(idx) || idx < 0) return;
+      const go = () => {
+        runNudgeCta(idx);
+      };
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        go();
+      });
+      el.addEventListener("keydown", (e) => {
+        const ke = e as KeyboardEvent;
+        if (ke.key === "Enter" || ke.key === " ") {
+          ke.preventDefault();
+          go();
+        }
+      });
+    });
+
+    if (!hasMulti) {
       const primaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-primary");
       const secondaryBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-secondary");
       primaryBtn?.addEventListener("click", () => openChat());
