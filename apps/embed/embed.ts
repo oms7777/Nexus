@@ -12,6 +12,9 @@ const NUDGE_AUTO_CLOSE_MS = 4000;
 const NUDGE_BETWEEN_POPUPS_MS = 1000;
 const DEFAULT_NUDGE_COUNT_PER_PAGE = 3;
 
+/** Launcher color only when iframe never sent a theme (4s fallback) — neutral slate, not Nexus marketing purple. */
+const FAB_FALLBACK_COLOR = "#64748b";
+
 type ThemePayload = {
   primaryColor?: string;
   primaryTextColor?: string;
@@ -525,14 +528,15 @@ type NudgeKind = "promo" | "suggestions" | null;
       ${position === "bottom-right" ? "right: 16px;" : "left: 16px;"}
       bottom: 16px;
       width: 52px; height: 52px; border-radius: 9999px;
-      background: ${theme?.chatBubbleColor || theme?.primaryColor || "#a855f7"};
-      color: ${theme?.primaryTextColor || "#ffffff"};
+      background: transparent;
+      color: #ffffff;
       cursor: pointer;
       z-index: 2147483000;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 2px 12px rgba(0,0,0,.12);
+      box-shadow: none;
       transition: transform .2s ease, box-shadow .2s ease, background .2s ease, opacity .2s ease;
       opacity: 0;
+      visibility: hidden;
       pointer-events: none;
     `;
 
@@ -1038,7 +1042,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     if (fabRevealed) return;
 
     // Do not show until the iframe has announced branding (or load fallback), even if a nudge
-    // was scheduled — `hasNudgePayload` alone used to reveal the default #a855f7 FAB too early.
+    // was scheduled — `hasNudgePayload` alone used to reveal the default FAB too early.
     if (!fabEmbedBrandingKnown && !fabRevealForced) return;
 
     if (fabFallbackRevealTimer !== null) {
@@ -1047,6 +1051,8 @@ type NudgeKind = "promo" | "suggestions" | null;
     }
 
     fabRevealed = true;
+    button.style.visibility = "visible";
+    button.style.boxShadow = "0 2px 12px rgba(0,0,0,.12)";
     button.style.opacity = "1";
     button.style.pointerEvents = "auto";
   }
@@ -1054,7 +1060,20 @@ type NudgeKind = "promo" | "suggestions" | null;
   function applyThemeToFab() {
     if (!button) return;
 
-    const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#a855f7";
+    const brandingReady = fabEmbedBrandingKnown || fabRevealForced;
+
+    // Until `nexus:theme` / suggestions (or 4s fallback), do not paint the launcher — even at
+    // opacity:0 some environments still flash the default purple for one frame.
+    if (!brandingReady && !isOpen) {
+      button.style.background = "transparent";
+      button.style.boxShadow = "none";
+      button.style.visibility = "hidden";
+      button.innerHTML = "";
+      return;
+    }
+
+    const bubbleColor =
+      theme?.chatBubbleColor || theme?.primaryColor || FAB_FALLBACK_COLOR;
     const textColor = theme?.primaryTextColor || "#ffffff";
 
     button.style.background = bubbleColor;
@@ -2106,6 +2125,10 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     applyThemeToFab();
     // Restore FAB
+    if (fabRevealed) {
+      button.style.visibility = "visible";
+      button.style.boxShadow = "0 2px 12px rgba(0,0,0,.12)";
+    }
     button.style.opacity = "1";
     button.style.pointerEvents = "auto";
 
