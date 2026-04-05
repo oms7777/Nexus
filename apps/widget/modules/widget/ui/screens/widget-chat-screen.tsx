@@ -35,7 +35,7 @@ import {
 } from "../../atoms/qualify-atoms";
 
 import { Button } from "@workspace/ui/components/button";
-import { CalendarIcon, MenuIcon } from "lucide-react";
+import { CalendarIcon, Loader2, MenuIcon } from "lucide-react";
 
 import {
   AIConversation,
@@ -404,12 +404,18 @@ export const WidgetChatScreen = () => {
   const chatBubbleColor =
     (widgetSettings as any)?.theme?.chatBubbleColor ??
     (widgetSettings as any)?.branding?.chatBubbleColor ??
-    "#a954ab";
+    themePrimary;
 
   const chatBubbleTextColor =
     (widgetSettings as any)?.theme?.chatBubbleTextColor ??
     (widgetSettings as any)?.branding?.chatBubbleTextColor ??
     "#ffffff";
+
+  /** Assistant text bubbles: match nudge card, avoid theme `bg-background` gray flash on refresh. */
+  const assistantBubbleBg =
+    (widgetSettings as any)?.theme?.nudgeBackgroundColor?.trim() || "#f1f5f9";
+  const assistantBubbleFg =
+    (widgetSettings as any)?.theme?.secondaryTextColor?.trim() || "#0f172a";
     
   const consentCfg = widgetSettings?.consent;
   const embedLayout = (widgetSettings as any)?.embedLayout ?? "compact";
@@ -1404,8 +1410,16 @@ export const WidgetChatScreen = () => {
                     className="rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed shadow-sm"
                     style={
                       isUser
-                        ? { backgroundColor: themePrimary, color: themePrimaryText, borderColor: "transparent" }
-                        : undefined
+                        ? {
+                            backgroundColor: themePrimary,
+                            color: themePrimaryText,
+                            borderColor: "transparent",
+                          }
+                        : {
+                            backgroundColor: assistantBubbleBg,
+                            color: assistantBubbleFg,
+                            borderColor: "rgba(15,23,42,0.08)",
+                          }
                     }
                   >
                     <AIResponse>{m.text}</AIResponse>
@@ -1417,6 +1431,36 @@ export const WidgetChatScreen = () => {
                 </AIMessage>
               );
             })}
+
+            {isPendingAssistant && step === "idle" && (
+              <AIMessage from="assistant">
+                <AIMessageContent
+                  className="rounded-2xl px-3.5 py-2.5 text-[13px] shadow-sm"
+                  style={{
+                    backgroundColor: assistantBubbleBg,
+                    color: assistantBubbleFg,
+                    borderColor: "rgba(15,23,42,0.08)",
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-2"
+                    role="status"
+                    aria-live="polite"
+                    aria-label={t.assistantTyping}
+                  >
+                    <Loader2
+                      className="h-4 w-4 shrink-0 animate-spin opacity-80"
+                      style={{ color: themePrimary }}
+                      aria-hidden
+                    />
+                    <span className="text-[12px] leading-snug opacity-90">
+                      {t.thinkingShort}
+                    </span>
+                  </div>
+                </AIMessageContent>
+                <DicebearAvatar imageUrl={brandLogoUrl} seed="assistant" size={32} />
+              </AIMessage>
+            )}
 
 
             {conversationId &&
@@ -1448,7 +1492,11 @@ export const WidgetChatScreen = () => {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
                       variant="outline"
-                      className="flex-1 text-xs bg-gradient-to-r from-fuchsia-600 to-rose-500 border-0 text-white hover:opacity-95"
+                      className="flex-1 border-0 text-xs font-semibold hover:opacity-95"
+                      style={{
+                        backgroundColor: themePrimary,
+                        color: themePrimaryText,
+                      }}
                       onClick={triggerTalkToSomeone}
                     >
                       {t.talkToSomeoneButton}

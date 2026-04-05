@@ -1,14 +1,46 @@
 /**
  * Visitor-facing copy for the widget chat UI.
- * Locale is derived from the browser (`navigator.language`); extend with org settings later if needed.
+ *
+ * Resolution order:
+ * 1. URL `?lang=fr` or `?lang=en` on the widget iframe (snippet can add it; overrides browser).
+ * 2. First match in `navigator.languages` (user preferred list) for `fr*` or `en*`.
+ * 3. `navigator.language` — `fr*` → FR, anything else → EN (only fr/en are shipped today).
+ *
+ * So "Talk to someone" vs "Parler à quelqu'un" follows that locale, not the org country.
+ * Backend copy for the AI may still be English unless your prompts / visitorLocale handle FR.
  */
 
 export type WidgetUiLocale = "en" | "fr";
 
+function localeFromLangTag(tag: string): WidgetUiLocale | null {
+  const t = tag.trim().toLowerCase();
+  if (t.startsWith("fr")) return "fr";
+  if (t.startsWith("en")) return "en";
+  return null;
+}
+
 export function getWidgetUiLocale(): WidgetUiLocale {
+  if (typeof window !== "undefined") {
+    try {
+      const q = new URLSearchParams(window.location.search).get("lang")?.toLowerCase();
+      if (q === "fr" || q === "en") return q;
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (typeof navigator === "undefined") return "en";
-  const primary = (navigator.language || "en").toLowerCase();
-  if (primary.startsWith("fr")) return "fr";
+
+  const fromList =
+    typeof navigator.languages !== "undefined" && navigator.languages.length
+      ? navigator.languages
+      : [navigator.language || "en"];
+
+  for (const raw of fromList) {
+    const hit = localeFromLangTag(String(raw));
+    if (hit) return hit;
+  }
+
   return "en";
 }
 
@@ -76,12 +108,16 @@ export type WidgetUiCopy = {
   qualifyCompanyPlaceholder: string;
   qualifyRolePlaceholder: string;
   qualifyPhonePlaceholder: string;
+  /** Screen readers while assistant is replying */
+  assistantTyping: string;
+  /** Short line next to typing spinner */
+  thinkingShort: string;
 };
 
 export const widgetUiCopy: Record<WidgetUiLocale, WidgetUiCopy> = {
   en: {
     preparingResponse:
-      "One sec… I’m preparing the response.\n\nIf you’d rather speak to a human, just say it.",
+      "This is taking a little longer than usual.\n\nSay “talk to someone” if you’d prefer a human teammate.",
     teammateTimeoutBooking:
       `⏳ If no teammate answers right away, you can book a quick meeting instead.\n` +
       `Click “Book a meeting” to pick a slot.`,
@@ -111,7 +147,7 @@ export const widgetUiCopy: Record<WidgetUiLocale, WidgetUiCopy> = {
     detailsDataProcessed: "Details about how your data may be processed.",
     noAvailabilityFound: "No availability found.",
     noAvailabilityTryLater: "No availability found right now. Please try again later.",
-    placeholderMessage: "Write your message…",
+    placeholderMessage: "Message…",
     privacyDefaultTitle: "Privacy & data usage",
     hereLink: "here",
     youAreBooked: (repName, meetingUrl) =>
@@ -149,10 +185,12 @@ export const widgetUiCopy: Record<WidgetUiLocale, WidgetUiCopy> = {
     qualifyCompanyPlaceholder: "Acme Inc.",
     qualifyRolePlaceholder: "e.g. PM",
     qualifyPhonePlaceholder: "+33 6 12 34 56 78",
+    assistantTyping: "Assistant is replying",
+    thinkingShort: "Thinking…",
   },
   fr: {
     preparingResponse:
-      "Un instant… je prépare la réponse.\n\nSi vous préférez parler à un humain, dites-le simplement.",
+      "Cela prend un peu plus de temps que d’habitude.\n\nDites « parler à quelqu’un » si vous préférez un membre de l’équipe.",
     teammateTimeoutBooking:
       `⏳ Si personne de l’équipe ne répond tout de suite, vous pouvez réserver un court rendez-vous.\n` +
       `Cliquez sur « Prendre rendez-vous » pour choisir un créneau.`,
@@ -184,7 +222,7 @@ export const widgetUiCopy: Record<WidgetUiLocale, WidgetUiCopy> = {
     detailsDataProcessed: "Détails sur le traitement de vos données.",
     noAvailabilityFound: "Aucune disponibilité trouvée.",
     noAvailabilityTryLater: "Aucune disponibilité pour le moment. Réessayez plus tard.",
-    placeholderMessage: "Écrivez votre message…",
+    placeholderMessage: "Votre message…",
     privacyDefaultTitle: "Confidentialité et données",
     hereLink: "ici",
     youAreBooked: (repName, meetingUrl) =>
@@ -224,6 +262,8 @@ export const widgetUiCopy: Record<WidgetUiLocale, WidgetUiCopy> = {
     qualifyCompanyPlaceholder: "Ex. Ma Société",
     qualifyRolePlaceholder: "ex. chef de projet",
     qualifyPhonePlaceholder: "+33 6 12 34 56 78",
+    assistantTyping: "L’assistant répond",
+    thinkingShort: "Réflexion…",
   },
 };
 

@@ -8,6 +8,13 @@ import { escalateConversation } from "../system/ai/tools/escalateConversation";
 import { resolveConversation } from "../system/ai/tools/resolveConversation";
 import { saveMessage } from "@convex-dev/agent";
 import rag from "../system/ai/rag";
+import {
+  VISITOR_CHAT_TOOLS_AND_BLOCKS,
+  VISITOR_ESCALATION_AND_RESOLUTION,
+  VISITOR_MODE_LLM_ONLY,
+  VISITOR_MODE_LLM_PLUS_KB,
+  VISITOR_OUTPUT_STYLE,
+} from "../system/ai/visitorPrompt";
 
 type KnowledgeMode = "llm_only" | "llm_plus_kb" | "kb_only";
 
@@ -42,42 +49,130 @@ function kbOnlyFallback(loc: VisitorLocale) {
   return loc === "fr" ? KB_ONLY_FALLBACK_FR : KB_ONLY_FALLBACK_EN;
 }
 
-const VISITOR_SYSTEM_MESSAGES = {
-  en: {
-    escalationConnecting: "Got it! Connecting you with a human teammate now.",
-    assistantInactive:
-      "One moment — the assistant is not active on this workspace right now. You can ask to speak with a human.",
-    generationFallback:
-      "I’m having trouble generating a reply right now. Please try again, or ask to speak with a human.",
-  },
-  fr: {
-    escalationConnecting: "Parfait — je vous mets en relation avec un membre de l’équipe.",
-    assistantInactive:
-      "Un instant — l’assistant n’est pas actif sur cet espace pour le moment. Vous pouvez demander à parler à quelqu’un.",
-    generationFallback:
-      "Je n’arrive pas à générer de réponse pour le moment. Réessayez, ou demandez à parler à un humain.",
-  },
-} as const;
+/** User is asking about money, plans, or commercial terms. */
+function userAsksPricingOrPlans(prompt: string): boolean {
+  return /\b(pricing|price|prices|cost|costs|subscription|subscriptions|plan|plans|tier|tiers|how much|tarif|tarifs|abonnement|combien|€|\$|eur|usd|upgrade|downgrade|invoice|facture)\b/i.test(
+    prompt,
+  );
+}
 
-const KB_STRICT_REWRITE_AGENT_INSTRUCTIONS = `
+/**
+ * True only if retrieved KB text plausibly contains real pricing / commercial info.
+ * If the user asked for pricing but this is false, we must NOT call the LLM (it will invent $9.99 tiers).
+ */
+function kbSnippetContainsPricingOrCommercialDetail(kb: string): boolean {
+  const k = kb.toLowerCase();
+  if (/[€$£]\s*\d|\d[\d.,]*\s*(€|eur|\$|usd|£)/.test(k)) return true;
+  if (/\b(per month|\/mo|\/month|monthly|annual|annually|par mois|mensuel|annuel|\/an)\b/.test(k)) return true;
+  if (/\b(free trial|essai gratuit|no credit card)\b/.test(k)) return true;
+  if (/\b(contact|sales|commercial|devis|demo|book a|schedule)\b/.test(k) && /\b(pricing|price|plan|tarif|abonnement|offre)\b/.test(k))
+    return true;
+  return false;
+}
+
+function kbStrictRewriteInstructions(exactFallback: string, loc: VisitorLocale): string {
+  const langRule =
+    loc === "fr"
+      ? "When answering from INTERNAL_KB_CONTEXT (not when outputting the fallback), write entirely in French."
+      : "When answering from INTERNAL_KB_CONTEXT (not when outputting the fallback), write in English unless the visitor wrote in French — then write entirely in French.";
+  return `
 You are a Strict KB Rewrite Assistant.
 
-ABSOLUTE RULES:
-- You must answer using ONLY the provided INTERNAL_KB_CONTEXT.
-- Do NOT use outside knowledge.
-- Do NOT infer missing details.
-- Do NOT invent steps, pricing, limits, policies, roadmap, or integrations.
-- If INTERNAL_KB_CONTEXT does not contain enough information to answer, reply EXACTLY with:
-"${KB_ONLY_FALLBACK_EN}"
+LANGUAGE:
+- ${langRule}
 
-FORMAT RULES:
-- Write in clean, readable Markdown.
+ABSOLUTE RULES (violating any rule = failure):
+- Use ONLY facts that are clearly supported by INTERNAL_KB_CONTEXT below.
+- Do NOT use general world knowledge, "typical SaaS" examples, or imagined product details.
+- NEVER invent or guess: prices, currencies, plan names, feature bullets, storage limits, seat counts, emails (e.g. sales@example.com), URLs, phone numbers, SLAs, or integrations.
+- If the visitor asks about pricing, plans, subscriptions, or "how much", and INTERNAL_KB_CONTEXT does NOT contain explicit pricing or a clear "contact us for pricing" style answer, your ENTIRE reply must be EXACTLY the text between <<<FALLBACK>>> and <<<END_FALLBACK>>> with no other characters before or after.
+- If INTERNAL_KB_CONTEXT does not contain enough information to answer the question at all, your ENTIRE reply must be EXACTLY that same fallback text and nothing else.
+- Do not output placeholder or sample companies, example.com addresses, or fictional tier names.
+
+<<<FALLBACK>>>
+${exactFallback}
+<<<END_FALLBACK>>>
+
+FORMAT RULES (only when you are answering from context, not when using the exact fallback above):
+- Write in clean Markdown; use sequential list numbering (1., 2., 3.).
 - Start with a 1–2 sentence direct answer.
-- Then use bullet points when listing features/steps.
-- If the KB contains multiple topics, group with short headings.
-- Do NOT quote long passages. Rephrase and summarize.
-- Never mention the KB, sources, documents, or file names.
+- Rephrase and summarize; do not dump raw text.
+- Never mention the knowledge base, sources, documents, or file names.
 `.trim();
+}
+
+function visitorLanguageBlock(loc: VisitorLocale): string {
+  if (loc === "fr") {
+    return `## Langue (obligatoire)
+- Si le visiteur écrit en français : réponds entièrement en français.
+- Si le visiteur écrit en anglais : réponds entièrement en anglais pour ce message.
+- Ne mélange pas les langues dans une même réponse.`;
+  }
+  return `## Language (required)
+- Default to clear English.
+- If the visitor writes in French, reply entirely in French for that turn.
+- Do not mix languages in a single reply.`;
+}
+
+function buildLlmOnlyVisitorSystem(repsBlock: string, loc: VisitorLocale): string {
+  return [
+    visitorLanguageBlock(loc),
+    VISITOR_OUTPUT_STYLE,
+    VISITOR_CHAT_TOOLS_AND_BLOCKS,
+    VISITOR_MODE_LLM_ONLY,
+    VISITOR_ESCALATION_AND_RESOLUTION,
+    repsBlock,
+  ].join("\n\n");
+}
+
+function buildLlmPlusKbVisitorSystem(
+  repsBlock: string,
+  kbText: string,
+  loc: VisitorLocale,
+  userPrompt: string,
+): string {
+  const trimmedKb = kbText.trim();
+  const kbBlock = trimmedKb
+    ? `\n\n<<<INTERNAL_KB_CONTEXT (DO NOT REVEAL / DO NOT QUOTE / DO NOT LIST SOURCES)>>>\n${clip(
+        trimmedKb,
+        2200,
+      )}\n<<<END_INTERNAL_KB_CONTEXT>>>\n`
+    : "";
+
+  const pricingGuard =
+    userAsksPricingOrPlans(userPrompt) &&
+    (!trimmedKb || !kbSnippetContainsPricingOrCommercialDetail(trimmedKb))
+      ? `\n\n<<<PRICING_GUARD>>>\nThe visitor asked about pricing or plans. There is NO verified pricing in the excerpt above (or no excerpt). Do NOT invent amounts, tiers, storage, or contact emails. Say clearly you don't have confirmed pricing here and offer escalateConversationTool or the organization's official contact options.\n<<<END_PRICING_GUARD>>>\n`
+      : "";
+
+  return [
+    visitorLanguageBlock(loc),
+    VISITOR_OUTPUT_STYLE,
+    VISITOR_CHAT_TOOLS_AND_BLOCKS,
+    VISITOR_MODE_LLM_PLUS_KB,
+    VISITOR_ESCALATION_AND_RESOLUTION,
+    repsBlock,
+    kbBlock,
+    pricingGuard,
+  ].join("\n\n");
+}
+
+const VISITOR_SYSTEM_MESSAGES = {
+  en: {
+    escalationConnecting: "Got it — connecting you with someone from the team now.",
+    assistantInactive:
+      "The AI assistant isn’t available on this workspace yet (plan inactive). Please use the site’s contact options or ask your host to activate the plan.",
+    generationFallback:
+      "Something went wrong on our side. Please try again in a moment, or ask to speak with someone from the team.",
+  },
+  fr: {
+    escalationConnecting: "Parfait — je vous mets en relation avec quelqu’un de l’équipe.",
+    assistantInactive:
+      "L’assistant IA n’est pas disponible sur cet espace pour le moment (offre inactive). Utilisez les moyens de contact du site ou demandez l’activation du plan.",
+    generationFallback:
+      "Un petit souci technique de notre côté. Réessayez dans un instant, ou demandez à parler à quelqu’un de l’équipe.",
+  },
+} as const;
 
 // ✅ hard human-intent detector (deterministic escalation)
 function wantsHuman(text: string) {
@@ -115,7 +210,12 @@ function wantsHuman(text: string) {
     t.includes("operateur") ||
     t.includes("opérateur") ||
     t.includes("mettez-moi en relation") ||
-    t.includes("mise en relation")
+    t.includes("mise en relation") ||
+    t.includes("agent humain") ||
+    t.includes("vraie personne") ||
+    t.includes("get me a human") ||
+    t.includes("speak to sales") ||
+    t.includes("talk to sales")
   );
 }
 
@@ -184,14 +284,20 @@ async function smartRagSearch(
  * Retry wrapper: avoids provider cold-start flakiness.
  * IMPORTANT: Don't write user-visible fallback here.
  */
-async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any) {
+async function safeGenerate(
+  agent: any,
+  ctx: any,
+  threadId: string,
+  payload: any,
+  callOptions?: { storageOptions?: { saveMessages?: "all" | "none" | "promptAndOutput" } },
+) {
   try {
-    await agent.generateText(ctx, { threadId }, payload);
+    await agent.generateText(ctx, { threadId }, payload, callOptions);
     return { ok: true as const };
   } catch (e1) {
     await new Promise((r) => setTimeout(r, 250));
     try {
-      await agent.generateText(ctx, { threadId }, payload);
+      await agent.generateText(ctx, { threadId }, payload, callOptions);
       return { ok: true as const };
     } catch (e2) {
       console.error("agent.generateText failed twice", e2);
@@ -284,7 +390,8 @@ export const create = action({
       return;
     }
 
-    const shouldTriggerAgent = subscription?.status === "active";
+    const subStatus = subscription?.status;
+    const shouldTriggerAgent = subStatus === "active" || subStatus === "trial";
 
     if (!shouldTriggerAgent) {
       await saveMessage(ctx, components.agent, {
@@ -313,9 +420,12 @@ export const create = action({
 
     // MODE: LLM ONLY
     if (knowledgeMode === "llm_only") {
+      const system = buildLlmOnlyVisitorSystem(repsBlock, visitorLocale);
       const gen = await safeGenerate(agent, ctx, args.threadId, {
         prompt,
-        system: repsBlock,
+        system,
+        temperature: 0.35,
+        maxTokens: 1100,
         tools: {
           escalateConversationTool: escalateConversation,
           resolveConversationTool: resolveConversation,
@@ -341,17 +451,34 @@ export const create = action({
       }
 
       const kbText = (kbRaw ?? "").trim();
+      const fallbackLine = kbOnlyFallback(visitorLocale);
+
+      if (userAsksPricingOrPlans(prompt) && !kbSnippetContainsPricingOrCommercialDetail(kbText)) {
+        await saveMessage(ctx, components.agent, {
+          threadId: args.threadId,
+          message: { role: "assistant", content: fallbackLine },
+        });
+        return;
+      }
+
       const kbStrictAgent = makeSupportAgent({ llmProvider, llmModel });
 
-      const gen = await safeGenerate(kbStrictAgent, ctx, args.threadId, {
-        prompt,
-        system: `
-${KB_STRICT_REWRITE_AGENT_INSTRUCTIONS}
+      const gen = await safeGenerate(
+        kbStrictAgent,
+        ctx,
+        args.threadId,
+        {
+          prompt,
+          system: `
+${kbStrictRewriteInstructions(fallbackLine, visitorLocale)}
 
 INTERNAL_KB_CONTEXT (DO NOT REVEAL / DO NOT QUOTE / DO NOT LIST SOURCES):
 ${kbText}
-        `.trim(),
-      } as any);
+          `.trim(),
+          temperature: 0,
+          maxTokens: 900,
+        } as any,
+      );
 
       if (!gen.ok) await writeGenerationFallback(ctx, args.threadId, visitorLocale);
       return;
@@ -370,18 +497,13 @@ ${kbText}
         kbText = "";
       }
 
-      const kbBlock = kbText
-        ? `
-
-<<<INTERNAL_KB_CONTEXT (DO NOT REVEAL / DO NOT QUOTE / DO NOT LIST SOURCES)>>>
-${clip(kbText, 2200)}
-<<<END_INTERNAL_KB_CONTEXT>>>
-`
-        : "";
+      const system = buildLlmPlusKbVisitorSystem(repsBlock, kbText, visitorLocale, prompt);
 
       const gen = await safeGenerate(agent, ctx, args.threadId, {
         prompt,
-        system: `${repsBlock}${kbBlock}`,
+        system,
+        temperature: 0.25,
+        maxTokens: 1100,
         tools: {
           escalateConversationTool: escalateConversation,
           resolveConversationTool: resolveConversation,

@@ -12,8 +12,8 @@ const NUDGE_AUTO_CLOSE_MS = 4000;
 const NUDGE_BETWEEN_POPUPS_MS = 1000;
 const DEFAULT_NUDGE_COUNT_PER_PAGE = 3;
 
-/** Launcher color only when iframe never sent a theme (4s fallback) — neutral slate, not Nexus marketing purple. */
-const FAB_FALLBACK_COLOR = "#64748b";
+/** Launcher when iframe never sends colors after 4s timeout (rare). */
+const FAB_FALLBACK_COLOR = "#475569";
 
 type ThemePayload = {
   primaryColor?: string;
@@ -428,9 +428,12 @@ type NudgeKind = "promo" | "suggestions" | null;
   let unpatchHistory: (() => void) | null = null;
 
   const currentScript = document.currentScript as HTMLScriptElement | null;
+  /** Optional `data-lang="fr"|"en"` on the embed script — wins over page `<html lang>`. */
+  let scriptDataLang: string | null = null;
 
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
+    scriptDataLang = currentScript.getAttribute("data-lang");
     position =
       (currentScript.getAttribute(
         "data-position",
@@ -444,12 +447,32 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
+      scriptDataLang = embedScript.getAttribute("data-lang");
       position =
         (embedScript.getAttribute(
           "data-position",
         ) as "bottom-right" | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
       parseNudgeCountFromAttrs(embedScript);
     }
+  }
+
+  function widgetIframeLang(): "fr" | "en" {
+    const d = scriptDataLang?.trim().toLowerCase();
+    if (d === "fr" || d === "en") return d;
+    try {
+      const htmlLang = document.documentElement?.getAttribute("lang")?.trim().toLowerCase();
+      if (htmlLang?.startsWith("fr")) return "fr";
+      if (htmlLang?.startsWith("en")) return "en";
+    } catch {
+      /* ignore */
+    }
+    try {
+      const nav = navigator.language?.toLowerCase() || "";
+      if (nav.startsWith("fr")) return "fr";
+    } catch {
+      /* ignore */
+    }
+    return "en";
   }
 
   if (!organizationId) {
@@ -634,6 +657,7 @@ type NudgeKind = "promo" | "suggestions" | null;
   function buildWidgetUrl(): string {
     const params = new URLSearchParams();
     params.append("organizationId", organizationId!);
+    params.append("lang", widgetIframeLang());
     return `${EMBED_CONFIG.WIDGET_URL}?${params.toString()}`;
   }
 
@@ -1072,12 +1096,29 @@ type NudgeKind = "promo" | "suggestions" | null;
       return;
     }
 
-    const bubbleColor =
-      theme?.chatBubbleColor || theme?.primaryColor || FAB_FALLBACK_COLOR;
-    const textColor = theme?.primaryTextColor || "#ffffff";
+    const chatC = theme?.chatBubbleColor?.trim();
+    const primC = theme?.primaryColor?.trim();
+    let bubbleColor: string;
+    if (chatC) bubbleColor = chatC;
+    else if (primC) bubbleColor = primC;
+    else if (fabRevealForced) bubbleColor = FAB_FALLBACK_COLOR;
+    else if (brandLogoUrl?.trim()) bubbleColor = "transparent";
+    else bubbleColor = "#ffffff";
+
+    const isLightFab =
+      bubbleColor === "transparent" ||
+      bubbleColor === "#ffffff" ||
+      bubbleColor.toLowerCase() === "#fff";
+    const textColor =
+      theme?.primaryTextColor?.trim() ||
+      (isLightFab ? "#334155" : "#ffffff");
 
     button.style.background = bubbleColor;
     button.style.color = textColor;
+    button.style.border =
+      isLightFab && fabEmbedBrandingKnown && !fabRevealForced
+        ? "1px solid rgba(15,23,42,0.1)"
+        : "none";
 
     // When open, keep close icon (don't override innerHTML)
     if (isOpen) {
