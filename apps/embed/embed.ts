@@ -411,10 +411,12 @@ type NudgeKind = "promo" | "suggestions" | null;
   let brandLogoUrl: string | null = null;
   let embedLayout: "compact" | "full_width_bottom" = "compact";
 
-  // éviter flash bleu
+  // éviter flash FAB (violet + icône par défaut) avant que l’iframe ait envoyé le branding réel
   let fabRevealed = false;
-  /** True after first `nexus:theme` / `nexus:suggestions` (widget Convex settings applied). */
-  let fabConfigSynced = false;
+  /** True once the iframe has sent branding we can trust (theme / suggestions / promo merge). */
+  let fabEmbedBrandingKnown = false;
+  /** True after iframe load fallback timeout so the FAB never stays invisible forever. */
+  let fabRevealForced = false;
   let fabFallbackRevealTimer: number | null = null;
 
   // patchHistory cleanup
@@ -608,7 +610,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       fabFallbackRevealTimer = window.setTimeout(() => {
         fabFallbackRevealTimer = null;
         if (fabRevealed) return;
-        fabConfigSynced = true;
+        fabRevealForced = true;
         applyThemeToFab();
       }, 4000);
     };
@@ -646,7 +648,7 @@ type NudgeKind = "promo" | "suggestions" | null;
         break;
 
       case "nexus:theme": {
-        fabConfigSynced = true;
+        fabEmbedBrandingKnown = true;
         const p = payload as {
           theme?: ThemePayload;
           brandLogoUrl?: string;
@@ -669,7 +671,7 @@ type NudgeKind = "promo" | "suggestions" | null;
         // ✅ If promo already selected, ignore suggestions (prevents flicker)
         if (nudgeKind === "promo") return;
 
-        fabConfigSynced = true;
+        fabEmbedBrandingKnown = true;
         theme = sp.theme || theme || null;
         brandLogoUrl = sp.brandLogoUrl || brandLogoUrl || null;
         applyThemeToFab();
@@ -918,10 +920,15 @@ type NudgeKind = "promo" | "suggestions" | null;
     promoSequenceItems = sequenceEnabled ? allItems.slice(0, maxItems) : allItems.slice(0, 1);
     promoSequenceSettings = settings;
 
-    if (!promoSequenceItems.length) return;
+    if (!promoSequenceItems.length) {
+      hasNudgePayload = false;
+      nudgeKind = null;
+      return;
+    }
 
     theme = promoSequenceItems[0]?.theme || theme || null;
     brandLogoUrl = promoSequenceItems[0]?.brandLogoUrl || brandLogoUrl || null;
+    fabEmbedBrandingKnown = true;
     applyThemeToFab();
 
     const elapsed = Date.now() - lastNavigationTs;
@@ -1029,10 +1036,9 @@ type NudgeKind = "promo" | "suggestions" | null;
     if (!button) return;
     if (fabRevealed) return;
 
-    // Wait until the iframe has sent theme/settings (or we have a nudge/promo payload).
-    // Revealing on iframe `load` alone caused a purple default FAB (#a855f7) until Convex
-    // returned — visible "flash". Fallback timer in iframe.onload still avoids FAB stuck hidden.
-    if (!fabConfigSynced && !hasNudgePayload) return;
+    // Do not show until the iframe has announced branding (or load fallback), even if a nudge
+    // was scheduled — `hasNudgePayload` alone used to reveal the default #a855f7 FAB too early.
+    if (!fabEmbedBrandingKnown && !fabRevealForced) return;
 
     if (fabFallbackRevealTimer !== null) {
       window.clearTimeout(fabFallbackRevealTimer);
@@ -1047,17 +1053,17 @@ type NudgeKind = "promo" | "suggestions" | null;
   function applyThemeToFab() {
     if (!button) return;
 
-
     const bubbleColor = theme?.chatBubbleColor || theme?.primaryColor || "#a855f7";
     const textColor = theme?.primaryTextColor || "#ffffff";
 
     button.style.background = bubbleColor;
     button.style.color = textColor;
 
-    revealFabIfNeeded();
-
-    // When open, keep close icon (don't override)
-    if (isOpen) return;
+    // When open, keep close icon (don't override innerHTML)
+    if (isOpen) {
+      revealFabIfNeeded();
+      return;
+    }
 
     if (brandLogoUrl) {
       const safeLogo = escapeAttr(brandLogoUrl);
@@ -1078,6 +1084,8 @@ type NudgeKind = "promo" | "suggestions" | null;
     } else {
       button.innerHTML = chatBubbleIcon;
     }
+
+    revealFabIfNeeded();
   }
 
 
@@ -2153,6 +2161,11 @@ type NudgeKind = "promo" | "suggestions" | null;
       button = null;
     }
 
+    if (fabFallbackRevealTimer !== null) {
+      window.clearTimeout(fabFallbackRevealTimer);
+      fabFallbackRevealTimer = null;
+    }
+
     isOpen = false;
     iframeLoaded = false;
     TARGET_ORIGIN = "";
@@ -2161,6 +2174,8 @@ type NudgeKind = "promo" | "suggestions" | null;
     theme = null;
     brandLogoUrl = null;
     fabRevealed = false;
+    fabEmbedBrandingKnown = false;
+    fabRevealForced = false;
     hasNudgePayload = false;
     nudgeDismissed = false;
 
