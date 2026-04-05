@@ -39,7 +39,7 @@ type MediaPlacement = "top" | "bottom" | "left" | "right" | "framed";
 type MediaHeight = "compact" | "standard" | "tall" | "hero";
 
 type NudgeContentBlockPayload =
-  | { type: "text"; id: string; text: string }
+  | { type: "text"; id: string; text: string; align?: "left" | "center" | "right" }
   | { type: "image"; id: string; url: string }
   | { type: "video"; id: string; url: string };
 

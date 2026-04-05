@@ -48,6 +48,71 @@ function expandHex3To6(h: string): string {
   return `#${x[0]}${x[0]}${x[1]}${x[1]}${x[2]}${x[2]}`.toLowerCase();
 }
 
+/**
+ * Fix common typos before Zod: missing `#`, 7-digit hex (#fa964ab), 8-digit with alpha (#rrggbbaa).
+ */
+export function sanitizeHexColorString(raw: string): string {
+  let t = raw.trim();
+  if (!t) return t;
+  if (/^#[0-9a-fA-F]{8}$/i.test(t)) {
+    t = t.slice(0, 7);
+  } else if (/^#[0-9a-fA-F]{7}$/i.test(t)) {
+    t = t.slice(0, 7);
+  }
+  const n = normalizeHexTextInput(t);
+  if (THEME_HEX_RE.test(n.trim())) {
+    const x = n.trim();
+    return x.length === 4 ? expandHex3To6(x) : x.toLowerCase();
+  }
+  return t;
+}
+
+function preprocessThemeColors(raw: unknown): unknown {
+  if (raw == null || typeof raw !== "object") return raw;
+  const o = { ...(raw as Record<string, unknown>) };
+  const keys = [
+    "primaryColor",
+    "primaryTextColor",
+    "secondaryColor",
+    "secondaryTextColor",
+    "nudgeBackgroundColor",
+    "chatBubbleColor",
+  ] as const;
+  for (const k of keys) {
+    if (typeof o[k] !== "string") continue;
+    o[k] = sanitizeHexColorString(o[k] as string);
+  }
+  return o;
+}
+
+/** Maps `undefined` / whitespace-only to `""`. */
+function coerceUrlOrEmpty(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v !== "string") return "";
+  return v.trim();
+}
+
+/**
+ * Empty string or http(s) URL only.
+ * Avoids `z.union([z.literal(""), z.string().url()])`, which surfaces a confusing
+ * "Invalid literal value, expected """" when the value is a non-empty invalid URL.
+ */
+const optionalUrlOrEmpty = z.preprocess(
+  coerceUrlOrEmpty,
+  z.string().refine(
+    (s) => {
+      if (s === "") return true;
+      try {
+        const u = new URL(s);
+        return u.protocol === "http:" || u.protocol === "https:";
+      } catch {
+        return false;
+      }
+    },
+    { message: "Enter a valid https or http URL, or leave empty." },
+  ),
+);
+
 function isHttpsOrHttpUrl(s: string | undefined): boolean {
   if (!s || !s.trim()) return false;
   try {
@@ -87,22 +152,22 @@ export const widgetSettingsSchema = z
     // -------------------------
     // Branding
     // -------------------------
-    brandLogoUrl: z.union([
-      z.literal(""),
-      z.string().url("Enter a valid https URL for the logo, or leave empty."),
-    ]),
+    brandLogoUrl: optionalUrlOrEmpty,
 
-    theme: z
-      .object({
-        primaryColor: themeHexColorSchema,
-        primaryTextColor: themeHexColorSchema,
-        secondaryColor: themeHexColorSchema,
-        secondaryTextColor: themeHexColorSchema,
-        nudgeBackgroundColor: themeHexColorSchema,
-        chatBubbleColor: themeHexColorSchema,
-      })
-      .partial()
-      .optional(),
+    theme: z.preprocess(
+      preprocessThemeColors,
+      z
+        .object({
+          primaryColor: themeHexColorSchema,
+          primaryTextColor: themeHexColorSchema,
+          secondaryColor: themeHexColorSchema,
+          secondaryTextColor: themeHexColorSchema,
+          nudgeBackgroundColor: themeHexColorSchema,
+          chatBubbleColor: themeHexColorSchema,
+        })
+        .partial()
+        .optional(),
+    ),
 
     embedLayout: z
       .enum(["compact", "full_width_bottom"])
@@ -112,10 +177,7 @@ export const widgetSettingsSchema = z
     // -------------------------
     // Legacy privacy URL
     // -------------------------
-    privacyUrl: z.union([
-      z.literal(""),
-      z.string().url("Enter a valid https URL or leave empty."),
-    ]),
+    privacyUrl: optionalUrlOrEmpty,
 
     // -------------------------
     // Consent & Privacy block
@@ -134,10 +196,7 @@ export const widgetSettingsSchema = z
 
         linkMode: z.enum(["link", "modal"]).default("link"),
 
-        privacyUrl: z.union([
-          z.literal(""),
-          z.string().url("Enter a valid https URL or leave empty."),
-        ]),
+        privacyUrl: optionalUrlOrEmpty,
         modalContent: z.string().optional(),
       })
       .optional(),

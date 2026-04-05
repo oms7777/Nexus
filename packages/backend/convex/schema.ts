@@ -472,6 +472,9 @@ export default defineSchema({
               type: v.literal("text"),
               id: v.string(),
               text: v.string(),
+              align: v.optional(
+                v.union(v.literal("left"), v.literal("center"), v.literal("right")),
+              ),
             }),
             v.object({
               type: v.literal("image"),
@@ -593,6 +596,9 @@ export default defineSchema({
                       type: v.literal("text"),
                       id: v.string(),
                       text: v.string(),
+                      align: v.optional(
+                        v.union(v.literal("left"), v.literal("center"), v.literal("right")),
+                      ),
                     }),
                     v.object({
                       type: v.literal("image"),

@@ -38,7 +38,7 @@ import z from "zod";
 import {
   widgetSettingsSchema,
   coerceHexForNativeColorInput,
-  normalizeHexTextInput,
+  sanitizeHexColorString,
 } from "../../schemas";
 
 function firstNestedFormErrorMessage(errors: unknown): string | null {
@@ -103,7 +103,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
           "#d946ef",
       },
       brandLogoUrl: initialData?.brandLogoUrl || "",
-      privacyUrl: initialData?.privacyUrl ?? undefined,
+      privacyUrl: initialData?.privacyUrl?.trim() || "",
       consent: {
         enabled: initialData?.consent?.enabled ?? true,
         title:
@@ -400,7 +400,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                   placeholder="#a855f7"
                                   autoComplete="off"
                                   onBlur={(e) => {
-                                    const n = normalizeHexTextInput(e.target.value);
+                                    const n = sanitizeHexColorString(e.target.value);
                                     if (n !== e.target.value) field.onChange(n);
                                     field.onBlur();
                                   }}
@@ -435,7 +435,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                   placeholder="#ffffff"
                                   autoComplete="off"
                                   onBlur={(e) => {
-                                    const n = normalizeHexTextInput(e.target.value);
+                                    const n = sanitizeHexColorString(e.target.value);
                                     if (n !== e.target.value) field.onChange(n);
                                     field.onBlur();
                                   }}
@@ -470,7 +470,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                   placeholder="#ffffff"
                                   autoComplete="off"
                                   onBlur={(e) => {
-                                    const n = normalizeHexTextInput(e.target.value);
+                                    const n = sanitizeHexColorString(e.target.value);
                                     if (n !== e.target.value) field.onChange(n);
                                     field.onBlur();
                                   }}
@@ -505,7 +505,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                   placeholder="#0f172a"
                                   autoComplete="off"
                                   onBlur={(e) => {
-                                    const n = normalizeHexTextInput(e.target.value);
+                                    const n = sanitizeHexColorString(e.target.value);
                                     if (n !== e.target.value) field.onChange(n);
                                     field.onBlur();
                                   }}
@@ -540,7 +540,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                   placeholder="#ffffff"
                                   autoComplete="off"
                                   onBlur={(e) => {
-                                    const n = normalizeHexTextInput(e.target.value);
+                                    const n = sanitizeHexColorString(e.target.value);
                                     if (n !== e.target.value) field.onChange(n);
                                     field.onBlur();
                                   }}
@@ -575,7 +575,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                                   placeholder="#d946ef"
                                   autoComplete="off"
                                   onBlur={(e) => {
-                                    const n = normalizeHexTextInput(e.target.value);
+                                    const n = sanitizeHexColorString(e.target.value);
                                     if (n !== e.target.value) field.onChange(n);
                                     field.onBlur();
                                   }}

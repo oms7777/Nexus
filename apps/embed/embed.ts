@@ -28,7 +28,7 @@ type SimpleCta = {
 };
 
 type NudgeContentBlock =
-  | { type: "text"; id: string; text: string }
+  | { type: "text"; id: string; text: string; align?: "left" | "center" | "right" }
   | { type: "image"; id: string; url: string }
   | { type: "video"; id: string; url: string };
 
@@ -160,6 +160,11 @@ function promoLegacyMediaInnerHtml(
   return "";
 }
 
+function normalizeBlockTextAlign(raw: unknown): "left" | "center" | "right" | undefined {
+  if (raw === "center" || raw === "right" || raw === "left") return raw;
+  return undefined;
+}
+
 function normalizeContentBlocksFromPayload(raw: unknown): NudgeContentBlock[] {
   if (!Array.isArray(raw)) return [];
   const out: NudgeContentBlock[] = [];
@@ -171,7 +176,14 @@ function normalizeContentBlocksFromPayload(raw: unknown): NudgeContentBlock[] {
     const t = o.type;
     if (t === "text" && typeof o.text === "string") {
       const text = o.text.slice(0, MAX_NUDGE_BLOCK_TEXT_LEN);
-      if (text.trim().length > 0) out.push({ type: "text", id, text });
+      if (text.trim().length > 0) {
+        const align = normalizeBlockTextAlign(o.align);
+        out.push(
+          align && align !== "left"
+            ? { type: "text", id, text, align }
+            : { type: "text", id, text },
+        );
+      }
     } else if (t === "image" && typeof o.url === "string") {
       const url = o.url.trim().slice(0, 2048);
       if (url && isSafeHttpUrlForNudge(url)) out.push({ type: "image", id, url });
@@ -224,8 +236,14 @@ function buildContentBlocksStackHtml(
   for (const b of blocks) {
     const top = parts.length > 0 ? "10px" : "0";
     if (b.type === "text") {
+      const ta =
+        b.align === "center" || b.align === "right"
+          ? `text-align:${b.align};`
+          : b.align === "left"
+            ? "text-align:left;"
+            : "";
       parts.push(
-        `<div style="margin-top:${top};color:#4b5563;font-size:${spec.bodyPx}px;line-height:1.4;word-break:break-word;">${escapeHtmlNudge(b.text.trim())}</div>`,
+        `<div style="margin-top:${top};color:#4b5563;font-size:${spec.bodyPx}px;line-height:1.4;word-break:break-word;${ta}">${escapeHtmlNudge(b.text.trim())}</div>`,
       );
     } else if (b.type === "image") {
       const u = escapeAttrNudge(b.url);

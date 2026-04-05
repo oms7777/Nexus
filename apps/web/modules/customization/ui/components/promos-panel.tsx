@@ -129,11 +129,14 @@ const nudgeBlockUrlZ = z.string().max(2048).refine((s) => {
   }
 }, "Must be an http(s) URL");
 
+const nudgeTextAlignZ = z.enum(["left", "center", "right"]).optional();
+
 const nudgeContentBlockSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("text"),
     id: nudgeBlockIdZ,
     text: z.string().max(1500),
+    align: nudgeTextAlignZ,
   }),
   z.object({
     type: z.literal("image"),
@@ -276,7 +279,10 @@ function sanitizeContentBlocksForPersist(
     if (out.length >= MAX_NUDGE_CONTENT_BLOCKS) break;
     if (b.type === "text") {
       const t = b.text.trim();
-      if (t) out.push({ ...b, text: t });
+      if (t) {
+        const align = b.align === "center" || b.align === "right" ? b.align : undefined;
+        out.push({ type: "text", id: b.id, text: t, ...(align ? { align } : {}) });
+      }
     } else {
       const u = b.url.trim();
       try {
@@ -301,7 +307,10 @@ function lenientContentBlocksForPreview(
     if (out.length >= MAX_NUDGE_CONTENT_BLOCKS) break;
     if (b.type === "text") {
       const t = (b.text ?? "").trim();
-      if (t) out.push({ ...b, text: t });
+      if (t) {
+        const align = b.align === "center" || b.align === "right" ? b.align : undefined;
+        out.push({ type: "text", id: b.id, text: t, ...(align ? { align } : {}) });
+      }
     } else {
       const u = (b.url ?? "").trim();
       if (!/^https?:\/\//i.test(u)) continue;
@@ -326,7 +335,17 @@ function normalizeContentBlocksFromApi(raw: unknown): NudgeContentBlockForm[] {
     const id = typeof o.id === "string" ? o.id : "";
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) continue;
     if (o.type === "text" && typeof o.text === "string") {
-      out.push({ type: "text", id, text: o.text.slice(0, 1500) });
+      const alignRaw = o.align;
+      const align =
+        alignRaw === "center" || alignRaw === "right" || alignRaw === "left"
+          ? alignRaw
+          : undefined;
+      out.push({
+        type: "text",
+        id,
+        text: o.text.slice(0, 1500),
+        ...(align && align !== "left" ? { align } : {}),
+      });
     } else if (o.type === "image" && typeof o.url === "string") {
       out.push({ type: "image", id, url: o.url.slice(0, 2048) });
     } else if (o.type === "video" && typeof o.url === "string") {
@@ -362,7 +381,8 @@ function PromoNudgeContentBlocksFields({
     <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
       <p className="text-xs font-bold uppercase tracking-wide text-slate-700">Structured content (optional)</p>
       <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-        Stack paragraphs and media in order. Plain text only (no HTML). Image/video blocks need{" "}
+        Stack paragraphs and media in order. Plain text only (no HTML); use Paragraph → Alignment for center/right.
+        Image/video blocks need{" "}
         <span className="font-medium">https</span> URLs. When you add blocks, they replace the classic body + single
         media on the site. With <span className="font-medium">exactly one</span> image or video block,{" "}
         <span className="font-medium">Media left / right</span> in Layout places it beside the text (same as the
@@ -423,18 +443,46 @@ function PromoNudgeContentBlocksFields({
               </div>
             </div>
             {block.type === "text" ? (
-              <Textarea
-                rows={3}
-                className="text-sm"
-                value={block.text}
-                onChange={(e) => {
-                  const next = blocks.map((b, i) =>
-                    i === idx ? { ...b, text: e.target.value } : b,
-                  );
-                  setBlocks(next);
-                }}
-                placeholder="Short paragraph…"
-              />
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label className="text-[10px] font-medium text-muted-foreground">Alignment</Label>
+                  <Select
+                    value={block.align ?? "left"}
+                    onValueChange={(v) => {
+                      const next = blocks.map((b, i) =>
+                        i === idx && b.type === "text"
+                          ? {
+                              ...b,
+                              align: v as "left" | "center" | "right",
+                            }
+                          : b,
+                      );
+                      setBlocks(next);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-[140px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="left">Left</SelectItem>
+                      <SelectItem value="center">Center</SelectItem>
+                      <SelectItem value="right">Right</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Textarea
+                  rows={3}
+                  className="text-sm"
+                  value={block.text}
+                  onChange={(e) => {
+                    const next = blocks.map((b, i) =>
+                      i === idx ? { ...b, text: e.target.value } : b,
+                    );
+                    setBlocks(next);
+                  }}
+                  placeholder="Short paragraph…"
+                />
+              </div>
             ) : (
               <div className="space-y-1.5">
                 <Input
@@ -2010,7 +2058,14 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const previewBlocksInner = previewBlocksMerged.map((b) =>
     b.type === "text" ? (
-      <p key={b.id} className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600">
+      <p
+        key={b.id}
+        className={cn(
+          "whitespace-pre-wrap text-xs leading-relaxed text-slate-600",
+          b.align === "center" && "text-center",
+          b.align === "right" && "text-right",
+        )}
+      >
         {b.text}
       </p>
     ) : b.type === "image" ? (
@@ -2060,7 +2115,14 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const previewTextBlocksOnly = previewBlocksMerged.filter((b) => b.type === "text");
   const previewTextBlocksInner = previewTextBlocksOnly.map((b) => (
-    <p key={b.id} className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600">
+    <p
+      key={b.id}
+      className={cn(
+        "whitespace-pre-wrap text-xs leading-relaxed text-slate-600",
+        b.align === "center" && "text-center",
+        b.align === "right" && "text-right",
+      )}
+    >
       {b.text}
     </p>
   ));

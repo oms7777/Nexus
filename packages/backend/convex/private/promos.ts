@@ -82,11 +82,18 @@ const mediaHeightV = v.union(
   v.literal("hero"),
 );
 
+const nudgeTextAlignV = v.union(
+  v.literal("left"),
+  v.literal("center"),
+  v.literal("right"),
+);
+
 const nudgeContentBlockV = v.union(
   v.object({
     type: v.literal("text"),
     id: v.string(),
     text: v.string(),
+    align: v.optional(nudgeTextAlignV),
   }),
   v.object({
     type: v.literal("image"),
