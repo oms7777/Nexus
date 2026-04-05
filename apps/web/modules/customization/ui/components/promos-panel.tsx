@@ -1928,9 +1928,31 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       : form.watch("contentBlocks")
   ) as NudgeContentBlockForm[] | undefined;
   const previewBlocksEffective = lenientContentBlocksForPreview(previewContentBlocksRaw);
-  const previewHasBlocks = previewBlocksEffective.length > 0;
+  /** Match embed: legacy upload + structured text blocks only → merge synthetic media into the stack. */
+  const previewHasBlockMediaPre = previewBlocksEffective.some(
+    (b) => b.type === "image" || b.type === "video",
+  );
+  let previewBlocksMerged = previewBlocksEffective;
+  if (
+    previewBlocksEffective.length > 0 &&
+    !previewHasBlockMediaPre &&
+    (previewVideoEff.trim() || previewImageEff.trim())
+  ) {
+    const u = (previewVideoEff.trim() || previewImageEff.trim()).trim();
+    if (/^https?:\/\//i.test(u)) {
+      const syn: NudgeContentBlockForm = previewVideoEff.trim()
+        ? { type: "video", id: "legacy-media-preview", url: previewVideoEff.trim() }
+        : { type: "image", id: "legacy-media-preview", url: previewImageEff.trim() };
+      previewBlocksMerged =
+        previewMediaPlacementEff === "top"
+          ? [syn, ...previewBlocksEffective]
+          : [...previewBlocksEffective, syn];
+    }
+  }
 
-  const previewBlockMediaBlocks = previewBlocksEffective.filter(
+  const previewHasBlocks = previewBlocksMerged.length > 0;
+
+  const previewBlockMediaBlocks = previewBlocksMerged.filter(
     (b): b is Extract<NudgeContentBlockForm, { type: "image" } | { type: "video" }> =>
       b.type === "image" || b.type === "video",
   );
@@ -1986,7 +2008,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     />
   ) : null;
 
-  const previewBlocksInner = previewBlocksEffective.map((b) =>
+  const previewBlocksInner = previewBlocksMerged.map((b) =>
     b.type === "text" ? (
       <p key={b.id} className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600">
         {b.text}
@@ -2036,7 +2058,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     ),
   );
 
-  const previewTextBlocksOnly = previewBlocksEffective.filter((b) => b.type === "text");
+  const previewTextBlocksOnly = previewBlocksMerged.filter((b) => b.type === "text");
   const previewTextBlocksInner = previewTextBlocksOnly.map((b) => (
     <p key={b.id} className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600">
       {b.text}

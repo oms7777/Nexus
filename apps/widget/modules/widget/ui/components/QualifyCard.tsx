@@ -2,16 +2,23 @@
 "use client";
 
 import { useState } from "react";
+import {
+  getWidgetUiLocale,
+  widgetUiCopy,
+  type WidgetUiLocale,
+} from "../../../../lib/widget-chat-i18n";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 import { Textarea } from "@workspace/ui/components/textarea"; // ✅ NEW (shadcn)
 
 export default function QualifyCard({
+  uiLocale: uiLocaleProp,
   initial,
   onCancel,
   onSubmit,
 }: {
+  uiLocale?: WidgetUiLocale;
   initial?: {
     name?: string;
     email?: string;
@@ -30,6 +37,9 @@ export default function QualifyCard({
     description: string; // ✅ REQUIRED
   }) => void;
 }) {
+  const uiLocale = uiLocaleProp ?? getWidgetUiLocale();
+  const tc = widgetUiCopy[uiLocale];
+
   const [name, setName] = useState(initial?.name ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [phone, setPhone] = useState(initial?.phone ?? "");
@@ -47,47 +57,47 @@ export default function QualifyCard({
       <div className="rounded-2xl border bg-white p-4 shadow-sm" style={{ borderColor: "color-mix(in srgb, var(--widget-primary) 25%, transparent)" }}>
         <div className="mb-1 flex items-center gap-2">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "var(--widget-primary)" }} />
-          <span className="text-sm font-semibold">Book a meeting</span>
+          <span className="text-sm font-semibold">{tc.qualifyBookMeeting}</span>
         </div>
         <p className="mb-4 text-xs text-muted-foreground">
-          We’ll use this to tailor the call and match you with the right expert.
+          {tc.qualifyIntro}
         </p>
 
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-xs font-medium text-muted-foreground">Name</Label>
+              <Label className="text-xs font-medium text-muted-foreground">{tc.qualifyName}</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 rounded-lg" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs font-medium text-muted-foreground">Email</Label>
+              <Label className="text-xs font-medium text-muted-foreground">{tc.qualifyEmail}</Label>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-9 rounded-lg" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-xs font-medium text-muted-foreground">Company</Label>
-              <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Inc." className="h-9 rounded-lg" />
+              <Label className="text-xs font-medium text-muted-foreground">{tc.qualifyCompany}</Label>
+              <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder={tc.qualifyCompanyPlaceholder} className="h-9 rounded-lg" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs font-medium text-muted-foreground">Role</Label>
-              <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. PM" className="h-9 rounded-lg" />
+              <Label className="text-xs font-medium text-muted-foreground">{tc.qualifyRole}</Label>
+              <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder={tc.qualifyRolePlaceholder} className="h-9 rounded-lg" />
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs font-medium text-muted-foreground">Phone (optional)</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+33 6 12 34 56 78" inputMode="tel" className="h-9 rounded-lg" />
+            <Label className="text-xs font-medium text-muted-foreground">{tc.qualifyPhoneOptional}</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={tc.qualifyPhonePlaceholder} inputMode="tel" className="h-9 rounded-lg" />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs font-medium text-muted-foreground">What do you want to achieve?</Label>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief context…" className="min-h-[72px] resize-none rounded-lg text-sm" />
+            <Label className="text-xs font-medium text-muted-foreground">{tc.qualifyWhatAchieve}</Label>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={tc.qualifyBriefPlaceholder} className="min-h-[72px] resize-none rounded-lg text-sm" />
           </div>
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
           {onCancel && (
             <Button variant="ghost" size="sm" onClick={onCancel} className="text-muted-foreground">
-              Cancel
+              {tc.qualifyCancel}
             </Button>
           )}
           <Button
@@ -106,7 +116,7 @@ export default function QualifyCard({
               })
             }
           >
-            Continue →
+            {tc.qualifyContinueArrow}
           </Button>
         </div>
       </div>

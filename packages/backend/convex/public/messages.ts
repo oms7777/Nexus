@@ -26,8 +26,38 @@ function clip(text: string, max = 2200) {
   return t.slice(0, max).trim() + "…";
 }
 
-const KB_ONLY_FALLBACK =
+const KB_ONLY_FALLBACK_EN =
   "I couldn't find specific information about that in our knowledge base. Would you like me to connect you with a human support agent who can help?";
+
+const KB_ONLY_FALLBACK_FR =
+  "Je n’ai pas trouvé d’information précise à ce sujet dans notre base de connaissances. Souhaitez-vous que je vous mette en relation avec un agent du support ?";
+
+type VisitorLocale = "en" | "fr";
+
+function normalizeVisitorLocale(raw: string | undefined): VisitorLocale {
+  return raw === "fr" ? "fr" : "en";
+}
+
+function kbOnlyFallback(loc: VisitorLocale) {
+  return loc === "fr" ? KB_ONLY_FALLBACK_FR : KB_ONLY_FALLBACK_EN;
+}
+
+const VISITOR_SYSTEM_MESSAGES = {
+  en: {
+    escalationConnecting: "Got it! Connecting you with a human teammate now.",
+    assistantInactive:
+      "One moment — the assistant is not active on this workspace right now. You can ask to speak with a human.",
+    generationFallback:
+      "I’m having trouble generating a reply right now. Please try again, or ask to speak with a human.",
+  },
+  fr: {
+    escalationConnecting: "Parfait — je vous mets en relation avec un membre de l’équipe.",
+    assistantInactive:
+      "Un instant — l’assistant n’est pas actif sur cet espace pour le moment. Vous pouvez demander à parler à quelqu’un.",
+    generationFallback:
+      "Je n’arrive pas à générer de réponse pour le moment. Réessayez, ou demandez à parler à un humain.",
+  },
+} as const;
 
 const KB_STRICT_REWRITE_AGENT_INSTRUCTIONS = `
 You are a Strict KB Rewrite Assistant.
@@ -38,7 +68,7 @@ ABSOLUTE RULES:
 - Do NOT infer missing details.
 - Do NOT invent steps, pricing, limits, policies, roadmap, or integrations.
 - If INTERNAL_KB_CONTEXT does not contain enough information to answer, reply EXACTLY with:
-"${KB_ONLY_FALLBACK}"
+"${KB_ONLY_FALLBACK_EN}"
 
 FORMAT RULES:
 - Write in clean, readable Markdown.
@@ -69,7 +99,23 @@ function wantsHuman(text: string) {
     t.includes("can i speak to") ||
     t.includes("i'd like to talk") ||
     t.includes("i would like to talk") ||
-    t.includes("i want to talk")
+    t.includes("i want to talk") ||
+    t.includes("parler à quelqu'un") ||
+    t.includes("parler a quelqu'un") ||
+    t.includes("parler avec quelqu'un") ||
+    t.includes("parler avec un humain") ||
+    t.includes("parler à un humain") ||
+    t.includes("parler a un humain") ||
+    t.includes("je veux parler") ||
+    t.includes("contacter quelqu'un") ||
+    t.includes("contacter un humain") ||
+    t.includes("un conseiller") ||
+    t.includes("vrai humain") ||
+    t.includes("personne réelle") ||
+    t.includes("operateur") ||
+    t.includes("opérateur") ||
+    t.includes("mettez-moi en relation") ||
+    t.includes("mise en relation")
   );
 }
 
@@ -154,13 +200,12 @@ async function safeGenerate(agent: any, ctx: any, threadId: string, payload: any
   }
 }
 
-async function writeGenerationFallback(ctx: any, threadId: string) {
+async function writeGenerationFallback(ctx: any, threadId: string, loc: VisitorLocale) {
   await saveMessage(ctx, components.agent, {
     threadId,
     message: {
       role: "assistant",
-      content:
-        "I’m having trouble generating a reply right now. Please try again, or ask to speak with a human.",
+      content: VISITOR_SYSTEM_MESSAGES[loc].generationFallback,
     },
   });
 }
@@ -170,8 +215,11 @@ export const create = action({
     prompt: v.string(),
     threadId: v.string(),
     contactSessionId: v.id("contactSessions"),
+    visitorLocale: v.optional(v.union(v.literal("en"), v.literal("fr"))),
   },
   handler: async (ctx, args) => {
+    const visitorLocale = normalizeVisitorLocale(args.visitorLocale);
+    const sysMsg = VISITOR_SYSTEM_MESSAGES[visitorLocale];
     const prompt = normalizeQuestionPrompt(args.prompt);
 
     // 0) session check
@@ -229,7 +277,7 @@ export const create = action({
         threadId: args.threadId,
         message: {
           role: "assistant",
-          content: "Got it! Connecting you with a human teammate now.",
+          content: sysMsg.escalationConnecting,
         },
       });
 
@@ -243,8 +291,7 @@ export const create = action({
         threadId: args.threadId,
         message: {
           role: "assistant",
-          content:
-            "One moment — the assistant is not active on this workspace right now. You can ask to speak with a human.",
+          content: sysMsg.assistantInactive,
         },
       });
       return;
@@ -275,7 +322,7 @@ export const create = action({
         },
       } as any);
 
-      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId);
+      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId, visitorLocale);
       return;
     }
 
@@ -288,7 +335,7 @@ export const create = action({
       if (isNoKbResult(kbRaw)) {
         await saveMessage(ctx, components.agent, {
           threadId: args.threadId,
-          message: { role: "assistant", content: KB_ONLY_FALLBACK },
+          message: { role: "assistant", content: kbOnlyFallback(visitorLocale) },
         });
         return;
       }
@@ -306,7 +353,7 @@ ${kbText}
         `.trim(),
       } as any);
 
-      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId);
+      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId, visitorLocale);
       return;
     }
 
@@ -341,7 +388,7 @@ ${clip(kbText, 2200)}
         },
       } as any);
 
-      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId);
+      if (!gen.ok) await writeGenerationFallback(ctx, args.threadId, visitorLocale);
       return;
     }
   },

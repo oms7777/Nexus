@@ -64,6 +64,11 @@ import {
 import QualifyCard from "../components/QualifyCard";
 import CalendarContainerBeautified from "../components/CalendarContainerBeautified";
 import VoiceCallButton from "../components/VoiceCallButton";
+import {
+  getWidgetUiLocale,
+  widgetUiCopy,
+  type WidgetUiLocale,
+} from "../../../../lib/widget-chat-i18n";
 /* ---------------- helpers ---------------- */
 
 const formSchema = z.object({ message: z.string().min(1) });
@@ -106,10 +111,13 @@ function SlotsByDay({
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
+  const uiLocale = getWidgetUiLocale();
+  const tc = widgetUiCopy[uiLocale];
+
   if (!slots.length) {
     return (
       <div className="p-3 text-sm text-muted-foreground">
-        No availability found. Please try later.
+        {tc.slotsNoAvailabilityLong}
       </div>
     );
   }
@@ -135,7 +143,7 @@ function SlotsByDay({
   if (dayOrder.length === 0) {
     return (
       <div className="p-3 text-sm text-muted-foreground">
-        No availability found.
+        {tc.slotsNoAvailability}
       </div>
     );
   }
@@ -200,7 +208,7 @@ function SlotsByDay({
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        Times shown in your local timezone.
+        {tc.timesLocalTimezone}
       </p>
     </div>
   );
@@ -244,18 +252,21 @@ function RepPicker({
   reps: PublicRep[];
   onPick: (rep: PublicRep) => void;
 }) {
+  const uiLocale = getWidgetUiLocale();
+  const tc = widgetUiCopy[uiLocale];
+
   if (!reps.length) return null;
 
   return (
     <div className="p-3">
       <div className="mb-2 text-sm text-muted-foreground">
-        Choose who you want to meet:
+        {tc.repPickerChoose}
       </div>
       <div className="grid grid-cols-1 gap-2">
         {reps.map((rep) => {
-          const primary = rep.name || rep.title || "Your expert";
+          const primary = rep.name || rep.title || tc.yourExpert;
 
-          const subtitle = rep.title && rep.title !== primary ? rep.title : "Sales team";
+          const subtitle = rep.title && rep.title !== primary ? rep.title : tc.salesTeam;
 
           return (
             <button
@@ -306,14 +317,18 @@ function BookingSplitLayout({
   loading,
   onPick,
   onBack,
+  uiLocale,
 }: {
   rep: PublicRep | null;
   slots: Slot[] | null;
   loading: boolean;
   onPick: (s: Slot) => void;
   onBack: () => void;
+  uiLocale: WidgetUiLocale;
 }) {
   if (!rep) return null;
+
+  const tc = widgetUiCopy[uiLocale];
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col bg-white sm:flex-row">
@@ -328,12 +343,13 @@ function BookingSplitLayout({
             </span>
           )}
         </div>
-        <h3 className="text-base font-semibold text-foreground">{rep.name || "Your expert"}</h3>
+        <h3 className="text-base font-semibold text-foreground">{rep.name || tc.yourExpert}</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          {rep.title || "Sales team"}
+          {rep.title || tc.salesTeam}
         </p>
         <p className="mt-3 text-[11px] text-muted-foreground">
-          Your timezone: {new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).format(new Date())}
+          {tc.yourTimezone}{" "}
+          {new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).format(new Date())}
         </p>
         {onBack && (
           <button
@@ -347,14 +363,19 @@ function BookingSplitLayout({
               e.currentTarget.style.backgroundColor = "";
             }}
           >
-            ← Change rep
+            {tc.repChange}
           </button>
         )}
       </div>
 
       {/* RIGHT: CALENDAR — min-w-0 pour que le flex ne fasse pas déborder les slots */}
       <div className="flex min-w-0 flex-1 flex-col p-4">
-        <CalendarContainerBeautified slots={slots} loading={loading} onPick={onPick} />
+        <CalendarContainerBeautified
+          slots={slots}
+          loading={loading}
+          onPick={onPick}
+          uiLocale={uiLocale}
+        />
       </div>
     </div>
   );
@@ -363,6 +384,9 @@ function BookingSplitLayout({
 /* ---------------- screen ---------------- */
 
 export const WidgetChatScreen = () => {
+  const uiLocale = useMemo(() => getWidgetUiLocale(), []);
+  const t = widgetUiCopy[uiLocale];
+
   const widgetSettings = useAtomValue(widgetSettingsAtom);
   const routingMode =
     ((widgetSettings as any)?.routingMode as "auto_assign" | "visitor_choice" | undefined) ??
@@ -594,9 +618,7 @@ export const WidgetChatScreen = () => {
         ...m,
         {
           role: "assistant",
-          text:
-            `⏳ If no teammate answers right away, you can book a quick meeting instead.\n` +
-            `Click “Book a meeting” to pick a slot.`,
+          text: t.teammateTimeoutBooking,
         },
       ]);
     }, HUMAN_FALLBACK_SECONDS * 1000);
@@ -604,7 +626,16 @@ export const WidgetChatScreen = () => {
     return () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     };
-  }, [conversationId, conversation?.status, hasRepStarted, step, organizationId, contactSessionId, logEvent]);
+  }, [
+    conversationId,
+    conversation?.status,
+    hasRepStarted,
+    step,
+    organizationId,
+    contactSessionId,
+    logEvent,
+    t.teammateTimeoutBooking,
+  ]);
 
 
 
@@ -763,7 +794,7 @@ export const WidgetChatScreen = () => {
         ...m,
         {
           role: "assistant",
-          text: "Great! To book a demo, fill in these quick details.",
+          text: t.bookDemoDetails,
         },
       ]);
     }
@@ -795,6 +826,7 @@ export const WidgetChatScreen = () => {
     organizationId,
     contactSessionId,
     conversation,
+    t.bookDemoDetails,
   ]);
 
 
@@ -813,7 +845,7 @@ export const WidgetChatScreen = () => {
       ...m,
       {
         role: "assistant",
-        text: "Great — I’m matching you with the best specialist 👇",
+        text: t.matchingSpecialist,
       },
     ]);
 
@@ -824,7 +856,7 @@ export const WidgetChatScreen = () => {
     if (!routingReady) {
       setLocalMsgs((m) => [
         ...m,
-        { role: "assistant", text: "One sec — loading availability…" },
+        { role: "assistant", text: t.loadingAvailability },
       ]);
       return;
     }
@@ -838,7 +870,7 @@ export const WidgetChatScreen = () => {
           ...m,
           {
             role: "assistant",
-            text: "No teammate is available right now. Please try again later.",
+            text: t.noTeammateNow,
           },
         ]);
         setStep("done");
@@ -849,7 +881,7 @@ export const WidgetChatScreen = () => {
         ...m,
         {
           role: "assistant",
-          text: "Our team will assign the right person. Pick any time below 👇",
+          text: t.assignRightPerson,
         },
       ]);
 
@@ -884,7 +916,7 @@ export const WidgetChatScreen = () => {
     // Important: pickedRep peut être undefined (loading). On attend via useEffect.
     setLocalMsgs((m) => [
       ...m,
-      { role: "assistant", text: "Great — I’m finding the best available time for you 👇" },
+      { role: "assistant", text: t.findingBestTime },
     ]);
 
     setStep("auto_assign_wait");
@@ -915,7 +947,7 @@ export const WidgetChatScreen = () => {
       // aucun rep dispo
       setLocalMsgs((m) => [
         ...m,
-        { role: "assistant", text: "No times are available right now. Please try again later." },
+        { role: "assistant", text: t.noTimesNow },
       ]);
       setStep("done");
     } finally {
@@ -949,12 +981,14 @@ export const WidgetChatScreen = () => {
         .map((m: any) => String(m?.text ?? ""))
         .at(-1);
 
-      const lastHasTalkOption = /talk to someone|human teammate|connect you with a human|speak to a human|representative/i.test(
-        lastAssistantText ?? "",
-      );
-      const lastHasBookingOption = /book a meeting|pick a slot|pick a time|book a quick meeting/i.test(
-        lastAssistantText ?? "",
-      );
+      const lastHasTalkOption =
+        /talk to someone|human teammate|connect you with a human|speak to a human|representative|parler à quelqu|membre de l.?équipe|équipe humaine|mettre en relation|spécialiste humain/i.test(
+          lastAssistantText ?? "",
+        );
+      const lastHasBookingOption =
+        /book a meeting|pick a slot|pick a time|book a quick meeting|prendre rendez-vous|réserver|créneau|rendez-vous/i.test(
+          lastAssistantText ?? "",
+        );
 
       if (mustAcceptConsent) {
         setStep("consent");
@@ -983,7 +1017,7 @@ export const WidgetChatScreen = () => {
           setStep("ask_name");
           setLocalMsgs((m) => [
             ...m,
-            { role: "assistant", text: "Great! To book a demo, fill in these quick details." },
+            { role: "assistant", text: t.bookDemoDetails },
           ]);
         } else {
           setStep("consent");
@@ -1002,7 +1036,7 @@ export const WidgetChatScreen = () => {
 
         if (lastHasTalkOption) {
           // Force backend deterministic escalation using "human intent" keyword detector.
-          textToSend = isYes ? "I’d like to talk to someone." : "Continue to chat.";
+          textToSend = isYes ? t.talkToSomeone : t.continueToChat;
           setSoftEscalationActive(false);
         }
       }
@@ -1010,7 +1044,9 @@ export const WidgetChatScreen = () => {
       // human handoff: on laisse le backend répondre "Got it..." (évite doublon)
       if (
         step === "idle" &&
-        /\b(human|someone|teammate|agent|person|representative|advisor)\b/i.test(rawText)
+        /\b(human|someone|teammate|agent|person|representative|advisor|humain|quelqu'un|conseiller|opérateur|représentant)\b/i.test(
+          rawText,
+        )
       ) {
         setSoftEscalationActive(false);
       }
@@ -1033,7 +1069,7 @@ export const WidgetChatScreen = () => {
       } catch {
         setLocalMsgs((m) => [
           ...m,
-          { role: "assistant", text: "One sec… ready now. Please resend your message." },
+          { role: "assistant", text: t.oneSecReadyResend },
         ]);
         return;
       }
@@ -1047,7 +1083,7 @@ export const WidgetChatScreen = () => {
       if (!thr) {
         setLocalMsgs((m) => [
           ...m,
-          { role: "assistant", text: "Preparing the chat… please resend your message in a moment." },
+          { role: "assistant", text: t.preparingChatResend },
         ]);
         return;
       }
@@ -1074,8 +1110,7 @@ export const WidgetChatScreen = () => {
           ...m,
           {
             role: "assistant",
-            text:
-              "One sec… I’m preparing the response.\n\nIf you’d rather speak to a human, just say it.",
+            text: t.preparingResponse,
           },
         ]);
 
@@ -1090,11 +1125,12 @@ export const WidgetChatScreen = () => {
           threadId: thr,
           prompt: textToSend,
           contactSessionId,
+          visitorLocale: uiLocale,
         });
       } catch {
         setIsPendingAssistant(false);
         if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
-        setLocalMsgs((m) => [...m, { role: "assistant", text: "Network hiccup—please try again." }]);
+        setLocalMsgs((m) => [...m, { role: "assistant", text: t.networkHiccup }]);
       }
     } finally {
       isSendingRef.current = false;
@@ -1106,7 +1142,7 @@ export const WidgetChatScreen = () => {
   const triggerTalkToSomeone = () => {
     if (isSendingRef.current) return;
     setSoftEscalationActive(false);
-    form.setValue("message", "I’d like to talk to someone.", { shouldValidate: true } as any);
+    form.setValue("message", t.talkToSomeone, { shouldValidate: true } as any);
     form.handleSubmit(onSubmit)();
   };
 
@@ -1152,12 +1188,19 @@ export const WidgetChatScreen = () => {
         ...m,
         {
           role: "assistant",
-          text:
-            "If you’d like to go deeper, I can connect you with a human teammate or help you book a quick meeting. Just say “talk to someone” or “meeting”.",
+          text: t.escalationSuggestion,
         },
       ]);
     }
-  }, [backendMsgs, conversation?.status, step, organizationId, conversationId, widgetSettings]);
+  }, [
+    backendMsgs,
+    conversation?.status,
+    step,
+    organizationId,
+    conversationId,
+    widgetSettings,
+    t.escalationSuggestion,
+  ]);
 
   const prevPendingRef = useRef(isPendingAssistant);
   useEffect(() => {
@@ -1189,28 +1232,47 @@ export const WidgetChatScreen = () => {
   // 2) "Got it! Connecting..." (handoff)
   // 3) "If no teammate answers..." (fallback booking)
   // Ils doivent toujours apparaître dans cet ordre et AVANT les réponses de l'opérateur.
-  const normalizeText = (t: string) =>
-    t
+  const normalizeText = (s: string) =>
+    s
       .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
       .replace(/[’]/g, "'")
       .trim();
 
-  const isGotIt = (t: string) => {
-    const n = normalizeText(t);
-    return n.includes("got it") && n.includes("connecting you with a human teammate");
+  const isGotIt = (text: string) => {
+    const n = normalizeText(text);
+    const en = n.includes("got it") && n.includes("connecting you with a human teammate");
+    const fr =
+      (n.includes("parfait") || n.includes("compris")) &&
+      (n.includes("relation") || n.includes("connect")) &&
+      (n.includes("equipe") || n.includes("membre"));
+    return en || fr;
   };
 
-  const isIfYoulike = (t: string) => {
-    const n = normalizeText(t);
-    return n.includes("if you'd like to go deeper") && n.includes("human teammate");
+  const isIfYoulike = (text: string) => {
+    const n = normalizeText(text);
+    const en = n.includes("if you'd like to go deeper") && n.includes("human teammate");
+    const fr =
+      n.includes("pour aller plus loin") &&
+      (n.includes("equipe") || n.includes("humain") || n.includes("rendez-vous"));
+    return en || fr;
   };
 
-  const isFallbackBooking = (t: string) => {
-    const n = normalizeText(t);
-    return (
-      n.includes("if no teammate answers right away") &&
-      n.includes("book a meeting")
-    );
+  const isFallbackBooking = (text: string) => {
+    const n = normalizeText(text);
+    const en =
+      n.includes("if no teammate answers right away") && n.includes("book a meeting");
+    const fr =
+      n.includes("personne") && n.includes("repond") &&
+      (n.includes("equipe") || n.includes("rendez-vous") || n.includes("reserver"));
+    const bookingHint =
+      n.includes("book a meeting") ||
+      n.includes("pick a slot") ||
+      n.includes("prendre rendez-vous") ||
+      n.includes("reserver") ||
+      n.includes("creneau");
+    return en || (fr && bookingHint);
   };
 
   const gotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
@@ -1282,7 +1344,7 @@ export const WidgetChatScreen = () => {
           <button
             type="button"
             onClick={startBookingLikePromo}
-            title="Book a meeting"
+            title={t.bookMeeting}
             className="size-9 flex items-center justify-center rounded-full border border-white/20 shadow-md transition-all hover:scale-[1.03] active:scale-[0.98]"
             style={{ backgroundColor: "var(--widget-primary)", color: "var(--widget-primary-text)" }}
           >
@@ -1291,9 +1353,9 @@ export const WidgetChatScreen = () => {
           <button
             type="button"
             onClick={() => window.parent?.postMessage({ type: "close" }, "*")}
-            title="Close"
+            title={t.close}
             className="size-9 flex items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-600 shadow-md transition-all hover:bg-slate-50 active:scale-[0.98]"
-            aria-label="Close"
+            aria-label={t.close}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M18 6 6 18M6 6l12 12" />
@@ -1319,7 +1381,7 @@ export const WidgetChatScreen = () => {
           </div>
           <div className="min-w-0 pt-0.5">
             <h2 className="truncate text-[15px] font-semibold leading-tight tracking-tight text-slate-900">
-              Chat
+              {t.chatTitle}
             </h2>
           </div>
         </div>
@@ -1371,7 +1433,7 @@ export const WidgetChatScreen = () => {
                     }}
                     onClick={startBookingLikePromo}
                   >
-                    Book a meeting
+                    {t.bookMeeting}
                   </Button>
                 </div>
               )}
@@ -1381,7 +1443,7 @@ export const WidgetChatScreen = () => {
               step === "idle" && (
                 <div className="flex flex-col gap-2 p-3">
                   <div className="text-xs text-muted-foreground">
-                    Prefer to talk to a specialist?
+                    {t.preferSpecialist}
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
@@ -1389,14 +1451,14 @@ export const WidgetChatScreen = () => {
                       className="flex-1 text-xs bg-gradient-to-r from-fuchsia-600 to-rose-500 border-0 text-white hover:opacity-95"
                       onClick={triggerTalkToSomeone}
                     >
-                      Talk to someone
+                      {t.talkToSomeoneButton}
                     </Button>
                     <Button
                       variant="ghost"
                       className="flex-1 text-xs"
                       onClick={() => setSoftEscalationActive(false)}
                     >
-                      Continue to chat
+                      {t.continueToChatButton}
                     </Button>
                   </div>
                 </div>
@@ -1407,7 +1469,7 @@ export const WidgetChatScreen = () => {
 
               {step === "auto_assign_wait" && (
                 <div className="p-3 text-sm text-muted-foreground">
-                  Assigning the best rep…
+                  {t.assigningRep}
                 </div>
               )}
 
@@ -1430,8 +1492,7 @@ export const WidgetChatScreen = () => {
                     )}
 
                     <p className="text-xs text-muted-foreground">
-                      {consentCfg.body ||
-                        "Before we begin, you need to provide consent to data processing that may occur in your chat session."}{" "}
+                      {consentCfg.body || t.consentBodyDefault}{" "}
                       {(() => {
                         const linkMode = consentCfg.linkMode ?? "link";
                         const consentUrl = consentCfg.privacyUrl;
@@ -1439,16 +1500,14 @@ export const WidgetChatScreen = () => {
                         if (linkMode === "link" && consentUrl) {
                           return (
                             <>
-                              I hereby consent to processing of my personal data
-                              collected in the chat in accordance with the rules
-                              described{" "}
+                              {t.consentLinkIntro}{" "}
                               <a
                                 href={consentUrl}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="underline"
                               >
-                                here
+                                {t.hereLink}
                               </a>
                               .
                             </>
@@ -1456,13 +1515,12 @@ export const WidgetChatScreen = () => {
                         }
                         return (
                           <ConsentInlineModal
-                            triggerLabel="here"
+                            triggerLabel={t.hereLink}
                             title={consentCfg.title ?? "Consent"}
                             fullText={
                               (consentModalText?.trim() ||
                                 consentCfg.body?.trim() ||
-                                "Details about how your data may be processed.") +
-                              "\n\nYou can withdraw your consent at any time."
+                                t.detailsDataProcessed) + t.consentWithdrawFooter
                             }
                           />
                         );
@@ -1495,8 +1553,7 @@ export const WidgetChatScreen = () => {
                             ...m,
                             {
                               role: "assistant",
-                              text:
-                                "Great! To book a demo, fill in these quick details.",
+                              text: t.bookDemoDetails,
                             },
                           ]);
                         } else {
@@ -1547,6 +1604,7 @@ export const WidgetChatScreen = () => {
             {/* Qualif form */}
             {step === "ask_name" && bookingIntent !== "chat" && (
               <QualifyCard
+                uiLocale={uiLocale}
                 initial={{
                   name: qdata.name,
                   email: qdata.email,
@@ -1586,6 +1644,7 @@ export const WidgetChatScreen = () => {
                 rep={selectedRep}
                 slots={slots}
                 loading={loadingSlots}
+                uiLocale={uiLocale}
                 onPick={async (slot) => {
                   if (!organizationId || !contactSessionId || !qdata.name || !qdata.email) return;
 
@@ -1607,8 +1666,10 @@ export const WidgetChatScreen = () => {
                     ...m,
                     {
                       role: "assistant",
-                      text: `✅ You’re booked with ${selectedRep?.name || 'our team'}\n` +
-                            `Join with this link: ${res?.meetingUrl || 'Check your inbox for the invite.'}`,
+                      text: t.youAreBooked(
+                        selectedRep?.name || t.ourTeam,
+                        res?.meetingUrl || t.meetingUrlFallback,
+                      ),
                     },
                   ]);
 
@@ -1649,7 +1710,7 @@ export const WidgetChatScreen = () => {
 
                     setLocalMsgs((m) => [
                       ...m,
-                      { role: "assistant", text: "No availability found right now. Please try again later." },
+                      { role: "assistant", text: t.noAvailabilityTryLater },
                     ]);
                     setStep("done");
                   } finally {
@@ -1685,13 +1746,13 @@ export const WidgetChatScreen = () => {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-sm font-medium">
-                      {selectedRep.name || "our team"}
+                      {selectedRep.name || t.ourTeam}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {selectedRep.title &&
-                      selectedRep.title !== (selectedRep.name || "our team")
+                      selectedRep.title !== (selectedRep.name || t.ourTeam)
                         ? selectedRep.title
-                        : "Sales team"}
+                        : t.salesTeam}
                     </span>
                   </div>
                 </div>
@@ -1756,7 +1817,7 @@ export const WidgetChatScreen = () => {
                       form.handleSubmit(onSubmit)();
                     }
                   }}
-                  placeholder="Write your message…"
+                  placeholder={t.placeholderMessage}
                   aria-label="Message"
                   value={field.value}
                 />
@@ -1787,12 +1848,12 @@ export const WidgetChatScreen = () => {
               rel="noreferrer"
               className="underline"
             >
-              here
+              {t.hereLink}
             </a>
           ) : consentCfg.linkMode === "modal" && consentCfg.modalContent ? (
             <ConsentInlineModal
-              triggerLabel="here"
-              title={consentCfg.title || "Privacy & data usage"}
+              triggerLabel={t.hereLink}
+              title={consentCfg.title || t.privacyDefaultTitle}
               fullText={consentCfg.modalContent}
             />
           ) : null}

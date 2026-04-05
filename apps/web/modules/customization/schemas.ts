@@ -48,6 +48,16 @@ function expandHex3To6(h: string): string {
   return `#${x[0]}${x[0]}${x[1]}${x[1]}${x[2]}${x[2]}`.toLowerCase();
 }
 
+function isHttpsOrHttpUrl(s: string | undefined): boolean {
+  if (!s || !s.trim()) return false;
+  try {
+    const u = new URL(s.trim());
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Widget Settings (Branding, Chat, Consent)
  * ----------------------------------------
@@ -102,7 +112,10 @@ export const widgetSettingsSchema = z
     // -------------------------
     // Legacy privacy URL
     // -------------------------
-    privacyUrl: z.string().url().optional().or(z.literal("")),
+    privacyUrl: z.union([
+      z.literal(""),
+      z.string().url("Enter a valid https URL or leave empty."),
+    ]),
 
     // -------------------------
     // Consent & Privacy block
@@ -121,37 +134,45 @@ export const widgetSettingsSchema = z
 
         linkMode: z.enum(["link", "modal"]).default("link"),
 
-        privacyUrl: z.string().url().optional().or(z.literal("")),
+        privacyUrl: z.union([
+          z.literal(""),
+          z.string().url("Enter a valid https URL or leave empty."),
+        ]),
         modalContent: z.string().optional(),
       })
       .optional(),
   })
 
   // -------------------------
-  // Validation: External link requires a URL
+  // Validation: External link requires a URL (only when consent card is on)
   // -------------------------
   .refine(
-    (v) =>
-      !v.consent ||
-      v.consent.linkMode !== "link" ||
-      (v.consent.privacyUrl && v.consent.privacyUrl.length > 0),
+    (v) => {
+      if (!v.consent || !v.consent.enabled || v.consent.linkMode !== "link") return true;
+      const consentU = v.consent.privacyUrl?.trim() ?? "";
+      const legacyU = typeof v.privacyUrl === "string" ? v.privacyUrl.trim() : "";
+      return isHttpsOrHttpUrl(consentU) || isHttpsOrHttpUrl(legacyU);
+    },
     {
       path: ["consent", "privacyUrl"],
-      message: "Please provide a valid URL when 'External page' is selected.",
+      message:
+        "Open Consent & Privacy → Privacy URL: enter https://… or switch “here” opens to Inline text modal.",
     }
   )
 
   // -------------------------
-  // Validation: Modal mode requires modal text
+  // Validation: Modal mode requires modal text (only when consent card is on)
   // -------------------------
   .refine(
     (v) =>
       !v.consent ||
+      !v.consent.enabled ||
       v.consent.linkMode !== "modal" ||
       !!v.consent.modalContent?.trim(),
     {
       path: ["consent", "modalContent"],
-      message: "Please provide the text to show in the modal.",
+      message:
+        "Open Consent & Privacy → add modal text, or switch “here” opens to External page with a policy URL.",
     }
   );
 

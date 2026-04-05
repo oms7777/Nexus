@@ -118,7 +118,10 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         acceptLabel: initialData?.consent?.acceptLabel || "✓ Yes, I consent",
         version: initialData?.consent?.version || "v1.0",
         linkMode: initialData?.consent?.linkMode || "link",
-        privacyUrl: initialData?.consent?.privacyUrl || "",
+        privacyUrl:
+          initialData?.consent?.privacyUrl?.trim() ||
+          initialData?.privacyUrl?.trim() ||
+          "",
         modalContent: initialData?.consent?.modalContent || "",
       },
     },
@@ -205,7 +208,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
               linkMode: values.consent.linkMode,
               privacyUrl:
                 values.consent.linkMode === "link"
-                  ? values.consent.privacyUrl?.trim() || undefined
+                  ? values.consent.privacyUrl?.trim() ||
+                    (typeof values.privacyUrl === "string" ? values.privacyUrl.trim() : "") ||
+                    undefined
                   : undefined,
               modalContent:
                 values.consent.linkMode === "modal"
@@ -1025,6 +1030,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                               disabled={!consentEnabled}
                             />
                           </FormControl>
+                          <FormDescription>
+                            Required when consent is on and “here” opens External page. Use https://
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}

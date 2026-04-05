@@ -184,6 +184,35 @@ function normalizeContentBlocksFromPayload(raw: unknown): NudgeContentBlock[] {
   return out;
 }
 
+/**
+ * Structured content (text blocks) switches the nudge to the "blocks" layout, which skipped
+ * legacy imageUrl/videoUrl. Merge a synthetic media block when the editor used upload + text blocks.
+ */
+function mergeLegacyMediaIntoContentBlocks(
+  blocks: NudgeContentBlock[],
+  rawVideoUrl: string,
+  rawImageUrl: string,
+  placement: ReturnType<typeof normalizeMediaPlacement>,
+): NudgeContentBlock[] {
+  if (blocks.length === 0) return blocks;
+  const hasBlockMedia = blocks.some((b) => b.type === "image" || b.type === "video");
+  if (hasBlockMedia) return blocks;
+
+  const videoOk = rawVideoUrl && isSafeHttpUrlForNudge(rawVideoUrl);
+  const imageOk = rawImageUrl && isSafeHttpUrlForNudge(rawImageUrl);
+  if (!videoOk && !imageOk) return blocks;
+
+  const synthetic: NudgeContentBlock = videoOk
+    ? { type: "video", id: "legacy-media", url: rawVideoUrl }
+    : { type: "image", id: "legacy-media", url: rawImageUrl };
+
+  if (blocks.length >= MAX_NUDGE_CONTENT_BLOCKS) return blocks;
+
+  return placement === "top"
+    ? [synthetic, ...blocks]
+    : [...blocks, synthetic];
+}
+
 function buildContentBlocksStackHtml(
   blocks: NudgeContentBlock[],
   spec: NudgeLayoutSpec,
@@ -366,6 +395,9 @@ type NudgeKind = "promo" | "suggestions" | null;
 
   // éviter flash bleu
   let fabRevealed = false;
+  /** True after first `nexus:theme` / `nexus:suggestions` (widget Convex settings applied). */
+  let fabConfigSynced = false;
+  let fabFallbackRevealTimer: number | null = null;
 
   // patchHistory cleanup
   let unpatchHistory: (() => void) | null = null;
@@ -549,6 +581,18 @@ type NudgeKind = "promo" | "suggestions" | null;
       }
 
       applyThemeToFab();
+
+      // If Convex / postMessage is slow or fails, still show the FAB after a delay (defaults).
+      if (fabFallbackRevealTimer !== null) {
+        window.clearTimeout(fabFallbackRevealTimer);
+        fabFallbackRevealTimer = null;
+      }
+      fabFallbackRevealTimer = window.setTimeout(() => {
+        fabFallbackRevealTimer = null;
+        if (fabRevealed) return;
+        fabConfigSynced = true;
+        applyThemeToFab();
+      }, 4000);
     };
 
     container.appendChild(iframe);
@@ -584,6 +628,7 @@ type NudgeKind = "promo" | "suggestions" | null;
         break;
 
       case "nexus:theme": {
+        fabConfigSynced = true;
         const p = payload as {
           theme?: ThemePayload;
           brandLogoUrl?: string;
@@ -606,6 +651,7 @@ type NudgeKind = "promo" | "suggestions" | null;
         // ✅ If promo already selected, ignore suggestions (prevents flicker)
         if (nudgeKind === "promo") return;
 
+        fabConfigSynced = true;
         theme = sp.theme || theme || null;
         brandLogoUrl = sp.brandLogoUrl || brandLogoUrl || null;
         applyThemeToFab();
@@ -965,10 +1011,15 @@ type NudgeKind = "promo" | "suggestions" | null;
     if (!button) return;
     if (fabRevealed) return;
 
-    // Show the launcher as soon as the widget iframe has loaded, using default colors until
-    // nexus:theme / suggestions / promo arrive. Otherwise a blocked iframe or slow Convex
-    // left the FAB invisible forever (opacity 0).
-    if (!theme && !brandLogoUrl && !hasNudgePayload && !iframeLoaded) return;
+    // Wait until the iframe has sent theme/settings (or we have a nudge/promo payload).
+    // Revealing on iframe `load` alone caused a purple default FAB (#a855f7) until Convex
+    // returned — visible "flash". Fallback timer in iframe.onload still avoids FAB stuck hidden.
+    if (!fabConfigSynced && !hasNudgePayload) return;
+
+    if (fabFallbackRevealTimer !== null) {
+      window.clearTimeout(fabFallbackRevealTimer);
+      fabFallbackRevealTimer = null;
+    }
 
     fabRevealed = true;
     button.style.opacity = "1";
@@ -1198,8 +1249,8 @@ type NudgeKind = "promo" | "suggestions" | null;
     const canUseVoice = payload.canUseVoice !== false;
     const spec = nudgeLayoutSpec(normalizeNudgeSize(payload.nudgeSize));
     const effectiveMediaH = resolveMediaPixelHeight(spec, normalizeMediaHeight(payload.mediaHeight));
-    const contentBlocksNorm = normalizeContentBlocksFromPayload(payload.contentBlocks);
-    const useContentBlocks = contentBlocksNorm.length > 0;
+    const rawPlacementForMerge = normalizeMediaPlacement(payload.mediaPlacement);
+    let contentBlocksNorm = normalizeContentBlocksFromPayload(payload.contentBlocks);
 
     if (!nudge) {
       nudge = document.createElement("div");
@@ -1321,8 +1372,21 @@ type NudgeKind = "promo" | "suggestions" | null;
       typeof payload.body === "string"
         ? payload.body
         : "Chat with our assistant or book a 15-min demo.";
-    const safeImage = payload.imageUrl ? escapeAttr(payload.imageUrl) : "";
-    const safeVideo = payload.videoUrl ? escapeAttr(payload.videoUrl) : "";
+    const rawImageUrl =
+      typeof payload.imageUrl === "string" ? payload.imageUrl.trim().slice(0, 2048) : "";
+    const rawVideoUrl =
+      typeof payload.videoUrl === "string" ? payload.videoUrl.trim().slice(0, 2048) : "";
+    const safeImage = rawImageUrl ? escapeAttr(rawImageUrl) : "";
+    const safeVideo = rawVideoUrl ? escapeAttr(rawVideoUrl) : "";
+
+    contentBlocksNorm = mergeLegacyMediaIntoContentBlocks(
+      contentBlocksNorm,
+      rawVideoUrl,
+      rawImageUrl,
+      rawPlacementForMerge,
+    );
+
+    const useContentBlocks = contentBlocksNorm.length > 0;
     const mediaBlocksInContent = contentBlocksNorm.filter(
       (b) => b.type === "video" || b.type === "image",
     );
@@ -1330,7 +1394,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     const singleContentMediaBlock =
       mediaBlocksInContent.length === 1 ? mediaBlocksInContent[0] : undefined;
     const hasMedia = !!(safeVideo || safeImage) || hasMediaInBlocks;
-    const rawPlacement = normalizeMediaPlacement(payload.mediaPlacement);
+    const rawPlacement = rawPlacementForMerge;
     const placement: MediaPlacement =
       rawPlacement === "framed"
         ? "framed"
