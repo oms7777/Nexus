@@ -413,11 +413,13 @@ type NudgeKind = "promo" | "suggestions" | null;
 
   // éviter flash FAB (violet + icône par défaut) avant que l’iframe ait envoyé le branding réel
   let fabRevealed = false;
-  /** True once the iframe has sent branding we can trust (theme / suggestions / promo merge). */
+  /** True once `nexus:theme` or `nexus:suggestions` ran — never from promo alone (promo can post before ws theme exists). */
   let fabEmbedBrandingKnown = false;
   /** True after iframe load fallback timeout so the FAB never stays invisible forever. */
   let fabRevealForced = false;
   let fabFallbackRevealTimer: number | null = null;
+  /** Invalidates in-flight logo preload when applyThemeToFab runs again. */
+  let fabFaceGeneration = 0;
 
   // patchHistory cleanup
   let unpatchHistory: (() => void) | null = null;
@@ -928,7 +930,6 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     theme = promoSequenceItems[0]?.theme || theme || null;
     brandLogoUrl = promoSequenceItems[0]?.brandLogoUrl || brandLogoUrl || null;
-    fabEmbedBrandingKnown = true;
     applyThemeToFab();
 
     const elapsed = Date.now() - lastNavigationTs;
@@ -1065,9 +1066,9 @@ type NudgeKind = "promo" | "suggestions" | null;
       return;
     }
 
-    if (brandLogoUrl) {
-      const safeLogo = escapeAttr(brandLogoUrl);
-      button.innerHTML = `
+    const logoRaw = brandLogoUrl?.trim();
+    const logoHtml = logoRaw
+      ? `
         <div style="
           width:70%;height:70%;
           border-radius:9999px;
@@ -1077,10 +1078,34 @@ type NudgeKind = "promo" | "suggestions" | null;
           justify-content:center;
           background:rgba(255,255,255,0.9);
         ">
-          <img src="${safeLogo}" alt="Chat"
+          <img src="${escapeAttr(logoRaw)}" alt="Chat" decoding="async" fetchpriority="high"
             style="width:100%;height:100%;object-fit:contain;" />
         </div>
-      `;
+      `
+      : null;
+
+    // First time we show the FAB: wait for logo bytes so we don't flash default icon / empty disc.
+    if (logoHtml && logoRaw && !fabRevealed) {
+      const gen = ++fabFaceGeneration;
+      const url = logoRaw;
+      const probe = new Image();
+      probe.onload = () => {
+        if (gen !== fabFaceGeneration || !button || isOpen) return;
+        button.innerHTML = logoHtml;
+        revealFabIfNeeded();
+      };
+      probe.onerror = () => {
+        if (gen !== fabFaceGeneration || !button || isOpen) return;
+        button.innerHTML = chatBubbleIcon;
+        revealFabIfNeeded();
+      };
+      probe.src = url;
+      return;
+    }
+
+    fabFaceGeneration++;
+    if (logoHtml) {
+      button.innerHTML = logoHtml;
     } else {
       button.innerHTML = chatBubbleIcon;
     }
@@ -2079,7 +2104,6 @@ type NudgeKind = "promo" | "suggestions" | null;
     container.style.transform = isFull ? "translate(-50%, 10px)" : "translateY(10px)";
     setTimeout(() => container && (container.style.display = "none"), 300);
 
-    button.innerHTML = chatBubbleIcon;
     applyThemeToFab();
     // Restore FAB
     button.style.opacity = "1";
@@ -2176,6 +2200,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     fabRevealed = false;
     fabEmbedBrandingKnown = false;
     fabRevealForced = false;
+    fabFaceGeneration = 0;
     hasNudgePayload = false;
     nudgeDismissed = false;
 
