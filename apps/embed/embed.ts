@@ -152,7 +152,7 @@ function wrapNudgeMediaWithCta(
 
 /**
  * Full-width strip (top / bottom / stacked blocks).
- * `contain` keeps wide graphics readable (no cropped text); letterboxing uses nudge surface color.
+ * Default `cover` fills width like a hero card; use `contain` when you need the full frame (e.g. wide text graphics).
  */
 function promoLegacyMediaInnerHtml(
   safeVideo: string,
@@ -205,12 +205,14 @@ function sideMediaShellFromUrl(
     `background:${bg};`,
     "line-height:0;",
   ].join("");
-  const inner =
-    "position:absolute;left:0;top:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;object-position:center top;display:block;";
+  const innerVideo =
+    "position:absolute;left:0;top:0;right:0;bottom:0;width:100%;height:100%;object-fit:contain;object-position:center;display:block;";
+  const innerImage =
+    "position:absolute;left:0;top:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block;";
   if (isVideo) {
-    return `<div style="${wrap}"><video src="${safeAttrUrl}" muted autoplay loop playsinline preload="auto" style="${inner}"></video></div>`;
+    return `<div style="${wrap}"><video src="${safeAttrUrl}" muted autoplay loop playsinline preload="auto" style="${innerVideo}"></video></div>`;
   }
-  return `<div style="${wrap}"><img src="${safeAttrUrl}" alt="Promo media" style="${inner}" /></div>`;
+  return `<div style="${wrap}"><img src="${safeAttrUrl}" alt="Promo media" style="${innerImage}" /></div>`;
 }
 
 function promoSideMediaInnerHtml(
@@ -302,7 +304,8 @@ function buildContentBlocksStackHtml(
   mediaCtaIndex: number | null = null,
 ): string {
   const bg = escapeAttrNudge(mediaSurfaceBg);
-  const mediaStyle = `width:100%;height:${mediaH}px;object-fit:contain;object-position:center;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:${bg};`;
+  const mediaStyleImage = `width:100%;height:${mediaH}px;object-fit:cover;object-position:center;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:${bg};`;
+  const mediaStyleVideo = `width:100%;height:${mediaH}px;object-fit:contain;object-position:center;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:${bg};`;
   const parts: string[] = [];
   for (const b of blocks) {
     const top = parts.length > 0 ? "10px" : "0";
@@ -318,13 +321,13 @@ function buildContentBlocksStackHtml(
       );
     } else if (b.type === "image") {
       const u = escapeAttrNudge(b.url);
-      const core = `<img src="${u}" alt="" style="${mediaStyle}" />`;
+      const core = `<img src="${u}" alt="" style="${mediaStyleImage}" />`;
       parts.push(
         `<div style="margin-top:${top};">${wrapNudgeMediaWithCta(core, mediaCtaIndex)}</div>`,
       );
     } else {
       const u = escapeAttrNudge(b.url);
-      const core = `<video src="${u}" muted autoplay loop playsinline preload="auto" style="${mediaStyle}"></video>`;
+      const core = `<video src="${u}" muted autoplay loop playsinline preload="auto" style="${mediaStyleVideo}"></video>`;
       parts.push(
         `<div style="margin-top:${top};">${wrapNudgeMediaWithCta(core, mediaCtaIndex)}</div>`,
       );
@@ -1568,7 +1571,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       safeVideo,
       safeImage,
       effectiveMediaH,
-      "contain",
+      safeVideo ? "contain" : "cover",
       mediaSurface,
       "10px",
     );
@@ -1576,7 +1579,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       safeVideo,
       safeImage,
       effectiveMediaH,
-      "contain",
+      safeVideo ? "contain" : "cover",
       mediaSurface,
       "14px 14px 12px 12px",
     );

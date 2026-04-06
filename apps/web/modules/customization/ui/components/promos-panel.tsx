@@ -2031,7 +2031,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewSingleBlockMedia != null &&
     (previewPlacementResolved === "left" || previewPlacementResolved === "right");
 
-  /** Full-width strips: `contain` like embed (wide graphics stay readable). */
+  /** Full-width: image fills like before (`cover`); video `contain` so it isn’t cropped. */
   const previewLegacyMediaStackEl = previewVideoEff ? (
     <video
       key={previewVideoEff}
@@ -2045,17 +2045,17 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     />
   ) : previewImageEff ? (
     <img
-      className="h-full w-full object-contain object-center"
+      className="h-full w-full object-cover object-center"
       src={previewImageEff}
       alt="Promo media"
     />
   ) : null;
 
-  /** Side column: absolute fill + cover/top — matches embed `sideMediaShellFromUrl`. */
+  /** Side column: video full frame (`contain`); image `cover` centered — matches embed. */
   const previewLegacyMediaSideEl = previewVideoEff ? (
     <video
       key={`${previewVideoEff}-side`}
-      className="absolute inset-0 block h-full w-full object-cover object-top"
+      className="absolute inset-0 block h-full w-full object-contain object-center"
       src={previewVideoEff}
       muted
       playsInline
@@ -2066,7 +2066,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   ) : previewImageEff ? (
     <img
       key={`${previewImageEff}-side`}
-      className="absolute inset-0 h-full w-full object-cover object-top"
+      className="absolute inset-0 h-full w-full object-cover object-center"
       src={previewImageEff}
       alt="Promo media"
     />
@@ -2093,7 +2093,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         <img
           src={b.url}
           alt=""
-          className="h-full w-full border-0 object-contain object-center"
+          className="h-full w-full border-0 object-cover object-center"
         />
       </div>
     ) : (
@@ -2133,7 +2133,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewSingleBlockMedia?.type === "video" ? (
       <video
         key={previewSingleBlockMedia.url}
-        className="absolute inset-0 block h-full w-full object-cover object-top"
+        className="absolute inset-0 block h-full w-full object-contain object-center"
         src={previewSingleBlockMedia.url}
         muted
         playsInline
@@ -2144,7 +2144,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     ) : previewSingleBlockMedia?.type === "image" ? (
       <img
         key={previewSingleBlockMedia.url}
-        className="absolute inset-0 h-full w-full object-cover object-top"
+        className="absolute inset-0 h-full w-full object-cover object-center"
         src={previewSingleBlockMedia.url}
         alt="Promo media"
       />
@@ -3442,8 +3442,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     {previewNudgeMain}
 
                     <p className="text-[10px] text-slate-400">
-                      Preview matches the embed: wide strips use “contain” (full graphic visible); left/right
-                      columns use cover, aligned from the top.
+                      Preview matches the embed: images fill strips with cover; videos use contain so they are
+                      not cropped. Side column: same split (image cover, video contain).
                     </p>
 
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0 ? (
