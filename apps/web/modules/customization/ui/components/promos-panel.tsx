@@ -1973,6 +1973,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
       : form.watch("mediaPlacement")) ?? "bottom";
 
   const previewMediaPx = previewMediaHeightPx(previewNudgeSizeTier, previewMediaHeightEff);
+  /** Match embed adaptive stack: min band + cap height (fraction of tier max). */
+  const previewStackMediaMinPx = Math.max(48, Math.round(previewMediaPx * 0.32));
 
   /** Field-level watch so the preview updates when blocks change on the active story step. */
   const previewContentBlocksRaw = (
@@ -2031,24 +2033,36 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewSingleBlockMedia != null &&
     (previewPlacementResolved === "left" || previewPlacementResolved === "right");
 
-  /** Full-width: image fills like before (`cover`); video `contain` so it isn’t cropped. */
+  /** Full-width strip: adaptive height (full media within min/max), same as embed. */
   const previewLegacyMediaStackEl = previewVideoEff ? (
-    <video
-      key={previewVideoEff}
-      className="block h-full w-full object-contain object-center"
-      src={previewVideoEff}
-      muted
-      playsInline
-      loop
-      autoPlay
-      preload="metadata"
-    />
+    <div
+      className="flex w-full items-center justify-center"
+      style={{ minHeight: previewStackMediaMinPx, backgroundColor: nudgeBackgroundColor }}
+    >
+      <video
+        key={previewVideoEff}
+        className="block w-auto max-w-full object-contain object-center"
+        style={{ maxHeight: previewMediaPx }}
+        src={previewVideoEff}
+        muted
+        playsInline
+        loop
+        autoPlay
+        preload="metadata"
+      />
+    </div>
   ) : previewImageEff ? (
-    <img
-      className="h-full w-full object-cover object-center"
-      src={previewImageEff}
-      alt="Promo media"
-    />
+    <div
+      className="flex w-full items-center justify-center"
+      style={{ minHeight: previewStackMediaMinPx, backgroundColor: nudgeBackgroundColor }}
+    >
+      <img
+        className="block h-auto w-auto max-w-full object-contain object-center"
+        style={{ maxHeight: previewMediaPx }}
+        src={previewImageEff}
+        alt="Promo media"
+      />
+    </div>
   ) : null;
 
   /** Side column: video full frame (`contain`); image `cover` centered — matches embed. */
@@ -2087,23 +2101,25 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     ) : b.type === "image" ? (
       <div
         key={b.id}
-        className="overflow-hidden rounded-lg border border-slate-200/90"
-        style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
+        className="flex w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/90"
+        style={{ minHeight: previewStackMediaMinPx, backgroundColor: nudgeBackgroundColor }}
       >
         <img
           src={b.url}
           alt=""
-          className="h-full w-full border-0 object-cover object-center"
+          className="block h-auto w-auto max-w-full border-0 object-contain object-center"
+          style={{ maxHeight: previewMediaPx }}
         />
       </div>
     ) : (
       <div
         key={b.id}
-        className="overflow-hidden rounded-lg border border-slate-200/90"
-        style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
+        className="flex w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200/90"
+        style={{ minHeight: previewStackMediaMinPx, backgroundColor: nudgeBackgroundColor }}
       >
         <video
-          className="block h-full w-full border-0 object-contain object-center"
+          className="block w-auto max-w-full border-0 object-contain object-center"
+          style={{ maxHeight: previewMediaPx }}
           src={b.url}
           muted
           playsInline
@@ -2290,9 +2306,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           className="-mx-4 -mt-4 mb-2 overflow-hidden rounded-t-2xl border-b border-slate-200/90"
           style={{ backgroundColor: nudgeBackgroundColor }}
         >
-          <div className="w-full overflow-hidden" style={{ height: previewMediaPx }}>
-            {previewLegacyMediaStackEl}
-          </div>
+          <div className="w-full overflow-hidden">{previewLegacyMediaStackEl}</div>
         </div>
         <div className="flex gap-3 items-start">
           {previewIdentityCol}
@@ -2357,10 +2371,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               <div className="space-y-2 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
                 {previewBodyEl}
                 {previewHasLegacyMedia ? (
-                  <div
-                    className="mt-2 overflow-hidden rounded-lg border border-slate-200/80"
-                    style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
-                  >
+                  <div className="mt-2 overflow-hidden rounded-lg border border-slate-200/80">
                     {previewLegacyMediaStackEl}
                   </div>
                 ) : null}
@@ -2380,10 +2391,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
             {previewTitleEl}
             {previewBodyEl}
             {previewHasLegacyMedia ? (
-              <div
-                className="overflow-hidden rounded-lg border border-slate-200/90"
-                style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
-              >
+              <div className="overflow-hidden rounded-lg border border-slate-200/90">
                 {previewLegacyMediaStackEl}
               </div>
             ) : null}
@@ -3442,8 +3450,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     {previewNudgeMain}
 
                     <p className="text-[10px] text-slate-400">
-                      Preview matches the embed: images fill strips with cover; videos use contain so they are
-                      not cropped. Side column: same split (image cover, video contain).
+                      Preview matches the embed: full-width media scales to fit (entire image/video) with a height
+                      cap from Media height; side column unchanged (image cover, video contain).
                     </p>
 
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0 ? (

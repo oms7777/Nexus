@@ -468,6 +468,8 @@ export default defineSchema({
           v.literal("hero"),
         ),
       ),
+      /** When true, full-width stack media (top/bottom/blocks) uses object-fit:contain so wide graphics are not cropped. */
+      fullFrameStackMedia: v.optional(v.boolean()),
       contentBlocks: v.optional(
         v.array(
           v.union(
@@ -592,6 +594,7 @@ export default defineSchema({
                   v.literal("hero"),
                 ),
               ),
+              fullFrameStackMedia: v.optional(v.boolean()),
               contentBlocks: v.optional(
                 v.array(
                   v.union(

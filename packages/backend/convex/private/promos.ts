@@ -115,6 +115,7 @@ const cardV = v.object({
   nudgeSize: v.optional(nudgeSizeV),
   mediaPlacement: v.optional(mediaPlacementV),
   mediaHeight: v.optional(mediaHeightV),
+  fullFrameStackMedia: v.optional(v.boolean()),
   contentBlocks: v.optional(v.array(nudgeContentBlockV)),
 });
 
@@ -141,6 +142,7 @@ const sequenceStepV = v.object({
   nudgeSize: v.optional(nudgeSizeV),
   mediaPlacement: v.optional(mediaPlacementV),
   mediaHeight: v.optional(mediaHeightV),
+  fullFrameStackMedia: v.optional(v.boolean()),
   contentBlocks: v.optional(v.array(nudgeContentBlockV)),
 });
 
