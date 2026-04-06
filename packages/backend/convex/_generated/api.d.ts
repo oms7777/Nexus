@@ -13,6 +13,7 @@ import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as lib_extractTextContent from "../lib/extractTextContent.js";
+import type * as lib_sanitizeVisitorAssistantText from "../lib/sanitizeVisitorAssistantText.js";
 import type * as lib_secrets from "../lib/secrets.js";
 import type * as live from "../live.js";
 import type * as playground from "../playground.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   integrations: typeof integrations;
   "lib/extractTextContent": typeof lib_extractTextContent;
+  "lib/sanitizeVisitorAssistantText": typeof lib_sanitizeVisitorAssistantText;
   "lib/secrets": typeof lib_secrets;
   live: typeof live;
   playground: typeof playground;
