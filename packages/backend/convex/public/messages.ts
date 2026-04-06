@@ -77,6 +77,9 @@ function kbSnippetContainsPricingOrCommercialDetail(kb: string): boolean {
   const hasPlanCue = /\b(pricing|plan|plans|subscription|tier|tiers|per seat|\/month)\b/.test(k);
   if (hasTier && hasPlanCue) return true;
   if (hasTier && /\b(feature|includes|everything|integration|sandbox|sso|sla)\b/.test(k)) return true;
+  /** Many sites omit list prices but describe tiers + demo/sales CTAs in one section. */
+  if (hasTier && /\b(demo|sales|schedule|contact|meeting|book|reps?|qualified)\b/.test(k)) return true;
+  if (/\bpricing\b/.test(k) && (hasTier || /\b(schedule|demo|sales|contact)\b/.test(k))) return true;
   return false;
 }
 
@@ -275,8 +278,19 @@ async function smartRagSearch(
   ctx: any,
   namespace: string,
   prompt: string,
-  limit: number = 5,
+  limit: number = 8,
 ): Promise<{ text: string | null }> {
+  /**
+   * Pricing questions: dedicated query first — vector search often misses short prompts like "pricing?"
+   * when the indexed page is long and chunks split tiers across passages.
+   */
+  if (userAsksPricingOrPlans(prompt)) {
+    const pricingBoost =
+      `${prompt} pricing plans Starter Growth Enterprise schedule demo talk to sales contact meeting reps features`.trim();
+    const pricingFirst = await rag.search(ctx, { namespace, query: pricingBoost, limit });
+    if (!isNoKbResult(pricingFirst?.text)) return { text: (pricingFirst?.text ?? "").trim() || null };
+  }
+
   const first = await rag.search(ctx, { namespace, query: prompt, limit });
   if (!isNoKbResult(first?.text)) return { text: (first?.text ?? "").trim() || null };
 
@@ -286,9 +300,8 @@ async function smartRagSearch(
   const second = await rag.search(ctx, { namespace, query: condensed, limit });
   if (!isNoKbResult(second?.text)) return { text: (second?.text ?? "").trim() || null };
 
-  /** Pricing pages are often indexed with headings (Starter / Growth) without $ in the same chunk. */
   if (userAsksPricingOrPlans(prompt)) {
-    const pricingBoost = `${condensed} pricing plans starter growth enterprise features`.trim();
+    const pricingBoost = `${condensed} pricing plans starter growth enterprise features schedule demo`.trim();
     const third = await rag.search(ctx, { namespace, query: pricingBoost, limit });
     if (!isNoKbResult(third?.text)) return { text: (third?.text ?? "").trim() || null };
   }
@@ -477,14 +490,7 @@ export const create = action({
       const kbText = (kbRaw ?? "").trim();
       const fallbackLine = kbOnlyFallback(visitorLocale);
 
-      if (userAsksPricingOrPlans(prompt) && !kbSnippetContainsPricingOrCommercialDetail(kbText)) {
-        await saveMessage(ctx, components.agent, {
-          threadId: args.threadId,
-          message: { role: "assistant", content: fallbackLine },
-        });
-        return;
-      }
-
+      /** If we have any substantive KB, let the strict rewriter answer (summarize tiers/CTAs without inventing $). */
       const kbStrictAgent = makeSupportAgent({ llmProvider, llmModel });
 
       const gen = await safeGenerate(
