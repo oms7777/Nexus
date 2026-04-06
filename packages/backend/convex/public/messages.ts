@@ -15,6 +15,8 @@ import {
   VISITOR_MODE_LLM_PLUS_KB,
   VISITOR_OUTPUT_STYLE,
 } from "../system/ai/visitorPrompt";
+import { sanitizeVisitorAssistantText } from "../lib/sanitizeVisitorAssistantText";
+import type { MessageDoc } from "@convex-dev/agent";
 
 type KnowledgeMode = "llm_only" | "llm_plus_kb" | "kb_only";
 
@@ -65,8 +67,16 @@ function kbSnippetContainsPricingOrCommercialDetail(kb: string): boolean {
   if (/[€$£]\s*\d|\d[\d.,]*\s*(€|eur|\$|usd|£)/.test(k)) return true;
   if (/\b(per month|\/mo|\/month|monthly|annual|annually|par mois|mensuel|annuel|\/an)\b/.test(k)) return true;
   if (/\b(free trial|essai gratuit|no credit card)\b/.test(k)) return true;
-  if (/\b(contact|sales|commercial|devis|demo|book a|schedule)\b/.test(k) && /\b(pricing|price|plan|tarif|abonnement|offre)\b/.test(k))
+  if (
+    /\b(contact|sales|commercial|devis|demo|book a|schedule|talk to)\b/.test(k) &&
+    /\b(pricing|price|plan|tarif|abonnement|offre)\b/.test(k)
+  )
     return true;
+  /** Indexed pricing pages often list tiers + CTAs without dollar amounts in the same chunk. */
+  const hasTier = /\b(starter|growth|enterprise|professional|business|scale|most popular)\b/.test(k);
+  const hasPlanCue = /\b(pricing|plan|plans|subscription|tier|tiers|per seat|\/month)\b/.test(k);
+  if (hasTier && hasPlanCue) return true;
+  if (hasTier && /\b(feature|includes|everything|integration|sandbox|sso|sla)\b/.test(k)) return true;
   return false;
 }
 
@@ -85,15 +95,14 @@ ABSOLUTE RULES (violating any rule = failure):
 - Use ONLY facts that are clearly supported by INTERNAL_KB_CONTEXT below.
 - Do NOT use general world knowledge, "typical SaaS" examples, or imagined product details.
 - NEVER invent or guess: prices, currencies, plan names, feature bullets, storage limits, seat counts, emails (e.g. sales@example.com), URLs, phone numbers, SLAs, or integrations.
-- If the visitor asks about pricing, plans, subscriptions, or "how much", and INTERNAL_KB_CONTEXT does NOT contain explicit pricing or a clear "contact us for pricing" style answer, your ENTIRE reply must be EXACTLY the text between <<<FALLBACK>>> and <<<END_FALLBACK>>> with no other characters before or after.
-- If INTERNAL_KB_CONTEXT does not contain enough information to answer the question at all, your ENTIRE reply must be EXACTLY that same fallback text and nothing else.
+- If the visitor asks about pricing, plans, subscriptions, or "how much", and INTERNAL_KB_CONTEXT does NOT contain enough verified commercial detail (amounts, plan tiers, or clear contact/demo CTAs for buying), your ENTIRE reply must be EXACTLY the fallback paragraph below — nothing before or after, no angle brackets, no XML-style tags, no quotes around it.
+- If INTERNAL_KB_CONTEXT does not contain enough information to answer the question at all, your ENTIRE reply must be EXACTLY that same fallback paragraph and nothing else.
 - Do not output placeholder or sample companies, example.com addresses, or fictional tier names.
 
-<<<FALLBACK>>>
+Fallback paragraph (use verbatim only when rules above require it):
 ${exactFallback}
-<<<END_FALLBACK>>>
 
-FORMAT RULES (only when you are answering from context, not when using the exact fallback above):
+FORMAT RULES (only when you are answering from context, not when using the fallback paragraph above):
 - Write in clean Markdown; use sequential list numbering (1., 2., 3.).
 - Start with a 1–2 sentence direct answer.
 - Rephrase and summarize; do not dump raw text.
@@ -277,7 +286,22 @@ async function smartRagSearch(
   const second = await rag.search(ctx, { namespace, query: condensed, limit });
   if (!isNoKbResult(second?.text)) return { text: (second?.text ?? "").trim() || null };
 
+  /** Pricing pages are often indexed with headings (Starter / Growth) without $ in the same chunk. */
+  if (userAsksPricingOrPlans(prompt)) {
+    const pricingBoost = `${condensed} pricing plans starter growth enterprise features`.trim();
+    const third = await rag.search(ctx, { namespace, query: pricingBoost, limit });
+    if (!isNoKbResult(third?.text)) return { text: (third?.text ?? "").trim() || null };
+  }
+
   return { text: null };
+}
+
+function sanitizeAssistantMessageDoc(doc: MessageDoc): MessageDoc {
+  const msg = doc.message as { role?: string; content?: unknown };
+  if (msg?.role !== "assistant" || typeof msg.content !== "string") return doc;
+  const cleaned = sanitizeVisitorAssistantText(msg.content);
+  if (cleaned === msg.content) return doc;
+  return { ...doc, message: { ...msg, content: cleaned } as typeof doc.message };
 }
 
 /**
@@ -534,9 +558,13 @@ export const getMany = query({
       llmModel: "gpt-4o-mini",
     });
 
-    return agent.listMessages(ctx, {
+    const res = await agent.listMessages(ctx, {
       threadId: args.threadId,
       paginationOpts: args.paginationOpts,
     });
+    return {
+      ...res,
+      page: res.page.map((doc) => sanitizeAssistantMessageDoc(doc)),
+    };
   },
 });
