@@ -2031,10 +2031,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewSingleBlockMedia != null &&
     (previewPlacementResolved === "left" || previewPlacementResolved === "right");
 
-  const previewLegacyMediaEl = previewVideoEff ? (
+  /** Full-width strips: `contain` like embed (wide graphics stay readable). */
+  const previewLegacyMediaStackEl = previewVideoEff ? (
     <video
       key={previewVideoEff}
-      className="block h-full w-full object-cover object-center"
+      className="block h-full w-full object-contain object-center"
       src={previewVideoEff}
       muted
       playsInline
@@ -2044,7 +2045,28 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     />
   ) : previewImageEff ? (
     <img
-      className="h-full w-full object-cover object-center"
+      className="h-full w-full object-contain object-center"
+      src={previewImageEff}
+      alt="Promo media"
+    />
+  ) : null;
+
+  /** Side column: absolute fill + cover/top — matches embed `sideMediaShellFromUrl`. */
+  const previewLegacyMediaSideEl = previewVideoEff ? (
+    <video
+      key={`${previewVideoEff}-side`}
+      className="absolute inset-0 block h-full w-full object-cover object-top"
+      src={previewVideoEff}
+      muted
+      playsInline
+      loop
+      autoPlay
+      preload="metadata"
+    />
+  ) : previewImageEff ? (
+    <img
+      key={`${previewImageEff}-side`}
+      className="absolute inset-0 h-full w-full object-cover object-top"
       src={previewImageEff}
       alt="Promo media"
     />
@@ -2071,7 +2093,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         <img
           src={b.url}
           alt=""
-          className="h-full w-full border-0 object-cover object-center"
+          className="h-full w-full border-0 object-contain object-center"
         />
       </div>
     ) : (
@@ -2081,7 +2103,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
         style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
       >
         <video
-          className="block h-full w-full border-0 object-cover object-center"
+          className="block h-full w-full border-0 object-contain object-center"
           src={b.url}
           muted
           playsInline
@@ -2111,7 +2133,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewSingleBlockMedia?.type === "video" ? (
       <video
         key={previewSingleBlockMedia.url}
-        className="block h-full w-full object-cover object-center"
+        className="absolute inset-0 block h-full w-full object-cover object-top"
         src={previewSingleBlockMedia.url}
         muted
         playsInline
@@ -2122,7 +2144,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     ) : previewSingleBlockMedia?.type === "image" ? (
       <img
         key={previewSingleBlockMedia.url}
-        className="h-full w-full object-cover object-center"
+        className="absolute inset-0 h-full w-full object-cover object-top"
         src={previewSingleBlockMedia.url}
         alt="Promo media"
       />
@@ -2130,11 +2152,12 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const previewSideMediaMaxH = Math.max(80, Math.round(previewMediaPx * 1.35));
   const previewSideMediaStyle = {
+    position: "relative" as const,
     width: SPLIT_MEDIA_W_PX[previewNudgeSizeTier],
     aspectRatio: previewSideMediaAspectRatio(previewMediaHeightEff),
     maxHeight: previewSideMediaMaxH,
     backgroundColor: nudgeBackgroundColor,
-  } as const;
+  };
 
   const previewTitleEl = previewTitleEff ? (
     <div className="text-sm font-semibold leading-snug text-slate-900">{previewTitleEff}</div>
@@ -2268,7 +2291,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           style={{ backgroundColor: nudgeBackgroundColor }}
         >
           <div className="w-full overflow-hidden" style={{ height: previewMediaPx }}>
-            {previewLegacyMediaEl}
+            {previewLegacyMediaStackEl}
           </div>
         </div>
         <div className="flex gap-3 items-start">
@@ -2291,7 +2314,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               className="shrink-0 overflow-hidden rounded-lg border border-slate-200/90"
               style={previewSideMediaStyle}
             >
-              {previewLegacyMediaEl}
+              {previewLegacyMediaSideEl}
             </div>
             <div className="min-w-0 flex-1 space-y-2">
               {previewTitleEl}
@@ -2316,7 +2339,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               className="shrink-0 overflow-hidden rounded-lg border border-slate-200/90"
               style={previewSideMediaStyle}
             >
-              {previewLegacyMediaEl}
+              {previewLegacyMediaSideEl}
             </div>
           </div>
         </div>
@@ -2338,7 +2361,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     className="mt-2 overflow-hidden rounded-lg border border-slate-200/80"
                     style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
                   >
-                    {previewLegacyMediaEl}
+                    {previewLegacyMediaStackEl}
                   </div>
                 ) : null}
               </div>
@@ -2361,7 +2384,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                 className="overflow-hidden rounded-lg border border-slate-200/90"
                 style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
               >
-                {previewLegacyMediaEl}
+                {previewLegacyMediaStackEl}
               </div>
             ) : null}
           </div>
@@ -3419,8 +3442,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     {previewNudgeMain}
 
                     <p className="text-[10px] text-slate-400">
-                      Live preview uses the same layout rules as the embed on your site (card width, side
-                      media column, aspect ratio, and cover crop).
+                      Preview matches the embed: wide strips use “contain” (full graphic visible); left/right
+                      columns use cover, aligned from the top.
                     </p>
 
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0 ? (

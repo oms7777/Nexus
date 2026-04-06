@@ -141,21 +141,29 @@ function findFirstOpenUrlCtaIndex(payload: PromoPayload, ctaList: SimpleCta[]): 
   return null;
 }
 
-function wrapNudgeMediaWithCta(innerHtml: string, ctaIndex: number | null): string {
+function wrapNudgeMediaWithCta(
+  innerHtml: string,
+  ctaIndex: number | null,
+  borderRadiusCss = "10px",
+): string {
   if (ctaIndex == null || !innerHtml.trim()) return innerHtml;
-  return `<div tabindex="0" role="link" data-promo-media-cta="${ctaIndex}" title="Open link" style="cursor:pointer;display:block;line-height:0;border-radius:10px;overflow:hidden;outline-offset:2px;">${innerHtml}</div>`;
+  return `<div tabindex="0" role="link" data-promo-media-cta="${ctaIndex}" title="Open link" style="cursor:pointer;display:block;line-height:0;border-radius:${borderRadiusCss};overflow:hidden;outline-offset:2px;">${innerHtml}</div>`;
 }
 
-/** Full-width strip (top / bottom / hero): fixed height + cover. */
+/**
+ * Full-width strip (top / bottom / stacked blocks).
+ * `contain` keeps wide graphics readable (no cropped text); letterboxing uses nudge surface color.
+ */
 function promoLegacyMediaInnerHtml(
   safeVideo: string,
   safeImage: string,
   effectiveMediaH: number,
   objectFit: "cover" | "contain",
   surfaceBg: string,
+  borderRadiusCss = "10px",
 ): string {
   const bg = escapeAttrNudge(surfaceBg);
-  const box = `width:100%;height:${effectiveMediaH}px;object-fit:${objectFit};object-position:center;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:${bg};display:block;`;
+  const box = `width:100%;height:${effectiveMediaH}px;object-fit:${objectFit};object-position:center;border-radius:${borderRadiusCss};border:1px solid rgba(229,231,235,.9);background:${bg};display:block;`;
   if (safeVideo) {
     return `<video src="${safeVideo}" muted autoplay loop playsinline preload="auto" style="${box}"></video>`;
   }
@@ -185,7 +193,9 @@ function sideMediaShellFromUrl(
   const bg = escapeAttrNudge(surfaceBg);
   const aspect = sideMediaAspectRatio(mediaHeight);
   const maxH = Math.max(80, Math.round(effectiveMediaH * 1.35));
+  /** `position:absolute` fill avoids empty bands when % heights on img/video fail inside aspect-ratio boxes. */
   const wrap = [
+    "position:relative;",
     "width:100%;",
     `aspect-ratio:${aspect};`,
     `max-height:${maxH}px;`,
@@ -196,7 +206,7 @@ function sideMediaShellFromUrl(
     "line-height:0;",
   ].join("");
   const inner =
-    "width:100%;height:100%;object-fit:cover;object-position:center;display:block;";
+    "position:absolute;left:0;top:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;object-position:center top;display:block;";
   if (isVideo) {
     return `<div style="${wrap}"><video src="${safeAttrUrl}" muted autoplay loop playsinline preload="auto" style="${inner}"></video></div>`;
   }
@@ -292,7 +302,7 @@ function buildContentBlocksStackHtml(
   mediaCtaIndex: number | null = null,
 ): string {
   const bg = escapeAttrNudge(mediaSurfaceBg);
-  const mediaStyle = `width:100%;height:${mediaH}px;object-fit:cover;object-position:center;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:${bg};`;
+  const mediaStyle = `width:100%;height:${mediaH}px;object-fit:contain;object-position:center;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:${bg};`;
   const parts: string[] = [];
   for (const b of blocks) {
     const top = parts.length > 0 ? "10px" : "0";
@@ -1558,8 +1568,17 @@ type NudgeKind = "promo" | "suggestions" | null;
       safeVideo,
       safeImage,
       effectiveMediaH,
-      "cover",
+      "contain",
       mediaSurface,
+      "10px",
+    );
+    const mediaCoreHeroRaw = promoLegacyMediaInnerHtml(
+      safeVideo,
+      safeImage,
+      effectiveMediaH,
+      "contain",
+      mediaSurface,
+      "14px 14px 12px 12px",
     );
     const mediaCoreSideRaw = promoSideMediaInnerHtml(
       safeVideo,
@@ -1568,8 +1587,13 @@ type NudgeKind = "promo" | "suggestions" | null;
       effectiveMediaH,
       mediaSurface,
     );
-    const mediaCoreStack = wrapNudgeMediaWithCta(mediaCoreStackRaw, promoMediaUrlCtaIndex);
-    const mediaCoreSide = wrapNudgeMediaWithCta(mediaCoreSideRaw, promoMediaUrlCtaIndex);
+    const mediaCoreStack = wrapNudgeMediaWithCta(mediaCoreStackRaw, promoMediaUrlCtaIndex, "10px");
+    const mediaCoreHero = wrapNudgeMediaWithCta(
+      mediaCoreHeroRaw,
+      promoMediaUrlCtaIndex,
+      "14px 14px 12px 12px",
+    );
+    const mediaCoreSide = wrapNudgeMediaWithCta(mediaCoreSideRaw, promoMediaUrlCtaIndex, "10px");
 
     const titleBlock =
       title.trim().length > 0
@@ -1594,7 +1618,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     const heroBlock =
       !useContentBlocks && hasMedia && placement === "top"
         ? `<div style="margin: -${spec.padY}px -${spec.padX}px 10px -${spec.padX}px;">
-          ${mediaCoreStack}
+          ${mediaCoreHero}
         </div>`
         : "";
 
@@ -1946,7 +1970,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     }
 
     nudge!.innerHTML = `
-      <div style="position:relative">
+      <div style="position:relative;padding-bottom:8px;box-sizing:border-box;">
         ${heroBlock}
         ${mainRowHtml}
       </div>
