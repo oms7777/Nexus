@@ -115,6 +115,9 @@ export default defineSchema({
       v.union(v.literal("compact"), v.literal("full_width_bottom"))
     ),
 
+    /** Widget chrome language: en | fr (validated on upsert). Optional string for legacy rows. */
+    widgetUiLanguage: v.optional(v.string()),
+
     knowledgeMode: v.optional(
       v.union(v.literal("llm_only"), v.literal("llm_plus_kb"), v.literal("kb_only"))
     ),

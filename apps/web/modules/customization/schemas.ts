@@ -174,6 +174,9 @@ export const widgetSettingsSchema = z
       .optional()
       .default("compact"),
 
+    /** Widget UI language (buttons, booking flow). AI still follows the visitor’s message language. */
+    widgetUiLanguage: z.enum(["en", "fr"]).optional().default("en"),
+
     // -------------------------
     // Legacy privacy URL
     // -------------------------

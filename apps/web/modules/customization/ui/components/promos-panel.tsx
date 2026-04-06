@@ -642,16 +642,23 @@ const NUDGE_PREVIEW_MAX_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, strin
   xl: "max-w-2xl",
 };
 
-/**
- * Split-column media in live preview: wider than embed `splitMediaW` so side layouts stay legible.
- * Uses `object-contain` on the media so the full frame is visible in the editor (embed still uses cover).
- */
-const PREVIEW_SPLIT_MEDIA_CLASS: Record<NonNullable<PromoForm["nudgeSize"]>, string> = {
-  sm: "w-[min(46%,12rem)] min-w-[8rem] max-w-[15rem] shrink-0",
-  md: "w-[min(46%,14rem)] min-w-[9.5rem] max-w-[17rem] shrink-0",
-  lg: "w-[min(46%,16rem)] min-w-[11rem] max-w-[19rem] shrink-0",
-  xl: "w-[min(48%,20rem)] min-w-[12rem] max-w-[22rem] shrink-0",
+/** Same pixel widths as `embed.ts` `nudgeLayoutSpec.splitMediaW` — preview must match production. */
+const SPLIT_MEDIA_W_PX: Record<NonNullable<PromoForm["nudgeSize"]>, number> = {
+  sm: 100,
+  md: 120,
+  lg: 140,
+  xl: 160,
 };
+
+function previewSideMediaAspectRatio(
+  mediaHeight: PromoForm["mediaHeight"] | undefined,
+): string {
+  const h = mediaHeight ?? "standard";
+  if (h === "compact") return "1 / 1";
+  if (h === "standard") return "4 / 5";
+  if (h === "tall") return "3 / 4";
+  return "9 / 16";
+}
 
 type ThemePreview = {
   primaryColor?: string | null;
@@ -2024,20 +2031,10 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewSingleBlockMedia != null &&
     (previewPlacementResolved === "left" || previewPlacementResolved === "right");
 
-  /** Editor preview: letterbox so wide video isn’t cropped (left/right always; Compact card width too). */
-  const previewMediaUseContain =
-    previewPlacementResolved === "left" ||
-    previewPlacementResolved === "right" ||
-    previewNudgeSizeTier === "sm";
-
   const previewLegacyMediaEl = previewVideoEff ? (
     <video
       key={previewVideoEff}
-      className={cn(
-        "block",
-        previewMediaUseContain ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
-      )}
-      style={previewMediaUseContain ? { objectFit: "contain" as const } : undefined}
+      className="block h-full w-full object-cover object-center"
       src={previewVideoEff}
       muted
       playsInline
@@ -2047,10 +2044,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     />
   ) : previewImageEff ? (
     <img
-      className={cn(
-        previewMediaUseContain ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
-      )}
-      style={previewMediaUseContain ? { objectFit: "contain" as const } : undefined}
+      className="h-full w-full object-cover object-center"
       src={previewImageEff}
       alt="Promo media"
     />
@@ -2071,37 +2065,23 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     ) : b.type === "image" ? (
       <div
         key={b.id}
-        className={cn(
-          "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
-          previewMediaUseContain && "flex items-center justify-center",
-        )}
-        style={{ height: previewMediaPx }}
+        className="overflow-hidden rounded-lg border border-slate-200/90"
+        style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
       >
         <img
           src={b.url}
           alt=""
-          className={cn(
-            "rounded-lg border-0",
-            previewMediaUseContain ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
-          )}
-          style={previewMediaUseContain ? { objectFit: "contain" as const } : undefined}
+          className="h-full w-full border-0 object-cover object-center"
         />
       </div>
     ) : (
       <div
         key={b.id}
-        className={cn(
-          "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
-          previewMediaUseContain && "flex items-center justify-center",
-        )}
-        style={{ height: previewMediaPx }}
+        className="overflow-hidden rounded-lg border border-slate-200/90"
+        style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
       >
         <video
-          className={cn(
-            "block rounded-lg border-0",
-            previewMediaUseContain ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
-          )}
-          style={previewMediaUseContain ? { objectFit: "contain" as const } : undefined}
+          className="block h-full w-full border-0 object-cover object-center"
           src={b.url}
           muted
           playsInline
@@ -2131,8 +2111,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     previewSingleBlockMedia?.type === "video" ? (
       <video
         key={previewSingleBlockMedia.url}
-        className="block max-h-full max-w-full object-contain"
-        style={{ objectFit: "contain" }}
+        className="block h-full w-full object-cover object-center"
         src={previewSingleBlockMedia.url}
         muted
         playsInline
@@ -2143,12 +2122,19 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
     ) : previewSingleBlockMedia?.type === "image" ? (
       <img
         key={previewSingleBlockMedia.url}
-        className="max-h-full max-w-full object-contain"
-        style={{ objectFit: "contain" }}
+        className="h-full w-full object-cover object-center"
         src={previewSingleBlockMedia.url}
         alt="Promo media"
       />
     ) : null;
+
+  const previewSideMediaMaxH = Math.max(80, Math.round(previewMediaPx * 1.35));
+  const previewSideMediaStyle = {
+    width: SPLIT_MEDIA_W_PX[previewNudgeSizeTier],
+    aspectRatio: previewSideMediaAspectRatio(previewMediaHeightEff),
+    maxHeight: previewSideMediaMaxH,
+    backgroundColor: nudgeBackgroundColor,
+  } as const;
 
   const previewTitleEl = previewTitleEff ? (
     <div className="text-sm font-semibold leading-snug text-slate-900">{previewTitleEff}</div>
@@ -2216,11 +2202,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           {previewIdentityCol}
           <div className="flex min-w-0 flex-1 gap-2.5">
             <div
-              className={cn(
-                "flex items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
-                PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
-              )}
-              style={{ height: previewMediaPx }}
+              className="shrink-0 overflow-hidden rounded-lg border border-slate-200/90"
+              style={previewSideMediaStyle}
             >
               {previewSplitBlockMediaEl}
             </div>
@@ -2248,11 +2231,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               ) : null}
             </div>
             <div
-              className={cn(
-                "flex items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
-                PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
-              )}
-              style={{ height: previewMediaPx }}
+              className="shrink-0 overflow-hidden rounded-lg border border-slate-200/90"
+              style={previewSideMediaStyle}
             >
               {previewSplitBlockMediaEl}
             </div>
@@ -2283,14 +2263,11 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
   } else if (previewPlacementResolved === "top" && previewHasLegacyMedia) {
     previewNudgeMain = (
       <>
-        <div className="-mx-4 -mt-4 mb-2 overflow-hidden rounded-t-2xl border-b border-slate-200/90 bg-slate-100">
-          <div
-            className={cn(
-              "w-full overflow-hidden",
-              previewMediaUseContain && "flex items-center justify-center",
-            )}
-            style={{ height: previewMediaPx }}
-          >
+        <div
+          className="-mx-4 -mt-4 mb-2 overflow-hidden rounded-t-2xl border-b border-slate-200/90"
+          style={{ backgroundColor: nudgeBackgroundColor }}
+        >
+          <div className="w-full overflow-hidden" style={{ height: previewMediaPx }}>
             {previewLegacyMediaEl}
           </div>
         </div>
@@ -2311,11 +2288,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           {previewIdentityCol}
           <div className="flex min-w-0 flex-1 gap-2.5">
             <div
-              className={cn(
-                "flex items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
-                PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
-              )}
-              style={{ height: previewMediaPx }}
+              className="shrink-0 overflow-hidden rounded-lg border border-slate-200/90"
+              style={previewSideMediaStyle}
             >
               {previewLegacyMediaEl}
             </div>
@@ -2339,11 +2313,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
               {previewBodyEl}
             </div>
             <div
-              className={cn(
-                "flex items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
-                PREVIEW_SPLIT_MEDIA_CLASS[previewNudgeSizeTier],
-              )}
-              style={{ height: previewMediaPx }}
+              className="shrink-0 overflow-hidden rounded-lg border border-slate-200/90"
+              style={previewSideMediaStyle}
             >
               {previewLegacyMediaEl}
             </div>
@@ -2364,11 +2335,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                 {previewBodyEl}
                 {previewHasLegacyMedia ? (
                   <div
-                    className={cn(
-                      "mt-2 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-100",
-                      previewMediaUseContain && "flex items-center justify-center",
-                    )}
-                    style={{ height: previewMediaPx }}
+                    className="mt-2 overflow-hidden rounded-lg border border-slate-200/80"
+                    style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
                   >
                     {previewLegacyMediaEl}
                   </div>
@@ -2390,11 +2358,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
             {previewBodyEl}
             {previewHasLegacyMedia ? (
               <div
-                className={cn(
-                  "overflow-hidden rounded-lg border border-slate-200 bg-slate-100",
-                  previewMediaUseContain && "flex items-center justify-center",
-                )}
-                style={{ height: previewMediaPx }}
+                className="overflow-hidden rounded-lg border border-slate-200/90"
+                style={{ height: previewMediaPx, backgroundColor: nudgeBackgroundColor }}
               >
                 {previewLegacyMediaEl}
               </div>
@@ -3454,7 +3419,8 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
                     {previewNudgeMain}
 
                     <p className="text-[10px] text-slate-400">
-                      Branding colors. Side media uses letterboxing on the site too (full frame visible).
+                      Live preview uses the same layout rules as the embed on your site (card width, side
+                      media column, aspect ratio, and cover crop).
                     </p>
 
                     {sequenceUiEnabled && sequenceStepsWatch.length > 0 ? (

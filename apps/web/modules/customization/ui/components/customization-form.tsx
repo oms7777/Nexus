@@ -90,6 +90,8 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
       escalationSuggestionAfterMessages:
         (initialData as any)?.escalationSuggestionAfterMessages ?? 3,
       embedLayout: (initialData as any)?.embedLayout || "compact",
+      widgetUiLanguage:
+        (initialData as any)?.widgetUiLanguage === "fr" ? "fr" : "en",
       theme: {
         primaryColor: initialData?.theme?.primaryColor || "#a855f7",
         primaryTextColor: initialData?.theme?.primaryTextColor || "#ffffff",
@@ -194,6 +196,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
           values.escalationSuggestionAfterMessages ?? 3,
         teamAvatars: undefined,
         embedLayout: values.embedLayout,
+        widgetUiLanguage: values.widgetUiLanguage,
         theme,
         brandLogoUrl: values.brandLogoUrl || undefined,
         privacyUrl: values.privacyUrl || undefined,
@@ -380,6 +383,32 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                           </FormControl>
                           <FormDescription>
                             Compact: small floating block. Full-width: chat spans the bottom of the page.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control as any}
+                      name="widgetUiLanguage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Widget language</FormLabel>
+                          <FormControl>
+                            <select
+                              {...field}
+                              value={field.value ?? "en"}
+                              onChange={(e) => field.onChange(e.target.value)}
+                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              <option value="en">English</option>
+                              <option value="fr">Français</option>
+                            </select>
+                          </FormControl>
+                          <FormDescription>
+                            Labels, buttons, and booking flow in the chat widget. The assistant still
+                            replies in the language your visitors write in.
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

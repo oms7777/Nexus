@@ -55,6 +55,8 @@ const EmbedLayoutV = v.union(
   v.literal("full_width_bottom"),
 );
 
+const WidgetUiLanguageV = v.union(v.literal("en"), v.literal("fr"));
+
 const KnowledgeModeV = v.union(
   v.literal("llm_only"),
   v.literal("llm_plus_kb"),
@@ -88,6 +90,8 @@ export const upsert = mutation({
     vapiSettings: v.optional(VapiSettingsV),
 
     escalationSuggestionAfterMessages: v.optional(v.number()),
+
+    widgetUiLanguage: v.optional(WidgetUiLanguageV),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -123,6 +127,8 @@ export const upsert = mutation({
     if ("escalationSuggestionAfterMessages" in args)
       patch.escalationSuggestionAfterMessages = args.escalationSuggestionAfterMessages;
 
+    if ("widgetUiLanguage" in args) patch.widgetUiLanguage = args.widgetUiLanguage;
+
     // If no record yet, insert minimal required fields
     if (!existing) {
       const id = await ctx.db.insert("widgetSettings", {
@@ -145,6 +151,7 @@ export const upsert = mutation({
         llmProvider: patch.llmProvider,
         llmModel: patch.llmModel,
         vapiSettings: patch.vapiSettings,
+        widgetUiLanguage: patch.widgetUiLanguage,
       });
       return id;
     }

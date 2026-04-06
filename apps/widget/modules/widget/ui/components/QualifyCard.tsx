@@ -3,9 +3,8 @@
 
 import { useState } from "react";
 import {
-  getWidgetUiLocale,
-  widgetUiCopy,
-  type WidgetUiLocale,
+  widgetCopyFor,
+  type WidgetUiLanguage,
 } from "../../../../lib/widget-chat-i18n";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -13,12 +12,12 @@ import { Label } from "@workspace/ui/components/label";
 import { Textarea } from "@workspace/ui/components/textarea"; // ✅ NEW (shadcn)
 
 export default function QualifyCard({
-  uiLocale: uiLocaleProp,
+  uiLang = "en",
   initial,
   onCancel,
   onSubmit,
 }: {
-  uiLocale?: WidgetUiLocale;
+  uiLang?: WidgetUiLanguage;
   initial?: {
     name?: string;
     email?: string;
@@ -37,8 +36,7 @@ export default function QualifyCard({
     description: string; // ✅ REQUIRED
   }) => void;
 }) {
-  const uiLocale = uiLocaleProp ?? getWidgetUiLocale();
-  const tc = widgetUiCopy[uiLocale];
+  const tc = widgetCopyFor(uiLang);
 
   const [name, setName] = useState(initial?.name ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");

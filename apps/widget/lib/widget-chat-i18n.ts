@@ -1,46 +1,24 @@
 /**
- * Visitor-facing copy for the widget chat UI.
+ * Widget chrome (buttons, booking labels) uses `widgetUiLanguage` from org **widget settings**
+ * (Branding & Chat). Supported UI languages: **en** and **fr** only.
  *
- * Resolution order:
- * 1. URL `?lang=fr` or `?lang=en` on the widget iframe (snippet can add it; overrides browser).
- * 2. First match in `navigator.languages` (user preferred list) for `fr*` or `en*`.
- * 3. `navigator.language` — `fr*` → FR, anything else → EN (only fr/en are shipped today).
- *
- * So "Talk to someone" vs "Parler à quelqu'un" follows that locale, not the org country.
- * Backend copy for the AI may still be English unless your prompts / visitorLocale handle FR.
+ * Assistant reply language: visitor messages + Convex prompts (`visitorLocale` from `visitorLocaleForBackend`).
  */
 
-export type WidgetUiLocale = "en" | "fr";
+export const WIDGET_UI_LANGUAGES = ["en", "fr"] as const;
 
-function localeFromLangTag(tag: string): WidgetUiLocale | null {
-  const t = tag.trim().toLowerCase();
-  if (t.startsWith("fr")) return "fr";
-  if (t.startsWith("en")) return "en";
-  return null;
-}
+export type WidgetUiLanguage = (typeof WIDGET_UI_LANGUAGES)[number];
 
-export function getWidgetUiLocale(): WidgetUiLocale {
-  if (typeof window !== "undefined") {
-    try {
-      const q = new URLSearchParams(window.location.search).get("lang")?.toLowerCase();
-      if (q === "fr" || q === "en") return q;
-    } catch {
-      /* ignore */
-    }
+/** @deprecated Use WidgetUiLanguage */
+export type WidgetUiLocale = WidgetUiLanguage;
+
+export function getWidgetUiLanguage(
+  settings: { widgetUiLanguage?: string | null } | null | undefined,
+): WidgetUiLanguage {
+  const raw = settings?.widgetUiLanguage?.trim().toLowerCase();
+  if (raw && (WIDGET_UI_LANGUAGES as readonly string[]).includes(raw)) {
+    return raw as WidgetUiLanguage;
   }
-
-  if (typeof navigator === "undefined") return "en";
-
-  const fromList =
-    typeof navigator.languages !== "undefined" && navigator.languages.length
-      ? navigator.languages
-      : [navigator.language || "en"];
-
-  for (const raw of fromList) {
-    const hit = localeFromLangTag(String(raw));
-    if (hit) return hit;
-  }
-
   return "en";
 }
 
@@ -114,7 +92,7 @@ export type WidgetUiCopy = {
   thinkingShort: string;
 };
 
-export const widgetUiCopy: Record<WidgetUiLocale, WidgetUiCopy> = {
+export const widgetUiCopy = {
   en: {
     preparingResponse:
       "This is taking a little longer than usual.\n\nSay “talk to someone” if you’d prefer a human teammate.",
@@ -265,9 +243,22 @@ export const widgetUiCopy: Record<WidgetUiLocale, WidgetUiCopy> = {
     assistantTyping: "L’assistant répond",
     thinkingShort: "Réflexion…",
   },
-};
+} as const satisfies Record<"en" | "fr", WidgetUiCopy>;
 
-/** Locale string for `Intl` formatters (calendar, slots). */
-export function intlLocaleForWidget(lang: WidgetUiLocale): string {
+export function widgetCopyFor(lang: WidgetUiLanguage): WidgetUiCopy {
+  return lang === "fr" ? widgetUiCopy.fr : widgetUiCopy.en;
+}
+
+/** Convex `messages.create` only supports en/fr system bundles today. */
+export function visitorLocaleForBackend(lang: WidgetUiLanguage): "en" | "fr" {
+  return lang === "fr" ? "fr" : "en";
+}
+
+export function getFormattingLocaleForWidget(lang: WidgetUiLanguage): string {
   return lang === "fr" ? "fr-FR" : "en-GB";
+}
+
+/** @deprecated Use getFormattingLocaleForWidget */
+export function intlLocaleForWidget(lang: WidgetUiLocale): string {
+  return getFormattingLocaleForWidget(lang as WidgetUiLanguage);
 }

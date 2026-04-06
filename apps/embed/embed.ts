@@ -146,19 +146,75 @@ function wrapNudgeMediaWithCta(innerHtml: string, ctaIndex: number | null): stri
   return `<div tabindex="0" role="link" data-promo-media-cta="${ctaIndex}" title="Open link" style="cursor:pointer;display:block;line-height:0;border-radius:10px;overflow:hidden;outline-offset:2px;">${innerHtml}</div>`;
 }
 
-/** Legacy step image/video: `contain` in narrow side columns avoids cropping wide video; `cover` for full-width strips. */
+/** Full-width strip (top / bottom / hero): fixed height + cover. */
 function promoLegacyMediaInnerHtml(
   safeVideo: string,
   safeImage: string,
   effectiveMediaH: number,
   objectFit: "cover" | "contain",
+  surfaceBg: string,
 ): string {
-  const box = `width:100%;height:${effectiveMediaH}px;object-fit:${objectFit};border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;display:block;`;
+  const bg = escapeAttrNudge(surfaceBg);
+  const box = `width:100%;height:${effectiveMediaH}px;object-fit:${objectFit};object-position:center;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:${bg};display:block;`;
   if (safeVideo) {
     return `<video src="${safeVideo}" muted autoplay loop playsinline preload="auto" style="${box}"></video>`;
   }
   if (safeImage) {
     return `<img src="${safeImage}" alt="Promo media" style="${box}" />`;
+  }
+  return "";
+}
+
+/** Media left/right: aspect-ratio column + cover (no grey letterboxing bars). */
+function sideMediaAspectRatio(h: MediaHeight): string {
+  if (h === "compact") return "1 / 1";
+  if (h === "standard") return "4 / 5";
+  if (h === "tall") return "3 / 4";
+  if (h === "hero") return "9 / 16";
+  return "4 / 5";
+}
+
+/** Single side-column image or video (URL already attribute-safe). */
+function sideMediaShellFromUrl(
+  safeAttrUrl: string,
+  isVideo: boolean,
+  mediaHeight: MediaHeight,
+  effectiveMediaH: number,
+  surfaceBg: string,
+): string {
+  const bg = escapeAttrNudge(surfaceBg);
+  const aspect = sideMediaAspectRatio(mediaHeight);
+  const maxH = Math.max(80, Math.round(effectiveMediaH * 1.35));
+  const wrap = [
+    "width:100%;",
+    `aspect-ratio:${aspect};`,
+    `max-height:${maxH}px;`,
+    "border-radius:10px;",
+    "overflow:hidden;",
+    "border:1px solid rgba(229,231,235,.9);",
+    `background:${bg};`,
+    "line-height:0;",
+  ].join("");
+  const inner =
+    "width:100%;height:100%;object-fit:cover;object-position:center;display:block;";
+  if (isVideo) {
+    return `<div style="${wrap}"><video src="${safeAttrUrl}" muted autoplay loop playsinline preload="auto" style="${inner}"></video></div>`;
+  }
+  return `<div style="${wrap}"><img src="${safeAttrUrl}" alt="Promo media" style="${inner}" /></div>`;
+}
+
+function promoSideMediaInnerHtml(
+  safeVideo: string,
+  safeImage: string,
+  mediaHeight: MediaHeight,
+  effectiveMediaH: number,
+  surfaceBg: string,
+): string {
+  if (safeVideo) {
+    return sideMediaShellFromUrl(safeVideo, true, mediaHeight, effectiveMediaH, surfaceBg);
+  }
+  if (safeImage) {
+    return sideMediaShellFromUrl(safeImage, false, mediaHeight, effectiveMediaH, surfaceBg);
   }
   return "";
 }
@@ -232,9 +288,11 @@ function buildContentBlocksStackHtml(
   blocks: NudgeContentBlock[],
   spec: NudgeLayoutSpec,
   mediaH: number,
+  mediaSurfaceBg: string,
   mediaCtaIndex: number | null = null,
 ): string {
-  const mediaStyle = `width:100%;height:${mediaH}px;object-fit:cover;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;`;
+  const bg = escapeAttrNudge(mediaSurfaceBg);
+  const mediaStyle = `width:100%;height:${mediaH}px;object-fit:cover;object-position:center;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:${bg};`;
   const parts: string[] = [];
   for (const b of blocks) {
     const top = parts.length > 0 ? "10px" : "0";
@@ -428,12 +486,9 @@ type NudgeKind = "promo" | "suggestions" | null;
   let unpatchHistory: (() => void) | null = null;
 
   const currentScript = document.currentScript as HTMLScriptElement | null;
-  /** Optional `data-lang="fr"|"en"` on the embed script — wins over page `<html lang>`. */
-  let scriptDataLang: string | null = null;
 
   if (currentScript) {
     organizationId = currentScript.getAttribute("data-organization-id");
-    scriptDataLang = currentScript.getAttribute("data-lang");
     position =
       (currentScript.getAttribute(
         "data-position",
@@ -447,32 +502,12 @@ type NudgeKind = "promo" | "suggestions" | null;
 
     if (embedScript) {
       organizationId = embedScript.getAttribute("data-organization-id");
-      scriptDataLang = embedScript.getAttribute("data-lang");
       position =
         (embedScript.getAttribute(
           "data-position",
         ) as "bottom-right" | "bottom-left") ?? EMBED_CONFIG.DEFAULT_POSITION;
       parseNudgeCountFromAttrs(embedScript);
     }
-  }
-
-  function widgetIframeLang(): "fr" | "en" {
-    const d = scriptDataLang?.trim().toLowerCase();
-    if (d === "fr" || d === "en") return d;
-    try {
-      const htmlLang = document.documentElement?.getAttribute("lang")?.trim().toLowerCase();
-      if (htmlLang?.startsWith("fr")) return "fr";
-      if (htmlLang?.startsWith("en")) return "en";
-    } catch {
-      /* ignore */
-    }
-    try {
-      const nav = navigator.language?.toLowerCase() || "";
-      if (nav.startsWith("fr")) return "fr";
-    } catch {
-      /* ignore */
-    }
-    return "en";
   }
 
   if (!organizationId) {
@@ -657,7 +692,6 @@ type NudgeKind = "promo" | "suggestions" | null;
   function buildWidgetUrl(): string {
     const params = new URLSearchParams();
     params.append("organizationId", organizationId!);
-    params.append("lang", widgetIframeLang());
     return `${EMBED_CONFIG.WIDGET_URL}?${params.toString()}`;
   }
 
@@ -1518,20 +1552,24 @@ type NudgeKind = "promo" | "suggestions" | null;
       (rawPlacement === "left" || rawPlacement === "right") &&
       singleContentMediaBlock != null;
 
+    const mediaSurface = nudgeBg;
+    const mediaHeightNorm = normalizeMediaHeight(payload.mediaHeight);
     const mediaCoreStackRaw = promoLegacyMediaInnerHtml(
       safeVideo,
       safeImage,
       effectiveMediaH,
       "cover",
+      mediaSurface,
     );
-    const mediaCoreSplitRaw = promoLegacyMediaInnerHtml(
+    const mediaCoreSideRaw = promoSideMediaInnerHtml(
       safeVideo,
       safeImage,
+      mediaHeightNorm,
       effectiveMediaH,
-      "contain",
+      mediaSurface,
     );
     const mediaCoreStack = wrapNudgeMediaWithCta(mediaCoreStackRaw, promoMediaUrlCtaIndex);
-    const mediaCoreSplit = wrapNudgeMediaWithCta(mediaCoreSplitRaw, promoMediaUrlCtaIndex);
+    const mediaCoreSide = wrapNudgeMediaWithCta(mediaCoreSideRaw, promoMediaUrlCtaIndex);
 
     const titleBlock =
       title.trim().length > 0
@@ -1713,12 +1751,15 @@ type NudgeKind = "promo" | "suggestions" | null;
             ${identityHtml}
           </div>`;
 
-    const splitMediaStyle = `width:100%;height:${effectiveMediaH}px;object-fit:contain;border-radius:10px;border:1px solid rgba(229,231,235,.9);background:#f8fafc;display:block;`;
     const buildSideMediaFromBlock = (b: Extract<NudgeContentBlock, { type: "image" } | { type: "video" }>) =>
       wrapNudgeMediaWithCta(
-        b.type === "video"
-          ? `<video src="${escapeAttrNudge(b.url)}" muted autoplay loop playsinline preload="auto" style="${splitMediaStyle}"></video>`
-          : `<img src="${escapeAttrNudge(b.url)}" alt="" style="${splitMediaStyle}" />`,
+        sideMediaShellFromUrl(
+          escapeAttrNudge(b.url),
+          b.type === "video",
+          mediaHeightNorm,
+          effectiveMediaH,
+          mediaSurface,
+        ),
         promoMediaUrlCtaIndex,
       );
 
@@ -1728,6 +1769,7 @@ type NudgeKind = "promo" | "suggestions" | null;
         textBlocksOnly,
         spec,
         effectiveMediaH,
+        mediaSurface,
         null,
       );
       const sideMediaHtml = buildSideMediaFromBlock(singleContentMediaBlock);
@@ -1776,6 +1818,7 @@ type NudgeKind = "promo" | "suggestions" | null;
         contentBlocksNorm,
         spec,
         effectiveMediaH,
+        mediaSurface,
         promoMediaUrlCtaIndex,
       );
       const blocksWrapped =
@@ -1822,7 +1865,7 @@ type NudgeKind = "promo" | "suggestions" | null;
           ${identityCol}
           <div style="flex:1;min-width:0;display:flex;flex-direction:row;gap:10px;align-items:flex-start">
             <div style="width:${spec.splitMediaW}px;flex-shrink:0;">
-              ${hasMedia ? mediaCoreSplit : ""}
+              ${hasMedia ? mediaCoreSide : ""}
             </div>
             <div style="flex:1;min-width:0;">
               ${titleBlock}
@@ -1847,7 +1890,7 @@ type NudgeKind = "promo" | "suggestions" | null;
               ${privacyBlock}
             </div>
             <div style="width:${spec.splitMediaW}px;flex-shrink:0;">
-              ${hasMedia ? mediaCoreSplit : ""}
+              ${hasMedia ? mediaCoreSide : ""}
             </div>
           </div>
           ${closeBtnHtml}

@@ -15,7 +15,7 @@ import {
 import { Button } from "@workspace/ui/components/button";
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
 
-import { getCountryFlagUrl, getCountryFromTimezone } from "@/lib/country-utils";
+import { getCountryFlagUrl, resolveVisitorCountry } from "@/lib/country-utils";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
 
@@ -110,8 +110,8 @@ export const ContactPanel = () => {
   );
 
   const countryInfo = useMemo(() => {
-    return getCountryFromTimezone(contactSession?.metadata?.timezone);
-  }, [contactSession?.metadata?.timezone]);
+    return resolveVisitorCountry(contactSession?.metadata ?? undefined);
+  }, [contactSession?.metadata]);
 
   const cityLabel = contactSession?.metadata?.city ?? undefined;
 

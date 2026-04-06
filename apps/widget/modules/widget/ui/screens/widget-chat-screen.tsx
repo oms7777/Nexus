@@ -65,9 +65,10 @@ import QualifyCard from "../components/QualifyCard";
 import CalendarContainerBeautified from "../components/CalendarContainerBeautified";
 import VoiceCallButton from "../components/VoiceCallButton";
 import {
-  getWidgetUiLocale,
-  widgetUiCopy,
-  type WidgetUiLocale,
+  getWidgetUiLanguage,
+  visitorLocaleForBackend,
+  widgetCopyFor,
+  type WidgetUiLanguage,
 } from "../../../../lib/widget-chat-i18n";
 /* ---------------- helpers ---------------- */
 
@@ -111,8 +112,7 @@ function SlotsByDay({
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
-  const uiLocale = getWidgetUiLocale();
-  const tc = widgetUiCopy[uiLocale];
+  const tc = widgetCopyFor("en");
 
   if (!slots.length) {
     return (
@@ -248,12 +248,13 @@ function ConsentInlineModal({
 function RepPicker({
   reps,
   onPick,
+  uiLang,
 }: {
   reps: PublicRep[];
   onPick: (rep: PublicRep) => void;
+  uiLang: WidgetUiLanguage;
 }) {
-  const uiLocale = getWidgetUiLocale();
-  const tc = widgetUiCopy[uiLocale];
+  const tc = widgetCopyFor(uiLang);
 
   if (!reps.length) return null;
 
@@ -317,18 +318,18 @@ function BookingSplitLayout({
   loading,
   onPick,
   onBack,
-  uiLocale,
+  uiLang,
 }: {
   rep: PublicRep | null;
   slots: Slot[] | null;
   loading: boolean;
   onPick: (s: Slot) => void;
   onBack: () => void;
-  uiLocale: WidgetUiLocale;
+  uiLang: WidgetUiLanguage;
 }) {
   if (!rep) return null;
 
-  const tc = widgetUiCopy[uiLocale];
+  const tc = widgetCopyFor(uiLang);
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col bg-white sm:flex-row">
@@ -374,7 +375,7 @@ function BookingSplitLayout({
           slots={slots}
           loading={loading}
           onPick={onPick}
-          uiLocale={uiLocale}
+          uiLang={uiLang}
         />
       </div>
     </div>
@@ -384,10 +385,12 @@ function BookingSplitLayout({
 /* ---------------- screen ---------------- */
 
 export const WidgetChatScreen = () => {
-  const uiLocale = useMemo(() => getWidgetUiLocale(), []);
-  const t = widgetUiCopy[uiLocale];
-
   const widgetSettings = useAtomValue(widgetSettingsAtom);
+  const uiLang = useMemo(
+    () => getWidgetUiLanguage(widgetSettings ?? undefined),
+    [widgetSettings],
+  );
+  const t = widgetCopyFor(uiLang);
   const routingMode =
     ((widgetSettings as any)?.routingMode as "auto_assign" | "visitor_choice" | undefined) ??
     "auto_assign";
@@ -1131,7 +1134,7 @@ export const WidgetChatScreen = () => {
           threadId: thr,
           prompt: textToSend,
           contactSessionId,
-          visitorLocale: uiLocale,
+          visitorLocale: visitorLocaleForBackend(uiLang),
         });
       } catch {
         setIsPendingAssistant(false);
@@ -1652,7 +1655,7 @@ export const WidgetChatScreen = () => {
             {/* Qualif form */}
             {step === "ask_name" && bookingIntent !== "chat" && (
               <QualifyCard
-                uiLocale={uiLocale}
+                uiLang={uiLang}
                 initial={{
                   name: qdata.name,
                   email: qdata.email,
@@ -1681,6 +1684,7 @@ export const WidgetChatScreen = () => {
               <RepPicker
                 reps={repChoices}
                 onPick={handleRepPick}  // Passer la fonction handleRepPick comme prop onPick
+                uiLang={uiLang}
               />
             )}
 
@@ -1692,7 +1696,7 @@ export const WidgetChatScreen = () => {
                 rep={selectedRep}
                 slots={slots}
                 loading={loadingSlots}
-                uiLocale={uiLocale}
+                uiLang={uiLang}
                 onPick={async (slot) => {
                   if (!organizationId || !contactSessionId || !qdata.name || !qdata.email) return;
 

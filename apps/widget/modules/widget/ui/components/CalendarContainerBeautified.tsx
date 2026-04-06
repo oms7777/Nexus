@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import {
-  intlLocaleForWidget,
-  widgetUiCopy,
-  type WidgetUiLocale,
+  getFormattingLocaleForWidget,
+  widgetCopyFor,
+  type WidgetUiLanguage,
 } from "../../../../lib/widget-chat-i18n";
 
 type Slot = { start: number; end: number };
@@ -13,16 +13,16 @@ export default function CalendarContainerBeautified({
   slots,
   loading,
   onPick,
-  uiLocale = "en",
+  uiLang = "en",
 }: {
   slots: Slot[] | null;
   loading: boolean;
   onPick: (slot: Slot) => void;
-  uiLocale?: WidgetUiLocale;
+  uiLang?: WidgetUiLanguage;
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
-  const tc = widgetUiCopy[uiLocale];
-  const intlLocale = intlLocaleForWidget(uiLocale);
+  const tc = widgetCopyFor(uiLang);
+  const intlLocale = getFormattingLocaleForWidget(uiLang);
 
   if (loading) {
     return (
@@ -121,7 +121,7 @@ export default function CalendarContainerBeautified({
               e.currentTarget.style.color = "";
             }}
           >
-            {formatTime(slot.start)} – {formatTime(slot.end)}
+            {formatTime(slot.start, intlLocale)} – {formatTime(slot.end, intlLocale)}
           </button>
         ))}
       </div>
@@ -139,8 +139,8 @@ function formatDay(ts: number, intlLocale: string): string {
   });
 }
 
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], {
+function formatTime(ts: number, intlLocale: string): string {
+  return new Date(ts).toLocaleTimeString(intlLocale, {
     hour: "2-digit",
     minute: "2-digit",
   });

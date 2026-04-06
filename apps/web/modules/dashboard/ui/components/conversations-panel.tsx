@@ -3,7 +3,7 @@
 import { useInfiniteScroll } from "@workspace/ui/hooks/use-infinite-scroll"
 import { InfiniteScrollTrigger } from "@workspace/ui/components/infinite-scroll-trigger"
 
-import { getCountryFlagUrl, getCountryFromTimezone } from "@/lib/country-utils"
+import { getCountryFlagUrl, resolveVisitorCountry } from "@/lib/country-utils"
 import { api } from "@workspace/backend/_generated/api"
 import { ConversationStatusIcon } from "@workspace/ui/components/conversation-status-icon"
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar"
@@ -110,8 +110,8 @@ export const ConversationsPanel = () => {
                             const isLastMessageFromOperator =
                                 conversation.lastMessage?.message?.role !== "user"
                             
-                            const country = getCountryFromTimezone(
-                                conversation.contactSession.metadata?.timezone
+                            const country = resolveVisitorCountry(
+                                conversation.contactSession.metadata ?? undefined,
                             );
 
                             const countryFlagUrl = country?.code

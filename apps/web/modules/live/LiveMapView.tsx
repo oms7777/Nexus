@@ -58,6 +58,14 @@ export default function LiveMapView() {
     [visitors, query],
   );
 
+  const visitorsWithCoords = useMemo(
+    () =>
+      filtered.filter(
+        (v) => typeof v.lat === "number" && typeof v.lng === "number",
+      ),
+    [filtered],
+  );
+
   const selected = useMemo(
     () => filtered.find((v) => v._id === selectedId),
     [filtered, selectedId],
@@ -125,9 +133,17 @@ export default function LiveMapView() {
         </div>
       </div>
 
-      {/* Map */}
-      <div className="flex-1">
+      {/* Map — only visitors with lat/lng from IP geolocation render as pins */}
+      <div className="relative flex-1 min-h-0">
         <LiveMap visitors={filtered} selectedId={selectedId} />
+        {filtered.length > 0 && visitorsWithCoords.length === 0 ? (
+          <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-10 rounded-md border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur-sm">
+            No map pins: active visitors need latitude/longitude from IP lookup. This is missing on
+            localhost/private IPs, if geo is blocked, or if{" "}
+            <code className="rounded bg-muted px-1">IPDATA_API_KEY</code> is not configured on the
+            backend.
+          </div>
+        ) : null}
       </div>
 
       {/* Right panel */}
