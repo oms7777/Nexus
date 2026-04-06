@@ -5,6 +5,7 @@
 export function sanitizeVisitorAssistantText(raw: string): string {
   const t = (raw ?? "").trim();
   const fenced = /<<<FALLBACK>>>\s*([\s\S]*?)\s*<<<END_FALLBACK>>>/i.exec(t);
-  if (fenced) return fenced[1].trim();
+  const inner = fenced?.[1];
+  if (inner != null) return inner.trim();
   return t.replace(/<<<FALLBACK>>>/gi, "").replace(/<<<END_FALLBACK>>>/gi, "").trim();
 }
