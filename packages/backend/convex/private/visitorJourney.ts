@@ -5,7 +5,8 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { buildLeadSummaryInputPayload, type LeadSummaryAiResult } from "./leadSummaryAi";
 import type { EscalationDigestPayload, PageStay } from "./leadDigest";
 
-type ConversationWithSession = Doc<"conversations"> & {
+/** Matches `private/conversations.getOne` (null-normalized rep fields). */
+type ConversationWithSession = Omit<Doc<"conversations">, "assignedRepUserId" | "assignedTerritoryKey"> & {
   contactSession: Doc<"contactSessions">;
   assignedRepUserId: string | null;
   assignedTerritoryKey: string | null;
