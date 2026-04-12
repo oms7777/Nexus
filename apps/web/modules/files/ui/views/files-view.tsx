@@ -293,15 +293,8 @@ export const FilesView = () => {
                       onValueChange={(v) => handleProviderChange(v as LlmProvider)}
                     >
                       <SelectTrigger className="h-auto min-h-10 w-full min-w-[12rem]">
-                        <span className="flex min-w-0 flex-1 items-center gap-2.5">
-                          {(() => {
-                            const { Icon } = LLM_PROVIDER_META[llmProvider];
-                            return (
-                              <Icon className="size-4 shrink-0 opacity-90" aria-hidden />
-                            );
-                          })()}
-                          <SelectValue placeholder="Select provider" />
-                        </span>
+                        {/* SelectValue mirrors ItemText from the selected SelectItem (icon + label) — do not add a second icon here */}
+                        <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
                       <SelectContent>
                         {(Object.keys(LLM_PROVIDER_META) as LlmProvider[]).map((key) => {

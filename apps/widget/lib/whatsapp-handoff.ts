@@ -86,6 +86,24 @@ export function fillWhatsAppTemplate(template: string, ctx: WhatsAppPrefillFillC
   return s;
 }
 
+/**
+ * Removes inboundless widget URLs from the final message (legacy templates sometimes had
+ * full `window.location.href` pasted, or old deployments still cached). WhatsApp would
+ * otherwise turn them into ugly link previews with `organizationId` in the open graph URL.
+ */
+export function stripInboundlessWidgetUrlsFromPrefill(
+  text: string,
+  lang: WidgetUiLanguage
+): string {
+  const repl = lang === "fr" ? "le site" : "the website";
+  return text
+    .replace(/https?:\/\/(?:www\.)?widget\.inboundless\.co[^\s\])>"]*/gi, repl)
+    .replace(/\bwidget\.inboundless\.co[^\s\])>"]*/gi, repl)
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 const DEFAULT_SIMPLE: Record<WidgetUiLanguage, string> = {
   en: "Hi! I'm messaging from the website chat (context: {pageLabel}).",
   fr: "Bonjour, je vous contacte depuis le chat du site (contexte : {pageLabel}).",
@@ -147,7 +165,8 @@ export function resolveWhatsAppPrefill(
     chatExcerpt: excerpt,
   };
 
-  return fillWhatsAppTemplate(base, fillCtx);
+  const filled = fillWhatsAppTemplate(base, fillCtx);
+  return stripInboundlessWidgetUrlsFromPrefill(filled, lang);
 }
 
 export function buildWhatsAppHandoffUrl(digits: string, prefilledMessage: string): string {
