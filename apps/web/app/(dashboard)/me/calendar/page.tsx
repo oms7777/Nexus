@@ -3,6 +3,7 @@
 
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
+import type { Doc } from "@workspace/backend/_generated/dataModel";
 import { toast } from "sonner";
 import { Button } from "@workspace/ui/components/button";
 import { Badge } from "@workspace/ui/components/badge";
@@ -308,7 +309,7 @@ export default function Page() {
 
           {bookings && bookings.length > 0 && (
             <div className="space-y-2">
-              {bookings.map((b) => (
+              {bookings.map((b: Doc<"calendarBookings">) => (
                 <div
                   key={b._id}
                   className="flex flex-col gap-1 rounded-md border bg-background p-3 md:flex-row md:items-center md:justify-between"
