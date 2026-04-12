@@ -14,6 +14,12 @@ function fmt(dt: Date) {
   });
 }
 
+function resolveAppOrigin(): string {
+  const o = process.env.APP_ORIGIN?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (o && /^https?:\/\//i.test(o)) return o.replace(/\/$/, "");
+  return "https://app.inboundless.co";
+}
+
 /** FROM sûr pour Resend (fallback valide si domaine pas configuré) */
 function resolveFromEmail(): string {
   const envFrom = process.env.RESEND_FROM_EMAIL?.trim();
@@ -35,6 +41,8 @@ function bookingEmailHTML(args: {
   meetingUrl?: string;
   bookingId: string;
   conversationUrl?: string;
+  /** Rich lead block (AI summary, journey, chat) from widget session — see `leadNotify.buildBookingLeadExtras`. */
+  leadContextHtml?: string;
 }) {
   const {
     attendeeName,
@@ -46,6 +54,7 @@ function bookingEmailHTML(args: {
     meetingUrl,
     bookingId,
     conversationUrl,
+    leadContextHtml,
   } = args;
 
   const start = new Date(startIso);
@@ -74,6 +83,16 @@ function bookingEmailHTML(args: {
         </tr>
       </tbody>
     </table>
+
+    ${
+      leadContextHtml
+        ? `<div style="margin-top:24px;padding-top:20px;border-top:1px solid #e2e8f0">
+      <h2 style="margin:0 0 12px;font-size:17px;color:#0f172a">Lead context (visit &amp; chat)</h2>
+      ${leadContextHtml}
+      <p style="margin-top:12px"><a href="${resolveAppOrigin()}/live" style="display:inline-block;background:#0ea5e9;color:white;padding:10px 14px;border-radius:10px;text-decoration:none">Open Live map</a></p>
+    </div>`
+        : ""
+    }
 
     <div style="margin-top:16px">
       ${
@@ -138,6 +157,7 @@ export const sendBookingEmailToSales = action({
     meetingUrl: v.optional(v.string()),
     bookingId: v.string(),
     conversationUrl: v.optional(v.string()),
+    leadContextHtml: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
     const RESEND_API_KEY = process.env.RESEND_API_KEY;

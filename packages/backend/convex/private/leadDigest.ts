@@ -100,6 +100,24 @@ function guessIntentFromText(blob: string): string {
   return tags.length ? tags.join(", ") : "general";
 }
 
+/** Latest conversation for a contact session (widget chat), scoped by org. */
+export const getLatestConversationIdForSession = internalQuery({
+  args: {
+    organizationId: v.string(),
+    contactSessionId: v.id("contactSessions"),
+  },
+  handler: async (ctx, { organizationId, contactSessionId }) => {
+    const session = await ctx.db.get(contactSessionId);
+    if (!session || session.organizationId !== organizationId) return null;
+    const conv = await ctx.db
+      .query("conversations")
+      .withIndex("by_contact_session_id", (q) => q.eq("contactSessionId", contactSessionId))
+      .order("desc")
+      .first();
+    return conv?._id ?? null;
+  },
+});
+
 export const getEscalationDigestPayload = internalQuery({
   args: {
     conversationId: v.id("conversations"),

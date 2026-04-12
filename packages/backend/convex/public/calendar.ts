@@ -1,7 +1,7 @@
 // packages/backend/convex/public/calendar.ts
 import { query, action } from "../_generated/server";
 import { v } from "convex/values";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 
 type Slot = { start: number; end: number };
@@ -401,6 +401,27 @@ export const bookSlot = action({
       },
     });
 
+    // Lead summary + journey (widget conversation) — non bloquant
+    let bookingLeadSlackAppend = "";
+    let bookingLeadEmailHtml: string | undefined;
+    try {
+      const convId = await ctx.runQuery(internal.private.leadDigest.getLatestConversationIdForSession, {
+        organizationId,
+        contactSessionId,
+      });
+      if (convId) {
+        const extras = await ctx.runAction(internal.private.leadNotify.buildBookingLeadExtras, {
+          conversationId: convId,
+        });
+        if (extras.ok) {
+          bookingLeadSlackAppend = `\n\n${extras.slackAppend}`;
+          bookingLeadEmailHtml = extras.emailHtmlFragment;
+        }
+      }
+    } catch (e) {
+      console.log("[calendar.bookSlot] lead context for notifications skipped:", e);
+    }
+
     // Salesforce — non bloquant
     try {
       await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
@@ -451,7 +472,7 @@ export const bookSlot = action({
 
       await ctx.runAction(api.integrations.sendSlackMessage, {
         organizationId,
-        text: lines.join("\n"),
+        text: `${lines.join("\n")}${bookingLeadSlackAppend}`,
         dmChannelId: rep?.slackDmChannel ?? undefined,
         slackUserId: rep?.slackUserId ?? undefined,
       });
@@ -475,7 +496,8 @@ export const bookSlot = action({
           bookingId: String(bookingId),
           attendeePhone,
           attendeeDescription: useCase || undefined,
-        } as any);
+          leadContextHtml: bookingLeadEmailHtml,
+        });
       } catch (e) {
         console.log("sendBookingEmailToSales skipped/failed:", e);
       }
