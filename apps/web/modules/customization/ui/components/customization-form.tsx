@@ -981,11 +981,16 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                         <Textarea
                           {...field}
                           rows={3}
-                          placeholder='Hi! I am messaging from the website chat. Page: {pageUrl}'
+                          placeholder="Hi! I'm messaging from the website chat. Context: {pageLabel} — optional: {chatExcerpt}"
                         />
                       </FormControl>
                       <FormDescription>
-                        Placeholders: <code className="rounded bg-muted px-1">{"{pageUrl}"}</code>,{" "}
+                        Placeholders:{" "}
+                        <code className="rounded bg-muted px-1">{"{pageLabel}"}</code> (visitor-friendly
+                        page — no raw widget URL),{" "}
+                        <code className="rounded bg-muted px-1">{"{pageUrl}"}</code> (same as{" "}
+                        <code className="rounded bg-muted px-1">pageLabel</code>),{" "}
+                        <code className="rounded bg-muted px-1">{"{chatExcerpt}"}</code>,{" "}
                         <code className="rounded bg-muted px-1">{"{locale}"}</code>. If empty, a default
                         English/French line is used from widget language.
                       </FormDescription>

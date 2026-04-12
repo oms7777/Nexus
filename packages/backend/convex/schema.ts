@@ -136,7 +136,7 @@ export default defineSchema({
      */
     whatsappHandoffEnabled: v.optional(v.boolean()),
     whatsappPhoneDigits: v.optional(v.string()),
-    /** Supports placeholders: {pageUrl}, {locale} */
+    /** Supports placeholders: {pageLabel}, {pageUrl} (alias), {chatExcerpt}, {locale} */
     whatsappPrefillTemplate: v.optional(v.string()),
 
     privacyUrl: v.optional(v.string()),

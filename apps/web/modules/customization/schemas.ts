@@ -183,7 +183,7 @@ export const widgetSettingsSchema = z
     whatsappHandoffEnabled: z.boolean().optional().default(false),
     /** Digits only, with country code (e.g. 33612345678). Spaces/+ ok in UI; we normalize on save. */
     whatsappPhoneDigits: z.string().optional().default(""),
-    /** Placeholders: {pageUrl}, {locale} */
+    /** Placeholders: {pageLabel}, {pageUrl}, {chatExcerpt}, {locale} */
     whatsappPrefillTemplate: z.string().optional().default(""),
 
     // -------------------------

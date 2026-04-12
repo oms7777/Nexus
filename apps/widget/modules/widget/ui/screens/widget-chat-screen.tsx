@@ -71,6 +71,7 @@ import {
   type WidgetUiLanguage,
 } from "../../../../lib/widget-chat-i18n";
 import {
+  buildChatExcerptForWhatsApp,
   buildWhatsAppHandoffUrl,
   resolveWhatsAppPrefill,
 } from "../../../../lib/whatsapp-handoff";
@@ -467,14 +468,25 @@ export const WidgetChatScreen = () => {
   const showWhatsAppHandoff =
     !!(widgetSettings as any)?.whatsappHandoffEnabled && !!handoffTarget?.digits;
 
+  const whatsAppHandoffMsgsRef = useRef<
+    Array<{ role: "user" | "assistant"; text: string }>
+  >([]);
+
   const openWhatsAppHandoff = () => {
     const digits = handoffTarget?.digits;
     if (!digits) return;
-    const pageUrl = typeof window !== "undefined" ? window.location.href : "";
+    const locationHref = typeof window !== "undefined" ? window.location.href : "";
+    const documentReferrer =
+      typeof document !== "undefined" ? document.referrer : "";
+    const chatExcerpt = buildChatExcerptForWhatsApp(
+      whatsAppHandoffMsgsRef.current,
+      480,
+      uiLang
+    );
     const text = resolveWhatsAppPrefill(
       (widgetSettings as any)?.whatsappPrefillTemplate,
       uiLang,
-      { pageUrl }
+      { locationHref, documentReferrer, chatExcerpt }
     );
     const url = buildWhatsAppHandoffUrl(digits, text);
     window.open(url, "_blank", "noopener,noreferrer");
@@ -1358,6 +1370,8 @@ export const WidgetChatScreen = () => {
   if (greet && uiMsgs.length === 0) {
     uiMsgs = [{ role: "assistant" as const, text: greet }];
   }
+
+  whatsAppHandoffMsgsRef.current = uiMsgs;
 
 
   const suggestions = useMemo(() => {
