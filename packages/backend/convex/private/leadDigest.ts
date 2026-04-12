@@ -1,12 +1,41 @@
 import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { supportAgent } from "../system/ai/agents/supportAgent";
 import { sanitizeVisitorAssistantText } from "../lib/sanitizeVisitorAssistantText";
-type PageStay = {
+
+export type PageStay = {
   url: string;
   title?: string;
   approxSeconds: number;
 };
+
+/** Return type of `getEscalationDigestPayload` — explicit to avoid circular inference in actions. */
+export type EscalationDigestPayload =
+  | { ok: false; reason: "conversation_not_found" | "session_not_found" }
+  | {
+      ok: true;
+      organizationId: string;
+      conversationId: Id<"conversations">;
+      contactSessionId: Id<"contactSessions">;
+      assignedRepUserId: string | null;
+      visitor: {
+        name?: string;
+        email?: string;
+        phone?: string;
+        country?: string;
+        referrer?: string;
+        landingUrl?: string;
+      };
+      traffic: {
+        utmSource?: string;
+        metadataPagesSample: string[];
+      };
+      pageStays: PageStay[];
+      snapshotTimeline: Array<{ ts: number; iso: string; pageUrl?: string; title?: string }>;
+      chatLines: string[];
+      intent: string;
+    };
 
 function normalizeUrl(raw: string | undefined): string {
   if (!raw?.trim()) return "(unknown page)";

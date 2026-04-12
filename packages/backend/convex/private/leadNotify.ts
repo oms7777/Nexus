@@ -1,7 +1,8 @@
 import { internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
-import { buildLeadSummaryInputPayload } from "./leadSummaryAi";
+import { buildLeadSummaryInputPayload, type LeadSummaryAiResult } from "./leadSummaryAi";
+import type { EscalationDigestPayload } from "./leadDigest";
 
 function appOrigin(): string {
   const o = process.env.APP_ORIGIN?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
@@ -139,8 +140,14 @@ export const sendEscalationDigest = internalAction({
   args: {
     conversationId: v.id("conversations"),
   },
-  handler: async (ctx, { conversationId }) => {
-    const data = await ctx.runQuery(internal.private.leadDigest.getEscalationDigestPayload, {
+  handler: async (
+    ctx,
+    { conversationId },
+  ): Promise<
+    | { ok: false; reason: "conversation_not_found" | "session_not_found" | "no_assigned_rep" }
+    | { ok: true }
+  > => {
+    const data: EscalationDigestPayload = await ctx.runQuery(internal.private.leadDigest.getEscalationDigestPayload, {
       conversationId,
     });
 
@@ -183,7 +190,7 @@ export const sendEscalationDigest = internalAction({
         intentHeuristic: data.intent,
       });
 
-      const ai = await ctx.runAction(internal.private.leadSummaryAi.generateLeadSummaryAi, {
+      const ai: LeadSummaryAiResult = await ctx.runAction(internal.private.leadSummaryAi.generateLeadSummaryAi, {
         payloadJson,
       });
 

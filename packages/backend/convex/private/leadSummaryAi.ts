@@ -68,11 +68,24 @@ export function buildLeadSummaryInputPayload(input: {
   return JSON.stringify(input, null, 0);
 }
 
+export type LeadSummaryAiResult =
+  | {
+      ok: true;
+      markdown: string;
+      structured: {
+        oneLiner: string;
+        summary: string;
+        bullets: string[];
+        cautions?: string;
+      };
+    }
+  | { ok: false; error: string };
+
 export const generateLeadSummaryAi = internalAction({
   args: {
     payloadJson: v.string(),
   },
-  handler: async (_ctx, { payloadJson }) => {
+  handler: async (_ctx, { payloadJson }): Promise<LeadSummaryAiResult> => {
     try {
       const { text } = await generateText({
         model: openai("gpt-4o-mini"),
