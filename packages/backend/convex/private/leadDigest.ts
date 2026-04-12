@@ -75,17 +75,26 @@ export function buildPageStaysFromSnapshots(
   return stays;
 }
 
+/** Flatten AI SDK / agent message parts to plain text for email & digest. */
+function flattenContentParts(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const out: string[] = [];
+  for (const p of content as any[]) {
+    if (typeof p?.text === "string") out.push(p.text);
+    else if (p?.type === "text" && typeof p?.text === "string") out.push(p.text);
+    else if (p?.type === "reasoning" && typeof p?.text === "string") out.push(p.text);
+  }
+  return out.join("");
+}
+
 function extractMessageText(doc: any): string {
   const msg = doc?.message;
   const role = msg?.role ?? doc?.role;
   const raw =
     typeof msg?.content === "string"
       ? msg.content
-      : Array.isArray(msg?.content)
-        ? msg.content
-            .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-            .join("")
-        : "";
+      : flattenContentParts(msg?.content);
   const text = role === "assistant" ? sanitizeVisitorAssistantText(raw) : (raw ?? "").trim();
   return text.replace(/\s+/g, " ").trim();
 }
@@ -152,9 +161,11 @@ export const getEscalationDigestPayload = internalQuery({
         paginationOpts: { numItems: 50, cursor },
       });
       for (const doc of page.page) {
-        const role = (doc as any)?.message?.role === "user" ? "Visitor" : "Assistant";
+        const r = (doc as any)?.message?.role as string | undefined;
+        const roleLabel =
+          r === "user" ? "Visitor" : r === "tool" ? "Tool" : "Assistant";
         const text = extractMessageText(doc);
-        if (text) collected.push(`${role}: ${text}`);
+        if (text) collected.push(`${roleLabel}: ${text}`);
       }
       cursor = page.continueCursor;
       if (cursor === null) break;

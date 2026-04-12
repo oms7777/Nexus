@@ -53,9 +53,16 @@ function formatSlackDigest(payload: {
 
   if (payload.aiMarkdown?.trim()) {
     lines.push("*Lead summary (AI)*");
-    lines.push(truncate(payload.aiMarkdown.trim(), 2800));
+    lines.push(truncate(payload.aiMarkdown.trim(), 2400));
     lines.push("");
   }
+
+  lines.push("*Chat transcript (chronological)*");
+  const chatBlock = payload.chatLines.length
+    ? truncate(payload.chatLines.join("\n"), 4500)
+    : "_No messages_";
+  lines.push(chatBlock);
+  lines.push("");
 
   lines.push("*Pages visited (approx. dwell)*");
   if (payload.pageStays.length === 0) {
@@ -69,13 +76,6 @@ function formatSlackDigest(payload: {
   lines.push("");
 
   lines.push(`*Intent (heuristic)*: ${payload.intent}`);
-  lines.push("");
-
-  lines.push("*Chat transcript (chronological)*");
-  const chatBlock = payload.chatLines.length
-    ? truncate(payload.chatLines.join("\n"), 3200)
-    : "_No messages_";
-  lines.push(chatBlock);
   lines.push("");
 
   const origin = appOrigin();
@@ -116,9 +116,16 @@ export function formatSlackBookingLeadAppend(payload: {
 
   if (payload.aiMarkdown?.trim()) {
     lines.push("*Lead summary (AI)*");
-    lines.push(truncate(payload.aiMarkdown.trim(), 2400));
+    lines.push(truncate(payload.aiMarkdown.trim(), 2000));
     lines.push("");
   }
+
+  lines.push("*Chat transcript*");
+  const chatBlock = payload.chatLines.length
+    ? truncate(payload.chatLines.join("\n"), 4000)
+    : "_No messages_";
+  lines.push(chatBlock);
+  lines.push("");
 
   lines.push("*Pages (approx. dwell)*");
   if (payload.pageStays.length === 0) {
@@ -132,13 +139,6 @@ export function formatSlackBookingLeadAppend(payload: {
   lines.push("");
 
   lines.push(`*Intent (heuristic)*: ${payload.intent}`);
-  lines.push("");
-
-  lines.push("*Chat*");
-  const chatBlock = payload.chatLines.length
-    ? truncate(payload.chatLines.join("\n"), 2800)
-    : "_No messages_";
-  lines.push(chatBlock);
   lines.push("");
   lines.push(`<${appOrigin()}/live|Open Live map> · _conv=${payload.conversationId}_`);
 
@@ -167,15 +167,22 @@ export function formatLeadContextEmailSection(payload: {
     )
     .join("");
 
-  const chatHtml = escapeHtml(truncate(payload.chatLines.join("\n\n"), 8000)).replace(/\n/g, "<br/>");
+  const chatBody =
+    payload.chatLines.length > 0
+      ? escapeHtml(truncate(payload.chatLines.join("\n\n"), 12000)).replace(/\n/g, "<br/>")
+      : `<span style="color:#64748b;font-style:italic">No messages captured in this thread (if the visitor only used quick actions, lines may be empty).</span>`;
 
   const aiBlock = payload.aiMarkdown?.trim()
     ? `<h3 style="margin:16px 0 8px;font-size:15px;color:#334155">Lead summary (AI)</h3>
-       <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:14px;white-space:pre-wrap">${escapeHtml(truncate(payload.aiMarkdown, 6000)).replace(/\n/g, "<br/>")}</div>`
+       <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:14px;white-space:pre-wrap">${escapeHtml(truncate(payload.aiMarkdown, 4500)).replace(/\n/g, "<br/>")}</div>`
     : "";
 
+  /** Chat before pages/visitor so Gmail & clients don’t hide it below the fold after long tables. */
   return `${aiBlock}
-    <h3 style="margin:16px 0 8px;font-size:15px;color:#334155">Visitor</h3>
+    <h3 style="margin:20px 0 8px;font-size:15px;color:#334155">Conversation transcript</h3>
+    <p style="margin:0 0 8px;font-size:12px;color:#64748b">Chronological — Visitor vs Assistant</p>
+    <div style="background:#f8fafc;border-radius:8px;padding:12px;font-size:13px;white-space:pre-wrap;border:1px solid #e2e8f0">${chatBody}</div>
+    <h3 style="margin:20px 0 8px;font-size:15px;color:#334155">Visitor</h3>
     <table style="border-collapse:collapse;width:100%">
       ${v.name ? `<tr><td style="padding:4px 0;color:#64748b;width:120px">Name</td><td>${escapeHtml(v.name)}</td></tr>` : ""}
       ${v.email ? `<tr><td style="padding:4px 0;color:#64748b">Email</td><td>${escapeHtml(v.email)}</td></tr>` : ""}
@@ -187,9 +194,7 @@ export function formatLeadContextEmailSection(payload: {
       <thead><tr style="background:#f8fafc"><th align="left" style="padding:8px">URL</th><th align="left" style="padding:8px">Title</th><th align="left" style="padding:8px">~Seconds</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="3" style="padding:8px;color:#64748b">No snapshots</td></tr>`}</tbody>
     </table>
-    <p style="margin:12px 0 6px"><strong>Intent (heuristic):</strong> ${escapeHtml(payload.intent)}</p>
-    <h3 style="margin:16px 0 8px;font-size:15px;color:#334155">Chat</h3>
-    <div style="background:#f8fafc;border-radius:8px;padding:12px;font-size:13px;white-space:pre-wrap">${chatHtml}</div>`;
+    <p style="margin:12px 0 6px"><strong>Intent (heuristic):</strong> ${escapeHtml(payload.intent)}</p>`;
 }
 
 function formatEmailHtml(payload: {
