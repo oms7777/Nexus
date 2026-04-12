@@ -63,7 +63,11 @@ const KnowledgeModeV = v.union(
   v.literal("kb_only"),
 );
 
-const LlmProviderV = v.union(v.literal("openai"), v.literal("google"));
+const LlmProviderV = v.union(
+  v.literal("openai"),
+  v.literal("google"),
+  v.literal("anthropic")
+);
 
 export const upsert = mutation({
   args: {

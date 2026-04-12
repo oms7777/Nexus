@@ -122,7 +122,9 @@ export default defineSchema({
       v.union(v.literal("llm_only"), v.literal("llm_plus_kb"), v.literal("kb_only"))
     ),
 
-    llmProvider: v.optional(v.union(v.literal("openai"), v.literal("google"))),
+    llmProvider: v.optional(
+      v.union(v.literal("openai"), v.literal("google"), v.literal("anthropic"))
+    ),
     llmModel: v.optional(v.string()),
 
     /** After how many AI replies to show "Talk to someone" / "Continue to chat". 0 = never. Default 3. */

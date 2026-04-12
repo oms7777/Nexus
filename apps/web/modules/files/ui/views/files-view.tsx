@@ -44,9 +44,16 @@ import {
 } from "@workspace/ui/components/select";
 import { Label } from "@workspace/ui/components/label";
 import { Input } from "@workspace/ui/components/input";
+import { Separator } from "@workspace/ui/components/separator";
+import {
+  DEFAULT_LLM_MODEL,
+  getLlmModelLabel,
+  getLlmModelOptions,
+  type LlmProviderId,
+} from "../../constants/llm-models";
 
 type KnowledgeMode = "llm_plus_kb" | "kb_only";
-type LlmProvider = "openai" | "google";
+type LlmProvider = LlmProviderId;
 type WebsiteSyncFrequency = "off" | "daily" | "weekly";
 
 export const FilesView = () => {
@@ -90,6 +97,7 @@ export const FilesView = () => {
   // Local UI state (hydrated from settings)
   const [knowledgeMode, setKnowledgeMode] = useState<KnowledgeMode>("llm_plus_kb");
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("openai");
+  const [llmModel, setLlmModel] = useState<string>(DEFAULT_LLM_MODEL.openai);
 
   // Hydrate from DB (sanitize legacy "llm_only" -> "llm_plus_kb")
   useEffect(() => {
@@ -105,6 +113,13 @@ export const FilesView = () => {
 
     const prov = (widgetSettings.llmProvider ?? "openai") as LlmProvider;
     setLlmProvider(prov);
+
+    const stored = (widgetSettings.llmModel as string | undefined)?.trim();
+    if (stored) {
+      setLlmModel(stored);
+    } else {
+      setLlmModel(DEFAULT_LLM_MODEL[prov]);
+    }
   }, [widgetSettings]);
 
   useEffect(() => {
@@ -131,6 +146,7 @@ export const FilesView = () => {
       await upsertWidgetSettings({
         knowledgeMode,
         llmProvider,
+        llmModel,
       } as any);
 
       toast.success("AI settings saved");
@@ -144,7 +160,18 @@ export const FilesView = () => {
 
   const handleProviderChange = (value: LlmProvider) => {
     setLlmProvider(value);
+    setLlmModel(DEFAULT_LLM_MODEL[value]);
   };
+
+  const modelOptions = useMemo(
+    () => getLlmModelOptions(llmProvider, llmModel),
+    [llmProvider, llmModel]
+  );
+
+  const modelTriggerLabel = useMemo(
+    () => getLlmModelLabel(llmProvider, llmModel),
+    [llmProvider, llmModel]
+  );
 
   const handleCrawlSite = async () => {
     const url = crawlUrl.trim();
@@ -219,12 +246,12 @@ export const FilesView = () => {
               <div className="space-y-1">
                 <p className="text-sm font-medium">AI Settings</p>
                 <p className="text-xs text-muted-foreground">
-                  Control how the assistant uses your Knowledge Base and which
-                  LLM provider it runs on.
+                  Control how the assistant uses your Knowledge Base, which AI
+                  provider runs the chat, and the model balance (speed vs depth).
                 </p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Knowledge mode</Label>
                   <Select
@@ -249,23 +276,63 @@ export const FilesView = () => {
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>LLM provider</Label>
-                  <Select
-                    value={llmProvider}
-                    onValueChange={(v) => handleProviderChange(v as LlmProvider)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="google">Google (Gemini)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="flex flex-col gap-4">
+                  <div className="space-y-2">
+                    <Label>LLM provider</Label>
+                    <Select
+                      value={llmProvider}
+                      onValueChange={(v) => handleProviderChange(v as LlmProvider)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="google">Google (Gemini)</SelectItem>
+                        <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-2">
+                    <Label>Model</Label>
+                    <Select value={llmModel} onValueChange={setLlmModel}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select model">
+                          {modelTriggerLabel}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="max-w-[min(100vw-2rem,28rem)]">
+                        {modelOptions.map((m) => (
+                          <SelectItem key={m.id} value={m.id} className="items-start py-3">
+                            <div className="flex flex-col gap-1 text-left">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium leading-none">{m.label}</span>
+                                {m.recommended ? (
+                                  <Badge variant="outline" className="text-[10px] font-normal">
+                                    Recommended
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <span className="text-xs text-muted-foreground font-normal leading-snug">
+                                {m.hint}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {modelOptions.find((opt) => opt.id === llmModel)?.hint ??
+                        "Pick the default for your provider, or a larger model for richer answers (often slower and higher cost)."}
+                    </p>
+                  </div>
+
                   <p className="text-xs text-muted-foreground">
-                    This applies to the chat assistant (and can also drive voice
-                    if you map Vapi assistants accordingly).
+                    Applies to the website chat assistant. Stronger models may be
+                    slower or use more API usage on your provider account.
                   </p>
                 </div>
               </div>

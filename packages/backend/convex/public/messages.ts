@@ -404,7 +404,7 @@ export const create = action({
 
     const knowledgeMode = (widgetSettings?.knowledgeMode ?? "llm_plus_kb") as KnowledgeMode;
     const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
-    const llmModel = (widgetSettings as any)?.llmModel ?? "gpt-4o-mini";
+    const llmModel = (widgetSettings as any)?.llmModel as string | undefined;
 
     // reps availability (used for deterministic escalation)
     const availableReps =
@@ -559,10 +559,13 @@ export const getMany = query({
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
     }
 
-    const agent = makeSupportAgent({
-      llmProvider: "openai",
-      llmModel: "gpt-4o-mini",
+    const widgetSettings = await ctx.runQuery(api.public.widgetSettings.getByOrganizationId, {
+      organizationId: contactSession.organizationId,
     });
+    const llmProvider = (widgetSettings as any)?.llmProvider ?? "openai";
+    const llmModel = (widgetSettings as any)?.llmModel as string | undefined;
+
+    const agent = makeSupportAgent({ llmProvider, llmModel });
 
     const res = await agent.listMessages(ctx, {
       threadId: args.threadId,
