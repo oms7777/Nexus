@@ -85,6 +85,45 @@ function bookingEmailHTML(args: {
   </div>`;
 }
 
+export const sendLeadEscalationEmail = action({
+  args: {
+    to: v.string(),
+    subject: v.string(),
+    html: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+    if (!RESEND_API_KEY) {
+      console.log("RESEND_API_KEY missing — skipping lead escalation email");
+      return { ok: false, skipped: true, reason: "missing RESEND_API_KEY" as const };
+    }
+
+    const from = resolveFromEmail();
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: [args.to],
+        subject: args.subject,
+        html: args.html,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn("RESEND_ERROR lead escalation", res.status, body);
+      return { ok: false, skipped: true, reason: `RESEND_${res.status}` as const, detail: body };
+    }
+
+    const json = await res.json().catch(() => ({}));
+    return { ok: true, id: json?.id };
+  },
+});
+
 export const sendBookingEmailToSales = action({
   args: {
     to: v.string(), // email du sales (owner du calendrier)

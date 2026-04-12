@@ -1,7 +1,7 @@
 // packages/backend/convex/system/conversations.ts
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 
 export const escalate = internalMutation({
   args: { threadId: v.string() },
@@ -14,6 +14,8 @@ export const escalate = internalMutation({
     if (!conversation) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
+
+    const alreadyEscalated = conversation.status === "escalated";
 
     const now = Date.now();
 
@@ -41,6 +43,13 @@ export const escalate = internalMutation({
       await ctx.db.patch(conversation.contactSessionId, {
         assignedRepUserId,
         assignedTerritoryKey,
+      });
+    }
+
+    // Notify rep (Slack + email) once per conversation — first transition to escalated
+    if (!alreadyEscalated) {
+      await ctx.scheduler.runAfter(0, internal.private.leadNotify.sendEscalationDigest, {
+        conversationId: conversation._id,
       });
     }
   },

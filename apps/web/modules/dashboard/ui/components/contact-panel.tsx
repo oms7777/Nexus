@@ -1,8 +1,8 @@
 "use client";
 
 import Bowser from "bowser";
-import React, { useCallback, useMemo } from "react";
-import { useQuery } from "convex/react";
+import React, { useCallback, useMemo, useState } from "react";
+import { useAction, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -26,7 +26,10 @@ import {
   MonitorIcon,
   LinkIcon,
   CalendarIcon,
+  Download,
+  RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { SnapshotsStrip } from "./SnapshotsStrip";
 import { LiveVisitorView } from "./live-visitor-view";
@@ -82,6 +85,52 @@ export const ContactPanel = () => {
     api.private.contactSessions.getOneByConversationId,
     conversationId ? { conversationId } : "skip",
   );
+
+  const leadConversation = useQuery(
+    api.private.conversations.getOne,
+    conversationId ? { conversationId } : "skip",
+  );
+
+  const regenerateLeadSummary = useAction(api.private.visitorJourney.regenerateLeadSummary);
+  const exportJourneyJson = useAction(api.private.visitorJourney.exportJourney);
+  const [leadSummaryLoading, setLeadSummaryLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+
+  const handleRegenerateLeadSummary = useCallback(async () => {
+    if (!conversationId) return;
+    setLeadSummaryLoading(true);
+    try {
+      await regenerateLeadSummary({ conversationId });
+      toast.success("Lead summary updated");
+    } catch (e) {
+      console.error(e);
+      toast.error("Could not generate AI summary");
+    } finally {
+      setLeadSummaryLoading(false);
+    }
+  }, [conversationId, regenerateLeadSummary]);
+
+  const handleExportJourney = useCallback(async () => {
+    if (!conversationId) return;
+    setExportLoading(true);
+    try {
+      const data = await exportJourneyJson({ conversationId });
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `visitor-journey-${conversationId}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success("Journey exported");
+    } catch (e) {
+      console.error(e);
+      toast.error("Export failed");
+    } finally {
+      setExportLoading(false);
+    }
+  }, [conversationId, exportJourneyJson]);
 
   const parseUserAgent = useMemo(() => {
     return (userAgent?: string) => {
@@ -370,6 +419,62 @@ export const ContactPanel = () => {
             <span>Quick-book</span>
           </Button>
         </div>
+
+        {leadConversation !== undefined && leadConversation !== null && (
+          <div className="space-y-2 rounded-lg border border-dashed bg-muted/20 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Lead summary (AI)
+              </p>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={leadSummaryLoading}
+                  onClick={handleRegenerateLeadSummary}
+                >
+                  <RefreshCw
+                    className={`mr-1 h-3 w-3 ${leadSummaryLoading ? "animate-spin" : ""}`}
+                  />
+                  Regenerate
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={exportLoading}
+                  onClick={handleExportJourney}
+                >
+                  <Download className="mr-1 h-3 w-3" />
+                  Export JSON
+                </Button>
+              </div>
+            </div>
+            {(leadConversation as { aiLeadSummary?: string }).aiLeadSummary ? (
+              <>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                  {(leadConversation as { aiLeadSummary?: string }).aiLeadSummary}
+                </p>
+                {(leadConversation as { aiLeadSummaryAt?: number }).aiLeadSummaryAt ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Updated{" "}
+                    {new Date(
+                      (leadConversation as { aiLeadSummaryAt?: number }).aiLeadSummaryAt!,
+                    ).toLocaleString()}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Generated when the conversation is escalated (or click Regenerate). Includes
+                journey + chat context — search behaviour is only stated when observed in data.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div>

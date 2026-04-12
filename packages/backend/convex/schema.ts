@@ -177,6 +177,9 @@ export default defineSchema({
     lastViewedByRepAt: v.optional(v.number()),
     // ✅ DEBUG / analytics
     assignedTerritoryKey: v.optional(v.string()),
+    /** AI-generated lead summary (markdown) for reps; set on escalation digest or manual regen */
+    aiLeadSummary: v.optional(v.string()),
+    aiLeadSummaryAt: v.optional(v.number()),
   })
     .index("by_organization_id", ["organizationId"])
     .index("by_contact_session_id", ["contactSessionId"])

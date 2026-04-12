@@ -139,21 +139,19 @@ export const create = mutation({
       }
     }
 
-    // 2) Auto escalate (business rule)
-    if (conversation.status === "unresolved") {
-      await ctx.db.patch(args.conversationId, {
-        status: "escalated",
-        escalatedAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-    }
-
-    // 3) Save operator message
+    // 2) Save operator message first so escalation digest (Slack/email) includes this reply
     await saveMessage(ctx, components.agent, {
       threadId: conversation.threadId,
       agentName: identity.familyName,
       message: { role: "assistant", content: args.prompt },
     });
+
+    // 3) Auto escalate (business rule) — same path as AI tool (routing + Slack/email digest once)
+    if (conversation.status === "unresolved") {
+      await ctx.runMutation(internal.system.conversations.escalate, {
+        threadId: conversation.threadId,
+      });
+    }
   },
 });
 
