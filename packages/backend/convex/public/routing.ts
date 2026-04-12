@@ -10,7 +10,33 @@ export type PublicRep = {
   regions: string[];
   available: boolean;
   title?: string;
+  /** Normalized digits for wa.me when rep has saved a number */
+  whatsappPhoneDigits?: string;
 };
+
+function normalizeWhatsAppDigits(raw?: string | null): string | undefined {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  if (d.length >= 8 && d.length <= 15) return d;
+  return undefined;
+}
+
+function buildPublicRep(
+  rep: Doc<"repsPresence">,
+  u: { name?: string; avatarUrl?: string; title?: string } | null | undefined,
+): PublicRep {
+  const avatar =
+    typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
+
+  return {
+    userId: rep.userId,
+    name: (u?.name as string | undefined) ?? undefined,
+    avatarUrl: avatar,
+    title: (u?.title as string | undefined) ?? undefined,
+    regions: rep.regions ?? [],
+    available: rep.available,
+    whatsappPhoneDigits: normalizeWhatsAppDigits(rep.whatsappPhoneDigits),
+  };
+}
 
 function extractUtmSourceFromUrl(url?: string): string | undefined {
   if (!url) return undefined;
@@ -197,17 +223,7 @@ export const listRepsForVisitor = query({
 
       return matchedReps.map((rep) => {
         const u = byExternalId.get(rep.userId);
-        const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
-
-        return {
-          userId: rep.userId,
-          name: (u?.name as string | undefined) ?? undefined,
-          avatarUrl: avatar,
-          title: (u?.title as string | undefined) ?? undefined,
-          regions: rep.regions ?? [],
-          available: rep.available,
-        };
+        return buildPublicRep(rep as Doc<"repsPresence">, u);
       });
     } catch (e) {
       console.log("routing.listRepsForVisitor error:", e);
@@ -362,17 +378,7 @@ export const listCandidatesForAutoAssign = query({
 
       return matchedReps.map((rep) => {
         const u = byExternalId.get(rep.userId);
-        const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
-
-        return {
-          userId: rep.userId,
-          name: (u?.name as string | undefined) ?? undefined,
-          avatarUrl: avatar,
-          title: (u?.title as string | undefined) ?? undefined,
-          regions: rep.regions ?? [],
-          available: rep.available,
-        };
+        return buildPublicRep(rep as Doc<"repsPresence">, u);
       });
     } catch (e) {
       console.log("routing.listCandidatesForAutoAssign error:", e);
@@ -422,17 +428,7 @@ export const pickRepForVisitor = query({
           )
           .unique();
 
-        const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
-
-        return {
-          userId: foundPref.userId,
-          name: u?.name ?? undefined,
-          avatarUrl: avatar,
-          title: u?.title ?? undefined,
-          regions: foundPref.regions ?? [],
-          available: foundPref.available,
-        };
+        return buildPublicRep(foundPref, u);
       }
     }
 
@@ -496,17 +492,7 @@ export const pickRepForVisitor = query({
           )
           .unique();
 
-        const avatar =
-          typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
-
-        return {
-          userId: chosen.userId,
-          name: u?.name ?? undefined,
-          avatarUrl: avatar,
-          title: u?.title ?? undefined,
-          regions: chosen.regions ?? [],
-          available: chosen.available,
-        };
+        return buildPublicRep(chosen, u);
       }
     }
 
@@ -536,19 +522,7 @@ export const pickRepForVisitor = query({
             )
             .unique();
 
-          const avatar =
-            typeof u?.avatarUrl === "string" && u.avatarUrl.trim()
-              ? u.avatarUrl.trim()
-              : undefined;
-
-          return {
-            userId: chosen.userId,
-            name: u?.name ?? undefined,
-            avatarUrl: avatar,
-            title: u?.title ?? undefined,
-            regions: chosen.regions ?? [],
-            available: chosen.available,
-          };
+          return buildPublicRep(chosen, u);
         }
       }
     }
@@ -564,16 +538,53 @@ export const pickRepForVisitor = query({
       )
       .unique();
 
-    const avatar =
-      typeof u?.avatarUrl === "string" && u.avatarUrl.trim() ? u.avatarUrl.trim() : undefined;
+    return buildPublicRep(chosen, u);
+  },
+});
 
-    return {
-      userId: chosen.userId,
-      name: u?.name ?? undefined,
-      avatarUrl: avatar,
-      title: u?.title ?? undefined,
-      regions: chosen.regions ?? [],
-      available: chosen.available,
-    };
+/**
+ * Resolves which phone number to use for wa.me: assigned/preferred rep first, else org default.
+ */
+export const getWhatsAppHandoffDigits = query({
+  args: {
+    organizationId: v.string(),
+    contactSessionId: v.id("contactSessions"),
+  },
+  handler: async (ctx, { organizationId, contactSessionId }) => {
+    const settings = await ctx.db
+      .query("widgetSettings")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (!settings?.whatsappHandoffEnabled) {
+      return { digits: null as string | null, source: null as "rep" | "org" | null };
+    }
+
+    const session = await ctx.db.get(contactSessionId);
+    if (!session || session.organizationId !== organizationId) {
+      return { digits: null, source: null };
+    }
+
+    const orgDigits = normalizeWhatsAppDigits(
+      (settings as { whatsappPhoneDigits?: string }).whatsappPhoneDigits,
+    );
+
+    const repUserId =
+      session.assignedRepUserId ??
+      session.preferredRepUserId ??
+      (session.metadata as { preferredRepUserId?: string } | undefined)?.preferredRepUserId;
+    if (repUserId) {
+      const rep = await ctx.db
+        .query("repsPresence")
+        .withIndex("by_org_user", (q) =>
+          q.eq("organizationId", organizationId).eq("userId", repUserId),
+        )
+        .unique();
+      const rd = normalizeWhatsAppDigits(rep?.whatsappPhoneDigits);
+      if (rd) return { digits: rd, source: "rep" as const };
+    }
+
+    if (orgDigits) return { digits: orgDigits, source: "org" as const };
+    return { digits: null, source: null };
   },
 });

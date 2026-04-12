@@ -32,8 +32,11 @@ import {
   Loader2Icon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { IconType } from "react-icons";
 import { api } from "@workspace/backend/_generated/api";
 import { toast } from "sonner";
+import { AiOutlineOpenAI } from "react-icons/ai";
+import { SiClaude, SiGooglegemini } from "react-icons/si";
 
 import {
   Select,
@@ -55,6 +58,12 @@ import {
 type KnowledgeMode = "llm_plus_kb" | "kb_only";
 type LlmProvider = LlmProviderId;
 type WebsiteSyncFrequency = "off" | "daily" | "weekly";
+
+const LLM_PROVIDER_META: Record<LlmProvider, { label: string; Icon: IconType }> = {
+  openai: { label: "OpenAI", Icon: AiOutlineOpenAI },
+  google: { label: "Google (Gemini)", Icon: SiGooglegemini },
+  anthropic: { label: "Anthropic (Claude)", Icon: SiClaude },
+};
 
 export const FilesView = () => {
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
@@ -283,13 +292,29 @@ export const FilesView = () => {
                       value={llmProvider}
                       onValueChange={(v) => handleProviderChange(v as LlmProvider)}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select provider" />
+                      <SelectTrigger className="h-auto min-h-10 w-full min-w-[12rem]">
+                        <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                          {(() => {
+                            const { Icon } = LLM_PROVIDER_META[llmProvider];
+                            return (
+                              <Icon className="size-4 shrink-0 opacity-90" aria-hidden />
+                            );
+                          })()}
+                          <SelectValue placeholder="Select provider" />
+                        </span>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="google">Google (Gemini)</SelectItem>
-                        <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
+                        {(Object.keys(LLM_PROVIDER_META) as LlmProvider[]).map((key) => {
+                          const { Icon, label } = LLM_PROVIDER_META[key];
+                          return (
+                            <SelectItem key={key} value={key} className="cursor-pointer">
+                              <span className="flex items-center gap-2.5">
+                                <Icon className="size-4 shrink-0 opacity-90" aria-hidden />
+                                {label}
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                   </div>

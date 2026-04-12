@@ -130,6 +130,15 @@ export default defineSchema({
     /** After how many AI replies to show "Talk to someone" / "Continue to chat". 0 = never. Default 3. */
     escalationSuggestionAfterMessages: v.optional(v.number()),
 
+    /**
+     * Handoff: open WhatsApp (wa.me) for the visitor — no Meta API key required.
+     * `whatsappPhoneDigits`: digits only, country code included (e.g. 33612345678).
+     */
+    whatsappHandoffEnabled: v.optional(v.boolean()),
+    whatsappPhoneDigits: v.optional(v.string()),
+    /** Supports placeholders: {pageUrl}, {locale} */
+    whatsappPrefillTemplate: v.optional(v.string()),
+
     privacyUrl: v.optional(v.string()),
     consent: v.optional(
       v.object({
@@ -268,6 +277,8 @@ export default defineSchema({
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
     title: v.optional(v.string()),
+    /** Digits only with country code; used for wa.me handoff when this rep is assigned */
+    whatsappPhoneDigits: v.optional(v.string()),
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
     updatedAt: v.number(),

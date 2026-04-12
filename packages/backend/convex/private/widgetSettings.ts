@@ -95,6 +95,10 @@ export const upsert = mutation({
 
     escalationSuggestionAfterMessages: v.optional(v.number()),
 
+    whatsappHandoffEnabled: v.optional(v.boolean()),
+    whatsappPhoneDigits: v.optional(v.string()),
+    whatsappPrefillTemplate: v.optional(v.string()),
+
     widgetUiLanguage: v.optional(WidgetUiLanguageV),
   },
   handler: async (ctx, args) => {
@@ -131,6 +135,12 @@ export const upsert = mutation({
     if ("escalationSuggestionAfterMessages" in args)
       patch.escalationSuggestionAfterMessages = args.escalationSuggestionAfterMessages;
 
+    if ("whatsappHandoffEnabled" in args)
+      patch.whatsappHandoffEnabled = args.whatsappHandoffEnabled;
+    if ("whatsappPhoneDigits" in args) patch.whatsappPhoneDigits = args.whatsappPhoneDigits;
+    if ("whatsappPrefillTemplate" in args)
+      patch.whatsappPrefillTemplate = args.whatsappPrefillTemplate;
+
     if ("widgetUiLanguage" in args) patch.widgetUiLanguage = args.widgetUiLanguage;
 
     // If no record yet, insert minimal required fields
@@ -155,6 +165,9 @@ export const upsert = mutation({
         llmProvider: patch.llmProvider,
         llmModel: patch.llmModel,
         vapiSettings: patch.vapiSettings,
+        whatsappHandoffEnabled: patch.whatsappHandoffEnabled,
+        whatsappPhoneDigits: patch.whatsappPhoneDigits,
+        whatsappPrefillTemplate: patch.whatsappPrefillTemplate,
         widgetUiLanguage: patch.widgetUiLanguage,
       });
       return id;

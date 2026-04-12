@@ -24,6 +24,7 @@ export default function ProfilePage() {
   const setMe = useMutation(api.private.users.meSetAvatar);
 
   const ensurePresence = useMutation(api.team.ensureRepPresenceForMe);
+  const setMyWhatsAppPhone = useMutation(api.team.setMyWhatsAppPhone);
 
   const reps = useQuery(
     api.team.listRepsForOrg,
@@ -49,6 +50,7 @@ export default function ProfilePage() {
   }, [searchParams]);
 
   const [jobTitle, setJobTitle] = useState("");
+  const [whatsappPhone, setWhatsappPhone] = useState("");
   const [saving, setSaving] = useState(false);
 
   const displayAvatar =
@@ -58,6 +60,12 @@ export default function ProfilePage() {
     const m = me as any;
     setJobTitle(m?.title ?? "");
   }, [me]);
+
+  useEffect(() => {
+    if (!slackInfo) return;
+    const d = (slackInfo as { whatsappPhoneDigits?: string }).whatsappPhoneDigits;
+    setWhatsappPhone(d ? d : "");
+  }, [slackInfo]);
 
   const connectSlackUser = () => {
     window.location.href = "/api/integrations/slack/user/start";
@@ -87,6 +95,9 @@ export default function ProfilePage() {
     try {
       setSaving(true);
       await syncClerkToConvex();
+      await setMyWhatsAppPhone({
+        whatsappPhoneDigits: whatsappPhone.trim() || undefined,
+      });
       toast.success("Profile saved");
     } catch (e) {
       console.error(e);
@@ -129,6 +140,8 @@ export default function ProfilePage() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <UserRoundIcon className="h-4 w-4" />
             Your profile image and job title may be shown in on-site nudges and booking confirmations.
+            Add a WhatsApp number to route visitors to you when you&apos;re assigned (same logic as
+            meeting booking).
           </div>
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-end">
@@ -140,6 +153,20 @@ export default function ProfilePage() {
                   onChange={(e) => setJobTitle(e.target.value)}
                   placeholder="Sales"
                 />
+              </div>
+              <div>
+                <Label>WhatsApp number (optional)</Label>
+                <Input
+                  type="tel"
+                  value={whatsappPhone}
+                  onChange={(e) => setWhatsappPhone(e.target.value)}
+                  placeholder="+33 6 12 34 56 78"
+                  autoComplete="tel"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Used for the site widget &quot;WhatsApp&quot; handoff when you are the assigned rep.
+                  Include country code.
+                </p>
               </div>
             </div>
 

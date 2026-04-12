@@ -51,6 +51,7 @@ export type AssignedRep = {
   name?: string;
   avatarUrl?: string;
   regions: string[];
+  whatsappPhoneDigits?: string;
 };
 
 export const assignedRepAtom = atomWithStorage<AssignedRep | null>(

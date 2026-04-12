@@ -126,6 +126,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
           "",
         modalContent: initialData?.consent?.modalContent || "",
       },
+      whatsappHandoffEnabled: (initialData as any)?.whatsappHandoffEnabled ?? false,
+      whatsappPhoneDigits: (initialData as any)?.whatsappPhoneDigits ?? "",
+      whatsappPrefillTemplate: (initialData as any)?.whatsappPrefillTemplate ?? "",
     },
   });
 
@@ -189,6 +192,8 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
           ? values.theme
           : undefined;
 
+      const waDigits = String(values.whatsappPhoneDigits ?? "").replace(/\D/g, "");
+
       await upsertWidgetSettings({
         greetMessage: values.greetMessage,
         defaultSuggestions: values.defaultSuggestions,
@@ -200,6 +205,9 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         theme,
         brandLogoUrl: values.brandLogoUrl || undefined,
         privacyUrl: values.privacyUrl || undefined,
+        whatsappHandoffEnabled: values.whatsappHandoffEnabled ?? false,
+        whatsappPhoneDigits: values.whatsappHandoffEnabled ? waDigits : "",
+        whatsappPrefillTemplate: values.whatsappPrefillTemplate?.trim() || undefined,
         consent: values.consent
           ? {
               enabled: !!values.consent.enabled,
@@ -901,6 +909,85 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                         After this many assistant messages, the visitor sees
                         options to talk to a human or continue chatting with the
                         AI.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>WhatsApp handoff</CardTitle>
+                <CardDescription>
+                  Show a WhatsApp button in the chat header. Opens{" "}
+                  <code className="rounded bg-muted px-1">wa.me</code> with a
+                  pre-filled message — no Meta developer app or API key required.
+                  Set a default org number here; each rep can add their own number
+                  under <strong>Account</strong> — when a rep is assigned (same
+                  routing as booking), their WhatsApp is used if set.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <FormField
+                  control={form.control as any}
+                  name="whatsappHandoffEnabled"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Enable WhatsApp button</FormLabel>
+                        <FormDescription>
+                          Visitors can continue the conversation in WhatsApp on their phone.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control as any}
+                  name="whatsappPhoneDigits"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>WhatsApp number</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="tel"
+                          placeholder="+33 6 12 34 56 78"
+                          autoComplete="off"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Include country code. Saved as digits only for{" "}
+                        <code className="rounded bg-muted px-1">wa.me</code>.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control as any}
+                  name="whatsappPrefillTemplate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Optional first message (template)</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          rows={3}
+                          placeholder='Hi! I am messaging from the website chat. Page: {pageUrl}'
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Placeholders: <code className="rounded bg-muted px-1">{"{pageUrl}"}</code>,{" "}
+                        <code className="rounded bg-muted px-1">{"{locale}"}</code>. If empty, a default
+                        English/French line is used from widget language.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

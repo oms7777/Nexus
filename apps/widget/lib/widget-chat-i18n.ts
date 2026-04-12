@@ -90,6 +90,8 @@ export type WidgetUiCopy = {
   assistantTyping: string;
   /** Short line next to typing spinner */
   thinkingShort: string;
+  /** WhatsApp handoff floating button */
+  whatsappHandoff: string;
 };
 
 export const widgetUiCopy = {
@@ -165,6 +167,7 @@ export const widgetUiCopy = {
     qualifyPhonePlaceholder: "+33 6 12 34 56 78",
     assistantTyping: "Assistant is replying",
     thinkingShort: "Thinking…",
+    whatsappHandoff: "Continue on WhatsApp",
   },
   fr: {
     preparingResponse:
@@ -242,6 +245,7 @@ export const widgetUiCopy = {
     qualifyPhonePlaceholder: "+33 6 12 34 56 78",
     assistantTyping: "L’assistant répond",
     thinkingShort: "Réflexion…",
+    whatsappHandoff: "Continuer sur WhatsApp",
   },
 } as const satisfies Record<"en" | "fr", WidgetUiCopy>;
 

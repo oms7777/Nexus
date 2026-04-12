@@ -178,6 +178,15 @@ export const widgetSettingsSchema = z
     widgetUiLanguage: z.enum(["en", "fr"]).optional().default("en"),
 
     // -------------------------
+    // WhatsApp handoff (wa.me — no Meta API)
+    // -------------------------
+    whatsappHandoffEnabled: z.boolean().optional().default(false),
+    /** Digits only, with country code (e.g. 33612345678). Spaces/+ ok in UI; we normalize on save. */
+    whatsappPhoneDigits: z.string().optional().default(""),
+    /** Placeholders: {pageUrl}, {locale} */
+    whatsappPrefillTemplate: z.string().optional().default(""),
+
+    // -------------------------
     // Legacy privacy URL
     // -------------------------
     privacyUrl: optionalUrlOrEmpty,
@@ -235,6 +244,18 @@ export const widgetSettingsSchema = z
       path: ["consent", "modalContent"],
       message:
         "Open Consent & Privacy → add modal text, or switch “here” opens to External page with a policy URL.",
+    }
+  )
+  .refine(
+    (v) => {
+      if (!v.whatsappHandoffEnabled) return true;
+      const digits = String(v.whatsappPhoneDigits ?? "").replace(/\D/g, "");
+      return digits.length >= 8 && digits.length <= 15;
+    },
+    {
+      path: ["whatsappPhoneDigits"],
+      message:
+        "Enter a valid WhatsApp number with country code (8–15 digits), e.g. +33 6 12 34 56 78.",
     }
   );
 

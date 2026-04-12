@@ -109,6 +109,56 @@ export const ensureRepPresenceForMe = mutation({
   },
 });
 
+/** Rep saves their own WhatsApp (wa.me); digits only stored after normalization. */
+export const setMyWhatsAppPhone = mutation({
+  args: {
+    whatsappPhoneDigits: v.optional(v.string()),
+  },
+  handler: async (ctx, { whatsappPhoneDigits }) => {
+    const organizationId = await requireOrgId(ctx);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+    }
+
+    const userId = identity.subject as string;
+    const raw = String(whatsappPhoneDigits ?? "").replace(/\D/g, "");
+    if (raw.length > 0 && (raw.length < 8 || raw.length > 15)) {
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "WhatsApp number must include country code (8–15 digits).",
+      });
+    }
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("repsPresence")
+      .withIndex("by_org_user", (q: any) =>
+        q.eq("organizationId", organizationId).eq("userId", userId),
+      )
+      .unique();
+
+    const payload: { whatsappPhoneDigits?: string; updatedAt: number } = {
+      updatedAt: now,
+    };
+    payload.whatsappPhoneDigits = raw.length > 0 ? raw : undefined;
+
+    if (existing) {
+      await ctx.db.patch(existing._id, payload);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("repsPresence", {
+      organizationId,
+      userId,
+      regions: [],
+      available: true,
+      whatsappPhoneDigits: payload.whatsappPhoneDigits,
+      updatedAt: now,
+    });
+  },
+});
+
 /* ---------------- PUBLIC SAFE (widget booking) ---------------- */
 
 export const getRepForVisitor = query({
@@ -142,6 +192,7 @@ export const upsertRepPresence = mutation({
     userId: v.string(),
     regions: v.optional(v.array(v.string())),
     available: v.boolean(),
+    whatsappPhoneDigits: v.optional(v.string()),
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
     profile: v.optional(
@@ -152,7 +203,10 @@ export const upsertRepPresence = mutation({
       }),
     ),
   },
-  handler: async (ctx, { userId, regions, available, slackUserId, slackDmChannel, profile }) => {
+  handler: async (
+    ctx,
+    { userId, regions, available, whatsappPhoneDigits, slackUserId, slackDmChannel, profile },
+  ) => {
     const organizationId = await requireOrgId(ctx);
     if (!userId) throw new ConvexError({ code: "BAD_REQUEST", message: "userId is required" });
 
@@ -167,6 +221,10 @@ export const upsertRepPresence = mutation({
 
     const now = Date.now();
 
+    const waRaw = String(whatsappPhoneDigits ?? "").replace(/\D/g, "");
+    const waDigits =
+      waRaw.length > 0 && waRaw.length >= 8 && waRaw.length <= 15 ? waRaw : undefined;
+
     const payload: any = {
       organizationId,
       userId,
@@ -176,6 +234,10 @@ export const upsertRepPresence = mutation({
       slackUserId: slackUserId || undefined,
       slackDmChannel: slackDmChannel || undefined,
     };
+
+    if (whatsappPhoneDigits !== undefined) {
+      payload.whatsappPhoneDigits = waDigits;
+    }
 
     if (existing) {
       await ctx.db.patch(existing._id, payload);
