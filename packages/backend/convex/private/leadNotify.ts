@@ -202,9 +202,9 @@ export function formatLeadContextEmailSection(
 
   const conversationBlock = `<h3 style="margin:20px 0 8px;font-size:15px;color:#334155">Conversation</h3>
     <p style="margin:0 0 10px;font-size:14px">
-      <a href="${escapeHtml(conversationUrl)}" style="display:inline-block;background:#0ea5e9;color:white;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:600">Open full chat in Inboundless</a>
+      <a href="${escapeHtml(conversationUrl)}" style="display:inline-block;background:#0ea5e9;color:white;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:600">Open conversation in Inboundless</a>
     </p>
-    <p style="margin:0;font-size:12px;color:#64748b">The complete visitor thread (including retries and errors) is in the app — we don’t paste the full transcript here to keep this email readable.</p>`;
+    <p style="margin:0;font-size:12px;color:#64748b">Full chat history is in the app (not duplicated here).</p>`;
 
   return `${aiBlock}
     <h3 style="margin:20px 0 8px;font-size:15px;color:#334155">Visitor</h3>
@@ -255,8 +255,18 @@ type BookingLeadExtrasOk = {
 export const buildBookingLeadExtras = internalAction({
   args: {
     conversationId: v.id("conversations"),
+    bookingForm: v.optional(
+      v.object({
+        attendeeName: v.string(),
+        attendeeEmail: v.string(),
+        attendeeCompany: v.optional(v.string()),
+        attendeeRole: v.optional(v.string()),
+        attendeePhone: v.optional(v.string()),
+        useCase: v.optional(v.string()),
+      }),
+    ),
   },
-  handler: async (ctx, { conversationId }): Promise<{ ok: false } | BookingLeadExtrasOk> => {
+  handler: async (ctx, { conversationId, bookingForm }): Promise<{ ok: false } | BookingLeadExtrasOk> => {
     const data: EscalationDigestPayload = await ctx.runQuery(internal.private.leadDigest.getEscalationDigestPayload, {
       conversationId,
     });
@@ -270,7 +280,9 @@ export const buildBookingLeadExtras = internalAction({
         conversationId,
       },
     );
-    let aiMarkdown: string | undefined = aiFields?.aiLeadSummary?.trim() || undefined;
+    /** Booking emails need a CRM-aware summary; do not reuse escalation-only cache when booking form is present. */
+    let aiMarkdown: string | undefined =
+      bookingForm ? undefined : aiFields?.aiLeadSummary?.trim() || undefined;
 
     if (!aiMarkdown) {
       try {
@@ -286,6 +298,16 @@ export const buildBookingLeadExtras = internalAction({
           snapshotTimeline: data.snapshotTimeline.slice(0, 50),
           chatLines: data.chatLines,
           intentHeuristic: data.intent,
+          bookingForm: bookingForm
+            ? {
+                attendeeName: bookingForm.attendeeName,
+                attendeeEmail: bookingForm.attendeeEmail,
+                company: bookingForm.attendeeCompany,
+                role: bookingForm.attendeeRole,
+                phone: bookingForm.attendeePhone,
+                useCase: bookingForm.useCase,
+              }
+            : undefined,
         });
 
         const ai: LeadSummaryAiResult = await ctx.runAction(internal.private.leadSummaryAi.generateLeadSummaryAi, {

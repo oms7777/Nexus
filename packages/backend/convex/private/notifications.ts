@@ -93,13 +93,13 @@ function bookingEmailHTML(args: {
         : ""
     }
 
-    <div style="margin-top:16px">
-      ${
-        conversationUrl
-          ? `<a href="${conversationUrl}" style="display:inline-block;background:#0ea5e9;color:white;padding:10px 14px;border-radius:10px;text-decoration:none">Ouvrir la conversation</a>`
-          : ""
-      }
-    </div>
+    ${
+      conversationUrl && !leadContextHtml
+        ? `<div style="margin-top:16px">
+      <a href="${conversationUrl}" style="display:inline-block;background:#0ea5e9;color:white;padding:10px 14px;border-radius:10px;text-decoration:none">Open conversation in Inboundless</a>
+    </div>`
+        : ""
+    }
   </div>`;
 }
 

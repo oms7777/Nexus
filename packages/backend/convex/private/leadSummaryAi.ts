@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { generateText } from "ai";
 import { openai } from "@ai-sdk/openai";
 
-const SYSTEM = `You are a B2B sales assistant. You receive ONLY a JSON object with facts about a website visitor (identity, traffic, page journey with approximate seconds, chat transcript excerpt, heuristic intent tags).
+const SYSTEM = `You are a B2B sales assistant. You receive ONLY a JSON object with facts about a website visitor (identity, traffic, page journey with approximate seconds, chat transcript excerpt, heuristic intent tags). The JSON may also include an optional "bookingForm" object with fields the visitor entered when booking a meeting (name, email, company, role, phone, use case).
 
 Rules:
 - Output ONLY valid JSON (no markdown fences) with this exact shape:
@@ -11,7 +11,8 @@ Rules:
 - Never invent facts: no Google search counts, no "many searches" unless explicitly in the JSON.
 - If company is missing, say so indirectly or omit.
 - Traffic: describe referrer/UTM only from provided fields; if unknown, say "direct or unknown".
-- Be specific about what they did on-site using page list and chat.`;
+- Be specific about what they did on-site using page list and chat.
+- If "bookingForm" is present, weave those fields into the oneLiner/summary/bullets (this is a demo/meeting booking context — be precise about who booked and why).`;
 
 function parseAiJson(raw: string): {
   oneLiner: string;
@@ -64,6 +65,15 @@ export function buildLeadSummaryInputPayload(input: {
   snapshotTimeline: Array<{ ts: number; iso: string; pageUrl?: string; title?: string }>;
   chatLines: string[];
   intentHeuristic: string;
+  /** Booking form fields — makes meeting-booking emails more precise than escalation-only summaries. */
+  bookingForm?: {
+    attendeeName: string;
+    attendeeEmail: string;
+    company?: string;
+    role?: string;
+    phone?: string;
+    useCase?: string;
+  };
 }): string {
   return JSON.stringify(input, null, 0);
 }

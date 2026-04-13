@@ -58,11 +58,10 @@ export const getOne = query({
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Organization ID" });
     }
 
-    // ✅ REP STRICT: only owner rep can read
-    if ((conversation.assignedRepUserId ?? null) !== meUserId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Not your conversation" });
-    }
-
+    /**
+     * Deep link / email: any authenticated user in the org can open a conversation.
+     * The inbox list (`getMany`) stays scoped to the assigned rep so reps only see their queue.
+     */
     const contactSession = await ctx.db.get(conversation.contactSessionId);
     if (!contactSession) throw new ConvexError({ code: "NOT_FOUND", message: "Contact Session not found" });
 

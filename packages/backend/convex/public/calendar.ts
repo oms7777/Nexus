@@ -420,6 +420,14 @@ export const bookSlot = action({
         bookingConversationUrl = `${linkAppOrigin()}/conversations/${convId}`;
         const extras = await ctx.runAction(internal.private.leadNotify.buildBookingLeadExtras, {
           conversationId: convId,
+          bookingForm: {
+            attendeeName,
+            attendeeEmail,
+            attendeeCompany,
+            attendeeRole,
+            attendeePhone,
+            useCase: useCase || undefined,
+          },
         });
         if (extras.ok) {
           bookingLeadSlackAppend = `\n\n${extras.slackAppend}`;
