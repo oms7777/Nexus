@@ -89,7 +89,6 @@ function bookingEmailHTML(args: {
         ? `<div style="margin-top:24px;padding-top:20px;border-top:1px solid #e2e8f0">
       <h2 style="margin:0 0 12px;font-size:17px;color:#0f172a">Lead context (visit &amp; chat)</h2>
       ${leadContextHtml}
-      <p style="margin-top:12px"><a href="${resolveAppOrigin()}/live" style="display:inline-block;background:#0ea5e9;color:white;padding:10px 14px;border-radius:10px;text-decoration:none">Open Live map</a></p>
     </div>`
         : ""
     }

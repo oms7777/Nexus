@@ -6,6 +6,12 @@ import type { Id } from "../_generated/dataModel";
 
 type Slot = { start: number; end: number };
 
+function linkAppOrigin(): string {
+  const o = process.env.APP_ORIGIN?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (o && /^https?:\/\//i.test(o)) return o.replace(/\/$/, "");
+  return "https://app.inboundless.co";
+}
+
 // ✅ Align with routing.public types (no role here)
 type PublicRep = {
   userId: string;
@@ -404,12 +410,14 @@ export const bookSlot = action({
     // Lead summary + journey (widget conversation) — non bloquant
     let bookingLeadSlackAppend = "";
     let bookingLeadEmailHtml: string | undefined;
+    let bookingConversationUrl: string | undefined;
     try {
       const convId = await ctx.runQuery(internal.private.leadDigest.getLatestConversationIdForSession, {
         organizationId,
         contactSessionId,
       });
       if (convId) {
+        bookingConversationUrl = `${linkAppOrigin()}/conversations/${convId}`;
         const extras = await ctx.runAction(internal.private.leadNotify.buildBookingLeadExtras, {
           conversationId: convId,
         });
@@ -497,6 +505,7 @@ export const bookSlot = action({
           attendeePhone,
           attendeeDescription: useCase || undefined,
           leadContextHtml: bookingLeadEmailHtml,
+          conversationUrl: bookingConversationUrl,
         });
       } catch (e) {
         console.log("sendBookingEmailToSales skipped/failed:", e);

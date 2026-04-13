@@ -597,6 +597,7 @@ export const WidgetChatScreen = () => {
   // suggestion "parler à quelqu'un / booker" après réponses générales
   const softEscalationSuggestedRef = useRef(false);
   const [softEscalationActive, setSoftEscalationActive] = useState(false);
+  const [pendingLongHint, setPendingLongHint] = useState(false);
 
   useEffect(() => {
     // reset if no conversation
@@ -1147,6 +1148,7 @@ export const WidgetChatScreen = () => {
       // pending UI (typing)
       assistantCountAtSendRef.current = backendAssistantCount;
       setIsPendingAssistant(true);
+      setPendingLongHint(false);
 
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
       pendingTimeoutRef.current = setTimeout(() => {
@@ -1159,19 +1161,9 @@ export const WidgetChatScreen = () => {
         // Sinon: on affiche le message 1 seule fois, MAIS on garde Typing… (isPendingAssistant reste true)
         if (pendingFallbackShownRef.current) return;
         pendingFallbackShownRef.current = true;
-
-        setLocalMsgs((m) => [
-          ...m,
-          {
-            role: "assistant",
-            text: t.preparingResponse,
-          },
-        ]);
-
-        // Après le message de fallback, on réactive l'input
-        setIsPendingAssistant(false);
-        if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
-      }, 30000);
+        // Non-persistent hint below typing indicator (keeps chat clean).
+        setPendingLongHint(true);
+      }, 12000);
 
 
       try {
@@ -1238,13 +1230,6 @@ export const WidgetChatScreen = () => {
     if (triggerCount > 0 && realAssistantCount >= triggerCount) {
       softEscalationSuggestedRef.current = true;
       setSoftEscalationActive(true);
-      setLocalMsgs((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text: t.escalationSuggestion,
-        },
-      ]);
     }
   }, [
     backendMsgs,
@@ -1261,6 +1246,7 @@ export const WidgetChatScreen = () => {
     if (!isPendingAssistant) return;
     if (backendAssistantCount > assistantCountAtSendRef.current) {
       setIsPendingAssistant(false);
+      setPendingLongHint(false);
       pendingFallbackShownRef.current = false;
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
     }
@@ -1521,9 +1507,16 @@ export const WidgetChatScreen = () => {
                       style={{ color: themePrimary }}
                       aria-hidden
                     />
-                    <span className="text-[12px] leading-snug opacity-90">
-                      {t.thinkingShort}
-                    </span>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[12px] leading-snug opacity-90">
+                        {t.thinkingShort}
+                      </span>
+                      {pendingLongHint && (
+                        <span className="text-[12px] leading-snug opacity-80">
+                          {t.preparingResponse}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </AIMessageContent>
                 <DicebearAvatar imageUrl={brandLogoUrl} seed="assistant" size={32} />
@@ -1556,6 +1549,16 @@ export const WidgetChatScreen = () => {
                 <div className="flex flex-col gap-2 p-3">
                   <div className="text-xs text-muted-foreground">
                     {t.preferSpecialist}
+                  </div>
+                  <div
+                    className="rounded-xl border px-3 py-2 text-[12.5px] leading-relaxed"
+                    style={{
+                      backgroundColor: assistantBubbleBg,
+                      color: assistantBubbleFg,
+                      borderColor: "rgba(15,23,42,0.08)",
+                    }}
+                  >
+                    <AIResponse>{t.escalationSuggestion}</AIResponse>
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button

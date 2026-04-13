@@ -332,12 +332,13 @@ async function safeGenerate(
     await agent.generateText(ctx, { threadId }, payload, callOptions);
     return { ok: true as const };
   } catch (e1) {
+    console.error("agent.generateText attempt 1 failed", e1);
     await new Promise((r) => setTimeout(r, 250));
     try {
       await agent.generateText(ctx, { threadId }, payload, callOptions);
       return { ok: true as const };
     } catch (e2) {
-      console.error("agent.generateText failed twice", e2);
+      console.error("agent.generateText failed twice (visitor sees fallback)", e2);
       return { ok: false as const, error: e2 };
     }
   }
