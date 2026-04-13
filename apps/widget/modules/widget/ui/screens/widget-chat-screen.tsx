@@ -701,13 +701,36 @@ export const WidgetChatScreen = () => {
   const [isPendingAssistant, setIsPendingAssistant] = useState(false);
   const assistantCountAtSendRef = useRef(0);
   const pendingTimeoutRef = useRef<any>(null);
+  const pendingUiDelayRef = useRef<any>(null);
+  const [showPendingUi, setShowPendingUi] = useState(false);
   useEffect(() => {
     if (step !== "idle") {
       setIsPendingAssistant(false);
+      setPendingLongHint(false);
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+      pendingTimeoutRef.current = null;
+      if (pendingUiDelayRef.current) clearTimeout(pendingUiDelayRef.current);
+      pendingUiDelayRef.current = null;
+      setShowPendingUi(false);
     }
   }, [step]);
   const pendingFallbackShownRef = useRef(false);
+
+  // Delay the pending bubble to avoid UI flicker on fast responses.
+  useEffect(() => {
+    if (!isPendingAssistant) {
+      if (pendingUiDelayRef.current) clearTimeout(pendingUiDelayRef.current);
+      pendingUiDelayRef.current = null;
+      setShowPendingUi(false);
+      return;
+    }
+    if (showPendingUi) return;
+    if (pendingUiDelayRef.current) clearTimeout(pendingUiDelayRef.current);
+    pendingUiDelayRef.current = setTimeout(() => {
+      setShowPendingUi(true);
+      pendingUiDelayRef.current = null;
+    }, 800);
+  }, [isPendingAssistant, showPendingUi]);
 
 
 
@@ -1149,6 +1172,7 @@ export const WidgetChatScreen = () => {
       assistantCountAtSendRef.current = backendAssistantCount;
       setIsPendingAssistant(true);
       setPendingLongHint(false);
+      setShowPendingUi(false);
 
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
       pendingTimeoutRef.current = setTimeout(() => {
@@ -1163,6 +1187,8 @@ export const WidgetChatScreen = () => {
         pendingFallbackShownRef.current = true;
         // Non-persistent hint below typing indicator (keeps chat clean).
         setPendingLongHint(true);
+        // Timer consumed; avoid stale ids causing weird states.
+        pendingTimeoutRef.current = null;
       }, 12000);
 
 
@@ -1247,8 +1273,12 @@ export const WidgetChatScreen = () => {
     if (backendAssistantCount > assistantCountAtSendRef.current) {
       setIsPendingAssistant(false);
       setPendingLongHint(false);
+      setShowPendingUi(false);
       pendingFallbackShownRef.current = false;
       if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+      pendingTimeoutRef.current = null;
+      if (pendingUiDelayRef.current) clearTimeout(pendingUiDelayRef.current);
+      pendingUiDelayRef.current = null;
     }
   }, [backendAssistantCount, isPendingAssistant]);
 
@@ -1486,7 +1516,7 @@ export const WidgetChatScreen = () => {
               );
             })}
 
-            {isPendingAssistant && step === "idle" && (
+            {isPendingAssistant && step === "idle" && showPendingUi && (
               <AIMessage from="assistant">
                 <AIMessageContent
                   className="rounded-2xl px-3.5 py-2.5 text-[13px] shadow-sm"
@@ -1508,9 +1538,6 @@ export const WidgetChatScreen = () => {
                       aria-hidden
                     />
                     <div className="flex flex-col gap-1">
-                      <span className="text-[12px] leading-snug opacity-90">
-                        {t.thinkingShort}
-                      </span>
                       {pendingLongHint && (
                         <span className="text-[12px] leading-snug opacity-80">
                           {t.preparingResponse}
@@ -1929,7 +1956,8 @@ export const WidgetChatScreen = () => {
                   minHeight={36}
                   maxHeight={96}
                   className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-0 py-2 text-[14px] leading-snug text-slate-900 placeholder:text-slate-400 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                  disabled={isPendingAssistant}
+                  // Allow typing while assistant is thinking; only block sending.
+                  disabled={false}
                   onChange={field.onChange}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
