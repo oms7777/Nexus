@@ -4,7 +4,11 @@
 import React, { type PropsWithChildren } from "react";
 import { useAtomValue } from "jotai";
 
-import { screenAtom } from "../../atoms/widget-atoms";
+import {
+  getWidgetUiLanguage,
+  widgetCopyFor,
+} from "../../../../lib/widget-chat-i18n";
+import { screenAtom, widgetSettingsAtom } from "../../atoms/widget-atoms";
 import { usePresence } from "../../hooks/use-presence";
 
 import { WidgetAuthScreen } from "../screens/widget-auth-screen";
@@ -25,16 +29,30 @@ function Boundary({ children }: PropsWithChildren) {
   return <ErrorBoundary fallback={null}>{children}</ErrorBoundary>;
 }
 
-const RefreshFallback = () => (
-  <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground">
-    <p>Something went wrong.</p>
-    <p>
-      <a href={typeof window !== "undefined" ? window.location.href : "#"} className="underline">
-        Refresh the page
-      </a>
-    </p>
-  </div>
-);
+function RefreshFallback() {
+  const widgetSettings = useAtomValue(widgetSettingsAtom);
+  const lang = getWidgetUiLanguage(widgetSettings ?? undefined);
+  const copy = widgetCopyFor(lang);
+
+  return (
+    <div
+      className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
+      role="alert"
+      aria-live="polite"
+    >
+      <p className="max-w-[18rem] text-sm leading-relaxed text-slate-600">{copy.errorBoundaryBody}</p>
+      <button
+        type="button"
+        className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+        onClick={() => {
+          if (typeof window !== "undefined") window.location.reload();
+        }}
+      >
+        {copy.errorBoundaryRefresh}
+      </button>
+    </div>
+  );
+}
 
 class ErrorBoundary extends React.Component<
   PropsWithChildren<{ fallback?: React.ReactNode }>,

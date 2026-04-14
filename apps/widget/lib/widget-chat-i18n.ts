@@ -92,6 +92,9 @@ export type WidgetUiCopy = {
   thinkingShort: string;
   /** WhatsApp handoff floating button */
   whatsappHandoff: string;
+  /** React error boundary — avoid “bug” wording for visitors */
+  errorBoundaryBody: string;
+  errorBoundaryRefresh: string;
 };
 
 export const widgetUiCopy = {
@@ -168,6 +171,9 @@ export const widgetUiCopy = {
     assistantTyping: "Assistant is replying",
     thinkingShort: "Thinking…",
     whatsappHandoff: "Continue on WhatsApp",
+    errorBoundaryBody:
+      "The chat couldn’t finish loading. Refresh the page to continue — this is usually a quick fix.",
+    errorBoundaryRefresh: "Refresh",
   },
   fr: {
     preparingResponse:
@@ -246,6 +252,9 @@ export const widgetUiCopy = {
     assistantTyping: "L’assistant répond",
     thinkingShort: "Réflexion…",
     whatsappHandoff: "Continuer sur WhatsApp",
+    errorBoundaryBody:
+      "Le chat n’a pas pu se charger complètement. Actualisez la page pour continuer — cela règle généralement la situation.",
+    errorBoundaryRefresh: "Actualiser",
   },
 } as const satisfies Record<"en" | "fr", WidgetUiCopy>;
 

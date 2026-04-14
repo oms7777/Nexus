@@ -1,10 +1,41 @@
 // packages/backend/convex/private/conversations.ts
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { mutation, query, type QueryCtx } from "../_generated/server";
 import { supportAgent } from "../system/ai/agents/supportAgent";
 import { MessageDoc } from "@convex-dev/agent";
 import { paginationOptsValidator, PaginationResult } from "convex/server";
 import { Doc } from "../_generated/dataModel";
+
+/**
+ * Email / deep links: Clerk's active org in the JWT may differ from the conversation's org.
+ * Allow read when the signed-in user is a member of that org (`users` or `repsPresence`).
+ */
+async function userCanAccessOrganization(
+  ctx: QueryCtx,
+  organizationId: string,
+  clerkSubject: string,
+  jwtOrgId: string | undefined,
+): Promise<boolean> {
+  if (jwtOrgId != null && jwtOrgId === organizationId) {
+    return true;
+  }
+
+  const userRow = await ctx.db
+    .query("users")
+    .withIndex("by_org_external", (q) =>
+      q.eq("organizationId", organizationId).eq("externalId", clerkSubject),
+    )
+    .first();
+  if (userRow) return true;
+
+  const repRow = await ctx.db
+    .query("repsPresence")
+    .withIndex("by_org_user", (q) =>
+      q.eq("organizationId", organizationId).eq("userId", clerkSubject),
+    )
+    .first();
+  return repRow != null;
+}
 
 export const updateStatus = mutation({
   args: {
@@ -44,17 +75,23 @@ export const getOne = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
 
-    const orgId = (identity as any).orgId as string | undefined;
+    const jwtOrgId = (identity as any).orgId as string | undefined;
     const meUserId = (identity as any).subject as string | undefined;
 
-    if (!orgId || !meUserId) {
+    if (!meUserId) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
     }
 
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
 
-    if (conversation.organizationId !== orgId) {
+    const allowed = await userCanAccessOrganization(
+      ctx,
+      conversation.organizationId,
+      meUserId,
+      jwtOrgId,
+    );
+    if (!allowed) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Organization ID" });
     }
 

@@ -730,7 +730,20 @@ export const WidgetChatScreen = () => {
       setShowPendingUi(true);
       pendingUiDelayRef.current = null;
     }, 800);
+    return () => {
+      if (pendingUiDelayRef.current) {
+        clearTimeout(pendingUiDelayRef.current);
+        pendingUiDelayRef.current = null;
+      }
+    };
   }, [isPendingAssistant, showPendingUi]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
+      if (pendingUiDelayRef.current) clearTimeout(pendingUiDelayRef.current);
+    };
+  }, []);
 
 
 
@@ -1221,10 +1234,10 @@ export const WidgetChatScreen = () => {
 
   /* -------- MESSAGES + GREET -------- */
   const backendMsgs = toUIMessages(messages.results ?? [])
-    .filter((m) => (m.content ?? "").trim().length > 0)
+    .filter((m) => String(m.content ?? "").trim().length > 0)
     .map((m) => ({
       role: m.role === "user" ? ("user" as const) : ("assistant" as const),
-      text: m.content,
+      text: String(m.content ?? ""),
     }));
 
   const backendAssistantCount = backendMsgs.filter((m) => m.role === "assistant").length;
@@ -1292,7 +1305,7 @@ export const WidgetChatScreen = () => {
   const greet = widgetSettings?.greetMessage?.trim();
 
   const filteredBackend = greet
-    ? backendMsgs.filter((m) => m.text.trim() !== greet)
+    ? backendMsgs.filter((m) => String(m.text ?? "").trim() !== greet)
     : backendMsgs;
 
   let baseMsgs = [...filteredBackend, ...localMsgs];
@@ -1302,8 +1315,8 @@ export const WidgetChatScreen = () => {
   // 2) "Got it! Connecting..." (handoff)
   // 3) "If no teammate answers..." (fallback booking)
   // Ils doivent toujours apparaître dans cet ordre et AVANT les réponses de l'opérateur.
-  const normalizeText = (s: string) =>
-    s
+  const normalizeText = (s: unknown) =>
+    String(s ?? "")
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -1345,9 +1358,9 @@ export const WidgetChatScreen = () => {
     return en || (fr && bookingHint);
   };
 
-  const gotItIdx = baseMsgs.findIndex((m) => isGotIt(m.text ?? ""));
-  const ifYoulikeIdx = baseMsgs.findIndex((m) => isIfYoulike(m.text ?? ""));
-  const fallbackIdx = baseMsgs.findIndex((m) => isFallbackBooking(m.text ?? ""));
+  const gotItIdx = baseMsgs.findIndex((m) => isGotIt(String(m.text ?? "")));
+  const ifYoulikeIdx = baseMsgs.findIndex((m) => isIfYoulike(String(m.text ?? "")));
+  const fallbackIdx = baseMsgs.findIndex((m) => isFallbackBooking(String(m.text ?? "")));
 
   const systemIndices = [gotItIdx, ifYoulikeIdx, fallbackIdx].filter((i) => i >= 0);
   if (systemIndices.length > 0) {
@@ -1392,9 +1405,13 @@ export const WidgetChatScreen = () => {
 
   const suggestions = useMemo(() => {
     const base = widgetSettings?.defaultSuggestions
-      ? (Object.values(widgetSettings.defaultSuggestions).filter(Boolean) as string[])
+      ? Object.values(widgetSettings.defaultSuggestions).filter(
+          (v) => v != null && String(v).trim().length > 0,
+        )
       : [];
-    return Array.from(new Set(base.map(s => s.trim()))).filter(Boolean);
+    return Array.from(new Set(base.map((s) => String(s).trim()))).filter(
+      (s) => s.length > 0,
+    );
   }, [widgetSettings]);
 
 
