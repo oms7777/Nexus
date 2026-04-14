@@ -72,42 +72,53 @@ export const updateStatus = mutation({
 export const getOne = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+    try {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) throw new ConvexError("UNAUTHORIZED: identity not found");
 
-    const jwtOrgId = (identity as any).orgId as string | undefined;
-    const meUserId = (identity as any).subject as string | undefined;
+      const jwtOrgId = (identity as any).orgId as string | undefined;
+      const meUserId = (identity as any).subject as string | undefined;
 
-    if (!meUserId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
-    }
+      if (!meUserId) {
+        throw new ConvexError("UNAUTHORIZED: missing subject");
+      }
 
-    const conversation = await ctx.db.get(args.conversationId);
-    if (!conversation) throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
+      const conversation = await ctx.db.get(args.conversationId);
+      if (!conversation) throw new ConvexError("NOT_FOUND: conversation not found");
 
-    const allowed = await userCanAccessOrganization(
-      ctx,
-      conversation.organizationId,
-      meUserId,
-      jwtOrgId,
-    );
-    if (!allowed) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Organization ID" });
-    }
+      const allowed = await userCanAccessOrganization(
+        ctx,
+        conversation.organizationId,
+        meUserId,
+        jwtOrgId,
+      );
+      if (!allowed) {
+        throw new ConvexError("UNAUTHORIZED: invalid organization");
+      }
 
     /**
      * Deep link / email: any authenticated user in the org can open a conversation.
      * The inbox list (`getMany`) stays scoped to the assigned rep so reps only see their queue.
      */
-    const contactSession = await ctx.db.get(conversation.contactSessionId);
-    if (!contactSession) throw new ConvexError({ code: "NOT_FOUND", message: "Contact Session not found" });
+      const contactSession = await ctx.db.get(conversation.contactSessionId);
+      if (!contactSession) throw new ConvexError("NOT_FOUND: contact session not found");
 
-    return {
-      ...conversation,
-      contactSession,
-      assignedRepUserId: conversation.assignedRepUserId ?? null,
-      assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
-    };
+      return {
+        ...conversation,
+        contactSession,
+        assignedRepUserId: conversation.assignedRepUserId ?? null,
+        assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
+      };
+    } catch (err: unknown) {
+      // Make client-visible errors readable (Convex shows "Server Error" for non-string payloads).
+      // Also log full context server-side for debugging deep-link failures.
+      console.error("private/conversations:getOne failed", {
+        conversationId: args.conversationId,
+        err,
+      });
+      if (err instanceof ConvexError) throw err;
+      throw new ConvexError("SERVER_ERROR: getOne failed");
+    }
   },
 });
 
