@@ -1,7 +1,7 @@
 // LiveVisitorView.tsx — MAJ: reset on sessionId change (important)
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
@@ -34,6 +34,9 @@ export function LiveVisitorView({
   orgId: string;
   sessionId: Id<"contactSessions">;
 }) {
+  const [fitMode, setFitMode] = useState<"fit" | "fill">("fit");
+  const maxUpscale = 1; // avoid blur/pixelation from scaling above 1x
+
   const outerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
@@ -113,10 +116,11 @@ export function LiveVisitorView({
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    // Cover: remplir tout le cadre sans bandes grises (scale = max pour couvrir hauteur et largeur)
+    // Fit by default to avoid blur/pixelation; Fill is optional.
     const scaleW = vw / src.width;
     const scaleH = vh / src.height;
-    const scale = Math.max(scaleW, scaleH);
+    const rawScale = fitMode === "fill" ? Math.max(scaleW, scaleH) : Math.min(scaleW, scaleH);
+    const scale = Math.min(rawScale, maxUpscale);
 
     const contentW = src.width * scale;
     const contentH = src.height * scale;
@@ -132,8 +136,8 @@ export function LiveVisitorView({
     lastAppliedRef.current = signature;
 
     layoutRef.current = { scale: s, ox: x, oy: y };
-    stage.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
-  }, []);
+    stage.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${s})`;
+  }, [fitMode]);
 
   const stopRAF = useCallback(() => {
     try {
@@ -334,12 +338,64 @@ export function LiveVisitorView({
 
   const hasSnapshot = !!latest?.snapshot;
 
+  const deviceLabel = useMemo(() => {
+    const w = src?.width;
+    const h = src?.height;
+    if (!w || !h) return null;
+    const isPortrait = h > w;
+    const kind = isPortrait ? "Mobile" : "Desktop";
+    return `${kind} · ${w}×${h}`;
+  }, [src?.width, src?.height]);
+
+  const aspect = src?.width && src?.height ? `${src.width}/${src.height}` : "16/9";
+
   return (
-    <div className="relative rounded-xl border overflow-hidden bg-black/5" style={{ height: 520 }}>
+    <div
+      className="relative w-full overflow-hidden rounded-2xl border bg-background shadow-sm"
+      style={{
+        aspectRatio: aspect as any,
+        height: "auto",
+        minHeight: 320,
+        maxHeight: 560,
+      }}
+    >
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
 
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
+        {deviceLabel && (
+          <div className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-slate-700 shadow-sm ring-1 ring-black/5 backdrop-blur">
+            {deviceLabel}
+          </div>
+        )}
+      </div>
+
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-white/80 p-1 shadow-sm ring-1 ring-black/5 backdrop-blur">
+        <button
+          type="button"
+          onClick={() => setFitMode("fit")}
+          className={
+            fitMode === "fit"
+              ? "rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white"
+              : "rounded-full px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-black/5"
+          }
+        >
+          Fit
+        </button>
+        <button
+          type="button"
+          onClick={() => setFitMode("fill")}
+          className={
+            fitMode === "fill"
+              ? "rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white"
+              : "rounded-full px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-black/5"
+          }
+        >
+          Fill
+        </button>
+      </div>
+
       {!hasSnapshot && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground bg-muted/30">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/20 p-4 text-center text-sm text-muted-foreground">
           <p>No recording yet for this visitor.</p>
           <p className="text-xs">Recording starts when they browse with the widget. Ask them to refresh the page if the widget is already open.</p>
         </div>

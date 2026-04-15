@@ -18,8 +18,55 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { statusFilterAtom } from "../../atoms"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import { Input } from "@workspace/ui/components/input"
+import { useMemo, useState } from "react"
 
 
+
+function shortId(id: string, len = 4) {
+    const s = String(id || "");
+    return s.length <= len ? s : s.slice(-len).toUpperCase();
+}
+
+function getConversationDisplayName(conversation: any): string {
+    const cs = conversation?.contactSession ?? {};
+    const name = typeof cs?.name === "string" ? cs.name.trim() : "";
+    const email = typeof cs?.email === "string" ? cs.email.trim() : "";
+    const company = typeof cs?.metadata?.company === "string" ? cs.metadata.company.trim() : "";
+    const role = typeof cs?.metadata?.role === "string" ? cs.metadata.role.trim() : "";
+
+    if (name && name.toLowerCase() !== "visitor") return name;
+    if (email) return email;
+    if (company) return role ? `${company} • ${role}` : company;
+    return `New visitor #${shortId(cs?._id ?? conversation?._id ?? "")}`;
+}
+
+function isHotLead(conversation: any): boolean {
+    if (conversation?.status === "escalated") return true;
+    const t = String(conversation?.lastMessage?.text ?? "").toLowerCase();
+    return /(pricing|price|demo|book|booking|meeting|buy|quote|rendez-vous|devis|prix|tarif)/i.test(t);
+}
+
+function isUnseenEscalation(conversation: any): boolean {
+    // Deterministic & safe: highlight escalations that were never viewed yet.
+    return conversation?.status === "escalated" && (conversation?.lastViewedByRepAt == null);
+}
+
+function safePageLabelFromUrl(raw: unknown): string | undefined {
+    const href = typeof raw === "string" ? raw.trim() : "";
+    if (!href) return undefined;
+    try {
+        const u = new URL(href);
+        const host = u.hostname.replace(/^www\./i, "");
+        const path = u.pathname === "/" ? "" : u.pathname;
+        const s = `${host}${path}`;
+        return s.length > 60 ? `${s.slice(0, 59)}…` : s;
+    } catch {
+        // file:// or invalid URL
+        if (href.startsWith("file://")) return "Local file";
+        return href.length > 60 ? `${href.slice(0, 59)}…` : href;
+    }
+}
 
 export const ConversationsPanel = () => {
     const pathname = usePathname();
@@ -51,10 +98,23 @@ export const ConversationsPanel = () => {
         loadSize: 10,
     });
 
+    const [query, setQuery] = useState("");
+
+    const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return conversations.results;
+        return conversations.results.filter((c: any) => {
+            const name = getConversationDisplayName(c).toLowerCase();
+            const last = String(c?.lastMessage?.text ?? "").toLowerCase();
+            const url = String(c?.contactSession?.metadata?.currentUrl ?? "").toLowerCase();
+            return name.includes(q) || last.includes(q) || url.includes(q);
+        });
+    }, [conversations.results, query]);
+
 
     return (
         <div className="flex h-full w-full flex-col bg-background text-sidebar-foreground">
-            <div className="flex flex-col gap-3.5 border-b p-2">
+            <div className="flex flex-col gap-2 border-b p-3">
                 <Select
                     defaultValue="active"
                     onValueChange={(value) => setStatusFilter(
@@ -100,13 +160,19 @@ export const ConversationsPanel = () => {
                         </SelectItem>
                     </SelectContent>
                 </Select>
+                <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search…"
+                    className="h-9 rounded-xl bg-muted/30"
+                />
             </div>
             {isLoadingFirstPage ? (
                 <SkeletonConversations />
             ) : (
-                <ScrollArea className="max-h-[calc(100vh-53px)]">
-                    <div className="flex w-full flex-1 flex-col text-sm">
-                        {conversations.results.map((conversation) => {
+                <ScrollArea className="max-h-[calc(100vh-86px)]">
+                    <div className="flex w-full flex-1 flex-col gap-2 p-2 text-sm">
+                        {filtered.map((conversation) => {
                             const isLastMessageFromOperator =
                                 conversation.lastMessage?.message?.role !== "user"
                             
@@ -118,37 +184,58 @@ export const ConversationsPanel = () => {
                                 ? getCountryFlagUrl(country.code)
                                 : undefined;
 
+                            const pageLabel = safePageLabelFromUrl(
+                                conversation?.contactSession?.metadata?.currentUrl,
+                            );
+                            const locationLabel = [
+                                conversation?.contactSession?.metadata?.city,
+                                conversation?.contactSession?.metadata?.countryCode,
+                            ]
+                                .filter(Boolean)
+                                .join(", ");
+
                             return (
                                 <Link 
                                     key={conversation._id}
                                     className={cn(
-                                        "relative flex cursor-pointer items-start gap-3 border-b p-4 py-5 text-sm leading-tight hover:bg-accent hover:text-accent-foreground",
+                                        "group relative flex cursor-pointer items-start gap-3 rounded-2xl border bg-white px-3 py-3 text-sm leading-tight shadow-sm transition-colors hover:bg-muted/40",
                                         pathname === `/conversations/${conversation._id}` &&
-                                            "bg-accent text-accent-foreground"
+                                            "border-slate-200 bg-muted/60"
                                     )}
                                     href={`/conversations/${conversation._id}`}
                                 >
-                                    <div className={cn(
-                                        "-translate-y-1/2 absolute top-1/2 left-0 h-[64%] w-1 rounded-r-full bg-neutral-300 opacity-0 transition-opacity",
-                                        pathname === `/conversations/${conversation._id}` &&
-                                            "opacity-100"
-                                    )}/>
-
                                         <DicebearAvatar 
                                             seed={conversation.contactSession._id}
                                             badgeImageUrl={countryFlagUrl}
                                             size={40}
                                             className="shrink-0"
                                         />
-                                        <div className="flex-1">
-                                            <div className="flex w-full items-center gap-2">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex w-full items-center gap-2 min-w-0">
                                                 <span className="truncate font-bold">
-                                                    {conversation.contactSession.name}
+                                                    {getConversationDisplayName(conversation)}
                                                 </span>
+                                                {isUnseenEscalation(conversation) && (
+                                                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                                        New
+                                                    </span>
+                                                )}
+                                                {isHotLead(conversation) && (
+                                                    <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
+                                                        Hot
+                                                    </span>
+                                                )}
                                                 <span className="ml-auto shrink-0 text-muted-foreground text-xs">
-                                                    {formatDistanceToNow(conversation._creationTime)}
+                                                    {formatDistanceToNow(conversation._creationTime, { addSuffix: true })}
                                                 </span>
                                             </div>
+                                            {(pageLabel || locationLabel) && (
+                                                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                                                    {pageLabel && <span className="truncate">{pageLabel}</span>}
+                                                    {pageLabel && locationLabel && <span>•</span>}
+                                                    {locationLabel && <span className="truncate">{locationLabel}</span>}
+                                                </div>
+                                            )}
                                             <div className="mt-1 flex items-center justify-between gap-2">
                                                 <div className="flex w-0 grow items-center gap-1">
                                                     {isLastMessageFromOperator && (

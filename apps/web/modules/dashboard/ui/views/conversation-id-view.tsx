@@ -162,8 +162,8 @@ export const ConversationIdView = ({
 
 
     return (
-        <div className="flex h-full flex-col bg-muted">
-            <header className="flex items-center justify-between border-b bg-background p-2.5">
+        <div className="flex h-full flex-col bg-muted/40">
+            <header className="flex items-center justify-between border-b bg-background/80 p-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button size="sm" variant="ghost">
@@ -227,7 +227,7 @@ export const ConversationIdView = ({
                 <AIConversationScrollButton />
             </AIConversation>
 
-            <div className="p-2">
+            <div className="border-t bg-background/70 p-2 backdrop-blur supports-[backdrop-filter]:bg-background/50">
             <Form {...(form as any)}>
                 <AIInput onSubmit={form.handleSubmit(onSubmit)}>
                 <FormField
@@ -293,8 +293,8 @@ export const ConversationIdView = ({
 
 export const ConversationIdViewLoading = () => {
     return(
-        <div className="flex h-full flex-col bg-muted">
-            <header className="flex items-center justify-between border-b bg-background p-2.5">
+        <div className="flex h-full flex-col bg-muted/40">
+            <header className="flex items-center justify-between border-b bg-background/80 p-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <Button disabled size="sm" variant="ghost">
                     <MoreHorizontalIcon />
                 </Button>
@@ -323,7 +323,7 @@ export const ConversationIdViewLoading = () => {
                 </AIConversationContent>
             </AIConversation>
 
-            <div className="p-2">
+            <div className="border-t bg-background/70 p-2 backdrop-blur supports-[backdrop-filter]:bg-background/50">
                 <AIInput>
                     <AIInputTextarea 
                         disabled
