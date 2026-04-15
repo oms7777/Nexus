@@ -21,6 +21,7 @@ function computeEntitlements(sub: any) {
   const canUseAdvancedRouting = isActive && (plan === "growth" || plan === "enterprise");
   const canUseAdvancedPromos = isActive && (plan === "growth" || plan === "enterprise");
   const canUseAdvancedAnalytics = isActive && addons.advancedAnalytics === true;
+  const canChooseLlmProvider = isActive && (plan === "growth" || plan === "enterprise");
 
   const canUseBooking = isActive;
 
@@ -49,6 +50,7 @@ function computeEntitlements(sub: any) {
       canUseAdvancedPromos,
       canUseAdvancedAnalytics,
       canUseBooking,
+      canChooseLlmProvider,
     },
   };
 }
@@ -96,10 +98,11 @@ export const getPublicPlan = query({
     const status: string = (sub?.status ?? "paused") as string;
     const isActive = status === "active" || status === "trial";
     const canUseAdvancedPromos = isActive && (plan === "growth" || plan === "enterprise");
+    const canChooseLlmProvider = isActive && (plan === "growth" || plan === "enterprise");
 
     const voiceEnabled = sub?.addons?.voice === true;
     const canUseVoice = isActive && voiceEnabled;
 
-    return { plan, status, isActive, canUseAdvancedPromos, canUseVoice };
+    return { plan, status, isActive, canUseAdvancedPromos, canUseVoice, canChooseLlmProvider };
   },
 });

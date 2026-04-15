@@ -139,6 +139,9 @@ export const FilesView = () => {
 
   const kbEnabled = useMemo(() => true, []); // ✅ always enabled now (since llm_only removed)
 
+  const entitlements = useQuery(api.public.entitlements.getEntitlements);
+  const canChooseLlmProvider = !!(entitlements as any)?.features?.canChooseLlmProvider;
+
   const handleDeleteClick = (file: PublicFile) => {
     setSelectedFile(file);
     setDeleteDialogOpen(true);
@@ -154,8 +157,8 @@ export const FilesView = () => {
 
       await upsertWidgetSettings({
         knowledgeMode,
-        llmProvider,
-        llmModel,
+        llmProvider: canChooseLlmProvider ? llmProvider : "openai",
+        llmModel: canChooseLlmProvider ? llmModel : DEFAULT_LLM_MODEL.openai,
       } as any);
 
       toast.success("AI settings saved");
@@ -289,8 +292,9 @@ export const FilesView = () => {
                   <div className="space-y-2">
                     <Label>LLM provider</Label>
                     <Select
-                      value={llmProvider}
+                      value={canChooseLlmProvider ? llmProvider : "openai"}
                       onValueChange={(v) => handleProviderChange(v as LlmProvider)}
+                      disabled={!canChooseLlmProvider}
                     >
                       <SelectTrigger className="h-auto min-h-10 w-full min-w-[12rem]">
                         {/* SelectValue mirrors ItemText from the selected SelectItem (icon + label) — do not add a second icon here */}
@@ -310,6 +314,11 @@ export const FilesView = () => {
                         })}
                       </SelectContent>
                     </Select>
+                    {!canChooseLlmProvider && (
+                      <p className="text-xs text-muted-foreground">
+                        Provider selection is available on Growth and Enterprise plans. Starter uses OpenAI.
+                      </p>
+                    )}
                   </div>
 
                   <Separator />

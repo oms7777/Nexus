@@ -17,6 +17,7 @@ import { WidgetHeader } from "../components/widget-header";
 import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
+import { getOrCreateExternalSessionId, getOrCreateVisitorId } from "../../../../lib/external-session";
 
 type InitStep = "org" | "session" | "settings" | "vapi" | "done";
 
@@ -92,7 +93,7 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
 
   /* 2) Ensure contactSession */
   const validateContactSession = useMutation(api.public.contactSessions.validate);
-  const ensureContactSession = useMutation(api.public.contactSessions.ensure);
+  const ensureContactSession = useMutation(api.public.contactSessions.ensureByExternalId);
 
   useEffect(() => {
     if (step !== "session") return;
@@ -107,7 +108,22 @@ export const WidgetLoadingScreen = ({ organizationId }: { organizationId: string
 
     const regen = async () => {
       try {
-        const id = await ensureContactSession({ organizationId });
+        const id = await ensureContactSession({
+          organizationId,
+          externalSessionId: getOrCreateExternalSessionId(),
+          metadata: {
+            visitorId: getOrCreateVisitorId(),
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+            language: typeof navigator !== "undefined" ? navigator.language : undefined,
+            viewportSize:
+              typeof window !== "undefined"
+                ? `${window.innerWidth}x${window.innerHeight}`
+                : undefined,
+            currentUrl: typeof window !== "undefined" ? window.location.href : undefined,
+            referrer:
+              typeof document !== "undefined" ? document.referrer || undefined : undefined,
+          },
+        } as any);
 
         // ✅ critical: wipe conversation bound to previous session
         setConversationId(null);

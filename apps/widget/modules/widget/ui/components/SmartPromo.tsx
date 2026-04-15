@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useAtomValue, useSetAtom } from "jotai";
+import { getOrCreateExternalSessionId } from "../../../../lib/external-session";
 import {
   organizationIdAtom,
   screenAtom,
@@ -137,6 +138,7 @@ export default function SmartPromo() {
   const setContactSessionId = useSetAtom(contactSessionIdAtom);
 
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
+  const ensureContactSessionByExternal = useMutation(api.public.contactSessions.ensureByExternalId);
   const createConversation = useMutation(api.public.conversations.create);
 
   const isEmbedded =
@@ -248,8 +250,13 @@ export default function SmartPromo() {
 
     let sessionId: Id<"contactSessions"> | null = null;
     try {
+      const externalSessionId = getOrCreateExternalSessionId();
       sessionId =
         (contactSessionId as any) ||
+        ((await ensureContactSessionByExternal({
+          organizationId: orgId,
+          externalSessionId,
+        } as any)) as any) ||
         ((await ensureContactSession({ organizationId: orgId })) as any);
 
       if (!contactSessionId && sessionId) setContactSessionId(sessionId as any);
@@ -471,15 +478,21 @@ export default function SmartPromo() {
 
     const greetMessage: string | undefined = (ws as any)?.greetMessage;
 
-    // Base suggestions from widget settings
-    const base1 = (ws as any)?.defaultSuggestions?.suggestion1?.trim();
-    const base2 = (ws as any)?.defaultSuggestions?.suggestion2?.trim();
-    const base3 = (ws as any)?.defaultSuggestions?.suggestion3?.trim();
+    const toTrimmedStringOrUndef = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      return s.length ? s : undefined;
+    };
+
+    // Base suggestions from widget settings (guard against non-string legacy rows)
+    const base1 = toTrimmedStringOrUndef((ws as any)?.defaultSuggestions?.suggestion1);
+    const base2 = toTrimmedStringOrUndef((ws as any)?.defaultSuggestions?.suggestion2);
+    const base3 = toTrimmedStringOrUndef((ws as any)?.defaultSuggestions?.suggestion3);
 
     // Optional override from per-page nudge configuration
-    const s1 = (pageNudge as any)?.suggestions?.suggestion1?.trim() ?? base1;
-    const s2 = (pageNudge as any)?.suggestions?.suggestion2?.trim() ?? base2;
-    const s3 = (pageNudge as any)?.suggestions?.suggestion3?.trim() ?? base3;
+    const s1 = toTrimmedStringOrUndef((pageNudge as any)?.suggestions?.suggestion1) ?? base1;
+    const s2 = toTrimmedStringOrUndef((pageNudge as any)?.suggestions?.suggestion2) ?? base2;
+    const s3 = toTrimmedStringOrUndef((pageNudge as any)?.suggestions?.suggestion3) ?? base3;
 
     const suggestions = [s1, s2, s3].filter(Boolean) as string[];
     if (!suggestions.length) return null;

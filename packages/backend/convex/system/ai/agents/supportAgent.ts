@@ -8,8 +8,18 @@ import { SUPPORT_AGENT_PROMPT } from "../constants";
 
 export type LlmProvider = "openai" | "google" | "anthropic";
 
+function hasProviderKey(p: LlmProvider): boolean {
+  // These env var names match ai-sdk defaults.
+  if (p === "openai") return !!process.env.OPENAI_API_KEY;
+  if (p === "anthropic") return !!process.env.ANTHROPIC_API_KEY;
+  if (p === "google") return !!process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  return false;
+}
+
 function getChatModel(provider?: LlmProvider | null, model?: string | null) {
-  const p: LlmProvider = provider ?? "openai";
+  // Fail-safe: if a provider is selected but not configured, fall back to OpenAI.
+  const requested: LlmProvider = provider ?? "openai";
+  const p: LlmProvider = hasProviderKey(requested) ? requested : "openai";
   const explicit = (model ?? "").trim();
   const m =
     explicit ||

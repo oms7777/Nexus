@@ -24,6 +24,7 @@ import InlineBooker from "../components/InlineBooker";
 import SmartPromo from "../components/SmartPromo";
 import { WidgetThemeVars } from "../components/WidgetThemeVars";
 import { WidgetSettingsSubscription } from "../components/WidgetSettingsSubscription";
+import { WidgetSnapshotTracker } from "../components/WidgetSnapshotTracker";
 
 function Boundary({ children }: PropsWithChildren) {
   return <ErrorBoundary fallback={null}>{children}</ErrorBoundary>;
@@ -98,6 +99,7 @@ export const WidgetView = ({ organizationId }: Props) => {
         <WidgetSettingsSubscription organizationId={organizationId} />
         {/* ✅ Injecte les couleurs dès que widgetSettings est chargé */}
         <WidgetThemeVars />
+        <WidgetSnapshotTracker />
 
         {screens[screen]}
 

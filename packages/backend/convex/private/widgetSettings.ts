@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
+import { internal } from "../_generated/api";
 
 function requireOrgId(identity: any) {
   const orgId = identity?.orgId as string | undefined;
@@ -105,6 +106,15 @@ export const upsert = mutation({
     const identity = await ctx.auth.getUserIdentity();
     const orgId = requireOrgId(identity);
 
+    // Plan gating: Starter must use OpenAI (Growth/Enterprise can choose).
+    const sub = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
+      organizationId: orgId,
+    });
+    const plan = (sub?.plan ?? "starter") as "starter" | "growth" | "enterprise";
+    const status = (sub?.status ?? "paused") as string;
+    const isActive = status === "active" || status === "trial";
+    const canChooseProvider = isActive && (plan === "growth" || plan === "enterprise");
+
     const existing = await ctx.db
       .query("widgetSettings")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
@@ -130,6 +140,12 @@ export const upsert = mutation({
 
     if ("llmProvider" in args) patch.llmProvider = args.llmProvider;
     if ("llmModel" in args) patch.llmModel = args.llmModel;
+
+    if (!canChooseProvider) {
+      // Force OpenAI for Starter / inactive orgs.
+      if ("llmProvider" in patch) patch.llmProvider = "openai";
+      if ("llmModel" in patch) patch.llmModel = patch.llmModel; // keep whatever model string, but provider stays openai
+    }
 
     if ("vapiSettings" in args) patch.vapiSettings = args.vapiSettings;
     if ("escalationSuggestionAfterMessages" in args)

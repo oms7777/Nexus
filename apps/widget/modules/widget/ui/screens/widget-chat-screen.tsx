@@ -447,6 +447,23 @@ export const WidgetChatScreen = () => {
   const mustAcceptConsent = false;
 
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
+  const ensureContactSessionByExternal = useMutation(api.public.contactSessions.ensureByExternalId);
+  const externalSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    try {
+      // Avoid importing localStorage-heavy helpers in too many places; keep it simple here.
+      if (typeof window === "undefined") return;
+      const k = "nx_external_session_id";
+      let id = window.localStorage.getItem(k);
+      if (!id) {
+        id = crypto.randomUUID();
+        window.localStorage.setItem(k, id);
+      }
+      externalSessionIdRef.current = id;
+    } catch {
+      externalSessionIdRef.current = null;
+    }
+  }, []);
   // plan public (no auth) pour gating voice
 
   const publicPlan = useQuery(
@@ -831,7 +848,13 @@ export const WidgetChatScreen = () => {
     let sessionId = contactSessionId as any;
     try {
       if (!sessionId) {
-        sessionId = (await ensureContactSession({ organizationId })) as any;
+        const ext = externalSessionIdRef.current;
+        sessionId = ext
+          ? ((await ensureContactSessionByExternal({
+              organizationId,
+              externalSessionId: ext,
+            } as any)) as any)
+          : ((await ensureContactSession({ organizationId })) as any);
       }
     } catch {
       return;

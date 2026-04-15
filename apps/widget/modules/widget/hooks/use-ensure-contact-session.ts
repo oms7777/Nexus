@@ -7,23 +7,13 @@ import { useMutation } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { contactSessionIdAtom } from "../atoms/widget-atoms";
 
-function getOrCreateVisitorId() {
-  const k = "nx_visitor_id";
-  let id = localStorage.getItem(k);
-
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(k, id);
-  }
-
-  return id;
-}
+import { getOrCreateExternalSessionId, getOrCreateVisitorId } from "../../../lib/external-session";
 
 export function useEnsureContactSession(organizationId: string | null) {
   const setContactSessionId = useSetAtom(contactSessionIdAtom);
 
   // Convex
-  const ensure = useMutation(api.public.contactSessions.ensure);
+  const ensureByExternalId = useMutation(api.public.contactSessions.ensureByExternalId);
   const validate = useMutation(api.public.contactSessions.validate);
 
   useEffect(() => {
@@ -32,10 +22,17 @@ export function useEnsureContactSession(organizationId: string | null) {
     let cancelled = false;
 
     (async () => {
-      const lsKey = "nx_contact_session";
       const visitorId = getOrCreateVisitorId();
+      const externalSessionId = getOrCreateExternalSessionId();
 
-      let sid: string | null = localStorage.getItem(lsKey);
+      // We still cache the Convex session id for faster boot, but the stable key is externalSessionId.
+      const lsKey = "nx_contact_session";
+      let sid: string | null = null;
+      try {
+        sid = localStorage.getItem(lsKey);
+      } catch {
+        sid = null;
+      }
 
       // 1) si sid en cache -> validate
       if (sid) {
@@ -49,8 +46,9 @@ export function useEnsureContactSession(organizationId: string | null) {
 
       // 2) sinon -> create
       if (!sid) {
-        sid = (await ensure({
+        sid = (await ensureByExternalId({
           organizationId,
+          externalSessionId,
           metadata: {
             visitorId,
             userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
@@ -77,7 +75,10 @@ export function useEnsureContactSession(organizationId: string | null) {
       // 4) notify parent ONLY when ready
       try {
         window.parent?.postMessage(
-          { type: "nexus:session-ready", payload: { contactSessionId: sid } },
+          {
+            type: "nexus:session-ready",
+            payload: { contactSessionId: sid, externalSessionId },
+          },
           "*",
         );
       } catch {}
@@ -86,5 +87,5 @@ export function useEnsureContactSession(organizationId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [organizationId, ensure, validate, setContactSessionId]);
+  }, [organizationId, ensureByExternalId, validate, setContactSessionId]);
 }
