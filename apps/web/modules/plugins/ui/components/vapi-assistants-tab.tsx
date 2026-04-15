@@ -7,7 +7,7 @@ import { useVapiAssistants } from "../../hooks/use-vapi-data"
 
 
 export const VapiAssistantsTab = () => {
-    const { data: assistants, isLoading } = useVapiAssistants();
+    const { data: assistants = [], isLoading } = useVapiAssistants();
 
     return (
         <div className="border-t bg-background">
@@ -52,7 +52,7 @@ export const VapiAssistantsTab = () => {
                             )
                         }
 
-                        return assistants.map((assistant) => (
+                        return assistants.map((assistant: any) => (
                             <TableRow className="hover:bg-muted/50" key={assistant.id}>
                                 <TableCell className="px-6 py-4">
                                     <div className="flex items-center gap-3">

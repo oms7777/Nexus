@@ -1,6 +1,8 @@
 // packages/backend/convex/private/territories.ts
 import { query, mutation } from "../_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { requireOrgAdmin, requireOrgId } from "../lib/authz";
+import { writeAuditLog } from "../lib/audit";
 
 /**
  * Presets géographiques globaux.
@@ -129,12 +131,17 @@ const GEO_PRESETS: Record<
  */
 export const listForOrg = query({
   args: {
-    organizationId: v.string(),
+    /** @deprecated Ignored for authorization; org is taken from the signed-in user. */
+    organizationId: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId }) => {
+    const orgId = await requireOrgId(ctx);
+    if (organizationId && organizationId !== orgId) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Organization mismatch" });
+    }
     return await ctx.db
       .query("territories")
-      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_org", (q) => q.eq("organizationId", orgId))
       .collect();
   },
 });
@@ -145,12 +152,14 @@ export const listForOrg = query({
  */
 export const upsert = mutation({
   args: {
-    organizationId: v.string(),
+    /** @deprecated Ignored for writes; org is taken from the signed-in admin. */
+    organizationId: v.optional(v.string()),
     key: v.string(), // slug stable, ex: "france", "emea_midmarket"
     label: v.string(),
     countryCodes: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, { organizationId, key, label, countryCodes }) => {
+  handler: async (ctx, { organizationId: _clientOrgId, key, label, countryCodes }) => {
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
     const now = Date.now();
 
     const normalizedKey = key.trim().toLowerCase();
@@ -184,6 +193,15 @@ export const upsert = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, docBase);
+      await writeAuditLog(ctx, {
+        organizationId,
+        actorUserId: userId,
+        actorOrgRole: orgRole,
+        action: "territory.updated",
+        entityType: "territory",
+        entityId: String(existing._id),
+        meta: { key: normalizedKey, label },
+      });
       return existing._id;
     }
 
@@ -199,6 +217,16 @@ export const upsert = mutation({
       updatedAt: now,
     });
 
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "territory.created",
+      entityType: "territory",
+      entityId: String(id),
+      meta: { key: normalizedKey, label },
+    });
+
     return id;
   },
 });
@@ -211,6 +239,20 @@ export const remove = mutation({
     territoryId: v.id("territories"),
   },
   handler: async (ctx, { territoryId }) => {
+    const { orgId, userId, orgRole } = await requireOrgAdmin(ctx);
+    const doc = await ctx.db.get(territoryId);
+    if (!doc || doc.organizationId !== orgId) {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Territory not found" });
+    }
     await ctx.db.delete(territoryId);
+    await writeAuditLog(ctx, {
+      organizationId: orgId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "territory.deleted",
+      entityType: "territory",
+      entityId: String(territoryId),
+      meta: { key: doc.key },
+    });
   },
 });

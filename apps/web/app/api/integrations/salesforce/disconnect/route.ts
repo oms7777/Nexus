@@ -1,15 +1,14 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
+import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
 
 export async function POST() {
-  const authCtx = await auth();
-  const { userId, orgId } = authCtx;
-
-  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
+  const guard = await requireOrgAdminOrResponse();
+  if (!guard.ok) return guard.response;
+  const { authCtx } = guard;
 
   const convexToken = await authCtx.getToken({ template: "convex" });
 

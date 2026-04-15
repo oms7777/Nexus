@@ -3,6 +3,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { handleClerkWebhook } from "./webhooks/clerk";
+import { normalizeHostname } from "./lib/domains";
 
 const http = httpRouter();
 
@@ -12,6 +13,26 @@ http.route({
   method: "GET",
   handler: httpAction(async () => {
     return new Response("pong", { status: 200 });
+  }),
+});
+
+/** Health JSON pour sondes uptime (même déploiement que les routes HTTP Convex). */
+http.route({
+  path: "/health",
+  method: "GET",
+  handler: httpAction(async () => {
+    const body = JSON.stringify({
+      ok: true,
+      service: "nexus-convex",
+      time: new Date().toISOString(),
+    });
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      },
+    });
   }),
 });
 
@@ -56,6 +77,15 @@ async function resolveSessionId(ctx: any, input: { organizationId: string; sessi
 
   // already a Convex Id string
   return sessionIdRaw as any;
+}
+
+function hostnameFromUrlMaybe(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
 }
 
 /** Live heartbeat (CORS preflight) */
@@ -120,6 +150,30 @@ http.route({
     // si currentUrl est widget mais referrer est un vrai site → on prend referrer
     const finalCurrentUrl =
       safeCurrentUrl ?? (isWidgetOrAppUrl(body.referrer) ? undefined : body.referrer);
+
+    // ✅ Enterprise safety: accept heartbeat only from allowed domains.
+    const origin = req.headers.get("origin") ?? undefined;
+    const hostFromOrigin = hostnameFromUrlMaybe(origin);
+    const hostFromUrl = hostnameFromUrlMaybe(finalCurrentUrl);
+    const incomingHost = normalizeHostname(hostFromUrl ?? hostFromOrigin ?? "");
+
+    if (incomingHost) {
+      const allow = await ctx.runQuery((internal as any).system.websites.isAllowedHostnameForOrg, {
+        organizationId: body.organizationId,
+        hostname: incomingHost,
+      });
+      if (!allow.allowed) {
+        return new Response(JSON.stringify({ ok: false, error: "Domain not allowed" }), {
+          status: 403,
+          headers: { "Access-Control-Allow-Origin": "*" },
+        });
+      }
+    } else {
+      return new Response(JSON.stringify({ ok: false, error: "Missing host" }), {
+        status: 400,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
 
     await ctx.runAction(internal.live.heartbeatHttp, {
       organizationId: body.organizationId,

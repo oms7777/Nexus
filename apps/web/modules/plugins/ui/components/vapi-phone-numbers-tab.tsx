@@ -8,7 +8,7 @@ import { useVapiPhoneNumbers } from "../../hooks/use-vapi-data"
 
 
 export const VapiPhoneNumbersTab = () => {
-    const { data: phoneNumbers, isLoading } = useVapiPhoneNumbers();
+    const { data: phoneNumbers = [], isLoading } = useVapiPhoneNumbers();
 
     const copyToClipboard = async (text: string) => {
         try {
@@ -62,7 +62,7 @@ export const VapiPhoneNumbersTab = () => {
                             )
                         }
 
-                        return phoneNumbers.map((phone) => (
+                        return phoneNumbers.map((phone: any) => (
                             <TableRow className="hover:bg-muted/50" key={phone.id}>
                                 <TableCell className="px-6 py-4">
                                     <div className="flex items-center gap-3">

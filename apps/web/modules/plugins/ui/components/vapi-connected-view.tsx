@@ -158,7 +158,7 @@ export const VapiConnectedView = ({ onDisconnect }: VapiConnectedViewProps) => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
-                  {assistants.map((assistant) => (
+                  {assistants.map((assistant: any) => (
                     <SelectItem key={assistant.id} value={assistant.id}>
                       {assistant.name || "Unnamed"}{" "}
                       {assistant.model?.model
@@ -186,7 +186,7 @@ export const VapiConnectedView = ({ onDisconnect }: VapiConnectedViewProps) => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
-                  {phoneNumbers.map((phone) => (
+                  {phoneNumbers.map((phone: any) => (
                     <SelectItem key={phone.id} value={phone.id}>
                       {phone.number || "Not configured"}{" "}
                       {phone.name ? `- ${phone.name}` : "- Unnamed"}

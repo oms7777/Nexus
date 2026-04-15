@@ -3,7 +3,12 @@ import { action } from "../_generated/server";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { buildLeadSummaryInputPayload, type LeadSummaryAiResult } from "./leadSummaryAi";
-import type { EscalationDigestPayload, PageStay } from "./leadDigest";
+import {
+  formatTranscriptPlainText,
+  type ChatMessageWithTimestamp,
+  type EscalationDigestPayload,
+  type PageStay,
+} from "./leadDigest";
 
 /** Matches `private/conversations.getOne` (null-normalized rep fields). */
 type ConversationWithSession = Omit<Doc<"conversations">, "assignedRepUserId" | "assignedTerritoryKey"> & {
@@ -13,10 +18,21 @@ type ConversationWithSession = Omit<Doc<"conversations">, "assignedRepUserId" | 
 };
 
 type JourneyExport = {
+  /** What this file contains (for humans / CRM integrators). */
+  exportInfo: {
+    schema: "nexus.journey.v2";
+    description: string;
+  };
   exportedAt: string;
   organizationId: string;
   conversationId: Id<"conversations">;
   contactSessionId: Id<"contactSessions">;
+  conversation: {
+    status: "unresolved" | "escalated" | "resolved";
+    threadId: string;
+    createdAt: string;
+    escalatedAt: string | null;
+  };
   visitor: { name?: string; email?: string; phone?: string };
   metadata: Record<string, unknown>;
   pageTimeline: Array<{
@@ -28,7 +44,12 @@ type JourneyExport = {
     height?: number;
   }>;
   pageStaysAggregated: PageStay[];
+  /** @deprecated Prefer `chatMessages` or `transcriptPlainText` — no per-message timestamps. */
   chatTranscriptLines: string[];
+  /** Chronological chat with ISO timestamp per message (visitor vs assistant vs tool). */
+  chatMessages: ChatMessageWithTimestamp[];
+  /** Same as `chatMessages` as a single copy-paste block for email / tickets. */
+  transcriptPlainText: string;
   intentHeuristic: string | null;
   traffic: { utmSource?: string; metadataPagesSample: string[] } | null;
   aiLeadSummary: string | null;
@@ -36,7 +57,7 @@ type JourneyExport = {
 };
 
 /**
- * Downloadable JSON: full timeline (no rrweb blob), aggregated dwell, chat transcript, optional AI summary.
+ * Downloadable JSON: full timeline (no rrweb blob), aggregated dwell, chat with timestamps, optional AI summary.
  */
 export const exportJourney = action({
   args: {
@@ -88,11 +109,26 @@ export const exportJourney = action({
       },
     );
 
+    const chatMessages: ChatMessageWithTimestamp[] = digest.ok ? digest.chatMessages : [];
+    const transcriptPlainText = formatTranscriptPlainText(chatMessages);
+
     return {
+      exportInfo: {
+        schema: "nexus.journey.v2",
+        description:
+          "Inboundless session export: visitor fields, page views with timestamps, chat messages with ISO timestamps per line, optional AI lead summary. Field `chatTranscriptLines` is a legacy flat list without times; prefer `chatMessages` or `transcriptPlainText`.",
+      },
       exportedAt: new Date().toISOString(),
       organizationId: orgId,
       conversationId,
       contactSessionId: session._id,
+      conversation: {
+        status: conv.status,
+        threadId: conv.threadId,
+        createdAt: new Date(conv._creationTime).toISOString(),
+        escalatedAt:
+          conv.escalatedAt != null ? new Date(conv.escalatedAt).toISOString() : null,
+      },
       visitor: {
         name: session.name,
         email: session.email,
@@ -102,6 +138,8 @@ export const exportJourney = action({
       pageTimeline: timeline,
       pageStaysAggregated: digest.ok ? digest.pageStays : [],
       chatTranscriptLines: digest.ok ? digest.chatLines : [],
+      chatMessages,
+      transcriptPlainText,
       intentHeuristic: digest.ok ? digest.intent : null,
       traffic: digest.ok ? digest.traffic : null,
       aiLeadSummary: c?.aiLeadSummary ?? null,

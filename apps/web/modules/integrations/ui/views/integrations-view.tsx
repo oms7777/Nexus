@@ -58,6 +58,38 @@ export const IntegrationsView = () => {
   const [sfClientSecret, setSfClientSecret] = useState("");
   const [sfLoginUrl, setSfLoginUrl] = useState("https://login.salesforce.com");
   const [sfSaving, setSfSaving] = useState(false);
+  const [domainInput, setDomainInput] = useState("");
+
+  const websites = useQuery((api as any).private.websites.list, {}) ?? [];
+
+  const handleAddDomain = async () => {
+    const d = domainInput.trim();
+    if (!d) return toast.error("Enter a domain (e.g. whoz.com)");
+    try {
+      await fetch("/api/websites/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: d }),
+      });
+      setDomainInput("");
+      toast.success("Domain added");
+    } catch {
+      toast.error("Failed to add domain");
+    }
+  };
+
+  const handleRemoveDomain = async (websiteId: string) => {
+    try {
+      await fetch("/api/websites/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ websiteId }),
+      });
+      toast.success("Domain removed");
+    } catch {
+      toast.error("Failed to remove domain");
+    }
+  };
 
   useEffect(() => {
     if (!salesforceAppConfig) return;
@@ -260,6 +292,53 @@ export const IntegrationsView = () => {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Allowed domains (enterprise safety) */}
+          <div className="mt-6 space-y-3 rounded-lg border bg-background p-4">
+            <div className="space-y-1">
+              <Label className="text-lg">Allowed domains</Label>
+              <p className="text-sm text-muted-foreground">
+                For security, we only accept tracking/snapshots from the domains you add here. Add your production domain
+                (e.g. <span className="font-mono">whoz.com</span>) and optionally{" "}
+                <span className="font-mono">www.whoz.com</span>.
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <Input
+                value={domainInput}
+                onChange={(e) => setDomainInput(e.target.value)}
+                placeholder="whoz.com"
+                className="bg-background"
+              />
+              <Button onClick={handleAddDomain} size="sm">
+                Add
+              </Button>
+            </div>
+
+            {websites.length ? (
+              <div className="space-y-2">
+                {websites
+                  .filter((w: any) => w.active)
+                  .map((w: any) => (
+                    <div key={w._id} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                      <div className="font-mono">{w.domain}</div>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleRemoveDomain(String(w._id))}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-xs text-amber-600">
+                No domains configured yet. Add your domain to enable visitor tracking safely in production.
+              </p>
+            )}
           </div>
 
           {(showSlack || showSalesforce) && <Separator className="my-8" />}

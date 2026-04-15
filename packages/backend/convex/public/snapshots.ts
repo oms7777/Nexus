@@ -1,5 +1,7 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
+import { normalizeHostname } from "../lib/domains";
 
 // Guard simple (Convex runtime: éviter TextEncoder)
 const MAX_SNAPSHOT_CHARS = 2_000_000; // ~2MB-ish worst case (ajuste si besoin)
@@ -22,6 +24,25 @@ export const save = mutation({
     const { organizationId, sessionId, snapshot, pageUrl, title, width, height } = args;
 
     if (!snapshot) return { ok: false };
+
+    // ✅ Enforce domain allowlist when we can.
+    if (pageUrl) {
+      const host = (() => {
+        try {
+          return new URL(pageUrl).hostname;
+        } catch {
+          return null;
+        }
+      })();
+      const normalized = host ? normalizeHostname(host) : null;
+      if (normalized) {
+        const res = await ctx.runQuery((internal as any).system.websites.isAllowedHostnameForOrg, {
+          organizationId,
+          hostname: normalized,
+        });
+        if (!res.allowed) return { ok: false, error: "Domain not allowed" };
+      }
+    }
 
     // ✅ guard simple (pas de TextEncoder ici)
     if (snapshot.length > MAX_SNAPSHOT_CHARS) {

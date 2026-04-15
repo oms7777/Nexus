@@ -30,14 +30,16 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
         <Provider>
           <SidebarProvider defaultOpen>
             <DashboardSidebar />
-            <div className="flex min-h-screen flex-1 flex-col bg-background">
+            <div className="flex h-screen min-h-0 flex-1 flex-col bg-background">
               <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
                 <div className="flex h-14 w-full items-center justify-between px-4 md:px-6">
                   {isLoaded && orgId ? <RepsAvailabilityBar organizationId={orgId} /> : null}
                 </div>
               </header>
 
-              <main className="flex-1 w-full px-4 py-6 md:px-6">{children}</main>
+              <main className="min-h-0 flex-1 w-full overflow-hidden px-4 py-6 md:px-6">
+                {children}
+              </main>
             </div>
           </SidebarProvider>
         </Provider>

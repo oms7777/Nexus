@@ -1383,7 +1383,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
 
   const filteredPromoList = useMemo(() => {
     if (!list?.length) return [];
-    return list.filter((p) => promoDocMatchesSearch(p, promoListSearch));
+    return list.filter((p: any) => promoDocMatchesSearch(p, promoListSearch));
   }, [list, promoListSearch]);
 
   const handlePromoMediaUpload = async (
@@ -3526,7 +3526,7 @@ export default function PromosPanel({ theme, brandLogoUrl }: PromosPanelProps) {
           <p className="text-sm text-muted-foreground">No promos match your search.</p>
         )}
 
-        {filteredPromoList.map((p) => (
+        {filteredPromoList.map((p: any) => (
           <div
             key={p._id}
             className="flex items-center justify-between gap-4 rounded-lg border bg-background px-3 py-2.5 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)] transition-colors hover:bg-muted/60"

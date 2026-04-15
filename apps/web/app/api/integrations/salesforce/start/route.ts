@@ -1,8 +1,8 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
+import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
 
@@ -19,10 +19,9 @@ function sha256(verifier: string) {
 }
 
 export async function GET(req: Request) {
-  const authCtx = await auth();
-  const { userId, orgId } = authCtx;
-
-  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
+  const guard = await requireOrgAdminOrResponse();
+  if (!guard.ok) return guard.response;
+  const { authCtx, userId, orgId } = guard;
 
   const convexToken = await authCtx.getToken({ template: "convex" });
 

@@ -1,6 +1,6 @@
 // apps/web/app/api/integrations/slack/start/route.ts
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
 
@@ -8,8 +8,9 @@ const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID!;
 const SLACK_SCOPE = "chat:write chat:write.public";
 
 export async function GET(req: Request) {
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
+  const guard = await requireOrgAdminOrResponse();
+  if (!guard.ok) return guard.response;
+  const { userId, orgId } = guard;
 
   const url = new URL(req.url);
   const origin = url.origin;

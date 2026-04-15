@@ -1,15 +1,14 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
+import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
-  const authCtx = await auth();
-  const { userId, orgId } = authCtx;
-
-  if (!userId || !orgId) return new NextResponse("Unauthorized", { status: 401 });
+  const guard = await requireOrgAdminOrResponse();
+  if (!guard.ok) return guard.response;
+  const { authCtx, userId, orgId } = guard;
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -33,6 +32,14 @@ export async function GET(req: Request) {
     parsedState = JSON.parse(Buffer.from(stateParam, "base64url").toString("utf8"));
   } catch {
     return new NextResponse("Invalid state", { status: 400 });
+  }
+
+  // Prevent cross-org/cross-user state reuse.
+  if (parsedState?.orgId && parsedState.orgId !== orgId) {
+    return new NextResponse("Invalid state (org mismatch)", { status: 400 });
+  }
+  if (parsedState?.userId && parsedState.userId !== userId) {
+    return new NextResponse("Invalid state (user mismatch)", { status: 400 });
   }
 
   const redirectPath = parsedState.redirect ?? "/integrations";

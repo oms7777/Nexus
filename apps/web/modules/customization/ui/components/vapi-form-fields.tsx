@@ -12,8 +12,8 @@ interface VapiFormFieldsProps {
 export const VapiFormFields = ({
     form,
 }: VapiFormFieldsProps) => {
-    const { data: assistants, isLoading: assistantsLoading } = useVapiAssistants();
-    const { data: phoneNumbers, isLoading: phoneNumbersLoading } = useVapiPhoneNumbers();
+    const { data: assistants = [], isLoading: assistantsLoading } = useVapiAssistants();
+    const { data: phoneNumbers = [], isLoading: phoneNumbersLoading } = useVapiPhoneNumbers();
 
     const disabled = form.formState.isSubmitting;
 
@@ -43,7 +43,7 @@ export const VapiFormFields = ({
                     </FormControl>
                     <SelectContent>
                     <SelectItem value="none">None</SelectItem>
-                    {assistants.map((assistant) => (
+                    {assistants.map((assistant: any) => (
                         <SelectItem key={assistant.id} value={assistant.id}>
                         {assistant.name || "Unnamed Assistant"}  -{" "}
                         {assistant.model?.model || "Unknown model"}
@@ -83,7 +83,7 @@ export const VapiFormFields = ({
                     </FormControl>
                     <SelectContent>
                     <SelectItem value="none">None</SelectItem>
-                    {phoneNumbers.map((phone) => (
+                    {phoneNumbers.map((phone: any) => (
                         <SelectItem key={phone.id} value={phone.number || phone.id}>
                         {phone.number || "Unknown"}  -{" "}
                         {phone.name || "Unnamed"}

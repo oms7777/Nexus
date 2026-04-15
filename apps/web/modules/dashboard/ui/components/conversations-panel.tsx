@@ -20,26 +20,7 @@ import { statusFilterAtom } from "../../atoms"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Input } from "@workspace/ui/components/input"
 import { useMemo, useState } from "react"
-
-
-
-function shortId(id: string, len = 4) {
-    const s = String(id || "");
-    return s.length <= len ? s : s.slice(-len).toUpperCase();
-}
-
-function getConversationDisplayName(conversation: any): string {
-    const cs = conversation?.contactSession ?? {};
-    const name = typeof cs?.name === "string" ? cs.name.trim() : "";
-    const email = typeof cs?.email === "string" ? cs.email.trim() : "";
-    const company = typeof cs?.metadata?.company === "string" ? cs.metadata.company.trim() : "";
-    const role = typeof cs?.metadata?.role === "string" ? cs.metadata.role.trim() : "";
-
-    if (name && name.toLowerCase() !== "visitor") return name;
-    if (email) return email;
-    if (company) return role ? `${company} • ${role}` : company;
-    return `New visitor #${shortId(cs?._id ?? conversation?._id ?? "")}`;
-}
+import { getConversationDisplayName } from "@/lib/conversation-display-name"
 
 function isHotLead(conversation: any): boolean {
     if (conversation?.status === "escalated") return true;

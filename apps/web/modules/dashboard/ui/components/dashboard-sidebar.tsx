@@ -11,6 +11,7 @@ import {
   Users,
   BookOpen,
   SlidersHorizontal,
+  ScrollText,
 } from "lucide-react";
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
@@ -144,6 +145,7 @@ export const DashboardSidebar = () => {
       { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen },
       { title: "Widget Customization", url: "/customization", icon: SlidersHorizontal },
       { title: "Integrations", url: "/integrations", icon: InboxIcon },
+      { title: "Audit log", url: "/org/audit", icon: ScrollText },
       canUseVoice && { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
     ].filter(Boolean) as { title: string; url: string; icon: any }[];
   }, [ent.isLoading, canUseVoice]);

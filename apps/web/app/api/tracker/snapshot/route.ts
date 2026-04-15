@@ -1,11 +1,25 @@
 // apps/app/src/app/api/tracker/snapshot/route.ts
 import { NextResponse } from "next/server";
 import { api } from "@workspace/backend/_generated/api";
-import { fetchMutation } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type { Id } from "@workspace/backend/_generated/dataModel";
 import type { eventWithTime } from "rrweb/typings/types";
 
 export const runtime = "nodejs";
+
+function hostFromUrlMaybe(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHost(h: string): string {
+  const x = String(h ?? "").trim().toLowerCase();
+  return x.startsWith("www.") ? x.slice(4) : x;
+}
 
 function makeCors(origin: string, req: Request) {
   const requestHeaders =
@@ -89,6 +103,31 @@ export async function POST(req: Request) {
     }
 
     const { pageUrl, title, width, height } = pickMetaFromEvents(events);
+    const originHost = hostFromUrlMaybe(origin);
+    const pageHost = hostFromUrlMaybe(pageUrl);
+    const incomingHost = normalizeHost(pageHost ?? originHost ?? "");
+
+    if (!incomingHost) {
+      headers.set("Content-Type", "application/json");
+      return new NextResponse(JSON.stringify({ ok: false, error: "Missing page host" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    // ✅ Enterprise safety: accept snapshots only from allowed domains.
+    const allow = await fetchQuery((api as any).public.websites.isAllowedHostname, {
+      organizationId,
+      hostname: incomingHost,
+    }).catch(() => null);
+
+    if (!allow?.allowed) {
+      headers.set("Content-Type", "application/json");
+      return new NextResponse(JSON.stringify({ ok: false, error: "Domain not allowed" }), {
+        status: 403,
+        headers,
+      });
+    }
 
     await fetchMutation(api.public.snapshots.save, {
       organizationId,

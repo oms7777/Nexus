@@ -5,12 +5,12 @@ export const ConversationsLayout = ({
     children 
 }: { children: React.ReactNode; }) => {
     return (
-        <ResizablePanelGroup className="h-full flex-1" direction="horizontal">
+        <ResizablePanelGroup className="h-full min-h-0 flex-1 overflow-hidden" direction="horizontal">
             <ResizablePanel defaultSize={30} maxSize={30} minSize={20}>
                 <ConversationsPanel />
             </ResizablePanel>
             <ResizableHandle />
-            <ResizablePanel className="h-full" defaultSize={70}>
+            <ResizablePanel className="h-full min-h-0 overflow-hidden" defaultSize={70}>
                 {children}
             </ResizablePanel>
         </ResizablePanelGroup>

@@ -1,6 +1,8 @@
 // packages/backend/convex/private/promos.ts
 import { mutation, query } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
+import { internal } from "../_generated/api";
+import { requireOrgAdmin } from "../lib/authz";
 
 type PathMode = "prefix" | "exact";
 
@@ -168,8 +170,7 @@ const promoSettingsV = v.object({
 export const listByOrg = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    const orgId = requireOrgId(identity);
+    const { orgId } = await requireOrgAdmin(ctx);
 
     return await ctx.db
       .query("promos")
@@ -194,8 +195,7 @@ export const upsert = mutation({
     settings: v.optional(promoSettingsV),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    const organizationId = requireOrgId(identity);
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
 
     await requirePromoSubscription(ctx, organizationId);
 
@@ -219,28 +219,58 @@ export const upsert = mutation({
       }
 
       await ctx.db.patch(_id, patchPayload);
+
+      await ctx.runMutation((internal as any).system.audit.log, {
+        organizationId,
+        actorUserId: userId,
+        actorOrgRole: orgRole,
+        action: "promo.updated",
+        entityType: "promo",
+        entityId: String(_id),
+        meta: { name: args.name, active: args.active },
+      });
       return _id;
     }
 
-    return await ctx.db.insert("promos", {
+    const createdId = await ctx.db.insert("promos", {
       organizationId,
       ...args,
       showNudge: insertShowNudge,
       createdAt: now,
       updatedAt: now,
     });
+
+    await ctx.runMutation((internal as any).system.audit.log, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "promo.created",
+      entityType: "promo",
+      entityId: String(createdId),
+      meta: { name: args.name, active: args.active },
+    });
+
+    return createdId;
   },
 });
 
 export const remove = mutation({
   args: { _id: v.id("promos") },
   handler: async (ctx, { _id }) => {
-    const identity = await ctx.auth.getUserIdentity();
-    const organizationId = requireOrgId(identity);
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
 
     await requirePromoSubscription(ctx, organizationId);
 
     await ctx.db.delete(_id);
+
+    await ctx.runMutation((internal as any).system.audit.log, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "promo.deleted",
+      entityType: "promo",
+      entityId: String(_id),
+    });
     return { ok: true };
   },
 });

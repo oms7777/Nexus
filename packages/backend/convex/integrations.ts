@@ -1,7 +1,9 @@
 // packages/backend/convex/integrations.ts
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation, action, internalMutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import { requireOrgAdmin, requireOrgId } from "./lib/authz";
+import { writeAuditLog } from "./lib/audit";
 
 /* ============================================================
    Types / Helpers
@@ -11,18 +13,6 @@ type Plan = "starter" | "growth" | "enterprise";
 
 function isActiveStatus(status: any) {
   return status === "active" || status === "trial";
-}
-
-async function requireOrgId(ctx: any): Promise<string> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
-  }
-  const orgId = identity.orgId as string | undefined;
-  if (!orgId) {
-    throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-  }
-  return orgId;
 }
 
 /* ============================================================
@@ -119,7 +109,7 @@ async function requireSalesforceEntitled(ctx: any, organizationId: string) {
 export const getSlackIntegration = query({
   args: {},
   handler: async (ctx) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId } = await requireOrgAdmin(ctx);
     await requireSlackEntitled(ctx, organizationId);
 
     return await ctx.db
@@ -137,7 +127,7 @@ export const saveSlackIntegration = mutation({
     defaultChannel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
     await requireSlackEntitled(ctx, organizationId);
 
     const now = Date.now();
@@ -154,10 +144,19 @@ export const saveSlackIntegration = mutation({
         defaultChannel: args.defaultChannel ?? existing.defaultChannel,
         updatedAt: now,
       });
+      await writeAuditLog(ctx, {
+        organizationId,
+        actorUserId: userId,
+        actorOrgRole: orgRole,
+        action: "integration.slack.updated",
+        entityType: "slackIntegration",
+        entityId: String(existing._id),
+        meta: { teamName: args.teamName, teamId: args.teamId },
+      });
       return;
     }
 
-    await ctx.db.insert("slackIntegrations", {
+    const inserted = await ctx.db.insert("slackIntegrations", {
       organizationId,
       accessToken: args.accessToken,
       teamId: args.teamId,
@@ -166,13 +165,22 @@ export const saveSlackIntegration = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "integration.slack.connected",
+      entityType: "slackIntegration",
+      entityId: String(inserted),
+      meta: { teamName: args.teamName, teamId: args.teamId },
+    });
   },
 });
 
 export const disconnectSlackIntegration = mutation({
   args: {},
   handler: async (ctx) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
     await requireSlackEntitled(ctx, organizationId);
 
     const existing = await ctx.db
@@ -182,6 +190,14 @@ export const disconnectSlackIntegration = mutation({
 
     if (!existing) return;
     await ctx.db.delete(existing._id);
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "integration.slack.disconnected",
+      entityType: "slackIntegration",
+      entityId: String(existing._id),
+    });
   },
 });
 
@@ -276,7 +292,7 @@ export const sendSlackMessage = action({
 export const getSalesforceAppConfig = query({
   args: {},
   handler: async (ctx) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId } = await requireOrgAdmin(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
 
     return await ctx.db
@@ -293,7 +309,7 @@ export const upsertSalesforceAppConfig = mutation({
     loginUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
 
     const now = Date.now();
@@ -309,10 +325,19 @@ export const upsertSalesforceAppConfig = mutation({
         loginUrl: args.loginUrl,
         updatedAt: now,
       });
+      await writeAuditLog(ctx, {
+        organizationId,
+        actorUserId: userId,
+        actorOrgRole: orgRole,
+        action: "integration.salesforce_app_config.updated",
+        entityType: "salesforceAppConfig",
+        entityId: String(existing._id),
+        meta: { loginUrl: args.loginUrl, clientId: args.clientId },
+      });
       return;
     }
 
-    await ctx.db.insert("salesforceAppConfigs", {
+    const inserted = await ctx.db.insert("salesforceAppConfigs", {
       organizationId,
       clientId: args.clientId,
       clientSecret: args.clientSecret,
@@ -320,13 +345,22 @@ export const upsertSalesforceAppConfig = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "integration.salesforce_app_config.created",
+      entityType: "salesforceAppConfig",
+      entityId: String(inserted),
+      meta: { loginUrl: args.loginUrl, clientId: args.clientId },
+    });
   },
 });
 
 export const getSalesforceIntegration = query({
   args: {},
   handler: async (ctx) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId } = await requireOrgAdmin(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
 
     return await ctx.db
@@ -343,7 +377,7 @@ export const saveSalesforceIntegration = mutation({
     instanceUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
 
     const now = Date.now();
@@ -359,10 +393,19 @@ export const saveSalesforceIntegration = mutation({
         instanceUrl: args.instanceUrl,
         updatedAt: now,
       });
+      await writeAuditLog(ctx, {
+        organizationId,
+        actorUserId: userId,
+        actorOrgRole: orgRole,
+        action: "integration.salesforce.updated",
+        entityType: "salesforceIntegration",
+        entityId: String(existing._id),
+        meta: { instanceUrl: args.instanceUrl },
+      });
       return;
     }
 
-    await ctx.db.insert("salesforceIntegrations", {
+    const inserted = await ctx.db.insert("salesforceIntegrations", {
       organizationId,
       accessToken: args.accessToken,
       refreshToken: args.refreshToken,
@@ -370,13 +413,22 @@ export const saveSalesforceIntegration = mutation({
       connectedAt: now,
       updatedAt: now,
     });
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "integration.salesforce.connected",
+      entityType: "salesforceIntegration",
+      entityId: String(inserted),
+      meta: { instanceUrl: args.instanceUrl },
+    });
   },
 });
 
 export const disconnectSalesforceIntegration = mutation({
   args: {},
   handler: async (ctx) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
 
     const existing = await ctx.db
@@ -386,6 +438,14 @@ export const disconnectSalesforceIntegration = mutation({
 
     if (!existing) return;
     await ctx.db.delete(existing._id);
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "integration.salesforce.disconnected",
+      entityType: "salesforceIntegration",
+      entityId: String(existing._id),
+    });
   },
 });
 
@@ -411,8 +471,8 @@ function isInvalidSession(payload: any): boolean {
   return payload?.errorCode === "INVALID_SESSION_ID";
 }
 
-// internal-ish mutation (called from action) — keep it gated
-export const _updateSalesforceAccessToken = mutation({
+/** Called from `refreshSalesforceAccessToken` action only — not exposed to clients. */
+export const updateSalesforceAccessTokenInternal = internalMutation({
   args: {
     organizationId: v.string(),
     accessToken: v.string(),
@@ -481,10 +541,13 @@ export const refreshSalesforceAccessToken = action({
 
     const newAccessToken = String(tokenJson.access_token);
 
-    await ctx.runMutation(api.integrations._updateSalesforceAccessToken, {
-      organizationId,
-      accessToken: newAccessToken,
-    });
+    await ctx.runMutation(
+      (internal as any).integrations.updateSalesforceAccessTokenInternal,
+      {
+        organizationId,
+        accessToken: newAccessToken,
+      },
+    );
 
     return { ok: true as const };
   },

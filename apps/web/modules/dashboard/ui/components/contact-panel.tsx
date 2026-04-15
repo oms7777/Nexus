@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { getConversationDisplayName } from "@/lib/conversation-display-name";
+import { buildSessionExportText } from "@/lib/session-export-text";
 import { SnapshotsStrip } from "./SnapshotsStrip";
 import { LiveVisitorView } from "./live-visitor-view";
 
@@ -115,15 +117,30 @@ export const ContactPanel = () => {
     setExportLoading(true);
     try {
       const data = await exportJourneyJson({ conversationId });
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
-        type: "application/json",
+      const text = buildSessionExportText({
+        exportedAt: data.exportedAt,
+        conversationId: String(data.conversationId),
+        contactSessionId: String(data.contactSessionId),
+        conversation: data.conversation,
+        visitor: data.visitor,
+        metadata: data.metadata,
+        transcriptPlainText: data.transcriptPlainText,
+        pageStaysAggregated: data.pageStaysAggregated,
+        pageTimeline: data.pageTimeline,
+        intentHeuristic: data.intentHeuristic,
+        traffic: data.traffic,
+        aiLeadSummary: data.aiLeadSummary ?? null,
+        aiLeadSummaryAt: data.aiLeadSummaryAt ?? null,
+      });
+      const blob = new Blob([text], {
+        type: "text/plain;charset=utf-8",
       });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `visitor-journey-${conversationId}.json`;
+      a.download = `conversation-report-${conversationId}.txt`;
       a.click();
       URL.revokeObjectURL(a.href);
-      toast.success("Journey exported");
+      toast.success("Report downloaded");
     } catch (e) {
       console.error(e);
       toast.error("Export failed");
@@ -197,6 +214,22 @@ export const ContactPanel = () => {
   }, [contactSession?.metadata?.pages]);
 
   const currentUrl = contactSession?.metadata?.currentUrl ?? "";
+
+  const visitorDisplayName = useMemo(
+    () =>
+      contactSession
+        ? getConversationDisplayName({
+            _id: leadConversation?._id,
+            contactSession: {
+              _id: contactSession._id,
+              name: contactSession.name ?? undefined,
+              email: contactSession.email ?? undefined,
+              metadata: contactSession.metadata,
+            },
+          })
+        : "—",
+    [contactSession, leadConversation?._id],
+  );
 
   const handleQuickBook = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -381,8 +414,8 @@ export const ContactPanel = () => {
   if (contactSession === undefined || contactSession === null) return null;
 
   return (
-    <div className="flex h-full w-full flex-col bg-background text-foreground">
-      <div className="flex flex-col gap-y-4 p-4">
+    <div className="flex h-full min-h-0 w-full flex-col bg-background text-foreground">
+      <div className="flex min-h-0 flex-1 flex-col gap-y-4 overflow-auto p-4">
         <div className="flex items-center gap-x-2">
           <DicebearAvatar
             badgeImageUrl={
@@ -393,7 +426,7 @@ export const ContactPanel = () => {
           />
           <div className="flex-1 overflow-hidden">
             <div className="flex items-center gap-x-2">
-              <h4 className="line-clamp-1">{contactSession.name}</h4>
+              <h4 className="line-clamp-1">{visitorDisplayName}</h4>
             </div>
             <p className="line-clamp-1 text-sm text-muted-foreground">
               {contactSession.email}
@@ -447,9 +480,10 @@ export const ContactPanel = () => {
                   className="h-8 text-xs"
                   disabled={exportLoading}
                   onClick={handleExportJourney}
+                  title="Download a text report: visitor, transcript with timestamps, pages, AI summary"
                 >
                   <Download className="mr-1 h-3 w-3" />
-                  Export JSON
+                  Download report
                 </Button>
               </div>
             </div>
@@ -507,66 +541,62 @@ export const ContactPanel = () => {
           </Accordion>
         )}
 
-        {/* Live view + pages (sans cadre preview gris) */}
+        {/* Live embed first, then current URL + page list */}
         <div className="border-t p-4">
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between">
             <h5 className="text-sm font-medium">Live view</h5>
           </div>
 
-          {/* ✅ même rendu que sur ta capture : "Live view https://..." */}
-          {currentUrl ? (
-            <a
-              href={currentUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="block text-xs text-muted-foreground hover:underline"
-              title={currentUrl}
-            >
-              <span className="text-foreground">Live view</span>{" "}
-              <span className="truncate">{currentUrl}</span>
-            </a>
-          ) : (
-            <div className="text-xs text-muted-foreground">Live view —</div>
-          )}
-
-          {/* ✅ Pages visited */}
-          <div className="mt-3">
-            <div className="text-xs font-medium text-muted-foreground mb-2">
-              Pages visited
-            </div>
-
-            {allPages.length ? (
-              <div className="space-y-2">
-                {allPages.map((url, idx) => (
-                  <a
-                    key={`${url}_${idx}`}
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
-                    title={url}
-                  >
-                    <div className="truncate">{url}</div>
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-muted-foreground">No pages yet</div>
-            )}
-          </div>
-
-          
-            <div className="mt-4">
-            {contactSession?.organizationId && contactSession?._id && (
-            <LiveVisitorView
-            orgId={contactSession.organizationId}
-            sessionId={contactSession._id}
-            />
-            )}
-
+          <div className="space-y-4">
+            {contactSession?.organizationId && contactSession?._id ? (
+              <LiveVisitorView
+                orgId={contactSession.organizationId}
+                sessionId={contactSession._id}
+              />
+            ) : null}
 
             <SnapshotsStrip sessionId={contactSession._id} limit={8} />
+
+            {currentUrl ? (
+              <a
+                href={currentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block text-xs text-muted-foreground hover:underline"
+                title={currentUrl}
+              >
+                <span className="text-foreground">Current page</span>{" "}
+                <span className="truncate">{currentUrl}</span>
+              </a>
+            ) : (
+              <div className="text-xs text-muted-foreground">Current page —</div>
+            )}
+
+            <div>
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                Pages visited
+              </div>
+
+              {allPages.length ? (
+                <div className="space-y-2">
+                  {allPages.map((url, idx) => (
+                    <a
+                      key={`${url}_${idx}`}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
+                      title={url}
+                    >
+                      <div className="truncate">{url}</div>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">No pages yet</div>
+              )}
             </div>
+          </div>
         </div>
       </div>
     </div>

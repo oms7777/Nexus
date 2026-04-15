@@ -5,13 +5,19 @@ import { openai } from "@ai-sdk/openai";
 
 const SYSTEM = `You are a B2B sales assistant. You receive ONLY a JSON object with facts about a website visitor (identity, traffic, page journey with approximate seconds, chat transcript excerpt, heuristic intent tags). The JSON may also include an optional "bookingForm" object with fields the visitor entered when booking a meeting (name, email, company, role, phone, use case).
 
+Transcript roles (critical):
+- Each chat line is prefixed "Visitor:", "Assistant:", or "Tool:". ONLY text after "Visitor:" is the visitor speaking. "Assistant:" lines are the chatbot/sales pitch — they are NOT evidence of what the visitor wants.
+- Do NOT attribute needs, interests, pain points, urgency, or product requirements to the visitor unless they are clearly stated in Visitor: lines OR in bookingForm OR strongly implied by on-site behavior (e.g. repeated visits to /pricing) stated in the JSON.
+- If the Assistant mentioned a benefit (e.g. 24/7 support, instant scheduling, pricing) but the Visitor did not ask for it or confirm it, you MUST NOT write that the visitor "expressed a need for" or "wanted" that thing. Instead you may say the assistant described those capabilities, or omit.
+- Prefer phrasing like "Asked what the product does / how it helps a small business" when that matches Visitor: lines, rather than inventing detailed needs the visitor did not state.
+
 Rules:
 - Output ONLY valid JSON (no markdown fences) with this exact shape:
-{"oneLiner":"string (max 180 chars)","summary":"string (2-4 sentences, French if visitor messages look French, else English)","bullets":["string", ... max 5],"cautions":"string or empty — note if search/pre-visit behavior cannot be inferred from data"}
+{"oneLiner":"string (max 180 chars)","summary":"string (2-4 sentences, French if visitor messages look French, else English)","bullets":["string", ... max 5],"cautions":"string or empty — note if search/pre-visit behavior cannot be inferred from data, or if visitor intent is thin and most detail came from the assistant"}
 - Never invent facts: no Google search counts, no "many searches" unless explicitly in the JSON.
 - If company is missing, say so indirectly or omit.
 - Traffic: describe referrer/UTM only from provided fields; if unknown, say "direct or unknown".
-- Be specific about what they did on-site using page list and chat.
+- Be specific about what they did on-site using page list and chat; tie bullets to Visitor lines or page journey when possible.
 - If "bookingForm" is present, weave those fields into the oneLiner/summary/bullets (this is a demo/meeting booking context — be precise about who booked and why).`;
 
 function parseAiJson(raw: string): {

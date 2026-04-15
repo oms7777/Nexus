@@ -1,8 +1,8 @@
 // apps/web/app/api/integrations/slack/callback/route.ts
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
+import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
 
@@ -10,14 +10,9 @@ const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID!;
 const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET!;
 
 export async function GET(req: Request) {
-  const authCtx = await auth();
-  const { userId, orgId } = authCtx;
-
-  if (!userId || !orgId) {
-    return new NextResponse("Unauthorized (missing Clerk user/org)", {
-      status: 401,
-    });
-  }
+  const guard = await requireOrgAdminOrResponse();
+  if (!guard.ok) return guard.response;
+  const { authCtx, userId, orgId } = guard;
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -39,6 +34,14 @@ export async function GET(req: Request) {
     parsedState = JSON.parse(decoded);
   } catch {
     return new NextResponse("Invalid state encoding", { status: 400 });
+  }
+
+  // Prevent cross-org/cross-user state reuse.
+  if (parsedState?.orgId && parsedState.orgId !== orgId) {
+    return new NextResponse("Invalid state (org mismatch)", { status: 400 });
+  }
+  if (parsedState?.userId && parsedState.userId !== userId) {
+    return new NextResponse("Invalid state (user mismatch)", { status: 400 });
   }
 
   const redirectPath = parsedState.redirect ?? "/integrations";

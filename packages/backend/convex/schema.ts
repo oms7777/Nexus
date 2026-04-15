@@ -51,11 +51,28 @@ export default defineSchema({
     domain: v.string(),
     name: v.optional(v.string()),
     active: v.boolean(),
+    /** Normalized hostname (lowercase, no protocol, no path). Used for allowlist checks. */
+    normalizedDomain: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId"])
-    .index("by_org_domain", ["organizationId", "domain"]),
+    .index("by_org_domain", ["organizationId", "domain"])
+    .index("by_org_normalized_domain", ["organizationId", "normalizedDomain"]),
+
+  auditLogs: defineTable({
+    organizationId: v.string(),
+    actorUserId: v.optional(v.string()),
+    actorOrgRole: v.optional(v.string()),
+    action: v.string(),
+    entityType: v.optional(v.string()),
+    entityId: v.optional(v.string()),
+    /** Freeform JSON-ish payload (kept small). */
+    meta: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_createdAt", ["organizationId", "createdAt"]),
 
   websiteIndexingSettings: defineTable({
     organizationId: v.string(),

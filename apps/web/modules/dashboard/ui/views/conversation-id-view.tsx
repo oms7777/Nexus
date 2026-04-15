@@ -162,8 +162,8 @@ export const ConversationIdView = ({
 
 
     return (
-        <div className="flex h-full flex-col bg-muted/40">
-            <header className="flex items-center justify-between border-b bg-background/80 p-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden bg-muted/40">
+            <header className="flex shrink-0 items-center justify-between border-b bg-background/80 p-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button size="sm" variant="ghost">
@@ -197,7 +197,7 @@ export const ConversationIdView = ({
                     />
                 )}
             </header>
-            <AIConversation className="max-h-[calc(100vh-180px)]">
+            <AIConversation className="min-h-0 flex-1">
                 <AIConversationContent>
                     <InfiniteScrollTrigger 
                         canLoadMore={canLoadMore}
@@ -227,7 +227,7 @@ export const ConversationIdView = ({
                 <AIConversationScrollButton />
             </AIConversation>
 
-            <div className="border-t bg-background/70 p-2 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+            <div className="shrink-0 border-t bg-background/70 p-2 backdrop-blur supports-[backdrop-filter]:bg-background/50">
             <Form {...(form as any)}>
                 <AIInput onSubmit={form.handleSubmit(onSubmit)}>
                 <FormField
@@ -293,13 +293,13 @@ export const ConversationIdView = ({
 
 export const ConversationIdViewLoading = () => {
     return(
-        <div className="flex h-full flex-col bg-muted/40">
-            <header className="flex items-center justify-between border-b bg-background/80 p-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden bg-muted/40">
+            <header className="flex shrink-0 items-center justify-between border-b bg-background/80 p-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <Button disabled size="sm" variant="ghost">
                     <MoreHorizontalIcon />
                 </Button>
             </header>
-            <AIConversation className="max-h-[calc(100vh-180px)]">
+            <AIConversation className="min-h-0 flex-1">
                 <AIConversationContent>
                     {Array.from({ length: 8 }, (_, index) => {
                         const isUser = index % 2 ===0;
@@ -323,7 +323,7 @@ export const ConversationIdViewLoading = () => {
                 </AIConversationContent>
             </AIConversation>
 
-            <div className="border-t bg-background/70 p-2 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+            <div className="shrink-0 border-t bg-background/70 p-2 backdrop-blur supports-[backdrop-filter]:bg-background/50">
                 <AIInput>
                     <AIInputTextarea 
                         disabled

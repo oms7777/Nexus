@@ -1,6 +1,7 @@
 import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
+import type { MessageDoc } from "@convex-dev/agent";
 import { supportAgent } from "../system/ai/agents/supportAgent";
 import { sanitizeVisitorAssistantText } from "../lib/sanitizeVisitorAssistantText";
 
@@ -9,6 +10,23 @@ export type PageStay = {
   title?: string;
   approxSeconds: number;
 };
+
+/** One chat line with Convex message time — for CRM / client-readable exports. */
+export type ChatMessageWithTimestamp = {
+  role: "visitor" | "assistant" | "tool";
+  /** ISO 8601 */
+  at: string;
+  /** Unix ms (Convex `_creationTime` on the message doc) */
+  atMs: number;
+  text: string;
+};
+
+/** Multiline transcript: `[ISO] Visitor: …` — same order as `chatMessages`. */
+export function formatTranscriptPlainText(messages: ChatMessageWithTimestamp[]): string {
+  const label = (r: ChatMessageWithTimestamp["role"]) =>
+    r === "visitor" ? "Visitor" : r === "tool" ? "Tool" : "Assistant";
+  return messages.map((m) => `[${m.at}] ${label(m.role)}: ${m.text}`).join("\n");
+}
 
 /** Return type of `getEscalationDigestPayload` — explicit to avoid circular inference in actions. */
 export type EscalationDigestPayload =
@@ -34,6 +52,8 @@ export type EscalationDigestPayload =
       pageStays: PageStay[];
       snapshotTimeline: Array<{ ts: number; iso: string; pageUrl?: string; title?: string }>;
       chatLines: string[];
+      /** Chronological (oldest first). Prefer this over `chatLines` for audits / clients. */
+      chatMessages: ChatMessageWithTimestamp[];
       intent: string;
     };
 
@@ -154,6 +174,7 @@ export const getEscalationDigestPayload = internalQuery({
     );
 
     const collected: string[] = [];
+    const collectedStructured: ChatMessageWithTimestamp[] = [];
     let cursor: string | null = null;
     for (let i = 0; i < 40; i++) {
       const page = await supportAgent.listMessages(ctx, {
@@ -165,13 +186,27 @@ export const getEscalationDigestPayload = internalQuery({
         const roleLabel =
           r === "user" ? "Visitor" : r === "tool" ? "Tool" : "Assistant";
         const text = extractMessageText(doc);
-        if (text) collected.push(`${roleLabel}: ${text}`);
+        if (!text) continue;
+        collected.push(`${roleLabel}: ${text}`);
+        const role: ChatMessageWithTimestamp["role"] =
+          r === "user" ? "visitor" : r === "tool" ? "tool" : "assistant";
+        const atMs =
+          typeof (doc as MessageDoc)._creationTime === "number"
+            ? (doc as MessageDoc)._creationTime
+            : conversation._creationTime;
+        collectedStructured.push({
+          role,
+          text,
+          atMs,
+          at: new Date(atMs).toISOString(),
+        });
       }
       cursor = page.continueCursor;
       if (cursor === null) break;
     }
 
     const allLines = collected.reverse();
+    const chatMessages = collectedStructured.reverse();
     const transcript = allLines.join("\n");
     const intent = guessIntentFromText(transcript);
 
@@ -216,6 +251,7 @@ export const getEscalationDigestPayload = internalQuery({
       pageStays,
       snapshotTimeline,
       chatLines: allLines,
+      chatMessages,
       intent,
     };
   },
