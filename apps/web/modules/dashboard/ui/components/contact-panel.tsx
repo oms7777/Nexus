@@ -511,91 +511,89 @@ export const ContactPanel = () => {
         )}
       </div>
 
-      <div>
-        {contactSession.metadata && (
-          <Accordion className="w-full rounded-none border-y" collapsible type="single">
-            {accordionSections.map((section) => (
-              <AccordionItem
-                className="rounded-none outline-none has-focus-visible:z-10 has-focus-visible:border-ring has-focus-visible:ring-[3px] has-focus-visible:ring-ring/50"
-                key={section.id}
-                value={section.id}
-              >
-                <AccordionTrigger className="flex w-full flex-1 items-start justify-between gap-4 rounded-none bg-accent px-5 py-4 text-left text-sm font-medium outline-none transition-all hover:no-underline disabled:pointer-events-none disabled:opacity-50">
-                  <div className="flex items-center gap-4">
-                    <section.icon className="size-4 shrink-0" />
-                    <span>{section.title}</span>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="px-5 py-4">
-                  <div className="space-y-2 text-sm">
-                    {section.items.map((item) => (
-                      <div className="flex justify-between" key={`${section.id}-${item.label}`}>
-                        <span className="text-muted-foreground">{item.label}</span>
-                        <span className={item.className}>{item.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        )}
-
-        {/* Live embed first, then current URL + page list */}
-        <div className="border-t p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h5 className="text-sm font-medium">Live view</h5>
-          </div>
-
-          <div className="space-y-4">
-            {contactSession?.organizationId && contactSession?._id ? (
-              <LiveVisitorView
-                orgId={contactSession.organizationId}
-                sessionId={contactSession._id}
-              />
-            ) : null}
-
-            <SnapshotsStrip sessionId={contactSession._id} limit={8} />
-
-            {currentUrl ? (
-              <a
-                href={currentUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="block text-xs text-muted-foreground hover:underline"
-                title={currentUrl}
-              >
-                <span className="text-foreground">Current page</span>{" "}
-                <span className="truncate">{currentUrl}</span>
-              </a>
-            ) : (
-              <div className="text-xs text-muted-foreground">Current page —</div>
-            )}
-
-            <div>
-              <div className="mb-2 text-xs font-medium text-muted-foreground">
-                Pages visited
-              </div>
-
-              {allPages.length ? (
-                <div className="space-y-2">
-                  {allPages.map((url, idx) => (
-                    <a
-                      key={`${url}_${idx}`}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
-                      title={url}
-                    >
-                      <div className="truncate">{url}</div>
-                    </a>
+      {contactSession.metadata && (
+        <Accordion className="-mx-4 w-[calc(100%+2rem)] rounded-none border-y" collapsible type="single">
+          {accordionSections.map((section) => (
+            <AccordionItem
+              className="rounded-none outline-none has-focus-visible:z-10 has-focus-visible:border-ring has-focus-visible:ring-[3px] has-focus-visible:ring-ring/50"
+              key={section.id}
+              value={section.id}
+            >
+              <AccordionTrigger className="flex w-full flex-1 items-start justify-between gap-4 rounded-none bg-accent px-5 py-4 text-left text-sm font-medium outline-none transition-all hover:no-underline disabled:pointer-events-none disabled:opacity-50">
+                <div className="flex items-center gap-4">
+                  <section.icon className="size-4 shrink-0" />
+                  <span>{section.title}</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-5 py-4">
+                <div className="space-y-2 text-sm">
+                  {section.items.map((item) => (
+                    <div className="flex justify-between" key={`${section.id}-${item.label}`}>
+                      <span className="text-muted-foreground">{item.label}</span>
+                      <span className={item.className}>{item.value}</span>
+                    </div>
                   ))}
                 </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">No pages yet</div>
-              )}
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      )}
+
+      {/* Live embed first, then current URL + page list */}
+      <div className="-mx-4 w-[calc(100%+2rem)] border-t px-4 pb-4 pt-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h5 className="text-sm font-medium">Live view</h5>
+        </div>
+
+        <div className="space-y-4">
+          {contactSession?.organizationId && contactSession?._id ? (
+            <LiveVisitorView
+              orgId={contactSession.organizationId}
+              sessionId={contactSession._id}
+            />
+          ) : null}
+
+          <SnapshotsStrip sessionId={contactSession._id} limit={8} />
+
+          {currentUrl ? (
+            <a
+              href={currentUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block text-xs text-muted-foreground hover:underline"
+              title={currentUrl}
+            >
+              <span className="text-foreground">Current page</span>{" "}
+              <span className="truncate">{currentUrl}</span>
+            </a>
+          ) : (
+            <div className="text-xs text-muted-foreground">Current page —</div>
+          )}
+
+          <div>
+            <div className="mb-2 text-xs font-medium text-muted-foreground">
+              Pages visited
             </div>
+
+            {allPages.length ? (
+              <div className="space-y-2">
+                {allPages.map((url, idx) => (
+                  <a
+                    key={`${url}_${idx}`}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block rounded border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50"
+                    title={url}
+                  >
+                    <div className="truncate">{url}</div>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">No pages yet</div>
+            )}
           </div>
         </div>
       </div>
