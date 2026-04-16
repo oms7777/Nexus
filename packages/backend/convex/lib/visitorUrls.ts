@@ -21,13 +21,15 @@ export function bestPageUrlFromSessionMetadata(
   const push = (s: unknown) => {
     if (typeof s === "string" && s.trim()) candidates.push(s.trim());
   };
-  push(metadata.currentUrl);
+  // `pages` is newest-first (see live upsertHeartbeat addPage). Prefer it over
+  // `currentUrl`, which can stay stuck on "/" after SPA navigations.
   const pages = metadata.pages;
   if (Array.isArray(pages)) {
     for (const p of pages) {
       if (typeof p === "string") push(p);
     }
   }
+  push(metadata.currentUrl);
   push(metadata.referrer);
   for (const c of candidates) {
     if (!isHostedInboundlessAppUrl(c)) return c;

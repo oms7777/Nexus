@@ -21,6 +21,17 @@ function normalizeHost(h: string): string {
   return x.startsWith("www.") ? x.slice(4) : x;
 }
 
+/** rrweb runs in the widget iframe — snapshot meta href is often widget.inboundless.co */
+function isHostedWidgetPageUrl(url?: string): boolean {
+  if (!url) return false;
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return h === "widget.inboundless.co" || h === "app.inboundless.co";
+  } catch {
+    return false;
+  }
+}
+
 function makeCors(origin: string, req: Request) {
   const requestHeaders =
     req.headers.get("access-control-request-headers") ?? "content-type";
@@ -71,6 +82,9 @@ export async function POST(req: Request) {
     const organizationId = body?.organizationId as string | undefined;
     const sessionIdRaw = body?.sessionId as string | undefined;
     const events = body?.events as eventWithTime[] | undefined;
+    const visitorPageUrlRaw = body?.visitorPageUrl;
+    const visitorPageUrl =
+      typeof visitorPageUrlRaw === "string" ? visitorPageUrlRaw.trim() : undefined;
 
     if (!organizationId || !sessionIdRaw || !Array.isArray(events) || events.length === 0) {
       headers.set("Content-Type", "application/json");
@@ -102,9 +116,16 @@ export async function POST(req: Request) {
       contactSessionId = sessionIdRaw as Id<"contactSessions">;
     }
 
-    const { pageUrl, title, width, height } = pickMetaFromEvents(events);
+    const { pageUrl: metaPageUrl, title, width, height } = pickMetaFromEvents(events);
+    const effectivePageUrl =
+      visitorPageUrl && !isHostedWidgetPageUrl(visitorPageUrl)
+        ? visitorPageUrl
+        : metaPageUrl && !isHostedWidgetPageUrl(metaPageUrl)
+          ? metaPageUrl
+          : visitorPageUrl || metaPageUrl;
+
     const originHost = hostFromUrlMaybe(origin);
-    const pageHost = hostFromUrlMaybe(pageUrl);
+    const pageHost = hostFromUrlMaybe(effectivePageUrl);
     const incomingHost = normalizeHost(pageHost ?? originHost ?? "");
 
     if (!incomingHost) {
@@ -132,7 +153,7 @@ export async function POST(req: Request) {
     await fetchMutation(api.public.snapshots.save, {
       organizationId,
       sessionId: contactSessionId,
-      pageUrl,
+      pageUrl: effectivePageUrl,
       title,
       width,
       height,

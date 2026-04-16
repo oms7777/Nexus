@@ -18,6 +18,7 @@ import type * as lib_domains from "../lib/domains.js";
 import type * as lib_extractTextContent from "../lib/extractTextContent.js";
 import type * as lib_sanitizeVisitorAssistantText from "../lib/sanitizeVisitorAssistantText.js";
 import type * as lib_secrets from "../lib/secrets.js";
+import type * as lib_visitorUrls from "../lib/visitorUrls.js";
 import type * as live from "../live.js";
 import type * as playground from "../playground.js";
 import type * as private_audit from "../private/audit.js";
@@ -109,6 +110,7 @@ declare const fullApi: ApiFromModules<{
   "lib/extractTextContent": typeof lib_extractTextContent;
   "lib/sanitizeVisitorAssistantText": typeof lib_sanitizeVisitorAssistantText;
   "lib/secrets": typeof lib_secrets;
+  "lib/visitorUrls": typeof lib_visitorUrls;
   live: typeof live;
   playground: typeof playground;
   "private/audit": typeof private_audit;

@@ -7,6 +7,7 @@ import type { eventWithTime } from "rrweb/typings/types";
 
 import { organizationIdAtom, contactSessionIdAtom } from "../../atoms/widget-atoms";
 import { getOrCreateExternalSessionId } from "../../../../lib/external-session";
+import { getHostPageUrlSync } from "../../../../lib/host-page-url";
 
 const MAX_SNAPSHOT_CHARS = 2_000_000;
 const FLUSH_MS = 15_000;
@@ -25,6 +26,8 @@ export function WidgetSnapshotTracker() {
   const lastFullRef = useRef<eventWithTime | null>(null);
   const timerRef = useRef<number | null>(null);
   const inFlightRef = useRef(false);
+  /** rrweb runs inside the iframe; meta.href is often widget.inboundless.co — send real host URL for domain allowlist. */
+  const visitorPageUrlRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -35,6 +38,18 @@ export function WidgetSnapshotTracker() {
     if (!isEmbedded) return;
 
     const externalSessionId = getOrCreateExternalSessionId();
+
+    visitorPageUrlRef.current = getHostPageUrlSync() ?? undefined;
+    const onParentLocation = (e: MessageEvent) => {
+      const d = e?.data as { type?: string; href?: string; payload?: { href?: string } };
+      if (!d || d.type !== "nexus:parent-location") return;
+      const href =
+        (typeof d.payload?.href === "string" && d.payload.href) ||
+        (typeof d.href === "string" && d.href) ||
+        undefined;
+      if (href) visitorPageUrlRef.current = href;
+    };
+    window.addEventListener("message", onParentLocation);
 
     const flush = async () => {
       if (inFlightRef.current) return;
@@ -59,6 +74,8 @@ export function WidgetSnapshotTracker() {
 
       inFlightRef.current = true;
       try {
+        const visitorPageUrl =
+          visitorPageUrlRef.current ?? getHostPageUrlSync() ?? undefined;
         await fetch(`${pickAppOrigin()}/api/tracker/snapshot`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -68,6 +85,7 @@ export function WidgetSnapshotTracker() {
             sessionId: externalSessionId,
             // Back-compat: some consumers still treat this as a signal that widget is ready.
             contactSessionId: contactSessionId ?? undefined,
+            visitorPageUrl,
             events,
           }),
           keepalive: true,
@@ -116,6 +134,7 @@ export function WidgetSnapshotTracker() {
     window.setTimeout(() => void flush(), 2_000);
 
     return () => {
+      window.removeEventListener("message", onParentLocation);
       try {
         stop?.();
       } catch {}
