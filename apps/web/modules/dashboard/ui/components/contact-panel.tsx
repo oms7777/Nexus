@@ -414,9 +414,9 @@ export const ContactPanel = () => {
   if (contactSession === undefined || contactSession === null) return null;
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-background text-foreground">
-      {/* One scroll container for the whole right column */}
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background text-foreground">
+      {/* Scroll is confined to this column: flex parents must use min-h-0 (see layouts). */}
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-4 [scrollbar-gutter:stable]">
         <div className="flex flex-col gap-y-4">
           <div className="flex items-center gap-x-2">
             <DicebearAvatar
