@@ -524,6 +524,11 @@ type NudgeKind = "promo" | "suggestions" | null;
   // patchHistory cleanup
   let unpatchHistory: (() => void) | null = null;
 
+  /** Resync parent URL → iframe even when the host router bypasses patched history (fallback). */
+  let parentLocationPollTimer: number | null = null;
+  let onVisibilityParentSync: (() => void) | null = null;
+  let onWindowFocusParentSync: (() => void) | null = null;
+
   const currentScript = document.currentScript as HTMLScriptElement | null;
 
   if (currentScript) {
@@ -555,6 +560,29 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   function init() {
+    // Patch history as early as possible so SPA navigations before the iframe loads still
+    // update lastNavigationTs + nudges; sendParentLocation() no-ops until iframe is ready.
+    if (!unpatchHistory) {
+      unpatchHistory = patchHistoryForSpa(() => {
+        lastNavigationTs = Date.now();
+        sendParentLocation();
+        if (
+          pendingSuggestions &&
+          nudgeKind !== "promo" &&
+          !isOpen &&
+          !nudgeDismissed
+        ) {
+          scheduleSuggestions(pendingSuggestions);
+        }
+        if (nudgeKind === "promo" && promoSequenceItems.length > 0 && !isOpen) {
+          schedulePromoSequence({
+            items: promoSequenceItems,
+            settings: promoSequenceSettings ?? undefined,
+          });
+        }
+      });
+    }
+
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", render, { once: true });
     } else {
@@ -677,31 +705,31 @@ type NudgeKind = "promo" | "suggestions" | null;
       sendParentLocation();
       setTimeout(sendParentLocation, 300);
 
-      // start SPA listener after iframe ready
-      if (!unpatchHistory) {
-        unpatchHistory = patchHistoryForSpa(() => {
-          lastNavigationTs = Date.now();
-          sendParentLocation();
-
-          // Reschedule pending nudges so they appear a few seconds after each navigation.
-          if (
-            pendingSuggestions &&
-            nudgeKind !== "promo" &&
-            !isOpen &&
-            !nudgeDismissed
-          ) {
-            // Restart the suggestions sequence after each navigation.
-            scheduleSuggestions(pendingSuggestions);
-          }
-
-          if (nudgeKind === "promo" && promoSequenceItems.length > 0 && !isOpen) {
-            schedulePromoSequence({
-              items: promoSequenceItems,
-              settings: promoSequenceSettings ?? undefined,
-            });
-          }
-        });
+      // History is patched in init() (before iframe load). Extra fallbacks for hosts where
+      // soft navigation does not hit pushState/replaceState the same way.
+      if (parentLocationPollTimer !== null) {
+        window.clearInterval(parentLocationPollTimer);
+        parentLocationPollTimer = null;
       }
+      parentLocationPollTimer = window.setInterval(() => {
+        sendParentLocation();
+      }, 4500);
+
+      if (onVisibilityParentSync) {
+        document.removeEventListener("visibilitychange", onVisibilityParentSync);
+      }
+      onVisibilityParentSync = () => {
+        if (document.visibilityState === "visible") sendParentLocation();
+      };
+      document.addEventListener("visibilitychange", onVisibilityParentSync);
+
+      if (onWindowFocusParentSync) {
+        window.removeEventListener("focus", onWindowFocusParentSync);
+      }
+      onWindowFocusParentSync = () => {
+        sendParentLocation();
+      };
+      window.addEventListener("focus", onWindowFocusParentSync);
 
       applyThemeToFab();
 
@@ -2331,6 +2359,19 @@ type NudgeKind = "promo" | "suggestions" | null;
       } catch {}
     }
     unpatchHistory = null;
+
+    if (parentLocationPollTimer !== null) {
+      window.clearInterval(parentLocationPollTimer);
+      parentLocationPollTimer = null;
+    }
+    if (onVisibilityParentSync) {
+      document.removeEventListener("visibilitychange", onVisibilityParentSync);
+      onVisibilityParentSync = null;
+    }
+    if (onWindowFocusParentSync) {
+      window.removeEventListener("focus", onWindowFocusParentSync);
+      onWindowFocusParentSync = null;
+    }
 
     cancelSuggestionsSequence();
     cancelPromoSequence();
