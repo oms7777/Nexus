@@ -5,6 +5,15 @@ import { supportAgent } from "../system/ai/agents/supportAgent";
 import { MessageDoc } from "@convex-dev/agent";
 import { paginationOptsValidator, PaginationResult } from "convex/server";
 import { Doc } from "../_generated/dataModel";
+import { sanitizeSessionMetadataForDisplay } from "../lib/visitorUrls";
+
+function withSanitizedSessionMetadata(session: Doc<"contactSessions">): Doc<"contactSessions"> {
+  const nextMeta = sanitizeSessionMetadataForDisplay(
+    session.metadata as Record<string, unknown> | undefined,
+  );
+  if (nextMeta === session.metadata) return session;
+  return { ...session, metadata: nextMeta };
+}
 
 /**
  * Email / deep links: Clerk's active org in the JWT may differ from the conversation's org.
@@ -105,7 +114,7 @@ export const getOne = query({
 
       return {
         ...conversation,
-        contactSession,
+        contactSession: withSanitizedSessionMetadata(contactSession),
         assignedRepUserId: conversation.assignedRepUserId ?? null,
         assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
       };
@@ -216,7 +225,7 @@ export const getMany = query({
         return {
           ...conversation,
           lastMessage,
-          contactSession,
+          contactSession: withSanitizedSessionMetadata(contactSession),
           assignedRepUserId: conversation.assignedRepUserId ?? null,
           assignedTerritoryKey: conversation.assignedTerritoryKey ?? null,
         };

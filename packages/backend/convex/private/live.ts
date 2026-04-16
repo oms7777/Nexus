@@ -2,6 +2,10 @@
 import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
+import {
+  bestPageUrlFromSessionMetadata,
+  isHostedInboundlessAppUrl,
+} from "../lib/visitorUrls";
 
 function normalizeCC(cc?: string) {
   const s = (cc || "").trim().toUpperCase();
@@ -148,7 +152,12 @@ export const getActiveVisitors = query({
         }
       } catch {}
 
-      const currentUrl = snapUrl || (md.currentUrl as string | undefined) || undefined;
+      let currentUrl: string | undefined;
+      if (snapUrl && !isHostedInboundlessAppUrl(snapUrl)) {
+        currentUrl = snapUrl;
+      } else {
+        currentUrl = bestPageUrlFromSessionMetadata(md as Record<string, unknown>);
+      }
       const title = snapTitle || (md.title as string | undefined) || undefined;
       const lastSeen = snapTs || now;
 
