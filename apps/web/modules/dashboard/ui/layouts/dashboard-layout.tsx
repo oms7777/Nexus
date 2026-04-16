@@ -38,7 +38,12 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
               </header>
 
               <main className="min-h-0 flex-1 w-full overflow-hidden px-4 py-6 md:px-6">
-                {children}
+                {/* Default scroll container for dashboard pages.
+                    Conversation pages manage their own internal scroll; this wrapper won't interfere
+                    because those layouts are height-bounded and overflow-hidden internally. */}
+                <div className="h-full min-h-0 w-full overflow-auto">
+                  {children}
+                </div>
               </main>
             </div>
           </SidebarProvider>

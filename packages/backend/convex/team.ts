@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
+import { writeAuditLog } from "./lib/audit";
 
 async function requireOrgId(ctx: any): Promise<string> {
   const identity = await ctx.auth.getUserIdentity();
@@ -210,6 +211,14 @@ export const upsertRepPresence = mutation({
     const organizationId = await requireOrgId(ctx);
     if (!userId) throw new ConvexError({ code: "BAD_REQUEST", message: "userId is required" });
 
+    const identity = await ctx.auth.getUserIdentity();
+    const actorUserId = (identity as any)?.subject as string | undefined;
+    const actorOrgRole =
+      ((identity as any)?.orgRole ??
+        (identity as any)?.org_role ??
+        (identity as any)?.organizationRole ??
+        undefined) as string | undefined;
+
     await upsertUserProfileBestEffort(ctx, organizationId, userId, profile as any);
 
     const existing = await ctx.db
@@ -220,6 +229,12 @@ export const upsertRepPresence = mutation({
       .unique();
 
     const now = Date.now();
+
+    const prevRegions = Array.isArray((existing as any)?.regions) ? ((existing as any).regions as string[]) : [];
+    const nextRegions = Array.isArray(regions) ? regions : [];
+    const regionsChanged =
+      regions !== undefined &&
+      (prevRegions.length !== nextRegions.length || prevRegions.some((r, i) => r !== nextRegions[i]));
 
     const waRaw = String(whatsappPhoneDigits ?? "").replace(/\D/g, "");
     const waDigits =
@@ -241,10 +256,33 @@ export const upsertRepPresence = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, payload);
+      if (regionsChanged) {
+        await writeAuditLog(ctx, {
+          organizationId,
+          actorUserId,
+          actorOrgRole,
+          action: "rep.territories.updated",
+          entityType: "rep",
+          entityId: String(userId),
+          meta: { userId, prevRegions, nextRegions },
+        });
+      }
       return existing._id;
     }
 
-    return await ctx.db.insert("repsPresence", payload);
+    const id = await ctx.db.insert("repsPresence", payload);
+    if (regionsChanged) {
+      await writeAuditLog(ctx, {
+        organizationId,
+        actorUserId,
+        actorOrgRole,
+        action: "rep.territories.updated",
+        entityType: "rep",
+        entityId: String(userId),
+        meta: { userId, prevRegions: [], nextRegions },
+      });
+    }
+    return id;
   },
 });
 

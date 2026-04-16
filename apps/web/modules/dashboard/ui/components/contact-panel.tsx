@@ -4,7 +4,6 @@ import Bowser from "bowser";
 import React, { useCallback, useMemo, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
 
 import {
   Accordion,
@@ -22,10 +21,8 @@ import type { Id } from "@workspace/backend/_generated/dataModel";
 import {
   ClockIcon,
   GlobeIcon,
-  MailIcon,
   MonitorIcon,
   LinkIcon,
-  CalendarIcon,
   Download,
   RefreshCw,
 } from "lucide-react";
@@ -231,14 +228,6 @@ export const ContactPanel = () => {
     [contactSession, leadConversation?._id],
   );
 
-  const handleQuickBook = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("nexus:open-inline-booker", { detail: {} }),
-      );
-    }
-  }, []);
-
   const accordionSections = useMemo<InfoSection[]>(() => {
     if (!contactSession?.metadata) return [];
 
@@ -434,25 +423,6 @@ export const ContactPanel = () => {
                 {contactSession.email}
               </p>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <Button asChild className="w-full" size="lg" variant="default">
-              <Link href={`mailto:${contactSession.email}`}>
-                <MailIcon className="mr-2 h-4 w-4" />
-                <span>Send Email</span>
-              </Link>
-            </Button>
-
-            <Button
-              className="w-full"
-              onClick={handleQuickBook}
-              size="lg"
-              variant="secondary"
-            >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              <span>Quick-book</span>
-            </Button>
           </div>
 
           {leadConversation !== undefined && leadConversation !== null && (
