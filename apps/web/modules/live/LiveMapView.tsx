@@ -83,7 +83,7 @@ export default function LiveMapView() {
 
   const currentUrlFromSnap = latestSnap[0]?.pageUrl;
   const headerUrl =
-    (currentUrlFromSnap ?? selected?.currentUrl ?? "").split("?")[0] || "—";
+    (selected?.currentUrl ?? currentUrlFromSnap ?? "").split("?")[0] || "—";
 
   return (
     <div className="flex h-full w-full">
@@ -138,10 +138,10 @@ export default function LiveMapView() {
         <LiveMap visitors={filtered} selectedId={selectedId} />
         {filtered.length > 0 && visitorsWithCoords.length === 0 ? (
           <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-10 rounded-md border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur-sm">
-            No map pins: active visitors need latitude/longitude from IP lookup. This is missing on
-            localhost/private IPs, if geo is blocked, or if{" "}
-            <code className="rounded bg-muted px-1">IPDATA_API_KEY</code> is not configured on the
-            backend.
+            No map pins without coordinates: configure{" "}
+            <code className="rounded bg-muted px-1">IPDATA_API_KEY</code> on your Convex deployment
+            (env vars), or test from a public IP. Localhost / private IPs and blocked geo cannot be
+            placed on the map.
           </div>
         ) : null}
       </div>

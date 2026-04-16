@@ -37,6 +37,29 @@ export function bestPageUrlFromSessionMetadata(
   return undefined;
 }
 
+/**
+ * Snapshot rrweb often lags SPA navigations (meta href still "/"). Session heartbeats + `pages`
+ * can carry "/pricing" or "/resources". Prefer the URL with a longer path on the same host.
+ */
+export function preferMoreSpecificPageUrl(a?: string, b?: string): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    const ha = ua.hostname.replace(/^www\./i, "").toLowerCase();
+    const hb = ub.hostname.replace(/^www\./i, "").toLowerCase();
+    if (ha !== hb) return b;
+    const pa = ua.pathname.replace(/\/$/, "") || "/";
+    const pb = ub.pathname.replace(/\/$/, "") || "/";
+    if (pb.length > pa.length) return b;
+    if (pa.length > pb.length) return a;
+    return b;
+  } catch {
+    return b ?? a;
+  }
+}
+
 /** Return metadata safe for inbox/detail UI (never misleading widget-only currentUrl). */
 export function sanitizeSessionMetadataForDisplay(
   metadata: Record<string, unknown> | undefined,
