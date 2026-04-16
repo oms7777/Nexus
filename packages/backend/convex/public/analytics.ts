@@ -308,6 +308,18 @@ function normalizeSource(meta: any) {
   const ref = safeString(meta?.referrer);
   if (!ref) return "direct";
 
+  // Ignore widget/app/internal referrers (they are not acquisition sources).
+  // This avoids polluting "Top sources" with `widget.inboundless.co` / `app.*` and similar.
+  const isInternalReferrerHost = (host: string) => {
+    const h = host.replace(/^www\./, "").toLowerCase();
+    return (
+      h === "widget.inboundless.co" ||
+      h === "app.inboundless.co" ||
+      // Any subdomain of inboundless.co is internal tooling, not a marketing source.
+      h.endsWith(".inboundless.co")
+    );
+  };
+
   // Avoid "self-referrals" which are usually internal navigation / SPA reloads.
   // If referrer host matches currentUrl host, treat as direct/unattributed.
   const cur = safeString(meta?.currentUrl);
@@ -315,6 +327,7 @@ function normalizeSource(meta: any) {
     const refUrl = new URL(ref);
     const refHost = refUrl.hostname.replace(/^www\./, "");
     if (!refHost) return "referral";
+    if (isInternalReferrerHost(refHost)) return "direct";
 
     if (cur) {
       try {

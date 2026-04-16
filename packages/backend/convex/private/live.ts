@@ -34,6 +34,12 @@ export const getActiveVisitors = query({
     const identity = await ctx.auth.getUserIdentity();
     const orgId = (identity as any)?.orgId as string | undefined;
     const meUserId = (identity as any)?.subject as string | undefined;
+    const orgRole =
+      ((identity as any)?.orgRole ??
+        (identity as any)?.org_role ??
+        (identity as any)?.organizationRole ??
+        undefined) as string | undefined;
+    const isAdmin = typeof orgRole === "string" && orgRole.includes("admin");
 
     if (!orgId || !meUserId) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
@@ -60,7 +66,7 @@ export const getActiveVisitors = query({
       countryCodes: t.countryCodes ?? [],
     }));
 
-    // ✅ sessions (geo required)
+    // ✅ sessions (active = TTL only; geo decides pins, not list visibility)
     const sessions = await ctx.db
       .query("contactSessions")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
@@ -68,9 +74,7 @@ export const getActiveVisitors = query({
 
     const active = sessions.filter(
       (s) =>
-        (s.expiresAt ?? 0) > now &&
-        typeof s.metadata?.lat === "number" &&
-        typeof s.metadata?.lng === "number",
+        (s.expiresAt ?? 0) > now,
     );
 
     // ✅ dedupe visitor
@@ -163,6 +167,10 @@ export const getActiveVisitors = query({
         resolveTerritoryKeyFromCountry(md.countryCode as string | undefined, territoryList);
 
       // ✅ STRICT VISIBILITY (fix double-visibility)
+      // Admins can see all active visitors in the org (debug/support).
+      if (isAdmin) {
+        // continue
+      } else
       if (repUserId) {
         // assigned => only owner sees
         if (repUserId !== meUserId) continue;
@@ -198,8 +206,8 @@ export const getActiveVisitors = query({
 
         city: md.city as string | undefined,
         countryCode: md.countryCode as string | undefined,
-        lat: md.lat as number,
-        lng: md.lng as number,
+        lat: typeof md.lat === "number" ? (md.lat as number) : undefined,
+        lng: typeof md.lng === "number" ? (md.lng as number) : undefined,
 
         currentUrl,
         title,

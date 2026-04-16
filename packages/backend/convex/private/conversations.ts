@@ -136,6 +136,12 @@ export const getMany = query({
 
     const orgId = (identity as any).orgId as string | undefined;
     const meUserId = (identity as any).subject as string | undefined;
+    const orgRole =
+      ((identity as any)?.orgRole ??
+        (identity as any)?.org_role ??
+        (identity as any)?.organizationRole ??
+        undefined) as string | undefined;
+    const isAdmin = typeof orgRole === "string" && orgRole.includes("admin");
 
     if (!orgId || !meUserId) {
       throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
@@ -143,7 +149,29 @@ export const getMany = query({
 
     let conversations: PaginationResult<Doc<"conversations">>;
 
-    // ✅ REP STRICT: always filter by assignedRepUserId
+    // ✅ REP STRICT by default. Admins can view org-wide inbox (debug/support).
+    if (isAdmin) {
+      // Org-wide list (still supports status filters).
+      if (args.status && !args.statusIn) {
+        conversations = await ctx.db
+          .query("conversations")
+          .withIndex("by_status_and_organization_id", (q) =>
+            q.eq("status", args.status as Doc<"conversations">["status"]).eq("organizationId", orgId),
+          )
+          .order("desc")
+          .paginate(args.paginationOpts);
+      } else {
+        conversations = await ctx.db
+          .query("conversations")
+          .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+          .order("desc")
+          .paginate(args.paginationOpts);
+        if (args.statusIn?.length) {
+          const allowed = new Set(args.statusIn);
+          conversations = { ...conversations, page: conversations.page.filter((c) => allowed.has(c.status)) };
+        }
+      }
+    } else
     if (args.status && !args.statusIn) {
       // No perfect compound index (status + org + rep) in schema, so:
       // - paginate by status+org

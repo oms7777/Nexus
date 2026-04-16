@@ -8,6 +8,7 @@ import { api } from "@workspace/backend/_generated/api";
 import { contactSessionIdAtom } from "../atoms/widget-atoms";
 
 import { getOrCreateExternalSessionId, getOrCreateVisitorId } from "../../../lib/external-session";
+import { getHostPageUrlSync } from "../../../lib/host-page-url";
 
 export function useEnsureContactSession(organizationId: string | null) {
   const setContactSessionId = useSetAtom(contactSessionIdAtom);
@@ -57,7 +58,7 @@ export function useEnsureContactSession(organizationId: string | null) {
               typeof window !== "undefined"
                 ? `${window.innerWidth}x${window.innerHeight}`
                 : undefined,
-            currentUrl: typeof window !== "undefined" ? window.location.href : undefined,
+            currentUrl: getHostPageUrlSync(),
             referrer: typeof document !== "undefined" ? document.referrer || undefined : undefined,
           },
         })) as unknown as string;

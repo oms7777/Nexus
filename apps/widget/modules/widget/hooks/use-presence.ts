@@ -4,6 +4,7 @@
 import { useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { contactSessionIdAtom, organizationIdAtom } from "../atoms/widget-atoms";
+import { getHostPageUrlSync } from "../../../lib/host-page-url";
 
 const HEARTBEAT_MS = 60_000;
 const URL_THROTTLE_MS = 800;
@@ -75,8 +76,8 @@ export function usePresence() {
   // URL la plus récente reçue depuis l’embed (SPA-safe)
   const parentUrlRef = useRef<string | undefined>(undefined);
 
-  // throttle anti-spam
-  const lastUrlPushAtRef = useRef<number>(0);
+  // throttle anti-spam (must not start at 0 — that blocked the first parent-location heartbeat)
+  const lastUrlPushAtRef = useRef<number>(-URL_THROTTLE_MS);
 
   useEffect(() => {
     if (!organizationId || !contactSessionId) return;
@@ -90,10 +91,11 @@ export function usePresence() {
         organizationId,
         contactSessionId,
 
-        // ✅ priorité au parentUrl (si fourni)
+        // ✅ priorité au parentUrl (postMessage embed), puis referrer/parent sync — jamais l’URL du widget seule
         currentUrl:
           parentUrlRef.current ??
-          (typeof window !== "undefined" ? window.location.href : undefined),
+          getHostPageUrlSync() ??
+          undefined,
 
         referrer: typeof document !== "undefined" ? document.referrer : undefined,
         language: typeof navigator !== "undefined" ? navigator.language : undefined,
@@ -134,10 +136,17 @@ export function usePresence() {
       if (!href) return;
 
       if (parentUrlRef.current === href) return;
+
+      const hadParentBefore = parentUrlRef.current !== undefined;
       parentUrlRef.current = href;
 
       const now = Date.now();
-      if (now - lastUrlPushAtRef.current < URL_THROTTLE_MS) return;
+      if (
+        hadParentBefore &&
+        now - lastUrlPushAtRef.current < URL_THROTTLE_MS
+      ) {
+        return;
+      }
       lastUrlPushAtRef.current = now;
 
       // ✅ push immédiat

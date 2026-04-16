@@ -188,8 +188,25 @@ export const upsertHeartbeat = internalMutation({
       expiresAt: now + SESSION_TTL_MS,
     };
 
+    const isHostedIframeUrl = (url?: string): boolean => {
+      if (!url) return false;
+      try {
+        const h = new URL(url).hostname;
+        return h === "widget.inboundless.co" || h === "app.inboundless.co";
+      } catch {
+        return false;
+      }
+    };
+
+    // Prefer real page URL; if HTTP layer stripped widget but referrer is still the host site, merge here too.
+    let effectiveCurrentUrl = args.currentUrl;
+    if (!effectiveCurrentUrl && args.referrer && !isHostedIframeUrl(args.referrer)) {
+      effectiveCurrentUrl = args.referrer;
+    }
+
     // --- metadata update (pages history) ---
-    const urlChanged = args.currentUrl && args.currentUrl !== prevMetadata.currentUrl;
+    const urlChanged =
+      !!effectiveCurrentUrl && effectiveCurrentUrl !== prevMetadata.currentUrl;
     const geoDataAvailable = args.city || args.countryCode || args.lat || args.lng;
 
     if (urlChanged || geoDataAvailable) {
@@ -201,14 +218,16 @@ export const upsertHeartbeat = internalMutation({
         return [url, ...pages];
       };
 
-      const updatedPages = urlChanged ? addPage(prevPages, args.currentUrl).slice(0, 10) : prevPages;
+      const updatedPages = urlChanged
+        ? addPage(prevPages, effectiveCurrentUrl).slice(0, 10)
+        : prevPages;
 
       // Persist first-touch UTM params when we see them (so attribution survives navigation).
       // We only set them if missing to avoid overwriting original attribution.
       let utmFromUrl: Record<string, string> = {};
-      if (args.currentUrl) {
+      if (effectiveCurrentUrl) {
         try {
-          const u = new URL(args.currentUrl);
+          const u = new URL(effectiveCurrentUrl);
           const p = u.searchParams;
           const utm_source = p.get("utm_source") || undefined;
           const utm_medium = p.get("utm_medium") || undefined;
@@ -238,7 +257,7 @@ export const upsertHeartbeat = internalMutation({
         cookieEnabled: args.cookieEnabled ?? prevMetadata.cookieEnabled,
         timezoneOffset: args.timezoneOffset ?? prevMetadata.timezoneOffset,
 
-        currentUrl: args.currentUrl ?? prevMetadata.currentUrl,
+        currentUrl: effectiveCurrentUrl ?? prevMetadata.currentUrl,
         ip: args.ip ?? prevMetadata.ip,
         city: args.city ?? prevMetadata.city,
         countryCode: args.countryCode ?? prevMetadata.countryCode,
