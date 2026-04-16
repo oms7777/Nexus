@@ -138,10 +138,9 @@ export default function LiveMapView() {
         <LiveMap visitors={filtered} selectedId={selectedId} />
         {filtered.length > 0 && visitorsWithCoords.length === 0 ? (
           <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-10 rounded-md border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur-sm">
-            No map pins without coordinates: configure{" "}
-            <code className="rounded bg-muted px-1">IPDATA_API_KEY</code> on your Convex deployment
-            (env vars), or test from a public IP. Localhost / private IPs and blocked geo cannot be
-            placed on the map.
+            No pins until we have coordinates (IP geolocation). Private or localhost IPs cannot be
+            placed. Optional: set <code className="rounded bg-muted px-1">IPDATA_API_KEY</code> on
+            Convex for ipdata; a fallback provider is used when it is not set.
           </div>
         ) : null}
       </div>

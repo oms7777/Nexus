@@ -75,7 +75,52 @@ export const setCached = internalMutation({
   },
 });
 
-/** Lookup IP (ipdata) + cache */
+async function geoFromIpdata(ip: string): Promise<GeoResult | null> {
+  const key = process.env.IPDATA_API_KEY?.trim();
+  if (!key) return null;
+
+  const url = `https://api.ipdata.co/${encodeURIComponent(ip)}?api-key=${key}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`ipdata http ${res.status}`);
+  const data = (await res.json()) as {
+    city?: string;
+    country_code?: string;
+    latitude?: number;
+    longitude?: number;
+  };
+
+  const city = data.city ?? undefined;
+  const countryCode = data.country_code ?? undefined;
+  const lat = typeof data.latitude === "number" ? data.latitude : undefined;
+  const lng = typeof data.longitude === "number" ? data.longitude : undefined;
+  return { city, countryCode, lat, lng };
+}
+
+/**
+ * HTTPS fallback when ipdata is not configured or errors.
+ * Prefer setting IPDATA_API_KEY in production (SLA / limits).
+ */
+async function geoFromIpWhoFallback(ip: string): Promise<GeoResult | null> {
+  const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`);
+  if (!res.ok) throw new Error(`ipwho http ${res.status}`);
+  const data = (await res.json()) as {
+    success?: boolean;
+    city?: string;
+    country_code?: string;
+    latitude?: number;
+    longitude?: number;
+  };
+  if (data.success === false) return null;
+
+  const city = data.city ?? undefined;
+  const countryCode =
+    typeof data.country_code === "string" ? data.country_code.toUpperCase() : undefined;
+  const lat = typeof data.latitude === "number" ? data.latitude : undefined;
+  const lng = typeof data.longitude === "number" ? data.longitude : undefined;
+  return { city, countryCode, lat, lng };
+}
+
+/** Lookup IP (ipdata preferred, ipwho.is fallback) + cache */
 export const lookupIp = internalAction({
   args: { ip: v.string() },
   handler: async (ctx, { ip }): Promise<GeoResult> => {
@@ -84,29 +129,29 @@ export const lookupIp = internalAction({
       return { city: cached.city, countryCode: cached.countryCode, lat: cached.lat, lng: cached.lng };
     }
 
-    const key = process.env.IPDATA_API_KEY;
-    const url = `https://api.ipdata.co/${encodeURIComponent(ip)}?api-key=${key ?? ""}`;
+    let result: GeoResult | null = null;
 
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`ipdata http ${res.status}`);
-      const data = (await res.json()) as {
-        city?: string;
-        country_code?: string;
-        latitude?: number;
-        longitude?: number;
-      };
-
-      const city = data.city ?? undefined;
-      const countryCode = data.country_code ?? undefined;
-      const lat = typeof data.latitude === "number" ? data.latitude : undefined;
-      const lng = typeof data.longitude === "number" ? data.longitude : undefined;
-
-      await ctx.runMutation(internal.live.setCached, { ip, city, countryCode, lat, lng });
-      return { city, countryCode, lat, lng };
+      result = await geoFromIpdata(ip);
     } catch {
+      result = null;
+    }
+
+    if (!result || (result.lat == null && result.lng == null && !result.countryCode)) {
+      try {
+        result = await geoFromIpWhoFallback(ip);
+      } catch {
+        result = null;
+      }
+    }
+
+    if (!result) {
       return { city: undefined, countryCode: undefined, lat: undefined, lng: undefined };
     }
+
+    const { city, countryCode, lat, lng } = result;
+    await ctx.runMutation(internal.live.setCached, { ip, city, countryCode, lat, lng });
+    return { city, countryCode, lat, lng };
   },
 });
 
