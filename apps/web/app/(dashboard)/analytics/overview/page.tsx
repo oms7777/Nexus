@@ -20,7 +20,7 @@ import {
   Legend,
 } from "recharts";
 
-import { BrandPill, RangePills, CardShell, StatCard, MiniTable } from "@/modules/analytics/shared/analytics-primitives";
+import { BrandPill, RangePills, CardShell, StatCard, MiniBarTable, MiniTable } from "@/modules/analytics/shared/analytics-primitives";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 
 function makeRange(days: number) {
@@ -41,6 +41,22 @@ function normalizeLabel(s: any) {
   const lower = v.toLowerCase();
   if (lower === "unknown") return "Unattributed";
   if (lower === "other") return "Other";
+  return v;
+}
+
+function normalizeSourceLabel(raw: any) {
+  const v = normalizeLabel(raw);
+  const lower = v.toLowerCase();
+  if (lower === "direct") return "Direct / Unattributed";
+  if (/(^|\\.)google\\./.test(lower)) return "Google";
+  if (lower === "t.co" || lower.includes("twitter.com") || lower.includes("x.com")) return "X (Twitter)";
+  if (lower.includes("linkedin.com")) return "LinkedIn";
+  if (lower.includes("facebook.com") || lower.includes("l.facebook.com") || lower.includes("m.facebook.com"))
+    return "Facebook";
+  if (lower.includes("instagram.com")) return "Instagram";
+  if (lower.includes("youtube.com") || lower.includes("youtu.be")) return "YouTube";
+  if (lower.includes("bing.com")) return "Bing";
+  if (lower.includes("reddit.com")) return "Reddit";
   return v;
 }
 
@@ -289,29 +305,44 @@ export default function AnalyticsOverviewPage() {
             >
               <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                 <div>
-                  <div className="mb-2 text-sm font-medium text-foreground">Top sources</div>
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    Where the session came from: <span className="font-medium text-foreground">utm_source</span> if the
-                    embed sends it, else the <span className="font-medium text-foreground">referrer</span> hostname;
-                    &quot;direct&quot; = no referrer (bookmark, some apps, privacy).
-                  </p>
-                  <MiniTable
-                    columns={["Source", "Sessions • Conversations • Meetings"]}
-                    rows={topSourcesDisplay.slice(0, 8).map((s: any) => [
-                      normalizeLabel(s.source ?? "direct"),
-                      `${Number(s.sessions ?? 0).toLocaleString()} • ${Number(s.conversations ?? 0).toLocaleString()} • ${Number(s.meetings ?? 0).toLocaleString()}`,
-                    ])}
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-foreground">Top sources</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Sessions → outcomes
+                    </div>
+                  </div>
+                  <MiniBarTable
+                    columns={["Source", "Sessions"]}
+                    rows={topSourcesDisplay.slice(0, 8).map((s: any) => ({
+                      label: normalizeSourceLabel(s.source ?? "direct"),
+                      primaryValue: Number(s.sessions ?? 0),
+                      detail: `${Number(s.conversations ?? 0).toLocaleString()} conv • ${Number(s.meetings ?? 0).toLocaleString()} mtg • ${(
+                        (Number(s.sessions ?? 0) > 0 ? Number(s.meetings ?? 0) / Number(s.sessions ?? 0) : 0) * 100
+                      ).toFixed(1)}% mtg rate`,
+                    }))}
                   />
+                  <div className="mt-2 rounded-lg border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+                    Attribution is <span className="font-medium text-foreground">reliable with UTMs</span>. Referrer is
+                    often blocked by privacy settings, so “Direct / Unattributed” can be high.
+                  </div>
                 </div>
 
                 <div>
-                  <div className="mb-2 text-sm font-medium text-foreground">Top pages</div>
-                  <MiniTable
-                    columns={["Page", "Sessions • Conversations • Meetings"]}
-                    rows={topPages.slice(0, 8).map((p: any) => [
-                      normalizeLabel(p.page ?? "/"),
-                      `${Number(p.sessions ?? 0).toLocaleString()} • ${Number(p.conversations ?? 0).toLocaleString()} • ${Number(p.meetings ?? 0).toLocaleString()}`,
-                    ])}
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-foreground">Top pages</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Sessions → outcomes
+                    </div>
+                  </div>
+                  <MiniBarTable
+                    columns={["Page", "Sessions"]}
+                    rows={topPages.slice(0, 8).map((p: any) => ({
+                      label: normalizeLabel(p.page ?? "/"),
+                      primaryValue: Number(p.sessions ?? 0),
+                      detail: `${Number(p.conversations ?? 0).toLocaleString()} conv • ${Number(p.meetings ?? 0).toLocaleString()} mtg • ${(
+                        (Number(p.sessions ?? 0) > 0 ? Number(p.meetings ?? 0) / Number(p.sessions ?? 0) : 0) * 100
+                      ).toFixed(1)}% mtg rate`,
+                    }))}
                   />
                 </div>
               </div>

@@ -141,3 +141,77 @@ export function MiniTable({
     </div>
   );
 }
+
+export function MiniBarTable({
+  columns,
+  rows,
+  maxBarValue,
+}: {
+  columns: [string, string];
+  rows: Array<{
+    label: React.ReactNode;
+    /** Number shown in UI, used for bar length and % calc. */
+    primaryValue: number;
+    /** Optional right-side detail (e.g. "12 • 3 • 1"). */
+    detail?: React.ReactNode;
+  }>;
+  /** Defaults to max primaryValue from rows. */
+  maxBarValue?: number;
+}) {
+  const max =
+    typeof maxBarValue === "number" && Number.isFinite(maxBarValue)
+      ? Math.max(0, maxBarValue)
+      : Math.max(0, ...rows.map((r) => Number(r.primaryValue ?? 0)));
+  const total = rows.reduce((s, r) => s + Number(r.primaryValue ?? 0), 0);
+
+  return (
+    <div className="overflow-hidden rounded-xl border">
+      <div className="grid grid-cols-12 gap-3 border-b bg-fuchsia-50/60 px-4 py-2 text-xs uppercase text-muted-foreground">
+        <div className="col-span-6">{columns[0]}</div>
+        <div className="col-span-6 text-right">{columns[1]}</div>
+      </div>
+      <div className="divide-y">
+        {rows.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-muted-foreground">No data yet.</div>
+        ) : (
+          rows.map((r, idx) => {
+            const v = Number(r.primaryValue ?? 0);
+            const pct = total > 0 ? Math.round((v / total) * 100) : 0;
+            const widthPct = max > 0 ? Math.max(0, Math.min(100, (v / max) * 100)) : 0;
+            return (
+              <div
+                key={idx}
+                className="grid grid-cols-12 gap-3 px-4 py-3 text-sm hover:bg-fuchsia-50/40 transition"
+              >
+                <div className="col-span-6 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 truncate font-medium">{r.label}</div>
+                    <div className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      {pct}%
+                    </div>
+                  </div>
+                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-fuchsia-600 to-rose-500"
+                      style={{ width: `${widthPct}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="col-span-6 text-right tabular-nums">
+                  <div className="font-medium text-foreground">
+                    {v.toLocaleString()}
+                  </div>
+                  {r.detail ? (
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {r.detail}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}

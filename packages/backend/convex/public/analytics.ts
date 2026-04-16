@@ -66,7 +66,13 @@ async function enrichMetaFromSession(ctx: any, sessionId?: any) {
 
     visitorId: safeString(m.visitorId),
 
-    ...pickUtm(currentUrl),
+    // Prefer first-touch / persisted UTMs when available.
+    // Fallback: parse from the currentUrl (may lose UTMs after navigation).
+    utm_source: safeString((m as any).utm_source) ?? (pickUtm(currentUrl) as any).utm_source,
+    utm_medium: safeString((m as any).utm_medium) ?? (pickUtm(currentUrl) as any).utm_medium,
+    utm_campaign: safeString((m as any).utm_campaign) ?? (pickUtm(currentUrl) as any).utm_campaign,
+    utm_term: safeString((m as any).utm_term) ?? (pickUtm(currentUrl) as any).utm_term,
+    utm_content: safeString((m as any).utm_content) ?? (pickUtm(currentUrl) as any).utm_content,
   };
 }
 
@@ -295,14 +301,32 @@ function computeFirstResponseStats(evts: any[], slaSeconds?: number) {
 }
 
 function normalizeSource(meta: any) {
+  // Prefer explicit UTM when present (embed / campaign attribution).
   const s = safeString(meta?.utm_source);
   if (s) return s;
+
   const ref = safeString(meta?.referrer);
   if (!ref) return "direct";
+
+  // Avoid "self-referrals" which are usually internal navigation / SPA reloads.
+  // If referrer host matches currentUrl host, treat as direct/unattributed.
+  const cur = safeString(meta?.currentUrl);
   try {
-    const u = new URL(ref);
-    const host = u.hostname.replace(/^www\./, "");
-    return host || "referral";
+    const refUrl = new URL(ref);
+    const refHost = refUrl.hostname.replace(/^www\./, "");
+    if (!refHost) return "referral";
+
+    if (cur) {
+      try {
+        const curUrl = new URL(cur);
+        const curHost = curUrl.hostname.replace(/^www\./, "");
+        if (curHost && curHost === refHost) return "direct";
+      } catch {
+        // ignore currentUrl parse errors; fall back to referrer host below
+      }
+    }
+
+    return refHost;
   } catch {
     return "referral";
   }

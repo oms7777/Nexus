@@ -203,6 +203,28 @@ export const upsertHeartbeat = internalMutation({
 
       const updatedPages = urlChanged ? addPage(prevPages, args.currentUrl).slice(0, 10) : prevPages;
 
+      // Persist first-touch UTM params when we see them (so attribution survives navigation).
+      // We only set them if missing to avoid overwriting original attribution.
+      let utmFromUrl: Record<string, string> = {};
+      if (args.currentUrl) {
+        try {
+          const u = new URL(args.currentUrl);
+          const p = u.searchParams;
+          const utm_source = p.get("utm_source") || undefined;
+          const utm_medium = p.get("utm_medium") || undefined;
+          const utm_campaign = p.get("utm_campaign") || undefined;
+          const utm_term = p.get("utm_term") || undefined;
+          const utm_content = p.get("utm_content") || undefined;
+          if (utm_source) utmFromUrl.utm_source = utm_source;
+          if (utm_medium) utmFromUrl.utm_medium = utm_medium;
+          if (utm_campaign) utmFromUrl.utm_campaign = utm_campaign;
+          if (utm_term) utmFromUrl.utm_term = utm_term;
+          if (utm_content) utmFromUrl.utm_content = utm_content;
+        } catch {
+          // ignore
+        }
+      }
+
       minimalUpdate.metadata = {
         ...prevMetadata,
         language: args.language ?? prevMetadata.language,
@@ -224,6 +246,13 @@ export const upsertHeartbeat = internalMutation({
         lng: args.lng ?? prevMetadata.lng,
 
         pages: updatedPages,
+
+        // First-touch UTMs (only set once)
+        utm_source: (prevMetadata as any).utm_source ?? utmFromUrl.utm_source,
+        utm_medium: (prevMetadata as any).utm_medium ?? utmFromUrl.utm_medium,
+        utm_campaign: (prevMetadata as any).utm_campaign ?? utmFromUrl.utm_campaign,
+        utm_term: (prevMetadata as any).utm_term ?? utmFromUrl.utm_term,
+        utm_content: (prevMetadata as any).utm_content ?? utmFromUrl.utm_content,
       };
     }
 
