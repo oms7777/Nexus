@@ -194,7 +194,9 @@ export const getActiveVisitors = query({
         // not assigned => territory-based only
         let inMyTerritory = false;
         if (territoryKey) {
-          inMyTerritory = myRegions.includes(territoryKey);
+          // If the rep has not configured any regions yet, don't hide everyone by default.
+          inMyTerritory =
+            myRegions.length === 0 || myRegions.includes(territoryKey);
         } else {
           // No country/territory yet (geo still failing / pending). Hiding everyone here caused
           // "0 online" while Conversations still existed. Org is already scoped by query.
