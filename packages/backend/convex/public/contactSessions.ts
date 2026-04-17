@@ -373,7 +373,10 @@ export const ensureByExternalId = mutation({
     metadata: v.optional(MetadataSchema),
   },
   handler: async (ctx, { organizationId, externalSessionId, metadata }) => {
-    const expiresAt = Date.now() + SESSION_DURATION_MS;
+    const now = Date.now();
+    const longExpiry = now + SESSION_DURATION_MS;
+    /** Heartbeats set a short `expiresAt` (~90s). Do not overwrite with 48h on every ensure. */
+    const HEARTBEAT_TTL_WINDOW_MS = 15 * 60 * 1000;
 
     const safeIncoming = isPlainObject(metadata) ? (metadata as Metadata) : undefined;
 
@@ -394,8 +397,13 @@ export const ensureByExternalId = mutation({
       const oldMd = (existingByExternal.metadata ?? {}) as Metadata;
       const newMd = mergeMetadata(oldMd, safeIncoming);
 
+      const prevExp = existingByExternal.expiresAt ?? 0;
+      const remaining = prevExp - now;
+      const nextExpiresAt =
+        remaining > 0 && remaining <= HEARTBEAT_TTL_WINDOW_MS ? prevExp : longExpiry;
+
       await ctx.db.patch(existingByExternal._id, {
-        expiresAt,
+        expiresAt: nextExpiresAt,
         metadata: newMd,
         externalSessionId,
         preferredRepUserId: incomingPreferred ?? existingByExternal.preferredRepUserId,
@@ -415,7 +423,7 @@ export const ensureByExternalId = mutation({
       email: "",
       organizationId,
       externalSessionId,
-      expiresAt,
+      expiresAt: longExpiry,
       metadata: safeIncoming,
       preferredRepUserId: incomingPreferred,
     });

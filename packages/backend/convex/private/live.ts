@@ -80,7 +80,8 @@ export const getActiveVisitors = query({
     // IMPORTANT: `contactSessions.expiresAt` is also used for longer-lived session validity (48h).
     // For "Live" presence we only want sessions that were heartbeating recently.
     // Heartbeats set expiresAt to now + ~90s; so filter out far-future rows that never heartbeated.
-    const LIVE_ACTIVE_MAX_FUTURE_MS = 5 * 60 * 1000; // 5 minutes window
+    // Heartbeats bump expiresAt to ~now+90s. Long-lived sessions use ~48h; those must not look "live".
+    const LIVE_ACTIVE_MAX_FUTURE_MS = 15 * 60 * 1000;
     const active = sessions.filter((s) => {
       const exp = s.expiresAt ?? 0;
       return exp > now && exp < now + LIVE_ACTIVE_MAX_FUTURE_MS;
@@ -191,7 +192,14 @@ export const getActiveVisitors = query({
         if (repUserId !== meUserId) continue;
       } else {
         // not assigned => territory-based only
-        const inMyTerritory = !!territoryKey && myRegions.includes(territoryKey);
+        let inMyTerritory = false;
+        if (territoryKey) {
+          inMyTerritory = myRegions.includes(territoryKey);
+        } else {
+          // No country/territory yet (geo still failing / pending). Hiding everyone here caused
+          // "0 online" while Conversations still existed. Org is already scoped by query.
+          inMyTerritory = true;
+        }
         if (!inMyTerritory) continue;
       }
 
