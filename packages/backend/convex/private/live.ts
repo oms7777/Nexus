@@ -77,10 +77,14 @@ export const getActiveVisitors = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .collect();
 
-    const active = sessions.filter(
-      (s) =>
-        (s.expiresAt ?? 0) > now,
-    );
+    // IMPORTANT: `contactSessions.expiresAt` is also used for longer-lived session validity (48h).
+    // For "Live" presence we only want sessions that were heartbeating recently.
+    // Heartbeats set expiresAt to now + ~90s; so filter out far-future rows that never heartbeated.
+    const LIVE_ACTIVE_MAX_FUTURE_MS = 5 * 60 * 1000; // 5 minutes window
+    const active = sessions.filter((s) => {
+      const exp = s.expiresAt ?? 0;
+      return exp > now && exp < now + LIVE_ACTIVE_MAX_FUTURE_MS;
+    });
 
     // ✅ dedupe visitor
     const bestByKey = new Map<string, (typeof active)[number]>();
