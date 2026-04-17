@@ -189,9 +189,14 @@ function persistSnapshotToDbDebounced(opts: {
     const ctx = getPageContext();
 
     try {
-      await fetch(SNAPSHOT_URL, {
+      const res = await fetch(SNAPSHOT_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        mode: "cors",
+        credentials: "omit",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         signal: snapshotAbort.signal,
         body: JSON.stringify({
           organizationId: opts.orgId,
@@ -202,6 +207,10 @@ function persistSnapshotToDbDebounced(opts: {
           title: ctx.title,
         }),
       });
+      if (!res.ok) {
+        // Non-OK leaves rrweb running; next debounced flush or full snapshot may retry.
+        return;
+      }
     } catch {
       // best effort
     }

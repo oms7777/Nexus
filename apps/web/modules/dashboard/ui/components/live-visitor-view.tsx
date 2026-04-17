@@ -396,17 +396,15 @@ export function LiveVisitorView({
 
       {snapshotLoading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/10 p-4 text-center text-sm text-muted-foreground">
-          <p>Loading recording…</p>
+          <p>Loading…</p>
         </div>
       )}
 
       {!snapshotLoading && !hasSnapshot && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/20 p-4 text-center text-sm text-muted-foreground">
-          <p>No recording yet for this visitor.</p>
-          <p className="text-xs">
-            Recording is captured from the page that loads the embed script (host page). Redeploy the
-            latest <code className="rounded bg-muted px-1">widget.js</code>, hard-refresh the site,
-            and ensure the visitor has opened the chat once so the session is ready.
+          <p className="font-medium text-foreground/80">Screen replay unavailable</p>
+          <p className="text-xs max-w-[18rem]">
+            Nothing is shown for this session right now.
           </p>
         </div>
       )}
