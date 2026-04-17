@@ -167,7 +167,17 @@ export default function LiveMap({ visitors, selectedId }: Props) {
           filter: ["!", ["has", "point_count"]],
           paint: {
             "circle-color": "#a855f7",
-            "circle-radius": 6,
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              3,
+              14,
+              6,
+              8,
+              10,
+              6,
+            ],
             "circle-stroke-width": 2,
             "circle-stroke-color": "#ffffff",
           },
@@ -231,6 +241,38 @@ export default function LiveMap({ visitors, selectedId }: Props) {
     const src = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
     if (src) src.setData(geojson as any);
   }, [geojson]);
+
+  // Default view is zoom 3 (whole EU) — pins are nearly invisible until zoomed. When no row is
+  // selected, fit all points so dots are visible without clicking the list first.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || selectedId) return;
+    const feats = geojson.features;
+    if (!feats.length) return;
+
+    const run = () => {
+      if (!map.isStyleLoaded()) return;
+      if (feats.length === 1) {
+        const [lng, lat] = (feats[0]!.geometry as { type: string; coordinates: [number, number] })
+          .coordinates;
+        map.easeTo({
+          center: [lng, lat],
+          zoom: Math.max(map.getZoom(), 6),
+          duration: 450,
+        });
+        return;
+      }
+      const b = new maplibregl.LngLatBounds();
+      for (const f of feats) {
+        const c = (f.geometry as { coordinates?: number[] }).coordinates;
+        if (c && c.length >= 2) b.extend([c[0]!, c[1]!] as [number, number]);
+      }
+      map.fitBounds(b, { padding: 80, maxZoom: 10, duration: 450 });
+    };
+
+    if (map.isStyleLoaded()) run();
+    else map.once("load", run);
+  }, [geojson, selectedId]);
 
   // focus selected
   useEffect(() => {

@@ -58,13 +58,13 @@ export function LiveVisitorView({
   const MAX_QUEUE = 5_000;
   const MAX_PER_FRAME = 180;
 
-  const snaps =
-    useQuery(api.public.snapshots.listRecent, {
-      sessionId,
-      limit: 1,
-    }) ?? [];
+  const snaps = useQuery(api.public.snapshots.listRecent, {
+    sessionId,
+    limit: 1,
+  });
 
-  const latest = snaps[0];
+  const snapshotLoading = snaps === undefined;
+  const latest = snaps?.[0];
 
   const ensureStage = useCallback(() => {
     const outer = outerRef.current;
@@ -394,10 +394,20 @@ export function LiveVisitorView({
         </button>
       </div>
 
-      {!hasSnapshot && (
+      {snapshotLoading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/10 p-4 text-center text-sm text-muted-foreground">
+          <p>Loading recording…</p>
+        </div>
+      )}
+
+      {!snapshotLoading && !hasSnapshot && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/20 p-4 text-center text-sm text-muted-foreground">
           <p>No recording yet for this visitor.</p>
-          <p className="text-xs">Recording starts when they browse with the widget. Ask them to refresh the page if the widget is already open.</p>
+          <p className="text-xs">
+            Recording is captured from the page that loads the embed script (host page). Redeploy the
+            latest <code className="rounded bg-muted px-1">widget.js</code>, hard-refresh the site,
+            and ensure the visitor has opened the chat once so the session is ready.
+          </p>
         </div>
       )}
 

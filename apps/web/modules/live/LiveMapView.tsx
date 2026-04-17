@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { api } from "@workspace/backend/_generated/api";
@@ -57,6 +57,14 @@ export default function LiveMapView() {
     () => visitors.filter((v) => matches(v, query)),
     [visitors, query],
   );
+
+  // One online visitor: select them immediately so the map zooms + Live View panel can load snapshots.
+  useEffect(() => {
+    if (filtered.length !== 1) return;
+    const only = filtered[0]!;
+    if (selectedId === only._id) return;
+    setSelectedId(only._id);
+  }, [filtered, selectedId]);
 
   const visitorsWithCoords = useMemo(
     () =>
