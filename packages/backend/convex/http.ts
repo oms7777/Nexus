@@ -63,6 +63,12 @@ function isWidgetOrAppUrl(url?: string) {
   }
 }
 
+/** Hosted app/widget origins — never listed per-org in `websites`, but heartbeats are legit. */
+function isHostedWidgetHostname(hostname: string | null | undefined): boolean {
+  const h = (hostname ?? "").trim().toLowerCase();
+  return h === "widget.inboundless.co" || h === "app.inboundless.co";
+}
+
 async function resolveSessionId(ctx: any, input: { organizationId: string; sessionIdRaw: string }) {
   const { organizationId, sessionIdRaw } = input;
 
@@ -155,22 +161,41 @@ http.route({
     const origin = req.headers.get("origin") ?? undefined;
     const hostFromOrigin = hostnameFromUrlMaybe(origin);
     const hostFromUrl = hostnameFromUrlMaybe(finalCurrentUrl);
-    const incomingHost = normalizeHostname(hostFromUrl ?? hostFromOrigin ?? "");
+    const urlHostNorm = normalizeHostname(hostFromUrl ?? "");
+    const originHostNorm = normalizeHostname(hostFromOrigin ?? "");
 
-    if (incomingHost) {
-      const allow = await ctx.runQuery((internal as any).system.websites.isAllowedHostnameForOrg, {
-        organizationId: body.organizationId,
-        hostname: incomingHost,
-      });
-      if (!allow.allowed) {
-        return new Response(JSON.stringify({ ok: false, error: "Domain not allowed" }), {
-          status: 403,
-          headers: { "Access-Control-Allow-Origin": "*" },
+    // Prefer the marketing site hostname from the payload; the browser Origin is often the widget iframe.
+    let domainAllowed = false;
+    if (urlHostNorm) {
+      if (isHostedWidgetHostname(urlHostNorm)) {
+        domainAllowed = true;
+      } else {
+        const allow = await ctx.runQuery((internal as any).system.websites.isAllowedHostnameForOrg, {
+          organizationId: body.organizationId,
+          hostname: urlHostNorm,
         });
+        domainAllowed = !!allow.allowed;
       }
-    } else {
-      return new Response(JSON.stringify({ ok: false, error: "Missing host" }), {
-        status: 400,
+    }
+    if (!domainAllowed && originHostNorm) {
+      if (isHostedWidgetHostname(originHostNorm)) {
+        // Widget iframe: real page URL is sent via postMessage + heartbeat body, not Origin.
+        domainAllowed = true;
+      } else {
+        const allow = await ctx.runQuery((internal as any).system.websites.isAllowedHostnameForOrg, {
+          organizationId: body.organizationId,
+          hostname: originHostNorm,
+        });
+        domainAllowed = !!allow.allowed;
+      }
+    }
+
+    if (!domainAllowed) {
+      const reason =
+        urlHostNorm || originHostNorm ? "Domain not allowed" : "Missing host";
+      const status = reason === "Missing host" ? 400 : 403;
+      return new Response(JSON.stringify({ ok: false, error: reason }), {
+        status,
         headers: { "Access-Control-Allow-Origin": "*" },
       });
     }
