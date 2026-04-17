@@ -2,6 +2,7 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { normalizeVisitorUrlKey } from "./lib/visitorUrls";
 
 /** Helpers */
 function isPrivateOrLoopback(ip: string) {
@@ -296,8 +297,10 @@ export const upsertHeartbeat = internalMutation({
     }
 
     // --- metadata update (pages history) ---
+    const prevUrlKey = normalizeVisitorUrlKey(prevMetadata.currentUrl as string | undefined);
+    const nextUrlKey = normalizeVisitorUrlKey(effectiveCurrentUrl);
     const urlChanged =
-      !!effectiveCurrentUrl && effectiveCurrentUrl !== prevMetadata.currentUrl;
+      !!effectiveCurrentUrl && !!nextUrlKey && nextUrlKey !== prevUrlKey;
     const geoDataAvailable = args.city || args.countryCode || args.lat || args.lng;
 
     if (urlChanged || geoDataAvailable) {
@@ -305,7 +308,10 @@ export const upsertHeartbeat = internalMutation({
 
       const addPage = (pages: string[], url?: string) => {
         if (!url || url.length <= 3) return pages;
-        if (pages[0] === url) return pages;
+        const k = normalizeVisitorUrlKey(url);
+        if (!k) return pages;
+        const head = pages[0];
+        if (head && normalizeVisitorUrlKey(head) === k) return pages;
         return [url, ...pages];
       };
 

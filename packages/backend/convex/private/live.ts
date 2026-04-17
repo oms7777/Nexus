@@ -3,9 +3,8 @@ import { ConvexError } from "convex/values";
 import { query } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import {
-  bestPageUrlFromSessionMetadata,
   isHostedInboundlessAppUrl,
-  preferMoreSpecificPageUrl,
+  pickBestVisitorPageUrl,
 } from "../lib/visitorUrls";
 
 function normalizeCC(cc?: string) {
@@ -158,13 +157,11 @@ export const getActiveVisitors = query({
         }
       } catch {}
 
-      const fromMeta = bestPageUrlFromSessionMetadata(md as Record<string, unknown>);
-      let currentUrl: string | undefined;
-      if (snapUrl && !isHostedInboundlessAppUrl(snapUrl)) {
-        currentUrl = preferMoreSpecificPageUrl(snapUrl, fromMeta) ?? fromMeta ?? snapUrl;
-      } else {
-        currentUrl = fromMeta;
-      }
+      const currentUrl = pickBestVisitorPageUrl({
+        metadata: md as Record<string, unknown>,
+        snapshotPageUrl:
+          snapUrl && !isHostedInboundlessAppUrl(snapUrl) ? snapUrl : undefined,
+      });
       const title = snapTitle || (md.title as string | undefined) || undefined;
       const lastSeen = snapTs || now;
 

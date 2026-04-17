@@ -60,6 +60,47 @@ export function preferMoreSpecificPageUrl(a?: string, b?: string): string | unde
   }
 }
 
+/** Same site + path + search — ignores www and trailing slash differences (SPA / heartbeat noise). */
+export function normalizeVisitorUrlKey(url?: string): string | undefined {
+  if (!url || typeof url !== "string") return undefined;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./i, "").toLowerCase();
+    const path = (u.pathname || "/").replace(/\/$/, "") || "/";
+    return `${host}${path}${u.search}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Live Map / inbox: merge snapshot + heartbeat history. Snapshot alone can lag on "/" while
+ * heartbeats have /resources in `pages` — reduce all sources and pick the most specific path.
+ */
+export function pickBestVisitorPageUrl(input: {
+  metadata: Record<string, unknown>;
+  snapshotPageUrl?: string;
+}): string | undefined {
+  const { metadata, snapshotPageUrl } = input;
+  const candidates: string[] = [];
+  const push = (s: unknown) => {
+    if (typeof s !== "string" || !s.trim()) return;
+    const t = s.trim();
+    if (!isHostedInboundlessAppUrl(t)) candidates.push(t);
+  };
+  if (snapshotPageUrl) push(snapshotPageUrl);
+  const pages = Array.isArray(metadata.pages) ? metadata.pages : [];
+  for (const p of pages) push(p);
+  push(metadata.currentUrl);
+  push(metadata.referrer);
+
+  let best: string | undefined;
+  for (const c of candidates) {
+    best = preferMoreSpecificPageUrl(best, c) ?? c;
+  }
+  return best;
+}
+
 /** Return metadata safe for inbox/detail UI (never misleading widget-only currentUrl). */
 export function sanitizeSessionMetadataForDisplay(
   metadata: Record<string, unknown> | undefined,
