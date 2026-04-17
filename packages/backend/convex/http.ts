@@ -198,6 +198,9 @@ http.route({
       x_real_ip: req.headers.get("x-real-ip") ?? undefined,
       cf_connecting_ip: req.headers.get("cf-connecting-ip") ?? undefined,
       x_vercel_forwarded_for: req.headers.get("x-vercel-forwarded-for") ?? undefined,
+      true_client_ip: req.headers.get("true-client-ip") ?? undefined,
+      fly_client_ip: req.headers.get("fly-client-ip") ?? undefined,
+      x_client_ip: req.headers.get("x-client-ip") ?? undefined,
       remote_addr: req.headers.get("remote-addr") ?? undefined,
     });
 

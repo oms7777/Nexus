@@ -120,6 +120,28 @@ async function geoFromIpWhoFallback(ip: string): Promise<GeoResult | null> {
   return { city, countryCode, lat, lng };
 }
 
+/** Third fallback (HTTP, server-side only) when ipdata + ipwho fail. */
+async function geoFromIpApiFallback(ip: string): Promise<GeoResult | null> {
+  const res = await fetch(
+    `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,country,countryCode,city,lat,lon`,
+  );
+  if (!res.ok) throw new Error(`ip-api http ${res.status}`);
+  const data = (await res.json()) as {
+    status?: string;
+    countryCode?: string;
+    city?: string;
+    lat?: number;
+    lon?: number;
+  };
+  if (data.status !== "success") return null;
+  const city = data.city ?? undefined;
+  const countryCode =
+    typeof data.countryCode === "string" ? data.countryCode.toUpperCase() : undefined;
+  const lat = typeof data.lat === "number" ? data.lat : undefined;
+  const lng = typeof data.lon === "number" ? data.lon : undefined;
+  return { city, countryCode, lat, lng };
+}
+
 /** Lookup IP (ipdata preferred, ipwho.is fallback) + cache */
 export const lookupIp = internalAction({
   args: { ip: v.string() },
@@ -140,6 +162,14 @@ export const lookupIp = internalAction({
     if (!result || (result.lat == null && result.lng == null && !result.countryCode)) {
       try {
         result = await geoFromIpWhoFallback(ip);
+      } catch {
+        result = null;
+      }
+    }
+
+    if (!result || (result.lat == null && result.lng == null && !result.countryCode)) {
+      try {
+        result = await geoFromIpApiFallback(ip);
       } catch {
         result = null;
       }
@@ -361,6 +391,9 @@ export const heartbeatHttp = internalAction({
     x_real_ip: v.optional(v.string()),
     cf_connecting_ip: v.optional(v.string()),
     x_vercel_forwarded_for: v.optional(v.string()),
+    true_client_ip: v.optional(v.string()),
+    fly_client_ip: v.optional(v.string()),
+    x_client_ip: v.optional(v.string()),
     remote_addr: v.optional(v.string()),
     title: v.optional(v.string()),
     userAgent: v.optional(v.string()),
@@ -373,6 +406,9 @@ export const heartbeatHttp = internalAction({
       const pick =
         fromXff ||
         args.x_real_ip ||
+        args.true_client_ip ||
+        args.fly_client_ip ||
+        args.x_client_ip ||
         args.cf_connecting_ip ||
         args.x_vercel_forwarded_for ||
         args.remote_addr;

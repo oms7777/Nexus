@@ -27,31 +27,63 @@ function getScreen(): string | undefined {
   return `${window.screen.width}x${window.screen.height}`;
 }
 
-// ---- fetch public IP une seule fois (2s timeout) ----
+// ---- fetch public IP une seule fois (plusieurs sources : ipify est souvent bloqué par réseaux / extensions) ----
 let cachedIp: string | null = null;
 
 async function getPublicIp(): Promise<string | null> {
   if (cachedIp) return cachedIp;
 
-  try {
+  const tryJsonIp = async (url: string) => {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 2000);
+    const t = window.setTimeout(() => ctrl.abort(), 2500);
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+      window.clearTimeout(t);
+      if (!res.ok) return null;
+      const data = (await res.json()) as { ip?: string };
+      return typeof data.ip === "string" && data.ip.trim() ? data.ip.trim() : null;
+    } catch {
+      window.clearTimeout(t);
+      return null;
+    }
+  };
 
-    const res = await fetch("https://api.ipify.org?format=json", {
-      cache: "no-store",
-      signal: ctrl.signal,
-    });
+  const tryPlain = async (url: string) => {
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => ctrl.abort(), 2500);
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+      window.clearTimeout(t);
+      if (!res.ok) return null;
+      const text = (await res.text()).trim();
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(text) || text.includes(":")) return text;
+      return null;
+    } catch {
+      window.clearTimeout(t);
+      return null;
+    }
+  };
 
-    clearTimeout(t);
+  const candidates = [
+    () => tryJsonIp("https://api.ipify.org?format=json"),
+    () => tryJsonIp("https://api64.ipify.org?format=json"),
+    () => tryPlain("https://icanhazip.com/"),
+    () => tryPlain("https://ifconfig.me/ip"),
+  ];
 
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as { ip?: string };
-    cachedIp = data.ip ?? null;
-    return cachedIp;
-  } catch {
-    return null;
+  for (const run of candidates) {
+    try {
+      const ip = await run();
+      if (ip) {
+        cachedIp = ip;
+        return cachedIp;
+      }
+    } catch {
+      // next
+    }
   }
+
+  return null;
 }
 
 async function postHeartbeat(payload: Record<string, unknown>) {
