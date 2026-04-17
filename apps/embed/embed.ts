@@ -848,8 +848,10 @@ type NudgeKind = "promo" | "suggestions" | null;
       case "nexus:session-ready": {
         if (!organizationId) return;
 
-        const sid = payload?.sessionId;
-        if (typeof sid !== "string" || sid.trim().length === 0) return;
+        // Widget sends `contactSessionId` (Convex id); older builds used `sessionId`.
+        const raw = payload?.sessionId ?? payload?.contactSessionId;
+        const sid = typeof raw === "string" ? raw.trim() : "";
+        if (!sid.length) return;
 
         if (trackingStarted && trackingSessionId === sid) return;
 
