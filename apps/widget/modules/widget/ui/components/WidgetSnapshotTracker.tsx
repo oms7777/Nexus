@@ -76,7 +76,7 @@ export function WidgetSnapshotTracker() {
       try {
         const visitorPageUrl =
           visitorPageUrlRef.current ?? getHostPageUrlSync() ?? undefined;
-        await fetch(`${pickAppOrigin()}/api/tracker/snapshot`, {
+        const res = await fetch(`${pickAppOrigin()}/api/tracker/snapshot`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -90,6 +90,10 @@ export function WidgetSnapshotTracker() {
           }),
           keepalive: true,
         }).catch(() => null);
+
+        if (!res || !res.ok) {
+          return;
+        }
 
         // After a successful attempt, keep only meta+full snapshot and start a new window.
         const keep: eventWithTime[] = [];
@@ -130,8 +134,19 @@ export function WidgetSnapshotTracker() {
     // Kick a periodic flush.
     timerRef.current = window.setInterval(() => void flush(), FLUSH_MS);
 
-    // Flush once shortly after mount to store the initial full snapshot quickly.
-    window.setTimeout(() => void flush(), 2_000);
+    // First rrweb meta href is the iframe origin; wait for parent URL (postMessage) so /api/tracker/snapshot allowlist sees the real hostname.
+    const tryEarlyFlush = (attempt: number) => {
+      const hasParentUrl = !!(
+        visitorPageUrlRef.current ||
+        getHostPageUrlSync()
+      );
+      if (hasParentUrl || attempt >= 12) {
+        void flush();
+        return;
+      }
+      window.setTimeout(() => tryEarlyFlush(attempt + 1), 400);
+    };
+    window.setTimeout(() => tryEarlyFlush(0), 600);
 
     return () => {
       window.removeEventListener("message", onParentLocation);

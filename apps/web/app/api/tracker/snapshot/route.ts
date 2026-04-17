@@ -126,7 +126,18 @@ export async function POST(req: Request) {
 
     const originHost = hostFromUrlMaybe(origin);
     const pageHost = hostFromUrlMaybe(effectivePageUrl);
-    const incomingHost = normalizeHost(pageHost ?? originHost ?? "");
+    // Allowlist must use the real visitor site when the iframe rrweb meta href is widget.inboundless.co.
+    let incomingHost = "";
+    if (
+      typeof visitorPageUrl === "string" &&
+      visitorPageUrl.trim() &&
+      !isHostedWidgetPageUrl(visitorPageUrl)
+    ) {
+      incomingHost = normalizeHost(hostFromUrlMaybe(visitorPageUrl.trim()) ?? "");
+    }
+    if (!incomingHost) {
+      incomingHost = normalizeHost(pageHost ?? originHost ?? "");
+    }
 
     if (!incomingHost) {
       headers.set("Content-Type", "application/json");

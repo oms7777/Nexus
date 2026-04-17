@@ -142,44 +142,60 @@ async function geoFromIpApiFallback(ip: string): Promise<GeoResult | null> {
   return { city, countryCode, lat, lng };
 }
 
+function mergeGeo(a: GeoResult, b: GeoResult | null | undefined): GeoResult {
+  if (!b) return a;
+  return {
+    city: b.city ?? a.city,
+    countryCode: b.countryCode ?? a.countryCode,
+    lat: b.lat ?? a.lat,
+    lng: b.lng ?? a.lng,
+  };
+}
+
 /** Lookup IP (ipdata preferred, ipwho.is fallback) + cache */
 export const lookupIp = internalAction({
   args: { ip: v.string() },
   handler: async (ctx, { ip }): Promise<GeoResult> => {
     const cached = await ctx.runQuery(internal.live.getCached, { ip });
-    if (cached) {
+    // Old cache rows could have city/country but no coords — re-fetch to populate map pins.
+    if (cached && cached.lat != null && cached.lng != null) {
       return { city: cached.city, countryCode: cached.countryCode, lat: cached.lat, lng: cached.lng };
     }
 
-    let result: GeoResult | null = null;
+    let merged: GeoResult = {
+      city: cached?.city,
+      countryCode: cached?.countryCode,
+      lat: cached?.lat,
+      lng: cached?.lng,
+    };
 
     try {
-      result = await geoFromIpdata(ip);
+      merged = mergeGeo(merged, await geoFromIpdata(ip));
     } catch {
-      result = null;
+      // next
     }
 
-    if (!result || (result.lat == null && result.lng == null && !result.countryCode)) {
+    if (merged.lat == null || merged.lng == null) {
       try {
-        result = await geoFromIpWhoFallback(ip);
+        merged = mergeGeo(merged, await geoFromIpWhoFallback(ip));
       } catch {
-        result = null;
+        // next
       }
     }
 
-    if (!result || (result.lat == null && result.lng == null && !result.countryCode)) {
+    if (merged.lat == null || merged.lng == null) {
       try {
-        result = await geoFromIpApiFallback(ip);
+        merged = mergeGeo(merged, await geoFromIpApiFallback(ip));
       } catch {
-        result = null;
+        // next
       }
     }
 
-    if (!result) {
+    if (!merged.countryCode && !merged.city && merged.lat == null && merged.lng == null) {
       return { city: undefined, countryCode: undefined, lat: undefined, lng: undefined };
     }
 
-    const { city, countryCode, lat, lng } = result;
+    const { city, countryCode, lat, lng } = merged;
     await ctx.runMutation(internal.live.setCached, { ip, city, countryCode, lat, lng });
     return { city, countryCode, lat, lng };
   },
