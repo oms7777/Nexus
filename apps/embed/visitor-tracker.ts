@@ -198,6 +198,7 @@ function persistSnapshotToDbDebounced(opts: {
           sessionId: opts.sessionId,
           events: opts.events,
           pageUrl: ctx.href,
+          visitorPageUrl: ctx.href,
           title: ctx.title,
         }),
       });
@@ -694,44 +695,48 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   const channel = pusher.subscribe(channelName);
   channelRef = channel;
 
-  channel.bind("pusher:subscription_succeeded", () => {
-    startPerfWatchdog();
+  // Host-page rrweb + HTTP snapshots must not depend on Pusher auth. If subscription fails,
+  // live streaming over Pusher stops but Convex snapshots can still persist.
+  startPerfWatchdog();
 
-    // push current page ASAP
+  setupCursor();
+  startRrwebRecorder(orgId, sessionId);
+
+  unpatchHistory = patchHistoryForUrlChanges(() => {
+    const href = location.href;
+    if (!href || href === lastHref) return;
+
+    lastHref = href;
+    markActivity();
+
     emitPageEvent();
 
-    const startedAt = now();
-    sessionStopTimer = setInterval(() => {
-      if (!started) return;
-      if (now() - startedAt > MAX_SESSION_MS) {
-        stopRrwebOnly();
-        if (sessionStopTimer) {
-          clearInterval(sessionStopTimer);
-          sessionStopTimer = null;
-        }
+    if (!channelRef) return;
+    if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
+  });
+
+  attachUnloadHandlers();
+
+  const startedAt = now();
+  sessionStopTimer = setInterval(() => {
+    if (!started) return;
+    if (now() - startedAt > MAX_SESSION_MS) {
+      stopRrwebOnly();
+      if (sessionStopTimer) {
+        clearInterval(sessionStopTimer);
+        sessionStopTimer = null;
       }
-    }, 10_000);
+    }
+  }, 10_000);
 
-    setupCursor();
-    startRrwebRecorder(orgId, sessionId);
-
-    unpatchHistory = patchHistoryForUrlChanges(() => {
-      const href = location.href;
-      if (!href || href === lastHref) return;
-
-      lastHref = href;
-      markActivity();
-
-      emitPageEvent();
-
-      if (!channelRef) return;
-      if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
-    });
-
-    attachUnloadHandlers();
+  channel.bind("pusher:subscription_succeeded", () => {
+    emitPageEvent();
   });
 
   channel.bind("pusher:subscription_error", () => {
-    cleanup();
+    try {
+      pusherRef?.disconnect();
+    } catch {}
+    // Intentionally do not call cleanup() — that stopped rrweb and blocked all DB recordings.
   });
 }

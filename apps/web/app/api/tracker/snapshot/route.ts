@@ -82,7 +82,8 @@ export async function POST(req: Request) {
     const organizationId = body?.organizationId as string | undefined;
     const sessionIdRaw = body?.sessionId as string | undefined;
     const events = body?.events as eventWithTime[] | undefined;
-    const visitorPageUrlRaw = body?.visitorPageUrl;
+    // Embed (`visitor-tracker`) sends `pageUrl` for the host page; widget sends `visitorPageUrl`.
+    const visitorPageUrlRaw = body?.visitorPageUrl ?? body?.pageUrl;
     const visitorPageUrl =
       typeof visitorPageUrlRaw === "string" ? visitorPageUrlRaw.trim() : undefined;
 
