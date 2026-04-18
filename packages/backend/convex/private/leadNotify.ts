@@ -250,6 +250,8 @@ type BookingLeadExtrasOk = {
   ok: true;
   slackAppend: string;
   emailHtmlFragment: string;
+  /** Plain markdown from AI — for Salesforce Note, Slack/email already embed HTML/slack formatting. */
+  aiLeadSummaryMarkdown?: string;
 };
 
 export const buildBookingLeadExtras = internalAction({
@@ -345,6 +347,7 @@ export const buildBookingLeadExtras = internalAction({
       emailHtmlFragment: formatLeadContextEmailSection(section, {
         conversationId: String(conversationId),
       }),
+      aiLeadSummaryMarkdown: aiMarkdown?.trim() || undefined,
     };
   },
 });

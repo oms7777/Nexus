@@ -411,6 +411,7 @@ export const bookSlot = action({
     let bookingLeadSlackAppend = "";
     let bookingLeadEmailHtml: string | undefined;
     let bookingConversationUrl: string | undefined;
+    let bookingAiSummaryMarkdown: string | undefined;
     try {
       const convId = await ctx.runQuery(internal.private.leadDigest.getLatestConversationIdForSession, {
         organizationId,
@@ -432,13 +433,14 @@ export const bookSlot = action({
         if (extras.ok) {
           bookingLeadSlackAppend = `\n\n${extras.slackAppend}`;
           bookingLeadEmailHtml = extras.emailHtmlFragment;
+          bookingAiSummaryMarkdown = extras.aiLeadSummaryMarkdown;
         }
       }
     } catch (e) {
       console.log("[calendar.bookSlot] lead context for notifications skipped:", e);
     }
 
-    // Salesforce — non bloquant
+    // Salesforce — non bloquant (after lead extras: AI summary → Note; visitor text + conv link → Lead.Description)
     try {
       await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
         organizationId,
@@ -448,6 +450,8 @@ export const bookSlot = action({
         attendeeCompany,
         attendeeRole,
         attendeeDescription: useCase || undefined,
+        conversationUrl: bookingConversationUrl,
+        aiLeadSummaryMarkdown: bookingAiSummaryMarkdown,
         startIso: new Date(start).toISOString(),
         endIso: new Date(end).toISOString(),
         meetingUrl,

@@ -617,6 +617,22 @@ async function sfFetch(
    ✅ FIX: no ctx.db in action
    ============================================================ */
 
+/** Visitor booking text + optional link to Inboundless conversation (Lead.Description / Event context). */
+function buildSalesforceLeadDescription(
+  useCase: string | undefined,
+  conversationUrl: string | undefined,
+): string | undefined {
+  const u = (useCase ?? "").trim();
+  const url = (conversationUrl ?? "").trim();
+  if (!u && !url) return undefined;
+  const lines: string[] = [];
+  if (u) lines.push(u);
+  if (url) lines.push(`Conversation: ${url}`);
+  return lines.join("\n\n");
+}
+
+const SF_NOTE_BODY_MAX = 31_000;
+
 export const createSalesforceLeadAndEvent = action({
   args: {
     organizationId: v.string(),
@@ -626,6 +642,10 @@ export const createSalesforceLeadAndEvent = action({
     attendeeCompany: v.optional(v.string()),
     attendeeRole: v.optional(v.string()),
     attendeeDescription: v.optional(v.string()),
+    /** App link to the conversation (shown on Lead + Event, not in Note). */
+    conversationUrl: v.optional(v.string()),
+    /** AI lead summary (markdown) — stored in a Salesforce Note on the Lead. */
+    aiLeadSummaryMarkdown: v.optional(v.string()),
     startIso: v.string(),
     endIso: v.string(),
     meetingUrl: v.optional(v.string()),
@@ -662,6 +682,7 @@ export const createSalesforceLeadAndEvent = action({
 
     const leadStatus = "Open - Not Contacted";
     const useCase = (args.attendeeDescription ?? "").trim() || undefined;
+    const leadDescription = buildSalesforceLeadDescription(useCase, args.conversationUrl);
 
     // 1) Lookup Lead by Email
     let leadId: string | null = null;
@@ -676,9 +697,8 @@ export const createSalesforceLeadAndEvent = action({
       if (qRes.ok && Array.isArray(qJson?.records) && qJson.records.length > 0) {
         leadId = String(qJson.records[0].Id);
 
-        // Optional: patch Lead.Description if empty
-        const existingDesc = String(qJson.records[0].Description ?? "").trim();
-        if (useCase && !existingDesc) {
+        // Refresh Lead.Description with latest booking: visitor text + conversation link
+        if (leadDescription) {
           try {
             await sfFetch(
               ctx,
@@ -687,7 +707,7 @@ export const createSalesforceLeadAndEvent = action({
               {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ Description: useCase }),
+                body: JSON.stringify({ Description: leadDescription }),
               },
               accessToken,
             );
@@ -711,7 +731,7 @@ export const createSalesforceLeadAndEvent = action({
         Title: title,
         LeadSource: args.source ?? "Inboundless",
         Status: leadStatus,
-        Description: useCase,
+        Description: leadDescription,
       };
 
       Object.keys(leadPayload).forEach((k) => leadPayload[k] === undefined && delete leadPayload[k]);
@@ -755,9 +775,43 @@ export const createSalesforceLeadAndEvent = action({
       }
     }
 
+    // 2b) AI summary → classic Note on Lead (not in Description)
+    const summaryRaw = (args.aiLeadSummaryMarkdown ?? "").trim();
+    if (leadId && summaryRaw) {
+      let body = summaryRaw;
+      if (body.length > SF_NOTE_BODY_MAX) {
+        body = `${body.slice(0, SF_NOTE_BODY_MAX - 20)}\n\n…(truncated)`;
+      }
+      try {
+        const noteRes = await sfFetch(
+          ctx,
+          args.organizationId,
+          `${base}/sobjects/Note`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              Title: "Inboundless — AI lead summary",
+              Body: body,
+              ParentId: leadId,
+              IsPrivate: false,
+            }),
+          },
+          accessToken,
+        );
+        const noteJson: any = await noteRes.json().catch(() => ({}));
+        if (!noteRes.ok) {
+          console.log("Salesforce Note create failed:", noteJson);
+        }
+      } catch (e) {
+        console.log("Salesforce Note create exception:", (e as any)?.detail ?? e);
+      }
+    }
+
     // 3) Create Event linked to Lead (WhoId)
     const descriptionLines = [
       useCase ? `Use case: ${useCase}` : null,
+      args.conversationUrl?.trim() ? `Conversation: ${args.conversationUrl.trim()}` : null,
       "",
       "Booked via Inboundless",
       `Name: ${args.attendeeName}`,

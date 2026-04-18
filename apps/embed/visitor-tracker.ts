@@ -76,6 +76,8 @@ let snapshotAbort: AbortController | null = null;
 let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
 let urlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+/** Catches navigations that never touch history.pushState/replaceState (some routers / edge cases). */
+let hrefWatchTimer: ReturnType<typeof setInterval> | null = null;
 
 // perf watchdog
 let longTaskObserver: PerformanceObserver | null = null;
@@ -416,19 +418,18 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
 }
 
 function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
-  if (!channelRef) return;
-
+  // Must run even when Pusher failed — HTTP snapshot + Convex still need a fresh recorder on route change.
   if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
   urlDebounceTimer = setTimeout(() => {
     urlDebounceTimer = null;
     const run = () => startRrwebRecorder(orgId, sessionId);
-    // Defer until after the next paint so SPA routers (e.g. Next.js) have updated the DOM.
+    // Short delay after debounce so SPA frameworks can commit the new route to the DOM.
     if (typeof requestAnimationFrame === "function") {
       requestAnimationFrame(() => {
-        requestAnimationFrame(run);
+        setTimeout(run, 120);
       });
     } else {
-      run();
+      setTimeout(run, 120);
     }
   }, URL_CHANGE_DEBOUNCE_MS);
 }
@@ -599,6 +600,13 @@ function cleanup() {
   }
   urlDebounceTimer = null;
 
+  if (hrefWatchTimer) {
+    try {
+      clearInterval(hrefWatchTimer);
+    } catch {}
+  }
+  hrefWatchTimer = null;
+
   if (onMoveRef) {
     try {
       document.removeEventListener("mousemove", onMoveRef);
@@ -723,9 +731,20 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
 
     emitPageEvent();
 
-    if (!channelRef) return;
     if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
   });
+
+  hrefWatchTimer = setInterval(() => {
+    if (!started) return;
+    try {
+      const href = location.href;
+      if (!href || href === lastHref) return;
+      lastHref = href;
+      markActivity();
+      emitPageEvent();
+      if (stopRecording) restartRrwebRecorderDebounced(orgId, sessionId);
+    } catch {}
+  }, 2500);
 
   attachUnloadHandlers();
 

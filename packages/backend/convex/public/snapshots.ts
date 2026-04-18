@@ -84,9 +84,10 @@ export const listRecent = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { sessionId, limit }) => {
+    // Same ordering as private/live.ts: newest `ts` first (not only insertion order on by_session).
     return await ctx.db
       .query("sessionSnapshots")
-      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+      .withIndex("by_session_ts", (q) => q.eq("sessionId", sessionId))
       .order("desc")
       .take(limit ?? 12);
   },
