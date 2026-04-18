@@ -40,7 +40,7 @@ function urlPathKey(raw: string | undefined): string | null {
   }
 }
 
-/** Heartbeat (session) is ahead of last persisted rrweb row — do not paint a stale snapshot. */
+/** Heartbeat is ahead of last persisted snapshot — show a hint, but still render the latest capture. */
 function isSnapshotStaleVsTracked(
   trackedPageUrl: string | undefined,
   snapshotPageUrl: string | undefined,
@@ -59,13 +59,11 @@ export function LiveVisitorView({
 }: {
   orgId: string;
   sessionId: Id<"contactSessions">;
-  /** Session heartbeat URL — when newer than snapshot.pageUrl, skip stale DB replay until they match. */
+  /** Session heartbeat URL — compared to snapshot.pageUrl for a non-blocking sync hint. */
   trackedPageUrl?: string;
 }) {
   const [fitMode, setFitMode] = useState<"fit" | "fill">("fit");
   const maxUpscale = 1; // avoid blur/pixelation from scaling above 1x
-  /** Pusher delivered a full snapshot after the last tracked URL change — trust it even if Convex row still lags. */
-  const [liveReplayEpoch, setLiveReplayEpoch] = useState(0);
 
   const outerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -197,13 +195,8 @@ export function LiveVisitorView({
   // ✅ MAJ: reset hard when session changes
   useEffect(() => {
     destroyReplayer();
-    setLiveReplayEpoch(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
-
-  useEffect(() => {
-    setLiveReplayEpoch(0);
-  }, [trackedPageUrl]);
 
   const bootFromEvents = useCallback(
     (events: eventWithTime[]) => {
@@ -258,11 +251,6 @@ export function LiveVisitorView({
   useEffect(() => {
     if (!latest?.snapshot) return;
 
-    if (staleVsTracked) {
-      destroyReplayer();
-      return;
-    }
-
     ensureStage();
 
     try {
@@ -271,14 +259,7 @@ export function LiveVisitorView({
     } catch (err) {
       console.error("[live] failed to init snapshot", err);
     }
-  }, [
-    latest?.snapshot,
-    latest?.pageUrl,
-    staleVsTracked,
-    ensureStage,
-    bootFromEvents,
-    destroyReplayer,
-  ]);
+  }, [latest?.snapshot, ensureStage, bootFromEvents]);
 
   useEffect(() => {
     const outer = outerRef.current;
@@ -363,7 +344,6 @@ export function LiveVisitorView({
     (events: eventWithTime[]) => {
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
       bootFromEvents(events);
-      setLiveReplayEpoch(Date.now());
     },
     [bootFromEvents],
   );
@@ -390,11 +370,6 @@ export function LiveVisitorView({
   }
 
   const hasDbSnapshot = !!latest?.snapshot?.length;
-  const showStaleOverlay =
-    !snapshotLoading &&
-    staleVsTracked &&
-    !!trackedPageUrl?.trim() &&
-    liveReplayEpoch === 0;
 
   const deviceLabel = useMemo(() => {
     const w = src?.width;
@@ -458,17 +433,15 @@ export function LiveVisitorView({
         </div>
       )}
 
-      {showStaleOverlay && (
-        <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 bg-background/85 p-4 text-center text-sm text-muted-foreground backdrop-blur-[2px]">
-          <p className="font-medium text-foreground/90">Preview catching up</p>
-          <p className="text-xs max-w-[18rem]">
-            The URL above is already updated; we are waiting for a new screen capture that matches it
-            (or the live stream).
-          </p>
+      {!snapshotLoading && staleVsTracked && !!trackedPageUrl?.trim() && (
+        <div className="absolute bottom-3 left-3 right-3 z-[5] rounded-lg border border-amber-200/80 bg-amber-50/95 px-3 py-2 text-left text-[11px] leading-snug text-amber-950 shadow-sm ring-1 ring-amber-900/5 dark:border-amber-900/50 dark:bg-amber-950/90 dark:text-amber-50">
+          <span className="font-medium">Preview may lag.</span> The URL above reflects the live tab;
+          this frame is still the last capture we received. It updates when the next snapshot or live
+          stream arrives.
         </div>
       )}
 
-      {!snapshotLoading && !hasDbSnapshot && !showStaleOverlay && (
+      {!snapshotLoading && !hasDbSnapshot && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/20 p-4 text-center text-sm text-muted-foreground">
           <p className="font-medium text-foreground/80">Screen replay unavailable</p>
           <p className="text-xs max-w-[18rem]">
