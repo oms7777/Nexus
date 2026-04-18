@@ -20,12 +20,14 @@ const IS_ORG_FREE_ROUTE = createRouteMatcher([
   "/org-selection(.*)",
 ]);
 
-/** Visiteurs anonymes (pas de session Clerk) — court-circuiter Clerk avant auth(). */
-const IS_ANONYMOUS_INGESTION_ROUTE = createRouteMatcher([
-  "/api/realtime/pusher-auth(.*)",
-  "/api/tracker/snapshot(.*)",
-  "/api/tracker/log(.*)",
-]);
+/** Pas de session Clerk — ne jamais dépendre uniquement de createRouteMatcher (chemins parfois différents en prod). */
+function isAnonymousIngestionPath(pathname: string) {
+  return (
+    pathname === "/api/tracker/snapshot" ||
+    pathname.startsWith("/api/tracker/log") ||
+    pathname.startsWith("/api/realtime/pusher-auth")
+  );
+}
 
 function isInviteSignUp(req: Request) {
   const url = new URL(req.url);
@@ -53,7 +55,7 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   // ✅ Posts depuis le site client / iframe sans cookie Clerk — ne pas invoquer auth()
-  if (IS_ANONYMOUS_INGESTION_ROUTE(req)) {
+  if (isAnonymousIngestionPath(url.pathname)) {
     return NextResponse.next();
   }
 
