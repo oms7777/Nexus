@@ -412,7 +412,7 @@ function startRrwebRecorder(orgId: string, sessionId: string) {
     try {
       (record as any).takeFullSnapshot?.();
     } catch {}
-  }, 600);
+  }, 320);
 }
 
 function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
@@ -421,7 +421,15 @@ function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
   if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
   urlDebounceTimer = setTimeout(() => {
     urlDebounceTimer = null;
-    startRrwebRecorder(orgId, sessionId);
+    const run = () => startRrwebRecorder(orgId, sessionId);
+    // Defer until after the next paint so SPA routers (e.g. Next.js) have updated the DOM.
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(run);
+      });
+    } else {
+      run();
+    }
   }, URL_CHANGE_DEBOUNCE_MS);
 }
 

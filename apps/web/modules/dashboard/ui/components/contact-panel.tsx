@@ -522,6 +522,7 @@ export const ContactPanel = () => {
                 <LiveVisitorView
                   orgId={contactSession.organizationId}
                   sessionId={contactSession._id}
+                  trackedPageUrl={currentUrl || undefined}
                 />
               ) : null}
 

@@ -27,15 +27,45 @@ function clamp01(n: number) {
   return Math.min(1, Math.max(0, n));
 }
 
+/** Same host + path + search — aligns heartbeat URL with snapshot.pageUrl from Convex. */
+function urlPathKey(raw: string | undefined): string | null {
+  if (!raw?.trim()) return null;
+  try {
+    const u = new URL(raw.trim());
+    const host = u.hostname.replace(/^www\./i, "").toLowerCase();
+    const path = (u.pathname || "/").replace(/\/$/, "") || "/";
+    return `${host}${path}${u.search}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Heartbeat (session) is ahead of last persisted rrweb row — do not paint a stale snapshot. */
+function isSnapshotStaleVsTracked(
+  trackedPageUrl: string | undefined,
+  snapshotPageUrl: string | undefined,
+): boolean {
+  if (!trackedPageUrl?.trim() || !snapshotPageUrl?.trim()) return false;
+  const t = urlPathKey(trackedPageUrl);
+  const s = urlPathKey(snapshotPageUrl);
+  if (!t || !s) return false;
+  return t !== s;
+}
+
 export function LiveVisitorView({
   orgId,
   sessionId,
+  trackedPageUrl,
 }: {
   orgId: string;
   sessionId: Id<"contactSessions">;
+  /** Session heartbeat URL — when newer than snapshot.pageUrl, skip stale DB replay until they match. */
+  trackedPageUrl?: string;
 }) {
   const [fitMode, setFitMode] = useState<"fit" | "fill">("fit");
   const maxUpscale = 1; // avoid blur/pixelation from scaling above 1x
+  /** Pusher delivered a full snapshot after the last tracked URL change — trust it even if Convex row still lags. */
+  const [liveReplayEpoch, setLiveReplayEpoch] = useState(0);
 
   const outerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -167,8 +197,13 @@ export function LiveVisitorView({
   // ✅ MAJ: reset hard when session changes
   useEffect(() => {
     destroyReplayer();
+    setLiveReplayEpoch(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
+
+  useEffect(() => {
+    setLiveReplayEpoch(0);
+  }, [trackedPageUrl]);
 
   const bootFromEvents = useCallback(
     (events: eventWithTime[]) => {
@@ -215,8 +250,18 @@ export function LiveVisitorView({
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
   );
 
+  const staleVsTracked = useMemo(
+    () => isSnapshotStaleVsTracked(trackedPageUrl, latest?.pageUrl),
+    [trackedPageUrl, latest?.pageUrl],
+  );
+
   useEffect(() => {
     if (!latest?.snapshot) return;
+
+    if (staleVsTracked) {
+      destroyReplayer();
+      return;
+    }
 
     ensureStage();
 
@@ -226,7 +271,14 @@ export function LiveVisitorView({
     } catch (err) {
       console.error("[live] failed to init snapshot", err);
     }
-  }, [latest?.snapshot, ensureStage, bootFromEvents]);
+  }, [
+    latest?.snapshot,
+    latest?.pageUrl,
+    staleVsTracked,
+    ensureStage,
+    bootFromEvents,
+    destroyReplayer,
+  ]);
 
   useEffect(() => {
     const outer = outerRef.current;
@@ -311,6 +363,7 @@ export function LiveVisitorView({
     (events: eventWithTime[]) => {
       if (events.length === 1 && (events[0] as any)?.type === 4) return;
       bootFromEvents(events);
+      setLiveReplayEpoch(Date.now());
     },
     [bootFromEvents],
   );
@@ -336,7 +389,12 @@ export function LiveVisitorView({
     };
   }
 
-  const hasSnapshot = !!latest?.snapshot;
+  const hasDbSnapshot = !!latest?.snapshot?.length;
+  const showStaleOverlay =
+    !snapshotLoading &&
+    staleVsTracked &&
+    !!trackedPageUrl?.trim() &&
+    liveReplayEpoch === 0;
 
   const deviceLabel = useMemo(() => {
     const w = src?.width;
@@ -400,7 +458,17 @@ export function LiveVisitorView({
         </div>
       )}
 
-      {!snapshotLoading && !hasSnapshot && (
+      {showStaleOverlay && (
+        <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 bg-background/85 p-4 text-center text-sm text-muted-foreground backdrop-blur-[2px]">
+          <p className="font-medium text-foreground/90">Preview catching up</p>
+          <p className="text-xs max-w-[18rem]">
+            The URL above is already updated; we are waiting for a new screen capture that matches it
+            (or the live stream).
+          </p>
+        </div>
+      )}
+
+      {!snapshotLoading && !hasDbSnapshot && !showStaleOverlay && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/20 p-4 text-center text-sm text-muted-foreground">
           <p className="font-medium text-foreground/80">Screen replay unavailable</p>
           <p className="text-xs max-w-[18rem]">
