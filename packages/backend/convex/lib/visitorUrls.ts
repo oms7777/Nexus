@@ -73,32 +73,83 @@ export function normalizeVisitorUrlKey(url?: string): string | undefined {
   }
 }
 
+function firstNonHostedPageFromList(pages: unknown[]): string | undefined {
+  for (const p of pages) {
+    if (typeof p !== "string" || !p.trim()) continue;
+    const t = p.trim();
+    if (!isHostedInboundlessAppUrl(t)) return t;
+  }
+  return undefined;
+}
+
+function isRootPathUrl(url: string): boolean {
+  try {
+    const p = (new URL(url).pathname || "/").replace(/\/$/, "") || "/";
+    return p === "/";
+  } catch {
+    return false;
+  }
+}
+
+function sameRegisteredHost(a: string, b: string): boolean {
+  try {
+    const ha = new URL(a).hostname.replace(/^www\./i, "").toLowerCase();
+    const hb = new URL(b).hostname.replace(/^www\./i, "").toLowerCase();
+    return ha === hb;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Live Map / inbox: merge snapshot + heartbeat history. Snapshot alone can lag on "/" while
- * heartbeats have /resources in `pages` — reduce all sources and pick the most specific path.
+ * Live Map / list: which URL to show for "current page".
+ *
+ * Prefer **`metadata.currentUrl`** (same field as Conversations / last heartbeat) so the map does not
+ * stick on a stale entry in `pages[]` when history and heartbeat briefly disagree.
+ *
+ * Exception: `currentUrl` can stay on site root "/" after SPA navigations while `pages` (newest-first)
+ * already has a deeper path — then use the first non-widget page from `pages`.
+ *
+ * Snapshots / rrweb meta can still lag; they are used after session metadata.
  */
 export function pickBestVisitorPageUrl(input: {
   metadata: Record<string, unknown>;
   snapshotPageUrl?: string;
 }): string | undefined {
   const { metadata, snapshotPageUrl } = input;
-  const candidates: string[] = [];
-  const push = (s: unknown) => {
-    if (typeof s !== "string" || !s.trim()) return;
-    const t = s.trim();
-    if (!isHostedInboundlessAppUrl(t)) candidates.push(t);
-  };
-  if (snapshotPageUrl) push(snapshotPageUrl);
-  const pages = Array.isArray(metadata.pages) ? metadata.pages : [];
-  for (const p of pages) push(p);
-  push(metadata.currentUrl);
-  push(metadata.referrer);
+  const pages = Array.isArray(metadata.pages) ? (metadata.pages as unknown[]) : [];
+  const firstPage = firstNonHostedPageFromList(pages);
 
-  let best: string | undefined;
-  for (const c of candidates) {
-    best = preferMoreSpecificPageUrl(best, c) ?? c;
+  let cur: string | undefined;
+  const curRaw = metadata.currentUrl;
+  if (typeof curRaw === "string" && curRaw.trim()) {
+    const t = curRaw.trim();
+    if (!isHostedInboundlessAppUrl(t)) cur = t;
   }
-  return best;
+
+  if (cur) {
+    const stuckOnRoot =
+      firstPage &&
+      isRootPathUrl(cur) &&
+      sameRegisteredHost(cur, firstPage) &&
+      !isRootPathUrl(firstPage);
+    if (!stuckOnRoot) return cur;
+  }
+
+  if (firstPage) return firstPage;
+
+  if (typeof snapshotPageUrl === "string" && snapshotPageUrl.trim()) {
+    const t = snapshotPageUrl.trim();
+    if (!isHostedInboundlessAppUrl(t)) return t;
+  }
+
+  const ref = metadata.referrer;
+  if (typeof ref === "string" && ref.trim()) {
+    const t = ref.trim();
+    if (!isHostedInboundlessAppUrl(t)) return t;
+  }
+
+  return undefined;
 }
 
 /** Return metadata safe for inbox/detail UI (never misleading widget-only currentUrl). */
