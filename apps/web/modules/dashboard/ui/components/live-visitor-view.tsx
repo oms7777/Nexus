@@ -27,41 +27,16 @@ function clamp01(n: number) {
   return Math.min(1, Math.max(0, n));
 }
 
-/** Same host + path + search — aligns heartbeat URL with snapshot.pageUrl from Convex. */
-function urlPathKey(raw: string | undefined): string | null {
-  if (!raw?.trim()) return null;
-  try {
-    const u = new URL(raw.trim());
-    const host = u.hostname.replace(/^www\./i, "").toLowerCase();
-    const path = (u.pathname || "/").replace(/\/$/, "") || "/";
-    return `${host}${path}${u.search}`;
-  } catch {
-    return null;
-  }
-}
-
-/** Heartbeat is ahead of last persisted snapshot — show a hint, but still render the latest capture. */
-function isSnapshotStaleVsTracked(
-  trackedPageUrl: string | undefined,
-  snapshotPageUrl: string | undefined,
-): boolean {
-  if (!trackedPageUrl?.trim() || !snapshotPageUrl?.trim()) return false;
-  const t = urlPathKey(trackedPageUrl);
-  const s = urlPathKey(snapshotPageUrl);
-  if (!t || !s) return false;
-  return t !== s;
-}
-
 export function LiveVisitorView({
   orgId,
   sessionId,
-  trackedPageUrl,
+  trackedPageUrl: _trackedPageUrl,
 }: {
   orgId: string;
   sessionId: Id<"contactSessions">;
-  /** Session heartbeat URL — compared to snapshot.pageUrl for a non-blocking sync hint. */
   trackedPageUrl?: string;
 }) {
+  void _trackedPageUrl;
   const [fitMode, setFitMode] = useState<"fit" | "fill">("fit");
   const maxUpscale = 1; // avoid blur/pixelation from scaling above 1x
 
@@ -241,11 +216,6 @@ export function LiveVisitorView({
       requestAnimationFrame(() => applyLayout());
     },
     [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
-  );
-
-  const staleVsTracked = useMemo(
-    () => isSnapshotStaleVsTracked(trackedPageUrl, latest?.pageUrl),
-    [trackedPageUrl, latest?.pageUrl],
   );
 
   useEffect(() => {
@@ -430,14 +400,6 @@ export function LiveVisitorView({
       {snapshotLoading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/10 p-4 text-center text-sm text-muted-foreground">
           <p>Loading…</p>
-        </div>
-      )}
-
-      {!snapshotLoading && staleVsTracked && !!trackedPageUrl?.trim() && (
-        <div className="absolute bottom-3 left-3 right-3 z-[5] rounded-lg border border-amber-200/80 bg-amber-50/95 px-3 py-2 text-left text-[11px] leading-snug text-amber-950 shadow-sm ring-1 ring-amber-900/5 dark:border-amber-900/50 dark:bg-amber-950/90 dark:text-amber-50">
-          <span className="font-medium">Preview may lag.</span> The URL above reflects the live tab;
-          this frame is still the last capture we received. It updates when the next snapshot or live
-          stream arrives.
         </div>
       )}
 
