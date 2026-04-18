@@ -26,9 +26,11 @@ const MAX_BATCH_EVENTS = 10;
 // snapshot persist debounce
 const SNAPSHOT_DEBOUNCE_MS = 300;
 
-// URL-change -> restart recorder (reliable full snapshot)
+// URL-change -> restart recorder (reliable full snapshot).
+// Debounce coalesces rapid SPA hops into one restart; do NOT throttle with a min interval —
+// that silently skipped restarts and left rrweb replay stuck on the previous page while
+// heartbeats already showed the new URL.
 const URL_CHANGE_DEBOUNCE_MS = 250;
-const MIN_RESTART_INTERVAL_MS = 3000;
 
 // activity / idle control
 const IDLE_PAUSE_MS = 60_000;
@@ -74,7 +76,6 @@ let snapshotAbort: AbortController | null = null;
 let lastHref: string | null = null;
 let unpatchHistory: (() => void) | null = null;
 let urlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-let lastRestartAt = 0;
 
 // perf watchdog
 let longTaskObserver: PerformanceObserver | null = null;
@@ -420,11 +421,6 @@ function restartRrwebRecorderDebounced(orgId: string, sessionId: string) {
   if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
   urlDebounceTimer = setTimeout(() => {
     urlDebounceTimer = null;
-
-    const t = now();
-    if (t - lastRestartAt < MIN_RESTART_INTERVAL_MS) return;
-    lastRestartAt = t;
-
     startRrwebRecorder(orgId, sessionId);
   }, URL_CHANGE_DEBOUNCE_MS);
 }
@@ -657,7 +653,6 @@ function cleanup() {
   lastMeta = null;
 
   lastHref = null;
-  lastRestartAt = 0;
 
   totalEvents = 0;
   lastActivityAt = now();
