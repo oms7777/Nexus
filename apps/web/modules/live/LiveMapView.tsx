@@ -164,11 +164,7 @@ export default function LiveMapView() {
             </div>
           </div>
 
-          <LiveVisitorView
-            orgId={orgId}
-            sessionId={selectedSessionId}
-            trackedPageUrl={selected.currentUrl}
-          />
+          <LiveVisitorView orgId={orgId} sessionId={selectedSessionId} />
           <SnapshotsStrip sessionId={selectedSessionId} limit={6} />
         </aside>
       )}

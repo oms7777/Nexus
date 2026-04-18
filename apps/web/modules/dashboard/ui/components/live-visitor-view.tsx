@@ -30,13 +30,10 @@ function clamp01(n: number) {
 export function LiveVisitorView({
   orgId,
   sessionId,
-  trackedPageUrl: _trackedPageUrl,
 }: {
   orgId: string;
   sessionId: Id<"contactSessions">;
-  trackedPageUrl?: string;
 }) {
-  void _trackedPageUrl;
   const [fitMode, setFitMode] = useState<"fit" | "fill">("fit");
   const maxUpscale = 1; // avoid blur/pixelation from scaling above 1x
 
@@ -68,6 +65,11 @@ export function LiveVisitorView({
 
   const snapshotLoading = snaps === undefined;
   const latest = snaps?.[0];
+
+  // Avoid putting `latest` in bootFromEvents deps — it would change often and retrigger the
+  // Convex hydrate effect, resetting the replayer and wiping Pusher live increments.
+  const latestRef = useRef(latest);
+  latestRef.current = latest;
 
   const ensureStage = useCallback(() => {
     const outer = outerRef.current;
@@ -182,16 +184,13 @@ export function LiveVisitorView({
       destroyReplayer();
 
       const meta = extractMeta(events);
+      const lr = latestRef.current;
 
       const width =
-        meta.width ??
-        (typeof latest?.width === "number" ? latest.width : undefined) ??
-        1200;
+        meta.width ?? (typeof lr?.width === "number" ? lr.width : undefined) ?? 1200;
 
       const height =
-        meta.height ??
-        (typeof latest?.height === "number" ? latest.height : undefined) ??
-        800;
+        meta.height ?? (typeof lr?.height === "number" ? lr.height : undefined) ?? 800;
 
       sourceRef.current = { width, height };
       stage.style.width = `${width}px`;
@@ -215,7 +214,7 @@ export function LiveVisitorView({
 
       requestAnimationFrame(() => applyLayout());
     },
-    [applyLayout, destroyReplayer, ensureStage, latest?.height, latest?.width],
+    [applyLayout, destroyReplayer, ensureStage],
   );
 
   useEffect(() => {
