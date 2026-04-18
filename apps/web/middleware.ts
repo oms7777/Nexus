@@ -20,6 +20,13 @@ const IS_ORG_FREE_ROUTE = createRouteMatcher([
   "/org-selection(.*)",
 ]);
 
+/** Visiteurs anonymes (pas de session Clerk) — court-circuiter Clerk avant auth(). */
+const IS_ANONYMOUS_INGESTION_ROUTE = createRouteMatcher([
+  "/api/realtime/pusher-auth(.*)",
+  "/api/tracker/snapshot(.*)",
+  "/api/tracker/log(.*)",
+]);
+
 function isInviteSignUp(req: Request) {
   const url = new URL(req.url);
 
@@ -45,6 +52,11 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.next();
   }
 
+  // ✅ Posts depuis le site client / iframe sans cookie Clerk — ne pas invoquer auth()
+  if (IS_ANONYMOUS_INGESTION_ROUTE(req)) {
+    return NextResponse.next();
+  }
+
   const { userId, orgId } = await auth();
 
   // ✅ bloque le sign-up direct (autorise via lien d'invite)
@@ -54,7 +66,7 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(signInUrl);
   }
 
-  // 🔓 public routes stay public
+  // 🔓 pages publiques (sign-in, etc.)
   if (!IS_PUBLIC_ROUTE(req)) {
     await auth.protect();
   }
