@@ -1,7 +1,7 @@
 // LiveVisitorView.tsx — MAJ: reset on sessionId change (important)
 "use client";
 
-import { useRef, useEffect, useCallback, useMemo, useState } from "react";
+import { useRef, useEffect, useCallback, useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
@@ -34,7 +34,6 @@ export function LiveVisitorView({
   orgId: string;
   sessionId: Id<"contactSessions">;
 }) {
-  const [fitMode, setFitMode] = useState<"fit" | "fill">("fit");
   const maxUpscale = 1; // avoid blur/pixelation from scaling above 1x
 
   const outerRef = useRef<HTMLDivElement | null>(null);
@@ -121,10 +120,9 @@ export function LiveVisitorView({
     const vh = outer.clientHeight;
     if (!vw || !vh) return;
 
-    // Fit by default to avoid blur/pixelation; Fill is optional.
     const scaleW = vw / src.width;
     const scaleH = vh / src.height;
-    const rawScale = fitMode === "fill" ? Math.max(scaleW, scaleH) : Math.min(scaleW, scaleH);
+    const rawScale = Math.min(scaleW, scaleH);
     const scale = Math.min(rawScale, maxUpscale);
 
     const contentW = src.width * scale;
@@ -142,7 +140,7 @@ export function LiveVisitorView({
 
     layoutRef.current = { scale: s, ox: x, oy: y };
     stage.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${s})`;
-  }, [fitMode]);
+  }, []);
 
   const stopRAF = useCallback(() => {
     try {
@@ -369,31 +367,6 @@ export function LiveVisitorView({
             {deviceLabel}
           </div>
         )}
-      </div>
-
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-white/80 p-1 shadow-sm ring-1 ring-black/5 backdrop-blur">
-        <button
-          type="button"
-          onClick={() => setFitMode("fit")}
-          className={
-            fitMode === "fit"
-              ? "rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white"
-              : "rounded-full px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-black/5"
-          }
-        >
-          Fit
-        </button>
-        <button
-          type="button"
-          onClick={() => setFitMode("fill")}
-          className={
-            fitMode === "fill"
-              ? "rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white"
-              : "rounded-full px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-black/5"
-          }
-        >
-          Fill
-        </button>
       </div>
 
       {snapshotLoading && (

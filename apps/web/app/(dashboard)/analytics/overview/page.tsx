@@ -20,7 +20,15 @@ import {
   Legend,
 } from "recharts";
 
-import { BrandPill, RangePills, CardShell, StatCard, MiniBarTable, MiniTable } from "@/modules/analytics/shared/analytics-primitives";
+import {
+  BrandPill,
+  RangePills,
+  CardShell,
+  StatCard,
+  MiniBarTable,
+  MiniTable,
+  DeltaPill,
+} from "@/modules/analytics/shared/analytics-primitives";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 
 function makeRange(days: number) {
@@ -158,6 +166,12 @@ export default function AnalyticsOverviewPage() {
     { label: "Meetings booked", value: Number(kpi.meetings ?? 0), delta: deltas.meetings ?? null, sub: "Business outcomes" },
   ];
 
+  const meetingsN = Number(kpi.meetings ?? 0);
+  const sessionsN = Number(kpi.sessions ?? 0);
+  const conversationsN = Number(kpi.conversations ?? 0);
+  const sessionToMtgPct = sessionsN > 0 ? (meetingsN / sessionsN) * 100 : 0;
+  const convToMtgPct = conversationsN > 0 ? (meetingsN / conversationsN) * 100 : 0;
+
   const topSources = Array.isArray(overview?.top_sources) ? overview.top_sources : [];
   const topSourcesDisplay = useMemo(() => topSources.filter((s: any) => !isNoiseSourceRow(s)), [topSources]);
   const topPages = Array.isArray(overview?.top_pages) ? overview.top_pages : [];
@@ -252,7 +266,8 @@ export default function AnalyticsOverviewPage() {
         <div className="max-w-2xl space-y-2">
           <div className="text-2xl font-semibold tracking-tight">Executive Analytics</div>
           <p className="text-sm text-muted-foreground">
-            Inboundless funnel on your customers&apos; sites — not the same as site traffic tools (GA, hosting).
+            Pipeline &amp; outcomes from the Inboundless widget on your sites — complementary to GA / ads tools for
+            acquisition detail.
           </p>
           <p className="text-xs text-muted-foreground/90">
             <span className="font-medium text-foreground">Everyone in your organization</span> sees the same numbers
@@ -262,16 +277,58 @@ export default function AnalyticsOverviewPage() {
         <RangePills value={days} onChange={setDays} />
       </div>
 
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-5">
-        {cards.map((c) => (
-          <StatCard key={c.label} label={c.label} value={c.value} delta={c.delta} sub={c.sub} />
-        ))}
+      {/* Hero: primary business outcome — refonte focus */}
+      <div className="overflow-hidden rounded-2xl border border-fuchsia-200/50 bg-gradient-to-br from-fuchsia-50/90 via-white to-rose-50/60 shadow-sm dark:border-fuchsia-900/30 dark:from-fuchsia-950/25 dark:via-background dark:to-rose-950/20">
+        <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between lg:p-8">
+          <div className="min-w-0 space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-800/90 dark:text-fuchsia-300/90">
+              Primary outcome
+            </p>
+            <div className="flex flex-wrap items-end gap-3 gap-y-1">
+              <span className="text-5xl font-bold tracking-tight tabular-nums text-foreground sm:text-6xl">
+                {meetingsN.toLocaleString()}
+              </span>
+              <span className="pb-1 text-lg font-medium text-muted-foreground">meetings booked</span>
+              <DeltaPill delta={deltas.meetings ?? null} className="mb-1" />
+            </div>
+            <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+              Booked meetings attributed to this period. Conversion rates summarize how efficiently sessions and
+              conversations turn into outcomes — not raw marketing traffic.
+            </p>
+          </div>
+          <div className="grid w-full max-w-md shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:max-w-lg">
+            <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Session → meeting</div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{sessionToMtgPct.toFixed(1)}%</div>
+            </div>
+            <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Conv. → meeting</div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{convToMtgPct.toFixed(1)}%</div>
+            </div>
+            <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sessions</div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{sessionsN.toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="px-0.5">
+          <h2 className="text-sm font-semibold text-foreground">Pipeline volume</h2>
+          <p className="text-xs text-muted-foreground">Funnel counts for the selected period — compare to prior below.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {cards.map((c) => (
+            <StatCard key={c.label} label={c.label} value={c.value} delta={c.delta} sub={c.sub} />
+          ))}
+        </div>
       </div>
 
       <div className="grid gap-4 grid-cols-1">
         <CardShell
           title="Pipeline trend"
-          subtitle="Sessions → Conversations → Meetings over time"
+          subtitle="How sessions, conversations, and meetings move day by day"
           right={showPlanBadges ? <BrandPill>Core</BrandPill> : null}
         >
           {trendRows.length === 0 ? (
@@ -299,50 +356,70 @@ export default function AnalyticsOverviewPage() {
         <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
           <div className="xl:col-span-2">
             <CardShell
-              title="Sources, pages & geography"
-              subtitle="Traffic and outcomes by source, page, then country — pick a lens below."
+              title="Acquisition hints, pages & geography"
+              subtitle="UTM-tagged campaigns show clearly; referrers are best-effort. Then pages and geo."
               right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
             >
               <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-foreground">Top sources</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      Sessions → outcomes
-                    </div>
+                    <div className="text-sm font-medium text-foreground">Sources (UTM &amp; referrer)</div>
+                    <div className="text-[11px] text-muted-foreground">Volume → outcomes</div>
                   </div>
                   <MiniBarTable
                     columns={["Source", "Sessions"]}
-                    rows={topSourcesDisplay.slice(0, 8).map((s: any) => ({
-                      label: normalizeSourceLabel(s.source ?? "direct"),
-                      primaryValue: Number(s.sessions ?? 0),
-                      detail: `${Number(s.conversations ?? 0).toLocaleString()} conv • ${Number(s.meetings ?? 0).toLocaleString()} mtg • ${(
-                        (Number(s.sessions ?? 0) > 0 ? Number(s.meetings ?? 0) / Number(s.sessions ?? 0) : 0) * 100
-                      ).toFixed(1)}% mtg rate`,
-                    }))}
+                    rows={topSourcesDisplay.slice(0, 8).map((s: any) => {
+                      const sess = Number(s.sessions ?? 0);
+                      const mtgR = sess > 0 ? (Number(s.meetings ?? 0) / sess) * 100 : 0;
+                      return {
+                        label: normalizeSourceLabel(s.source ?? "direct"),
+                        primaryValue: sess,
+                        detail: (
+                          <>
+                            <span className="font-semibold text-foreground">{mtgR.toFixed(1)}%</span>
+                            <span className="text-muted-foreground"> meeting rate · </span>
+                            <span>
+                              {Number(s.conversations ?? 0).toLocaleString()} conv · {Number(s.meetings ?? 0).toLocaleString()}{" "}
+                              mtg
+                            </span>
+                          </>
+                        ),
+                      };
+                    })}
                   />
-                  <div className="mt-2 rounded-lg border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                    Attribution is <span className="font-medium text-foreground">reliable with UTMs</span>. Referrer is
-                    often blocked by privacy settings, so “Direct / Unattributed” can be high.
+                  <div className="mt-2 rounded-lg border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
+                    <span className="font-medium text-foreground">UTM parameters</span> are the reliable signal for
+                    campaigns. Raw <span className="font-medium text-foreground">referrer</span> is often stripped
+                    (browsers, privacy), so &quot;Direct / Unattributed&quot; stays high — use GA or ad platforms for full
+                    acquisition breakdown.
                   </div>
                 </div>
 
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="text-sm font-medium text-foreground">Top pages</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      Sessions → outcomes
-                    </div>
+                    <div className="text-[11px] text-muted-foreground">Volume → outcomes</div>
                   </div>
                   <MiniBarTable
                     columns={["Page", "Sessions"]}
-                    rows={topPages.slice(0, 8).map((p: any) => ({
-                      label: normalizeLabel(p.page ?? "/"),
-                      primaryValue: Number(p.sessions ?? 0),
-                      detail: `${Number(p.conversations ?? 0).toLocaleString()} conv • ${Number(p.meetings ?? 0).toLocaleString()} mtg • ${(
-                        (Number(p.sessions ?? 0) > 0 ? Number(p.meetings ?? 0) / Number(p.sessions ?? 0) : 0) * 100
-                      ).toFixed(1)}% mtg rate`,
-                    }))}
+                    rows={topPages.slice(0, 8).map((p: any) => {
+                      const sess = Number(p.sessions ?? 0);
+                      const mtgR = sess > 0 ? (Number(p.meetings ?? 0) / sess) * 100 : 0;
+                      return {
+                        label: normalizeLabel(p.page ?? "/"),
+                        primaryValue: sess,
+                        detail: (
+                          <>
+                            <span className="font-semibold text-foreground">{mtgR.toFixed(1)}%</span>
+                            <span className="text-muted-foreground"> meeting rate · </span>
+                            <span>
+                              {Number(p.conversations ?? 0).toLocaleString()} conv · {Number(p.meetings ?? 0).toLocaleString()}{" "}
+                              mtg
+                            </span>
+                          </>
+                        ),
+                      };
+                    })}
                   />
                 </div>
               </div>

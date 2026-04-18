@@ -71,6 +71,32 @@ export function CardShell({
   );
 }
 
+/** Shared by StatCard and Overview hero — semantic up / down / flat. */
+export function DeltaPill({ delta, className = "" }: { delta?: number | null; className?: string }) {
+  const d = typeof delta === "number" ? delta : null;
+  if (d === null) return null;
+  const sign = d > 0 ? "+" : "";
+  const pct = `${sign}${Math.round(d * 100)}%`;
+  const tone = d > 0 ? "up" : d < 0 ? "down" : "flat";
+  const deltaPillClass =
+    tone === "up"
+      ? "border-emerald-200/90 bg-emerald-50 text-emerald-900 dark:border-emerald-900/45 dark:bg-emerald-950/50 dark:text-emerald-100"
+      : tone === "down"
+        ? "border-rose-200/90 bg-rose-50 text-rose-900 dark:border-rose-900/45 dark:bg-rose-950/50 dark:text-rose-100"
+        : "border-muted bg-muted/45 text-muted-foreground";
+
+  return (
+    <div
+      className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1.5 text-xs font-semibold tabular-nums shadow-sm ${deltaPillClass} ${className}`}
+      title="Compared to the immediately previous period of the same length (e.g. prior 30 days when 30d is selected)."
+    >
+      <span className="mr-1.5 opacity-70">vs prior</span>
+      {tone === "up" ? <span aria-hidden>↑ </span> : tone === "down" ? <span aria-hidden>↓ </span> : null}
+      {pct}
+    </div>
+  );
+}
+
 export function StatCard({
   label,
   value,
@@ -82,23 +108,17 @@ export function StatCard({
   delta?: number | null;
   sub?: string;
 }) {
-  const d = typeof delta === "number" ? delta : null;
-  const sign = d !== null && d > 0 ? "+" : "";
-  const pct = d !== null ? `${sign}${Math.round(d * 100)}%` : null;
-
   return (
     <div className={`rounded-2xl border bg-white p-6 shadow-sm ${PALETTE.cardHover}`}>
       <div className="flex items-start justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <div className="text-sm text-muted-foreground">{label}</div>
-          <div className="text-4xl font-semibold mt-2">{(value ?? 0).toLocaleString()}</div>
+          <div className="mt-2 text-4xl font-semibold tracking-tight tabular-nums">
+            {(value ?? 0).toLocaleString()}
+          </div>
           {sub ? <div className="mt-2 text-xs text-muted-foreground">{sub}</div> : null}
         </div>
-        {pct ? (
-          <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs font-semibold text-fuchsia-700">
-            vs prev: {pct}
-          </div>
-        ) : null}
+        <DeltaPill delta={delta} />
       </div>
     </div>
   );
@@ -202,9 +222,7 @@ export function MiniBarTable({
                     {v.toLocaleString()}
                   </div>
                   {r.detail ? (
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      {r.detail}
-                    </div>
+                    <div className="mt-1 text-[11px] leading-snug text-muted-foreground">{r.detail}</div>
                   ) : null}
                 </div>
               </div>
