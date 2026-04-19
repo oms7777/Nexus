@@ -52,6 +52,10 @@ export const IntegrationsView = () => {
   const showHubspot = !!ent.isActive && !!ent.canUseHubspot;
   const showVoice = !!ent.isActive && !!ent.canUseVoice;
 
+  const canConfigureSalesforceByo = !!ent.features?.canConfigureSalesforceByo;
+  const canConfigureHubspotByo = !!ent.features?.canConfigureHubspotByo;
+  const canConfigureVoiceByo = !!ent.features?.canConfigureVoiceByo;
+
   const voiceSectionRef = useRef<HTMLDivElement>(null);
 
   const slackIntegration = useQuery(
@@ -81,7 +85,7 @@ export const IntegrationsView = () => {
 
   const oauthHints = useQuery(
     api.integrations.getInboundlessOAuthEnvHints,
-    showSalesforce || showHubspot ? {} : ("skip" as any)
+    showSalesforce || showHubspot || showVoice ? {} : ("skip" as any)
   );
 
   // Local form state for Salesforce app config
@@ -611,6 +615,7 @@ export const IntegrationsView = () => {
                       </div>
                     </CardContent>
 
+                    {canConfigureSalesforceByo ? (
                     <div className="border-t border-border/60 bg-muted/20 px-4 py-4">
                       <Collapsible
                         key={`sf-${String(oauthHints?.salesforceDefaultsAvailable)}-${String(hasSalesforceDbConfig)}`}
@@ -715,6 +720,7 @@ export const IntegrationsView = () => {
                         </CollapsibleContent>
                       </Collapsible>
                     </div>
+                    ) : null}
                   </Card>
                 )}
 
@@ -768,6 +774,7 @@ export const IntegrationsView = () => {
                       </div>
                     </CardContent>
 
+                    {canConfigureHubspotByo ? (
                     <div className="border-t border-border/60 bg-muted/20 px-4 py-4">
                       <Collapsible
                         key={`hs-${String(oauthHints?.hubspotDefaultsAvailable)}-${String(hasHubspotDbConfig)}`}
@@ -857,6 +864,7 @@ export const IntegrationsView = () => {
                         </CollapsibleContent>
                       </Collapsible>
                     </div>
+                    ) : null}
                   </Card>
                 )}
 
@@ -873,13 +881,13 @@ export const IntegrationsView = () => {
                         <div className="min-w-0 space-y-1">
                           <CardTitle className="text-lg">Voice</CardTitle>
                           <CardDescription>
-                            AI voice calls via Vapi — link API keys, choose an assistant and numbers, same flow as other
-                            integrations.
+                            Vapi voice in the widget: Inboundless can provide shared keys, or Voice+ lets you bring your
+                            own. Then pick an assistant and optional display number.
                           </CardDescription>
                         </div>
                       </CardHeader>
                       <CardContent className="border-t border-border/60 bg-muted/10 pb-6 pt-5">
-                        <VapiConnectionPanel />
+                        <VapiConnectionPanel canConfigureVoiceByo={canConfigureVoiceByo} />
                       </CardContent>
                     </Card>
                   </div>

@@ -60,9 +60,16 @@ export default function AnalyticsSignalsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <div className="text-2xl font-semibold tracking-tight">Signals</div>
-          <div className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Prioritize accounts most likely to convert — scored from sessions, inbound touches, conversations, and
-            meetings for the selected period.
+          <div className="max-w-2xl space-y-2 text-sm leading-relaxed text-muted-foreground">
+            <p>
+              A ranked work queue for outreach: who showed the strongest buying signals (sessions, inbound, chats,
+              bookings) in this period — similar to intent/account lists in modern GTM tools, scoped to your product and
+              widget data.
+            </p>
+            <p>
+              Rows labeled <span className="font-medium text-foreground">Visitor …</span> are anonymous until you capture
+              company or email (CRM-linked accounts and domains surface automatically when events carry that metadata).
+            </p>
           </div>
         </div>
 

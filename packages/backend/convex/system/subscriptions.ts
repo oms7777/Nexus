@@ -18,6 +18,9 @@ export const Addons = v.object({
   hubspot: v.boolean(),
   voice: v.boolean(),
   advancedAnalytics: v.boolean(),
+  salesforcePlus: v.optional(v.boolean()),
+  hubspotPlus: v.optional(v.boolean()),
+  voicePlus: v.optional(v.boolean()),
 });
 
 export const Limits = v.object({
@@ -41,6 +44,9 @@ function normalizeAddons(a: Record<string, unknown> | undefined | null) {
     hubspot: Boolean(x.hubspot),
     voice,
     advancedAnalytics: Boolean(x.advancedAnalytics),
+    salesforcePlus: x.salesforcePlus === true,
+    hubspotPlus: x.hubspotPlus === true,
+    voicePlus: x.voicePlus === true,
   };
 }
 
@@ -53,6 +59,9 @@ function defaultAddons() {
     hubspot: false,
     voice: false,
     advancedAnalytics: false,
+    salesforcePlus: false,
+    hubspotPlus: false,
+    voicePlus: false,
   };
 }
 
@@ -230,6 +239,16 @@ export const migrateSubscriptionShape = internalMutation({
     let migrated = 0;
 
     for (const doc of rows) {
+      const pa = doc.addons as Record<string, unknown>;
+      const n = normalizeAddons(pa);
+      /** Existing orgs keep Salesforce/HubSpot BYO UI unless explicitly disabled; Voice+ defaults off. */
+      const addons = {
+        ...n,
+        salesforcePlus: typeof pa?.salesforcePlus === "boolean" ? pa.salesforcePlus : true,
+        hubspotPlus: typeof pa?.hubspotPlus === "boolean" ? pa.hubspotPlus : true,
+        voicePlus: typeof pa?.voicePlus === "boolean" ? pa.voicePlus : false,
+      };
+
       await ctx.db.replace(doc._id, {
         organizationId: doc.organizationId,
         organizationName: doc.organizationName,
@@ -237,7 +256,7 @@ export const migrateSubscriptionShape = internalMutation({
         enterpriseTier: doc.enterpriseTier,
         plan: doc.plan,
         status: doc.status,
-        addons: normalizeAddons(doc.addons as Record<string, unknown>),
+        addons,
         limits: doc.limits,
         startedAt: doc.startedAt,
         trialEndsAt: doc.trialEndsAt,

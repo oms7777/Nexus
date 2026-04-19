@@ -919,11 +919,6 @@ export const timeseries = query({
 });
 
 
-/* ============================================================
-   signals (on le garde tel quel pour l’instant)
-   ⚠️ ton UI actuelle "SignalsTable" ne match pas encore ce format
-   ============================================================ */
-
 export const signals = query({
   args: {
     organizationId: v.string(),
@@ -1073,7 +1068,18 @@ export const signals = query({
       return "Low";
     }
 
-    const rows = [...agg.values()].map((r) => {
+    type IdentityKind = "account" | "company" | "domain" | "visitor" | "unknown";
+
+    function identityKindFromGroupKey(groupKey: string): IdentityKind {
+      if (groupKey === "unknown") return "unknown";
+      if (groupKey.startsWith("account:")) return "account";
+      if (groupKey.startsWith("company:")) return "company";
+      if (groupKey.startsWith("emaildom:")) return "domain";
+      if (groupKey.startsWith("visitor:")) return "visitor";
+      return "unknown";
+    }
+
+    const rows = [...agg.entries()].map(([groupKey, r]) => {
       const score = scoreOf(r);
       const tier = tierOf(score);
       const intent = intentOf(score);
@@ -1089,6 +1095,8 @@ export const signals = query({
       if (topPages?.length) reasons.push(`Top page: ${topPages[0]}`);
 
       return {
+        groupKey,
+        identityKind: identityKindFromGroupKey(groupKey),
         account: r.label,
         tier,
         intent,

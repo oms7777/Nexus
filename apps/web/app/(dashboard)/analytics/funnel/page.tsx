@@ -11,7 +11,6 @@ import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/EngagementFunnelChart";
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
 import { FunnelDropoffStrip } from "@/modules/analytics/funnel/components/FunnelDropoffStrip";
-import { FunnelHeroStrip } from "@/modules/analytics/funnel/components/FunnelHeroStrip";
 import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
 import {
   AnalyticsDateRangePicker,
@@ -168,17 +167,18 @@ function FunnelsInner({
         <div className="space-y-1">
           <div className="text-2xl font-semibold tracking-tight">Funnels</div>
           <div className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Engagement → conversations → meetings, plus inbound routing health for the same period as Overview.
+            <span className="font-medium text-foreground">Step-through conversion:</span> where people drop between
+            sessions, product surfaces, and inbound handling — not headline outcomes (those stay on Overview).
           </div>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
 
-      <FunnelHeroStrip
-        meetings={Number(engagement.meetings ?? 0)}
-        conversations={Number(engagement.conversations ?? 0)}
-        sessions={Number(engagement.sessions ?? 0)}
-      />
+      <div className="rounded-2xl border border-border/80 bg-muted/20 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+        <span className="font-medium text-foreground">Overview</span> summarizes acquisition and pipeline outcomes;
+        <span className="mx-1 font-medium text-foreground">Funnels</span> show retention between stages and inbound
+        routing health — use both together, without duplicating the same top-line KPI strip.
+      </div>
 
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
         <CardShell

@@ -28,6 +28,10 @@ export default defineSchema({
       hubspot: v.optional(v.boolean()),
       voice: v.boolean(),
       advancedAnalytics: v.boolean(),
+      /** When true, org may use “BYO” UI: own OAuth app (SF/HS) or own Vapi keys. */
+      salesforcePlus: v.optional(v.boolean()),
+      hubspotPlus: v.optional(v.boolean()),
+      voicePlus: v.optional(v.boolean()),
       /** Legacy — required in schema until every document is migrated (deploy fails otherwise). */
       highVolumeTraffic: v.optional(v.boolean()),
       voiceHighVolume: v.optional(v.boolean()),

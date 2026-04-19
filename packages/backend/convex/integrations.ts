@@ -9,6 +9,7 @@ import {
   hasInboundlessSalesforceEnvDefaults,
   mergeSalesforceOAuthCredentials,
 } from "./lib/inboundlessOauthEnv";
+import { hasInboundlessVapiEnvDefaults } from "./lib/inboundlessVapiEnv";
 
 /* ============================================================
    Types / Helpers
@@ -350,6 +351,7 @@ export const getInboundlessOAuthEnvHints = query({
     return {
       salesforceDefaultsAvailable: hasInboundlessSalesforceEnvDefaults(),
       hubspotDefaultsAvailable: hasInboundlessHubSpotEnvDefaults(),
+      vapiDefaultsAvailable: hasInboundlessVapiEnvDefaults(),
     };
   },
 });

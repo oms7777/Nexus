@@ -20,7 +20,9 @@ import {
 } from "@workspace/ui/components/tooltip";
 
 type Row = {
+  groupKey?: string;
   account: string;
+  identityKind?: "account" | "company" | "domain" | "visitor" | "unknown";
   tier?: "Hot" | "Warm" | "Neutral" | string;
   score?: number;
   intent?: "High" | "Medium" | "Low" | string;
@@ -49,6 +51,12 @@ function safeStr(x: any) {
 function safeNum(x: any) {
   const n = Number(x ?? 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Rows where we have a real account / company / work domain (not anonymous visitor bucket). */
+function isNamedIdentity(r: Row): boolean {
+  const k = r.identityKind ?? "unknown";
+  return k === "account" || k === "company" || k === "domain";
 }
 
 function TierBadge({ value }: { value?: string }) {
@@ -99,6 +107,58 @@ function IntentBadge({ value }: { value?: string }) {
 const SCORE_HELP =
   "Weighted blend of meetings (×50), conversations (×15), inbound requests (×8), sessions (×3), experiences (×1). Thresholds: Hot ≥120, Warm ≥45.";
 
+function IdentityBadge({ kind }: { kind?: Row["identityKind"] }) {
+  const k = kind ?? "unknown";
+  const meta: Record<
+    NonNullable<Row["identityKind"]>,
+    { label: string; hint: string; cls: string }
+  > = {
+    account: {
+      label: "CRM account",
+      hint: "Events tied to a linked account record.",
+      cls: "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-900/45 dark:bg-violet-950/40 dark:text-violet-100",
+    },
+    company: {
+      label: "Company",
+      hint: "Grouped by company name captured on the visitor.",
+      cls: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900/45 dark:bg-sky-950/35 dark:text-sky-100",
+    },
+    domain: {
+      label: "Email domain",
+      hint: "Grouped by domain from a captured work email.",
+      cls: "border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900/45 dark:bg-blue-950/35 dark:text-blue-100",
+    },
+    visitor: {
+      label: "Anonymous ID",
+      hint: "Browser visitor id only — no company or email domain yet.",
+      cls: "border-border/90 bg-muted/90 text-muted-foreground",
+    },
+    unknown: {
+      label: "Unattributed",
+      hint: "Events we could not tie to account, company, domain, or visitor id.",
+      cls: "border-border/90 bg-muted/90 text-muted-foreground",
+    },
+  };
+  const m = meta[k];
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={[
+            "inline-flex max-w-[10rem] cursor-help truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+            m.cls,
+          ].join(" ")}
+        >
+          {m.label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+        {m.hint}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function SignalsTable({
   rows,
   advanced,
@@ -111,6 +171,8 @@ export function SignalsTable({
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [territoryFilter, setTerritoryFilter] = useState<string>("all");
   const [minScore, setMinScore] = useState<string>("0");
+  /** `named` = hide visitor hashes + unattributed rollup; show CRM / company / email domain only. */
+  const [identityFilter, setIdentityFilter] = useState<"all" | "named">("all");
 
   const territories = useMemo(() => {
     const s = new Set<string>();
@@ -133,6 +195,9 @@ export function SignalsTable({
     if (tierFilter !== "all") {
       base = base.filter((r) => (r.tier ?? "Neutral").toLowerCase() === tierFilter.toLowerCase());
     }
+    if (identityFilter === "named") {
+      base = base.filter(isNamedIdentity);
+    }
     if (territoryFilter !== "all" && advanced) {
       base = base.filter((r) => safeStr(r.territory) === territoryFilter);
     }
@@ -148,7 +213,7 @@ export function SignalsTable({
     });
 
     return base;
-  }, [rows, q, sortKey, tierFilter, territoryFilter, minScore, advanced]);
+  }, [rows, q, sortKey, tierFilter, identityFilter, territoryFilter, minScore, advanced]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm ring-1 ring-black/[0.04] dark:ring-white/10">
@@ -160,7 +225,7 @@ export function SignalsTable({
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search account…"
+                placeholder="Search account, domain, or visitor…"
                 className="h-10 rounded-xl border-border/80 bg-white pl-9 dark:bg-card"
               />
             </div>
@@ -178,6 +243,15 @@ export function SignalsTable({
                   <SelectItem value="hot">Hot</SelectItem>
                   <SelectItem value="warm">Warm</SelectItem>
                   <SelectItem value="neutral">Neutral</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={identityFilter} onValueChange={(v) => setIdentityFilter(v as "all" | "named")}>
+                <SelectTrigger className="h-9 min-w-[168px] rounded-xl text-xs" size="sm">
+                  <SelectValue placeholder="Identity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All identities</SelectItem>
+                  <SelectItem value="named">Named only</SelectItem>
                 </SelectContent>
               </Select>
               {advanced ? (
@@ -205,7 +279,11 @@ export function SignalsTable({
                   <SelectItem value="120">≥ 120 (Hot)</SelectItem>
                 </SelectContent>
               </Select>
-              {(tierFilter !== "all" || territoryFilter !== "all" || minScore !== "0" || q) && (
+              {(tierFilter !== "all" ||
+                territoryFilter !== "all" ||
+                minScore !== "0" ||
+                identityFilter !== "all" ||
+                q) && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -215,6 +293,7 @@ export function SignalsTable({
                     setTierFilter("all");
                     setTerritoryFilter("all");
                     setMinScore("0");
+                    setIdentityFilter("all");
                     setQ("");
                   }}
                 >
@@ -273,12 +352,16 @@ export function SignalsTable({
       {filtered.length === 0 ? (
         <div className="px-4 py-10 text-center">
           <p className="text-sm font-medium text-foreground">No matching accounts</p>
-          <p className="mt-1 text-xs text-muted-foreground">Relax filters or widen the date range.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {identityFilter === "named"
+              ? "No CRM, company, or email-domain groups in this range — try “All identities” or widen the period."
+              : "Relax filters or widen the date range."}
+          </p>
         </div>
       ) : (
         filtered.map((row) => (
           <div
-            key={row.account}
+            key={row.groupKey ?? row.account}
             className={[
               "grid gap-3 border-b border-border/50 px-4 py-3.5 transition last:border-0 items-center hover:bg-fuchsia-50/40 dark:hover:bg-fuchsia-950/15",
               advanced
@@ -287,7 +370,10 @@ export function SignalsTable({
             ].join(" ")}
           >
             <div className="min-w-0">
-              <div className="truncate font-medium text-foreground">{row.account}</div>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="truncate font-medium text-foreground">{row.account}</span>
+                <IdentityBadge kind={row.identityKind} />
+              </div>
               <div className="mt-1 truncate text-xs text-muted-foreground">
                 {(row.reasons ?? []).slice(0, 3).join(" · ") || "—"}
               </div>

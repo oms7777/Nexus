@@ -46,9 +46,14 @@ import {
 
 interface VapiConnectedViewProps {
   onDisconnect: () => void;
+  /** Hide disconnect when using Inboundless shared Vapi keys (no org-owned plugin). */
+  showDisconnect?: boolean;
 }
 
-export const VapiConnectedView = ({ onDisconnect }: VapiConnectedViewProps) => {
+export const VapiConnectedView = ({
+  onDisconnect,
+  showDisconnect = true,
+}: VapiConnectedViewProps) => {
   const [activeTab, setActiveTab] = useState("phone-numbers");
 
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
@@ -118,10 +123,12 @@ export const VapiConnectedView = ({ onDisconnect }: VapiConnectedViewProps) => {
               </div>
             </div>
 
-            <Button onClick={onDisconnect} size="sm" variant="destructive">
-              <UnplugIcon className="mr-1 h-4 w-4" />
-              Disconnect
-            </Button>
+            {showDisconnect ? (
+              <Button onClick={onDisconnect} size="sm" variant="destructive">
+                <UnplugIcon className="mr-1 h-4 w-4" />
+                Disconnect
+              </Button>
+            ) : null}
           </div>
         </CardHeader>
       </Card>

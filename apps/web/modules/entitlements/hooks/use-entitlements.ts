@@ -40,6 +40,10 @@ export function useEntitlements() {
       canUseAdvancedPromos: false,
       canUseAdvancedAnalytics: false,
       canUseBooking: false,
+      canChooseLlmProvider: false,
+      canConfigureSalesforceByo: false,
+      canConfigureHubspotByo: false,
+      canConfigureVoiceByo: false,
     },
 
     // helpers UI (optionnel)

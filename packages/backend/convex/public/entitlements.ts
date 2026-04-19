@@ -26,6 +26,15 @@ function computeEntitlements(sub: any) {
 
   const canUseBooking = isActive;
 
+  const salesforcePlus = addons.salesforcePlus === true;
+  const hubspotPlus = addons.hubspotPlus === true;
+  const voicePlus = addons.voicePlus === true;
+
+  /** BYO configuration UI (OAuth app / own Vapi keys). Easy-connect uses Inboundless env without this. */
+  const canConfigureSalesforceByo = isActive && canUseSalesforce && salesforcePlus;
+  const canConfigureHubspotByo = isActive && canUseHubspot && hubspotPlus;
+  const canConfigureVoiceByo = isActive && canUseVoice && voicePlus;
+
   const effectiveWebsites = Number(limits.websites ?? 0) + Number(addons.extraWebsites ?? 0);
   const effectiveReps = Number(limits.reps ?? 0);
 
@@ -53,6 +62,9 @@ function computeEntitlements(sub: any) {
       canUseAdvancedAnalytics,
       canUseBooking,
       canChooseLlmProvider,
+      canConfigureSalesforceByo,
+      canConfigureHubspotByo,
+      canConfigureVoiceByo,
     },
   };
 }

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { action } from "../_generated/server";
 import { getSecretValue, parseSecretString } from "../lib/secrets";
+import { getInboundlessVapiKeyPairFromEnv } from "../lib/inboundlessVapiEnv";
 
 
 export const getVapiSecrets = action({
@@ -17,33 +18,23 @@ export const getVapiSecrets = action({
             }
         )
 
-        if (!plugin) {
-            return null;
+        if (plugin) {
+            const secret = await getSecretValue(plugin.secretName);
+            const secretData = parseSecretString<{
+                privateApiKey: string;
+                publicApiKey: string;
+            }>(secret);
+
+            if (secretData?.publicApiKey && secretData?.privateApiKey) {
+                return { publicApiKey: secretData.publicApiKey };
+            }
         }
 
-        const secretName = plugin.secretName;
-
-        const secret = await getSecretValue(secretName)
-
-        const secretData = parseSecretString<{
-            privateApiKey: string;
-            publicApiKey: string;
-        }>(secret);
-
-        if (!secretData) {
-            return null;
+        const fromEnv = getInboundlessVapiKeyPairFromEnv();
+        if (fromEnv) {
+            return { publicApiKey: fromEnv.publicApiKey };
         }
 
-        if (!secretData.publicApiKey) {
-            return null;
-        }
-
-        if (!secretData.privateApiKey) {
-            return null;
-        }
-
-        return {
-            publicApiKey: secretData.publicApiKey,
-        }
+        return null;
     }
 })
