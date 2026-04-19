@@ -17,6 +17,7 @@ import type * as lib_audit from "../lib/audit.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_domains from "../lib/domains.js";
 import type * as lib_extractTextContent from "../lib/extractTextContent.js";
+import type * as lib_inboundlessOauthEnv from "../lib/inboundlessOauthEnv.js";
 import type * as lib_sanitizeVisitorAssistantText from "../lib/sanitizeVisitorAssistantText.js";
 import type * as lib_secrets from "../lib/secrets.js";
 import type * as lib_visitorUrls from "../lib/visitorUrls.js";
@@ -110,6 +111,7 @@ declare const fullApi: ApiFromModules<{
   "lib/authz": typeof lib_authz;
   "lib/domains": typeof lib_domains;
   "lib/extractTextContent": typeof lib_extractTextContent;
+  "lib/inboundlessOauthEnv": typeof lib_inboundlessOauthEnv;
   "lib/sanitizeVisitorAssistantText": typeof lib_sanitizeVisitorAssistantText;
   "lib/secrets": typeof lib_secrets;
   "lib/visitorUrls": typeof lib_visitorUrls;

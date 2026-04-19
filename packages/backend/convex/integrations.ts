@@ -4,6 +4,11 @@ import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { requireOrgAdmin, requireOrgId } from "./lib/authz";
 import { writeAuditLog } from "./lib/audit";
+import {
+  hasInboundlessHubSpotEnvDefaults,
+  hasInboundlessSalesforceEnvDefaults,
+  mergeSalesforceOAuthCredentials,
+} from "./lib/inboundlessOauthEnv";
 
 /* ============================================================
    Types / Helpers
@@ -334,6 +339,18 @@ export const getSalesforceAppConfig = query({
       .query("salesforceAppConfigs")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
+  },
+});
+
+/** True when global Inboundless OAuth env vars are set (Convex Dashboard). Does not expose secrets. */
+export const getInboundlessOAuthEnvHints = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireOrgAdmin(ctx);
+    return {
+      salesforceDefaultsAvailable: hasInboundlessSalesforceEnvDefaults(),
+      hubspotDefaultsAvailable: hasInboundlessHubSpotEnvDefaults(),
+    };
   },
 });
 
@@ -712,13 +729,12 @@ export const refreshSalesforceAccessToken = action({
       organizationId,
     });
 
-    const loginUrl = appConfig?.loginUrl?.trim() || "https://login.salesforce.com";
-    const clientId = appConfig?.clientId || "";
-    const clientSecret = appConfig?.clientSecret || "";
-
-    if (!clientId || !clientSecret) {
+    const merged = mergeSalesforceOAuthCredentials(appConfig);
+    if (!merged) {
       return { ok: false as const, reason: "MISSING_SF_APP_CONFIG" as const };
     }
+
+    const { clientId, clientSecret, loginUrl } = merged;
 
     const tokenRes = await fetch(`${loginUrl}/services/oauth2/token`, {
       method: "POST",

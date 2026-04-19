@@ -17,7 +17,8 @@ export default defineSchema({
     addons: v.object({
       extraWebsites: v.number(),
       salesforce: v.boolean(),
-      hubspot: v.boolean(),
+      /** Backfill via `migrateSubscriptionShape`; absent treated as false in app code. */
+      hubspot: v.optional(v.boolean()),
       voice: v.boolean(),
       advancedAnalytics: v.boolean(),
       /** Legacy — required in schema until every document is migrated (deploy fails otherwise). */

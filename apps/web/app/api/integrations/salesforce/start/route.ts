@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
+import { mergeSalesforceOAuthCredentials } from "@workspace/backend/lib/inboundlessOauthEnv";
 import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
@@ -31,14 +32,16 @@ export async function GET(req: Request) {
     { token: convexToken ?? undefined }
   );
 
-  if (!appConfig) {
-    return new NextResponse("Missing Salesforce app config for this organization", {
-      status: 400,
-    });
+  const merged = mergeSalesforceOAuthCredentials(appConfig);
+  if (!merged) {
+    return new NextResponse(
+      "Missing Salesforce OAuth credentials: save app config in Integrations or set INBOUNDLESS_SALESFORCE_* env vars.",
+      { status: 400 }
+    );
   }
 
-  const SF_CLIENT_ID = appConfig.clientId;
-  const SF_LOGIN_URL = appConfig.loginUrl || "https://login.salesforce.com";
+  const SF_CLIENT_ID = merged.clientId;
+  const SF_LOGIN_URL = merged.loginUrl;
 
   const url = new URL(req.url);
   const origin = url.origin;

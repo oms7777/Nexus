@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
+import { mergeHubSpotOAuthCredentials } from "@workspace/backend/lib/inboundlessOauthEnv";
 import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
@@ -52,14 +53,16 @@ export async function GET(req: Request) {
     { token: convexToken ?? undefined }
   );
 
-  if (!appConfig) {
-    return new NextResponse("Missing HubSpot app config for this organization", {
-      status: 400,
-    });
+  const merged = mergeHubSpotOAuthCredentials(appConfig);
+  if (!merged) {
+    return new NextResponse(
+      "Missing HubSpot OAuth credentials: save app config in Integrations or set INBOUNDLESS_HUBSPOT_* env vars.",
+      { status: 400 }
+    );
   }
 
-  const HS_CLIENT_ID = appConfig.clientId;
-  const HS_CLIENT_SECRET = appConfig.clientSecret;
+  const HS_CLIENT_ID = merged.clientId;
+  const HS_CLIENT_SECRET = merged.clientSecret;
 
   const tokenRes = await fetch("https://api.hubapi.com/oauth/v1/token", {
     method: "POST",

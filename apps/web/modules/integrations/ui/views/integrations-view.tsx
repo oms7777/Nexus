@@ -64,6 +64,11 @@ export const IntegrationsView = () => {
     showHubspot ? {} : ("skip" as any)
   );
 
+  const oauthHints = useQuery(
+    api.integrations.getInboundlessOAuthEnvHints,
+    showSalesforce || showHubspot ? {} : ("skip" as any)
+  );
+
   // Local form state for Salesforce app config
   const [sfClientId, setSfClientId] = useState("");
   const [sfClientSecret, setSfClientSecret] = useState("");
@@ -156,7 +161,7 @@ export const IntegrationsView = () => {
     return { isHubspotConnected: true, hubspotPortalLabel: label };
   }, [hubspotIntegration]);
 
-  const isSalesforceConfigSaved = useMemo(() => {
+  const hasSalesforceDbConfig = useMemo(() => {
     return Boolean(
       (salesforceAppConfig?.clientId ?? "").trim() &&
         (salesforceAppConfig?.clientSecret ?? "").trim() &&
@@ -164,15 +169,24 @@ export const IntegrationsView = () => {
     );
   }, [salesforceAppConfig]);
 
+  /** Env fallbacks (INBOUNDLESS_SALESFORCE_*) or full row in Convex — enough to run OAuth. */
+  const salesforceOAuthReady = useMemo(() => {
+    return hasSalesforceDbConfig || !!oauthHints?.salesforceDefaultsAvailable;
+  }, [hasSalesforceDbConfig, oauthHints?.salesforceDefaultsAvailable]);
+
   const canSaveSfConfig = useMemo(() => {
     return Boolean(sfClientId.trim() && sfClientSecret.trim() && sfLoginUrl.trim());
   }, [sfClientId, sfClientSecret, sfLoginUrl]);
 
-  const isHubspotConfigSaved = useMemo(() => {
+  const hasHubspotDbConfig = useMemo(() => {
     return Boolean(
       (hubspotAppConfig?.clientId ?? "").trim() && (hubspotAppConfig?.clientSecret ?? "").trim()
     );
   }, [hubspotAppConfig]);
+
+  const hubspotOAuthReady = useMemo(() => {
+    return hasHubspotDbConfig || !!oauthHints?.hubspotDefaultsAvailable;
+  }, [hasHubspotDbConfig, oauthHints?.hubspotDefaultsAvailable]);
 
   const canSaveHsConfig = useMemo(() => {
     return Boolean(hsClientId.trim() && hsClientSecret.trim());
@@ -204,7 +218,7 @@ export const IntegrationsView = () => {
 
   const handleSalesforceConnect = () => {
     if (!organization) return toast.error("Organization ID not found");
-    if (!isSalesforceConfigSaved) return toast.error("Save Salesforce credentials first.");
+    if (!salesforceOAuthReady) return toast.error("Add Salesforce credentials (or configure server defaults).");
     window.location.href = "/api/integrations/salesforce/start";
   };
 
@@ -232,7 +246,7 @@ export const IntegrationsView = () => {
 
   const handleHubspotConnect = () => {
     if (!organization) return toast.error("Organization ID not found");
-    if (!isHubspotConfigSaved) return toast.error("Save HubSpot credentials first.");
+    if (!hubspotOAuthReady) return toast.error("Add HubSpot credentials (or configure server defaults).");
     window.location.href = "/api/integrations/hubspot/start";
   };
 
@@ -489,8 +503,8 @@ export const IntegrationsView = () => {
                     onClick={handleSalesforceConnect}
                     size="sm"
                     variant="default"
-                    disabled={!isSalesforceConfigSaved}
-                    title={!isSalesforceConfigSaved ? "Save Salesforce credentials first" : undefined}
+                    disabled={!salesforceOAuthReady}
+                    title={!salesforceOAuthReady ? "Add credentials or server defaults" : undefined}
                   >
                     {isSalesforceConnected ? "Reconnect Salesforce" : "Connect Salesforce"}
                   </Button>
@@ -508,7 +522,7 @@ export const IntegrationsView = () => {
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-2">
                     <Label className="text-sm">Salesforce OAuth App Configuration</Label>
-                    {isSalesforceConfigSaved && <SavedBadge />}
+                    {hasSalesforceDbConfig && <SavedBadge />}
                   </div>
                   <Button size="sm" onClick={handleSaveSalesforceConfig} disabled={!canSaveSfConfig || sfSaving}>
                     {sfSaving ? "Saving..." : "Save"}
@@ -553,9 +567,16 @@ export const IntegrationsView = () => {
                     </p>
                   </div>
 
-                  {!isSalesforceConfigSaved && (
+                  {oauthHints?.salesforceDefaultsAvailable && !hasSalesforceDbConfig ? (
+                    <p className="text-xs text-muted-foreground">
+                      Inboundless server defaults are configured — you can connect without saving custom credentials
+                      below. You can still save overrides per organization.
+                    </p>
+                  ) : null}
+                  {!salesforceOAuthReady && (
                     <p className="text-xs text-amber-600">
-                      Save your Salesforce Client ID/Secret first to enable “Connect Salesforce”.
+                      Save Salesforce Client ID, Secret and Login URL, or set{" "}
+                      <span className="font-mono">INBOUNDLESS_SALESFORCE_*</span> on the server (Vercel + Convex).
                     </p>
                   )}
                 </div>
@@ -589,8 +610,8 @@ export const IntegrationsView = () => {
                     onClick={handleHubspotConnect}
                     size="sm"
                     variant="default"
-                    disabled={!isHubspotConfigSaved}
-                    title={!isHubspotConfigSaved ? "Save HubSpot credentials first" : undefined}
+                    disabled={!hubspotOAuthReady}
+                    title={!hubspotOAuthReady ? "Add credentials or server defaults" : undefined}
                   >
                     {isHubspotConnected ? "Reconnect HubSpot" : "Connect HubSpot"}
                   </Button>
@@ -607,7 +628,7 @@ export const IntegrationsView = () => {
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-2">
                     <Label className="text-sm">HubSpot OAuth app</Label>
-                    {isHubspotConfigSaved && <SavedBadge />}
+                    {hasHubspotDbConfig && <SavedBadge />}
                   </div>
                   <Button size="sm" onClick={handleSaveHubspotConfig} disabled={!canSaveHsConfig || hsSaving}>
                     {hsSaving ? "Saving..." : "Save"}
@@ -644,9 +665,16 @@ export const IntegrationsView = () => {
                     production origin with the same path.
                   </p>
 
-                  {!isHubspotConfigSaved && (
+                  {oauthHints?.hubspotDefaultsAvailable && !hasHubspotDbConfig ? (
+                    <p className="text-xs text-muted-foreground">
+                      Inboundless server defaults are configured — you can connect without saving custom credentials
+                      below.
+                    </p>
+                  ) : null}
+                  {!hubspotOAuthReady && (
                     <p className="text-xs text-amber-600">
-                      Save your HubSpot Client ID and Secret first to enable “Connect HubSpot”.
+                      Save HubSpot Client ID and Secret, or set <span className="font-mono">INBOUNDLESS_HUBSPOT_*</span>{" "}
+                      on the server (Vercel + Convex).
                     </p>
                   )}
                 </div>

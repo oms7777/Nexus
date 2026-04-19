@@ -2,6 +2,7 @@
 import { action, internalMutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
+import { mergeHubSpotOAuthCredentials } from "./lib/inboundlessOauthEnv";
 
 type Plan = "starter" | "growth" | "enterprise";
 
@@ -72,12 +73,12 @@ export const refreshHubSpotAccessToken = action({
       organizationId,
     });
 
-    const clientId = appConfig?.clientId || "";
-    const clientSecret = appConfig?.clientSecret || "";
-
-    if (!clientId || !clientSecret) {
+    const merged = mergeHubSpotOAuthCredentials(appConfig);
+    if (!merged) {
       return { ok: false as const, reason: "MISSING_HUBSPOT_APP_CONFIG" as const };
     }
+
+    const { clientId, clientSecret } = merged;
 
     const tokenRes = await fetch(HUBSPOT_TOKEN_URL, {
       method: "POST",
