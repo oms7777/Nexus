@@ -12,7 +12,6 @@ import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/Eng
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
 import { FunnelDropoffStrip } from "@/modules/analytics/funnel/components/FunnelDropoffStrip";
 import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
-import { PounceFunnelChart } from "@/modules/analytics/funnel/components/PounceFunnelChart";
 import {
   AnalyticsDateRangePicker,
   rangeToTimestamps,
@@ -45,7 +44,6 @@ function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPla
         <div>• Engagement — sessions → experiences → conversations → meetings</div>
         <div>• Conversion — strict rates (experience → conversation → meeting)</div>
         <div>• Inbound health — requests → rep started → booking proposed → meetings</div>
-        <div>• Proactive — pounce attempts → conversations → meetings</div>
       </div>
 
       <div className="mt-6 rounded-xl bg-fuchsia-50/60 p-4 text-sm border border-fuchsia-100">
@@ -163,7 +161,6 @@ function FunnelsInner({
   };
 
   const inbound = data?.inbound ?? null;
-  const pounce = data?.pounce ?? { attempts: 0, conversations: 0, meetings: 0 };
   const primary = data?.primaryOutcome as
     | { meetings?: number; sessions?: number; conversations?: number; meetingsDelta?: number | null }
     | undefined;
@@ -177,8 +174,8 @@ function FunnelsInner({
           </p>
           <div className="text-2xl font-semibold tracking-tight text-foreground">Pipeline &amp; motion</div>
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Period snapshot, then volume → step conversion → inbound ops → proactive. Step rates stay in the charts
-            below so they are not duplicated in the summary.
+            Period snapshot, then volume → step conversion → inbound handling. Step rates stay in the charts below so they
+            are not duplicated in the summary.
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
@@ -247,24 +244,6 @@ function FunnelsInner({
               inbox workflow.
             </div>
           ) : null}
-        </CardShell>
-
-        <CardShell
-          title="Proactive (pounce)"
-          subtitle="Automation-led touches — separate from organic funnel counts"
-          right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
-          className="lg:col-span-12"
-        >
-          <div className="grid gap-5 lg:grid-cols-12 lg:items-start">
-            <div className="grid gap-2 sm:grid-cols-3 lg:col-span-4">
-              <Row label="Attempts" value={Number(pounce.attempts ?? 0).toLocaleString()} />
-              <Row label="Conversations" value={Number(pounce.conversations ?? 0).toLocaleString()} />
-              <Row label="Meetings" value={Number(pounce.meetings ?? 0).toLocaleString()} />
-            </div>
-            <div className="lg:col-span-8">
-              <PounceFunnelChart data={pounce as any} />
-            </div>
-          </div>
         </CardShell>
       </div>
     </div>

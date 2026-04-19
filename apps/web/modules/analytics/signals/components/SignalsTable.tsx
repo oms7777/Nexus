@@ -563,7 +563,7 @@ export function SignalsTable({
           <p className="text-sm font-medium text-foreground">No matching accounts</p>
           <p className="mt-1 text-xs text-muted-foreground">
             {audience === "companies"
-              ? "No company or CRM-linked rows in this range — try the Email domains tab or widen the period."
+              ? "No company rows in this range — try the Email domains tab or widen the period."
               : "No email-domain groups in this range — widen the period or capture emails on events."}
           </p>
         </div>

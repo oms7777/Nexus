@@ -101,22 +101,7 @@ export default function AnalyticsSignalsPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <div className="text-2xl font-semibold tracking-tight">Signals</div>
-          <div className="max-w-2xl space-y-2 text-sm leading-relaxed text-muted-foreground">
-            <p>
-              A ranked work queue for outreach: who showed the strongest buying signals (sessions, inbound, chats,
-              bookings) in this period — similar to intent/account lists in modern GTM tools, scoped to your product and
-              widget data.
-            </p>
-            <p>
-              <span className="font-medium text-foreground">Companies &amp; CRM</span> groups by company name or CRM
-              account id. <span className="font-medium text-foreground">Email domains</span> groups by the email domain
-              when events include an address — the same activity can appear in both views.
-            </p>
-          </div>
-        </div>
-
+        <div className="text-2xl font-semibold tracking-tight">Signals</div>
         <div className="flex items-center gap-3">
           <AnalyticsDateRangePicker value={range} onChange={setRange} />
         </div>
@@ -150,7 +135,7 @@ export default function AnalyticsSignalsPage() {
           <Tabs value={audience} onValueChange={(v) => setAudience(v as SignalsAudience)}>
             <TabsList className="inline-grid h-auto w-full max-w-md grid-cols-2 gap-1 rounded-xl bg-muted/80 p-1 sm:w-auto">
               <TabsTrigger value="companies" className="rounded-lg text-xs sm:text-sm">
-                Companies &amp; CRM
+                Companies
               </TabsTrigger>
               <TabsTrigger value="domains" className="rounded-lg text-xs sm:text-sm">
                 Email domains
