@@ -12,7 +12,7 @@ import {
   Cell,
 } from "recharts";
 
-import { PALETTE } from "@/modules/analytics/shared/analytics-primitives";
+import { PALETTE, PRIMARY_CHART_SURFACE } from "@/modules/analytics/shared/analytics-primitives";
 
 type Inbound = {
   requests?: number;
@@ -52,7 +52,7 @@ export function InboundHealthChart({ data }: { data?: Inbound | null }) {
   const fills = PALETTE.chart;
 
   return (
-    <div className="h-[280px] w-full rounded-xl bg-gradient-to-b from-muted/25 to-transparent px-1 pt-2">
+    <div className={`h-[280px] w-full ${PRIMARY_CHART_SURFACE}`}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} barCategoryGap={18} margin={{ top: 12, right: 8, left: 4, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/60" />

@@ -708,10 +708,22 @@ export const funnels = query({
       )
       .collect();
 
+    const duration = Math.max(1, toTs - fromTs);
+    const prevFrom = fromTs - duration;
+    const prevTo = fromTs - 1;
+    const prevEvts = await ctx.db
+      .query("analyticsEvents")
+      .withIndex("by_org_ts", (q: any) =>
+        q.eq("organizationId", organizationId).gte("ts", prevFrom).lte("ts", prevTo),
+      )
+      .collect();
+
     const sessions = computeSessionsRobust(evts);
     const experiences = evts.filter((e) => e.type === "experience_shown").length;
     const conversations = computeConversationsUnique(evts);
     const meetings = computeMeetingsUnique(evts);
+
+    const prevMeetings = computeMeetingsUnique(prevEvts);
 
     const inboundRequests = evts.filter((e) => e.type === "inbound_chat_requested").length;
 
@@ -753,7 +765,18 @@ export const funnels = query({
       meetings: evts.filter((e) => e.type === "pounce_meeting").length,
     };
 
-    return { engagement, conversion, inbound, pounce };
+    return {
+      engagement,
+      conversion,
+      inbound,
+      pounce,
+      primaryOutcome: {
+        meetings,
+        sessions,
+        conversations,
+        meetingsDelta: deltaPct(meetings, prevMeetings),
+      },
+    };
   },
 });
 

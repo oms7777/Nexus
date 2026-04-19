@@ -3,7 +3,7 @@
 import React from "react";
 import { ResponsiveContainer, FunnelChart, Funnel, Tooltip, LabelList } from "recharts";
 
-import { PALETTE } from "@/modules/analytics/shared/analytics-primitives";
+import { PALETTE, PRIMARY_CHART_SURFACE } from "@/modules/analytics/shared/analytics-primitives";
 
 type Engagement = {
   sessions?: number;
@@ -44,7 +44,7 @@ export function EngagementFunnelChart({ data }: { data?: Engagement | null }) {
   }
 
   return (
-    <div className="h-[260px] w-full rounded-xl bg-gradient-to-b from-muted/30 to-transparent px-1 pt-2">
+    <div className={`h-[260px] w-full ${PRIMARY_CHART_SURFACE}`}>
       <ResponsiveContainer width="100%" height="100%">
         <FunnelChart margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
           <Tooltip

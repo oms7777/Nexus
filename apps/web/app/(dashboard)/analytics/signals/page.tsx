@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
@@ -19,6 +20,10 @@ export default function AnalyticsSignalsPage() {
   const { organization } = useOrganization();
   const orgId = organization?.id;
 
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const ent = useEntitlements();
   const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
 
@@ -30,6 +35,12 @@ export default function AnalyticsSignalsPage() {
     api.public.analytics.signals,
     orgId && advancedEnabled ? { organizationId: orgId, fromTs, toTs } : "skip",
   );
+
+  useEffect(() => {
+    if (!advancedEnabled) return;
+    if (searchParams.get("preset")) return;
+    router.replace(`${pathname}?preset=named`, { scroll: false });
+  }, [advancedEnabled, pathname, router, searchParams]);
 
   if (!orgId) return <div className="p-6">No organization</div>;
 

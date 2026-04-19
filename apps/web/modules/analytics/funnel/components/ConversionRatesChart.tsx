@@ -13,7 +13,7 @@ import {
   LabelList,
 } from "recharts";
 
-import { PALETTE } from "@/modules/analytics/shared/analytics-primitives";
+import { PALETTE, PRIMARY_CHART_SURFACE } from "@/modules/analytics/shared/analytics-primitives";
 
 type Conversion = {
   meetings_from_conversations_num?: number;
@@ -62,7 +62,7 @@ export function ConversionRatesChart({ data }: { data?: Conversion | null }) {
   const fills = [PALETTE.chart[2] ?? "#ec4899", PALETTE.chart[0] ?? "#a855f7"];
 
   return (
-    <div className="h-[260px] w-full rounded-xl bg-gradient-to-b from-muted/25 to-transparent px-1 pt-2">
+    <div className={`h-[260px] w-full ${PRIMARY_CHART_SURFACE}`}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} barCategoryGap={36} margin={{ top: 20, right: 8, left: 4, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/60" />

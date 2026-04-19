@@ -26,7 +26,6 @@ import {
   CardShell,
   StatCard,
   MiniBarTable,
-  DeltaPill,
   GeoKpiTable,
 } from "@/modules/analytics/shared/analytics-primitives";
 import {
@@ -35,6 +34,7 @@ import {
   type AnalyticsRange,
 } from "@/modules/analytics/shared/analytics-date-range";
 import { displaySourceLabel } from "@/modules/analytics/shared/source-labels";
+import { PrimaryOutcomeStrip } from "@/modules/analytics/shared/PrimaryOutcomeStrip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 
 function niceDayLabel(day: string) {
@@ -153,8 +153,6 @@ export default function AnalyticsOverviewPage() {
   const meetingsN = Number(kpi.meetings ?? 0);
   const sessionsN = Number(kpi.sessions ?? 0);
   const conversationsN = Number(kpi.conversations ?? 0);
-  const sessionToMtgPct = sessionsN > 0 ? (meetingsN / sessionsN) * 100 : 0;
-  const convToMtgPct = conversationsN > 0 ? (meetingsN / conversationsN) * 100 : 0;
 
   const topSources = Array.isArray(overview?.top_sources) ? overview.top_sources : [];
   const topSourcesDisplay = useMemo(() => topSources.filter((s: any) => !isNoiseSourceRow(s)), [topSources]);
@@ -256,7 +254,7 @@ export default function AnalyticsOverviewPage() {
           {advancedEnabled ? (
             <div className="flex flex-wrap gap-2 pt-1">
               <Link
-                href="/analytics/funnel#funnel-engagement"
+                href="/analytics/funnel"
                 className="inline-flex items-center rounded-full border border-border/80 bg-muted/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
               >
                 Funnel detail
@@ -277,41 +275,12 @@ export default function AnalyticsOverviewPage() {
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
 
-      {/* Hero: primary business outcome — refonte focus */}
-      <div className="overflow-hidden rounded-2xl border border-fuchsia-200/50 bg-gradient-to-br from-fuchsia-50/90 via-white to-rose-50/60 shadow-sm ring-1 ring-black/[0.04] dark:border-fuchsia-900/30 dark:from-fuchsia-950/25 dark:via-background dark:to-rose-950/20 dark:ring-white/10">
-        <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between lg:p-8">
-          <div className="min-w-0 space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-800/90 dark:text-fuchsia-300/90">
-              Primary outcome
-            </p>
-            <div className="flex flex-wrap items-end gap-3 gap-y-1">
-              <span className="text-5xl font-bold tracking-tight tabular-nums text-foreground sm:text-6xl">
-                {meetingsN.toLocaleString()}
-              </span>
-              <span className="pb-1 text-lg font-medium text-muted-foreground">meetings booked</span>
-              <DeltaPill delta={deltas.meetings ?? null} className="mb-1" />
-            </div>
-            <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Booked meetings attributed to this period. Conversion rates summarize how efficiently sessions and
-              conversations turn into outcomes — not raw marketing traffic.
-            </p>
-          </div>
-          <div className="grid w-full max-w-md shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:max-w-lg">
-            <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
-              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Session → meeting</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{sessionToMtgPct.toFixed(1)}%</div>
-            </div>
-            <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
-              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Conv. → meeting</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{convToMtgPct.toFixed(1)}%</div>
-            </div>
-            <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
-              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sessions</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{sessionsN.toLocaleString()}</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PrimaryOutcomeStrip
+        meetings={meetingsN}
+        sessions={sessionsN}
+        conversations={conversationsN}
+        meetingsDelta={deltas.meetings ?? null}
+      />
 
       <div className="space-y-3">
         <div className="px-0.5">

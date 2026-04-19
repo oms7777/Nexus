@@ -12,6 +12,18 @@ export const PALETTE = {
   chart: ["#a855f7", "#d946ef", "#ec4899", "#f43f5e"],
 } as const;
 
+/** Matches Executive Overview “Primary outcome” hero — reuse in Funnel + sidebar active state. */
+export const PRIMARY_OUTCOME_PANEL =
+  "overflow-hidden rounded-2xl border border-fuchsia-200/50 bg-gradient-to-br from-fuchsia-50/90 via-white to-rose-50/60 shadow-sm ring-1 ring-black/[0.04] dark:border-fuchsia-900/30 dark:from-fuchsia-950/25 dark:via-background dark:to-rose-950/20 dark:ring-white/10";
+
+/** Chart wells — same palette family as Primary outcome. */
+export const PRIMARY_CHART_SURFACE =
+  "rounded-2xl border border-fuchsia-200/45 bg-gradient-to-b from-fuchsia-50/70 via-white/95 to-rose-50/50 p-3 shadow-inner ring-1 ring-fuchsia-100/50 dark:border-fuchsia-900/35 dark:from-fuchsia-950/30 dark:via-card dark:to-rose-950/20 dark:ring-fuchsia-900/25";
+
+/** Active nav item (sidebar): aligned with Primary outcome gradient. */
+export const SIDEBAR_ITEM_ACTIVE =
+  "border border-fuchsia-200/70 bg-gradient-to-br from-fuchsia-50/95 via-white to-rose-50/75 font-medium text-foreground shadow-sm dark:border-fuchsia-800/45 dark:from-fuchsia-950/40 dark:via-background dark:to-rose-950/25";
+
 export function BrandPill({ children }: { children: React.ReactNode }) {
   return (
     <div className={`rounded-full border ${PALETTE.gradientBorder} ${PALETTE.gradient} px-3 py-1 text-xs font-semibold text-white shadow-sm`}>

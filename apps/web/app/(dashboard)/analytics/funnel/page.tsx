@@ -19,6 +19,7 @@ import {
   type AnalyticsRange,
 } from "@/modules/analytics/shared/analytics-date-range";
 import { BrandPill, CardShell, Row } from "@/modules/analytics/shared/analytics-primitives";
+import { PrimaryOutcomeStrip } from "@/modules/analytics/shared/PrimaryOutcomeStrip";
 
 function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPlanBadges: boolean }) {
   return (
@@ -161,6 +162,9 @@ function FunnelsInner({
   };
 
   const inbound = data?.inbound ?? null;
+  const primary = data?.primaryOutcome as
+    | { meetings?: number; sessions?: number; conversations?: number; meetingsDelta?: number | null }
+    | undefined;
 
   return (
     <div className="p-6 space-y-6">
@@ -176,38 +180,24 @@ function FunnelsInner({
       </div>
 
       <div className="rounded-2xl border border-border/80 bg-muted/20 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
-        <span className="font-medium text-foreground">Overview</span> summarizes acquisition and pipeline outcomes;
-        <span className="mx-1 font-medium text-foreground">Funnels</span> show retention between stages and inbound
-        routing health — use both together, without duplicating the same top-line KPI strip.
+        <span className="font-medium text-foreground">Overview</span> stays broad (acquisition + geo).{" "}
+        <span className="font-medium text-foreground">Funnels</span> focuses on step-through retention and inbound
+        health for the same period — with the same primary outcome strip as Overview.
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-white px-4 py-2.5 text-xs shadow-sm dark:bg-card">
-        <span className="font-semibold uppercase tracking-wide text-muted-foreground">Jump to</span>
-        <a
-          href="#funnel-engagement"
-          className="rounded-full border border-border/80 bg-muted/30 px-3 py-1 font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
-        >
-          Engagement
-        </a>
-        <a
-          href="#funnel-conversion"
-          className="rounded-full border border-border/80 bg-muted/30 px-3 py-1 font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
-        >
-          Conversion
-        </a>
-        <a
-          href="#funnel-inbound"
-          className="rounded-full border border-border/80 bg-muted/30 px-3 py-1 font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
-        >
-          Inbound health
-        </a>
-      </div>
+      {primary ? (
+        <PrimaryOutcomeStrip
+          meetings={Number(primary.meetings ?? 0)}
+          sessions={Number(primary.sessions ?? 0)}
+          conversations={Number(primary.conversations ?? 0)}
+          meetingsDelta={primary.meetingsDelta ?? null}
+        />
+      ) : null}
 
       <FunnelInsightsPanel engagement={engagement as any} inbound={inbound as any} />
 
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
         <CardShell
-          id="funnel-engagement"
           title="Engagement funnel"
           subtitle="Macro funnel — counts then stage retention"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
@@ -263,7 +253,6 @@ function FunnelsInner({
         </CardShell>
 
         <CardShell
-          id="funnel-conversion"
           title="Conversion rates"
           subtitle="Strict cohort-style rates from funnel events"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
@@ -272,7 +261,6 @@ function FunnelsInner({
         </CardShell>
 
         <CardShell
-          id="funnel-inbound"
           title="Inbound conversion health"
           subtitle="Intent → routing → booking — operational pipeline"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}

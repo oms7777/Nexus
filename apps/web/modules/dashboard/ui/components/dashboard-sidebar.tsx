@@ -31,6 +31,7 @@ import {
 } from "@workspace/ui/components/sidebar";
 
 import { cn } from "@workspace/ui/lib/utils";
+import { SIDEBAR_ITEM_ACTIVE } from "@/modules/analytics/shared/analytics-primitives";
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
@@ -150,7 +151,7 @@ export const DashboardSidebar = () => {
   const labelClass = "group-data-[collapsible=icon]:hidden";
   const iconClass = "size-5";
   const itemClass =
-    "flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted " +
+    "flex items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm hover:bg-muted " +
     "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2";
 
   return (
@@ -168,7 +169,7 @@ export const DashboardSidebar = () => {
                 <SidebarMenuItem key={item.title}>
                   <Link
                     href={item.url}
-                    className={cn(itemClass, isActive(item.url) && "bg-muted")}
+                    className={cn(itemClass, isActive(item.url) && SIDEBAR_ITEM_ACTIVE)}
                     title={item.title}
                   >
                     <item.icon className={iconClass} />
@@ -200,11 +201,7 @@ export const DashboardSidebar = () => {
                 <SidebarMenuItem key={item.title}>
                   <Link
                     href={item.url}
-                    className={cn(
-                      itemClass,
-                      isActive(item.url) &&
-                        "bg-gradient-to-r from-fuchsia-600 to-rose-500 text-white"
-                    )}
+                    className={cn(itemClass, isActive(item.url) && SIDEBAR_ITEM_ACTIVE)}
                     title={item.title}
                   >
                     <item.icon className={iconClass} />
@@ -224,7 +221,7 @@ export const DashboardSidebar = () => {
                 <SidebarMenuItem key={item.title}>
                   <Link
                     href={item.url}
-                    className={cn(itemClass, isActive(item.url) && "bg-muted")}
+                    className={cn(itemClass, isActive(item.url) && SIDEBAR_ITEM_ACTIVE)}
                     title={item.title}
                   >
                     <item.icon className={iconClass} />
@@ -245,7 +242,7 @@ export const DashboardSidebar = () => {
                   <SidebarMenuItem key={item.title}>
                     <Link
                       href={item.url}
-                      className={cn(itemClass, isActive(item.url) && "bg-muted")}
+                      className={cn(itemClass, isActive(item.url) && SIDEBAR_ITEM_ACTIVE)}
                       title={item.title}
                     >
                       <item.icon className={iconClass} />

@@ -6,7 +6,9 @@ import { Filter, HelpCircle, Search } from "lucide-react";
 
 import { displaySourceLabel } from "@/modules/analytics/shared/source-labels";
 import { Button } from "@workspace/ui/components/button";
+import { Checkbox } from "@workspace/ui/components/checkbox";
 import { Input } from "@workspace/ui/components/input";
+import { Label } from "@workspace/ui/components/label";
 import {
   Select,
   SelectContent,
@@ -65,6 +67,43 @@ function isNamedIdentity(r: Row): boolean {
   return k === "account" || k === "company" || k === "domain";
 }
 
+function isUnattributedRow(r: Row) {
+  return r.groupKey === "unknown" || (r.identityKind ?? "") === "unknown";
+}
+
+/** Heuristic filter for fake / test “company” strings typed in booking forms. */
+function isGarbageCompanyRow(r: Row): boolean {
+  if (r.identityKind !== "company") return false;
+  const name = (r.companyName ?? r.account ?? "").trim().toLowerCase();
+  if (name.length <= 2) return true;
+  if (/^(.)\1{2,}$/.test(name)) return true;
+  const block = new Set([
+    "test",
+    "none",
+    "n/a",
+    "na",
+    "null",
+    "unknown",
+    "asdf",
+    "qwerty",
+    "qqq",
+    "xxx",
+    "hhh",
+    "daf",
+    "ads",
+    "sqd",
+    "dkf",
+    "sd",
+    "lol",
+    "foo",
+    "bar",
+    "abc",
+    "xyz",
+  ]);
+  if (block.has(name)) return true;
+  return false;
+}
+
 function formatRelativeShort(ts?: number) {
   if (!ts) return "—";
   const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -83,8 +122,23 @@ function organizationPrimaryLabel(r: Row) {
   return safeStr(r.account) || "—";
 }
 
-function ActivitySparkline({ values }: { values: number[] }) {
-  if (!values.length) return null;
+function ActivitySparkline({
+  values,
+  identityKind,
+}: {
+  values: number[];
+  identityKind?: Row["identityKind"];
+}) {
+  const k = identityKind ?? "unknown";
+  if (k === "visitor" || k === "unknown") {
+    return (
+      <p className="mt-2 max-w-[15rem] text-[10px] leading-snug text-muted-foreground">
+        No account-level timeline for anonymous or unattributed traffic.
+      </p>
+    );
+  }
+  const sum = values.reduce((a, b) => a + Number(b ?? 0), 0);
+  if (!values.length || sum <= 0) return null;
   const max = Math.max(1, ...values);
   const w = 112;
   const h = 30;
@@ -96,16 +150,32 @@ function ActivitySparkline({ values }: { values: number[] }) {
     return `${x},${y}`;
   });
   return (
-    <svg width={w} height={h} className="mt-2 text-fuchsia-500/90" aria-hidden>
-      <polyline
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        points={pts.join(" ")}
-      />
-    </svg>
+    <div className="mt-2">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="rounded-lg border border-fuchsia-100/80 bg-gradient-to-b from-fuchsia-50/80 to-white/90 px-1.5 py-1 shadow-sm dark:border-fuchsia-900/40 dark:from-fuchsia-950/30 dark:to-card/90"
+          >
+            <svg width={w} height={h} className="text-fuchsia-600 dark:text-fuchsia-400" aria-hidden>
+              <polyline
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                points={pts.join(" ")}
+              />
+            </svg>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+          One point per day in the selected range. Height uses the same weights as Score (meetings, conversations,
+          inbound, sessions, experiences).
+        </TooltipContent>
+      </Tooltip>
+      <div className="mt-0.5 text-[10px] text-muted-foreground">Daily signal (weighted)</div>
+    </div>
   );
 }
 
@@ -219,7 +289,7 @@ export function SignalsTable({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const preset = (searchParams.get("preset") ?? "all") as SignalsPreset;
+  const preset = (searchParams.get("preset") ?? "named") as SignalsPreset;
 
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("score");
@@ -228,6 +298,8 @@ export function SignalsTable({
   const [minScore, setMinScore] = useState<string>("0");
   /** `named` = hide visitor hashes + unattributed rollup; show CRM / company / email domain only. */
   const [identityFilter, setIdentityFilter] = useState<"all" | "named">("all");
+  const [showUnattributed, setShowUnattributed] = useState(false);
+  const [hideJunkCompanies, setHideJunkCompanies] = useState(true);
 
   const applyPresetToFilters = (p: SignalsPreset) => {
     if (p === "all") {
@@ -259,7 +331,7 @@ export function SignalsTable({
   };
 
   useEffect(() => {
-    applyPresetToFilters((searchParams.get("preset") ?? "all") as SignalsPreset);
+    applyPresetToFilters((searchParams.get("preset") ?? "named") as SignalsPreset);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate saved view from URL once
   }, []);
 
@@ -278,6 +350,8 @@ export function SignalsTable({
     const minOk = Number.isFinite(min) ? min : 0;
 
     let base = rows.slice();
+    if (hideJunkCompanies) base = base.filter((r) => !isGarbageCompanyRow(r));
+    if (!showUnattributed) base = base.filter((r) => !isUnattributedRow(r));
     if (query) {
       base = base.filter((r) => {
         const blob = [r.account, r.companyName, r.workDomain].map((x) => safeStr(x).toLowerCase()).join(" ");
@@ -307,7 +381,7 @@ export function SignalsTable({
     });
 
     return base;
-  }, [rows, q, sortKey, tierFilter, identityFilter, territoryFilter, minScore, advanced]);
+  }, [rows, q, sortKey, tierFilter, identityFilter, territoryFilter, minScore, advanced, hideJunkCompanies, showUnattributed]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm ring-1 ring-black/[0.04] dark:ring-white/10">
@@ -377,6 +451,8 @@ export function SignalsTable({
                 territoryFilter !== "all" ||
                 minScore !== "0" ||
                 identityFilter !== "all" ||
+                showUnattributed ||
+                !hideJunkCompanies ||
                 q) && (
                 <Button
                   type="button"
@@ -388,6 +464,8 @@ export function SignalsTable({
                     setTerritoryFilter("all");
                     setMinScore("0");
                     setIdentityFilter("all");
+                    setShowUnattributed(false);
+                    setHideJunkCompanies(true);
                     setQ("");
                     router.replace(pathname, { scroll: false });
                   }}
@@ -440,6 +518,29 @@ export function SignalsTable({
             </Button>
           );
         })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-border/60 bg-muted/10 px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="sig-hide-junk"
+            checked={hideJunkCompanies}
+            onCheckedChange={(v) => setHideJunkCompanies(v === true)}
+          />
+          <Label htmlFor="sig-hide-junk" className="cursor-pointer text-xs text-muted-foreground">
+            Hide junk “company” names
+          </Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="sig-show-unknown"
+            checked={showUnattributed}
+            onCheckedChange={(v) => setShowUnattributed(v === true)}
+          />
+          <Label htmlFor="sig-show-unknown" className="cursor-pointer text-xs text-muted-foreground">
+            Show unattributed bucket
+          </Label>
+        </div>
       </div>
 
       <div
@@ -508,7 +609,9 @@ export function SignalsTable({
                   </span>
                 </div>
               </div>
-              {row.sparkline && row.sparkline.length > 1 ? <ActivitySparkline values={row.sparkline} /> : null}
+              {row.sparkline && row.sparkline.length ? (
+                <ActivitySparkline values={row.sparkline} identityKind={row.identityKind} />
+              ) : null}
               <div className="mt-1 truncate text-xs text-muted-foreground">
                 {(row.reasons ?? []).slice(0, 3).join(" · ") || "—"}
               </div>
