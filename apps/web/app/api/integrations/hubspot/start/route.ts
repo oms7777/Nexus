@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import { mergeHubSpotOAuthCredentials } from "@workspace/backend/lib/inboundlessOauthEnv";
+import { getHubSpotAuthorizeUrl, getOAuthPublicOrigin } from "../../_lib/oauthPublicOrigin";
 import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
@@ -32,8 +33,7 @@ export async function GET(req: Request) {
 
   const HS_CLIENT_ID = merged.clientId;
 
-  const url = new URL(req.url);
-  const origin = url.origin;
+  const origin = getOAuthPublicOrigin(req);
   const redirectUri = `${origin}/api/integrations/hubspot/callback`;
 
   const statePayload = { orgId, userId, redirect: "/integrations" };
@@ -46,5 +46,6 @@ export async function GET(req: Request) {
     state,
   });
 
-  return NextResponse.redirect(`https://app.hubspot.com/oauth/authorize?${params.toString()}`);
+  const authorizeUrl = getHubSpotAuthorizeUrl();
+  return NextResponse.redirect(`${authorizeUrl}?${params.toString()}`);
 }

@@ -191,7 +191,10 @@ const VapiPluginRemoveForm = ({
   );
 };
 
-export const VapiView = () => {
+/**
+ * Voice / Vapi connection UI — shared by Integrations and the legacy `/plugins/vapi` page.
+ */
+export const VapiConnectionPanel = () => {
   const vapiPlugin = useQuery(api.private.plugins.getOne, { service: "vapi" });
 
   const [connectOpen, setConnectOpen] = useState(false);
@@ -210,30 +213,36 @@ export const VapiView = () => {
       <VapiPluginForm open={connectOpen} setOpen={setConnectOpen} />
       <VapiPluginRemoveForm open={removeOpen} setOpen={setRemoveOpen} />
 
-      <div className="flex min-h-screen flex-col bg-muted p-8">
-        <div className="mx-auto w-full max-w-screen-md">
-          <div className="space-y-2">
-            <h1 className="text-2xl md:text-4xl">Voice Assistant</h1>
-            <p className="text-muted-foreground">
-              Connect Vapi to enable AI voice calls and phone support.
-            </p>
-          </div>
-
-          <div className="mt-8">
-            {vapiPlugin ? (
-              <VapiConnectedView onDisconnect={toggleConnection} />
-            ) : (
-              <PluginCard
-                serviceImage="/vapi.jpg"
-                serviceName="Vapi"
-                features={vapiFeatures}
-                isDisabled={vapiPlugin === undefined}
-                onSubmit={toggleConnection}
-              />
-            )}
-          </div>
-        </div>
-      </div>
+      {vapiPlugin ? (
+        <VapiConnectedView onDisconnect={toggleConnection} />
+      ) : (
+        <PluginCard
+          serviceImage="/vapi.jpg"
+          serviceName="Vapi"
+          features={vapiFeatures}
+          isDisabled={vapiPlugin === undefined}
+          onSubmit={toggleConnection}
+        />
+      )}
     </>
+  );
+};
+
+/** Full-page wrapper — prefer linking to `/integrations#voice`; this route redirects there. */
+export const VapiView = () => {
+  return (
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-muted/40">
+      <div className="mx-auto w-full max-w-3xl space-y-8 px-6 py-10 md:px-8">
+        <header className="space-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Voice Assistant</h1>
+          <p className="text-muted-foreground">
+            Connect Vapi for AI voice in the widget and phone routing. You can also manage voice from{" "}
+            <span className="font-medium text-foreground">Integrations</span>.
+          </p>
+        </header>
+
+        <VapiConnectionPanel />
+      </div>
+    </div>
   );
 };

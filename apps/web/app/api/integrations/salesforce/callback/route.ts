@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import { mergeSalesforceOAuthCredentials } from "@workspace/backend/lib/inboundlessOauthEnv";
+import { getOAuthPublicOrigin } from "../../_lib/oauthPublicOrigin";
 import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
@@ -44,7 +45,7 @@ export async function GET(req: Request) {
   }
 
   const redirectPath = parsedState.redirect ?? "/integrations";
-  const origin = url.origin;
+  const origin = getOAuthPublicOrigin(req);
   const redirectUri = `${origin}/api/integrations/salesforce/callback`;
 
   // cookie PKCE

@@ -6,7 +6,6 @@ import {
   CalendarIcon,
   InboxIcon,
   MapIcon,
-  Mic,
   UserIcon,
   Users,
   BookOpen,
@@ -83,7 +82,6 @@ export const DashboardSidebar = () => {
     pathname === url || pathname.startsWith(`${url}/`);
 
   const f = ent.features;
-  const canUseVoice = !!f.canUseVoice;
   const canUseBooking = !!f.canUseBooking;
   const canUseAdvancedAnalytics = !!f.canUseAdvancedAnalytics;
 
@@ -146,9 +144,8 @@ export const DashboardSidebar = () => {
       { title: "Widget Customization", url: "/customization", icon: SlidersHorizontal },
       { title: "Integrations", url: "/integrations", icon: InboxIcon },
       { title: "Audit log", url: "/org/audit", icon: ScrollText },
-      canUseVoice && { title: "Voice Assistant", url: "/plugins/vapi", icon: Mic },
     ].filter(Boolean) as { title: string; url: string; icon: any }[];
-  }, [ent.isLoading, canUseVoice]);
+  }, [ent.isLoading]);
 
   const labelClass = "group-data-[collapsible=icon]:hidden";
   const iconClass = "size-5";

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@workspace/backend/_generated/api";
 import { mergeSalesforceOAuthCredentials } from "@workspace/backend/lib/inboundlessOauthEnv";
+import { getOAuthPublicOrigin } from "../../_lib/oauthPublicOrigin";
 import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
@@ -43,8 +44,7 @@ export async function GET(req: Request) {
   const SF_CLIENT_ID = merged.clientId;
   const SF_LOGIN_URL = merged.loginUrl;
 
-  const url = new URL(req.url);
-  const origin = url.origin;
+  const origin = getOAuthPublicOrigin(req);
   const redirectUri = `${origin}/api/integrations/salesforce/callback`;
 
   // PKCE

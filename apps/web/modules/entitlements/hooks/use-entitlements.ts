@@ -46,5 +46,6 @@ export function useEntitlements() {
     canUseSlack: ent?.features?.canUseSlack ?? false,
     canUseSalesforce: ent?.features?.canUseSalesforce ?? false,
     canUseHubspot: ent?.features?.canUseHubspot ?? false,
+    canUseVoice: ent?.features?.canUseVoice ?? false,
   };
 }

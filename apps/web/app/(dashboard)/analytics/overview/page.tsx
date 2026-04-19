@@ -33,6 +33,7 @@ import {
   rangeToTimestamps,
   type AnalyticsRange,
 } from "@/modules/analytics/shared/analytics-date-range";
+import { displaySourceLabel } from "@/modules/analytics/shared/source-labels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 
 function niceDayLabel(day: string) {
@@ -47,26 +48,6 @@ function normalizeLabel(s: any) {
   const lower = v.toLowerCase();
   if (lower === "unknown") return "Unattributed";
   if (lower === "other") return "Other";
-  return v;
-}
-
-function normalizeSourceLabel(raw: any) {
-  const v = normalizeLabel(raw);
-  const lower = v.toLowerCase();
-  if (lower === "direct") return "Direct / Unattributed";
-  if (lower === "google_ads") return "Google Ads";
-  if (lower === "meta_ads") return "Meta Ads";
-  if (lower === "microsoft_ads") return "Microsoft Ads";
-  if (lower === "linkedin_ads") return "LinkedIn Ads";
-  if (/(^|\\.)google\\./.test(lower)) return "Google";
-  if (lower === "t.co" || lower.includes("twitter.com") || lower.includes("x.com")) return "X (Twitter)";
-  if (lower.includes("linkedin.com")) return "LinkedIn";
-  if (lower.includes("facebook.com") || lower.includes("l.facebook.com") || lower.includes("m.facebook.com"))
-    return "Facebook";
-  if (lower.includes("instagram.com")) return "Instagram";
-  if (lower.includes("youtube.com") || lower.includes("youtu.be")) return "YouTube";
-  if (lower.includes("bing.com")) return "Bing";
-  if (lower.includes("reddit.com")) return "Reddit";
   return v;
 }
 
@@ -359,22 +340,22 @@ export default function AnalyticsOverviewPage() {
           <div className="xl:col-span-2">
             <CardShell
               title="Acquisition hints, pages & geography"
-              subtitle="UTM-tagged campaigns show clearly; referrers are best-effort. Then pages and geo."
+              subtitle="Traffic sources (UTMs + referrer), top pages, then geography."
               right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
             >
               <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-foreground">Sources (UTM &amp; referrer)</div>
+                    <div className="text-sm font-medium text-foreground">Traffic sources</div>
                     <div className="text-[11px] text-muted-foreground">Volume → outcomes</div>
                   </div>
                   <MiniBarTable
-                    columns={["Source", "Sessions"]}
+                    columns={["Channel", "Sessions"]}
                     rows={topSourcesDisplay.slice(0, 8).map((s: any) => {
                       const sess = Number(s.sessions ?? 0);
                       const mtgR = sess > 0 ? (Number(s.meetings ?? 0) / sess) * 100 : 0;
                       return {
-                        label: normalizeSourceLabel(s.source ?? "direct"),
+                        label: displaySourceLabel(s.source ?? "direct"),
                         primaryValue: sess,
                         detail: (
                           <>
@@ -390,12 +371,19 @@ export default function AnalyticsOverviewPage() {
                     })}
                   />
                   <div className="mt-2 rounded-lg border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
-                    <span className="font-medium text-foreground">UTM parameters</span> are the most reliable campaign
-                    labels. We also keep a <span className="font-medium text-foreground">first-touch referrer</span> and
-                    detect common ad click ids (<span className="font-medium text-foreground">gclid</span>,{" "}
-                    <span className="font-medium text-foreground">fbclid</span>, etc.) when UTMs are missing. Raw
-                    referrers are still often stripped (in-app browsers, privacy), so &quot;Direct&quot; can stay high —
-                    cross-check with GA / ads when needed.
+                    Rows use <span className="font-medium text-foreground">readable names</span> where we recognize the
+                    key (e.g. <span className="font-medium text-foreground">linkedin.com</span> → LinkedIn). Attribution:
+                    prefer <span className="font-medium text-foreground">utm_source</span> on landing URLs; otherwise
+                    referrer / first-touch; paid clicks often carry{" "}
+                    <span className="font-medium text-foreground">gclid</span> /{" "}
+                    <span className="font-medium text-foreground">fbclid</span>. Many browsers strip referrers, so
+                    &quot;Direct&quot; can dominate — validate with GA when needed.
+                    <span className="mt-1 block text-[10px] text-muted-foreground/95">
+                      Quick test: open your site as{" "}
+                      <span className="font-medium text-foreground">?utm_source=linkedin&amp;utm_medium=social</span> or
+                      append <span className="font-medium text-foreground">&amp;gclid=test</span> once to see a labeled
+                      row appear for new sessions.
+                    </span>
                   </div>
                 </div>
 

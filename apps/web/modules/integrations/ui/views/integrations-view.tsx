@@ -3,7 +3,7 @@
 
 import { useOrganization } from "@clerk/nextjs";
 import Image from "next/image";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { SiHubspot, SiSalesforce, SiSlack } from "react-icons/si";
 
@@ -28,7 +28,7 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 import { cn } from "@workspace/ui/lib/utils";
-import { ChevronDown, CopyIcon, Globe, MessageSquare, Settings2 } from "lucide-react";
+import { ChevronDown, CopyIcon, Globe, MessageSquare, Mic, Settings2 } from "lucide-react";
 
 import { IntegrationId, INTEGRATIONS } from "../../constants";
 import { createScript } from "../../utils";
@@ -37,6 +37,7 @@ import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
+import { VapiConnectionPanel } from "@/modules/plugins/ui/views/vapi-view";
 
 export const IntegrationsView = () => {
   const { organization } = useOrganization();
@@ -49,6 +50,9 @@ export const IntegrationsView = () => {
   const showSlack = !!ent.isActive && !!ent.canUseSlack;
   const showSalesforce = !!ent.isActive && !!ent.canUseSalesforce;
   const showHubspot = !!ent.isActive && !!ent.canUseHubspot;
+  const showVoice = !!ent.isActive && !!ent.canUseVoice;
+
+  const voiceSectionRef = useRef<HTMLDivElement>(null);
 
   const slackIntegration = useQuery(
     api.integrations.getSlackIntegration,
@@ -337,6 +341,16 @@ export const IntegrationsView = () => {
   const hubspotByoCollapsedByDefault =
     oauthHints?.hubspotDefaultsAvailable === true && !hasHubspotDbConfig && hubspotOAuthReady;
 
+  useEffect(() => {
+    if (ent.isLoading) return;
+    if (typeof window === "undefined" || window.location.hash !== "#voice") return;
+    if (!showVoice) return;
+    const id = window.setTimeout(() => {
+      voiceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [ent.isLoading, showVoice]);
+
   if (ent.isLoading) return null;
 
   return (
@@ -349,7 +363,8 @@ export const IntegrationsView = () => {
           <header className="space-y-2">
             <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Integrations</h1>
             <p className="text-base text-muted-foreground">
-              Connect Slack, CRM, and the on-site chat. Advanced options stay out of the way until you need them.
+              Connect Slack, CRM, voice (Vapi), and the on-site chat. Advanced options stay tucked away until you need
+              them.
             </p>
             {!ent.isActive ? (
               <p className="rounded-lg border border-amber-200/80 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
@@ -490,7 +505,7 @@ export const IntegrationsView = () => {
             </CollapsibleContent>
           </Collapsible>
 
-          {(showSlack || showSalesforce || showHubspot) && (
+          {(showSlack || showSalesforce || showHubspot || showVoice) && (
             <>
               <Separator className="my-2" />
               <section className="space-y-4">
@@ -843,6 +858,31 @@ export const IntegrationsView = () => {
                       </Collapsible>
                     </div>
                   </Card>
+                )}
+
+                {showVoice && (
+                  <div ref={voiceSectionRef} id="voice" className="scroll-mt-28">
+                    <Card className="overflow-hidden border-border/60 shadow-sm">
+                      <CardHeader className="flex flex-row items-start gap-4 pb-2">
+                        <div
+                          className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-violet-500/12"
+                          aria-hidden
+                        >
+                          <Mic className="size-7 text-violet-600 dark:text-violet-400" />
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <CardTitle className="text-lg">Voice</CardTitle>
+                          <CardDescription>
+                            AI voice calls via Vapi — link API keys, choose an assistant and numbers, same flow as other
+                            integrations.
+                          </CardDescription>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="border-t border-border/60 bg-muted/10 pb-6 pt-5">
+                        <VapiConnectionPanel />
+                      </CardContent>
+                    </Card>
+                  </div>
                 )}
               </section>
             </>
