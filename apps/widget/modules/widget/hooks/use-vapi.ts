@@ -17,6 +17,7 @@ export const useVapi = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
+  const [callError, setCallError] = useState<string | null>(null);
 
   // ⚠️ IMPORTANT : dépend de vapiSecrets
   useEffect(() => {
@@ -50,6 +51,11 @@ export const useVapi = () => {
 
     vapiInstance.on("error", (error) => {
       console.log(error, "VAPI_ERROR");
+      const msg =
+        typeof error === "object" && error !== null && "message" in error
+          ? String((error as { message: unknown }).message)
+          : String(error);
+      setCallError(msg || "Voice connection error");
       setIsSpeaking(false);
       setIsConnecting(false);
       setIsConnected(false);
@@ -73,18 +79,22 @@ export const useVapi = () => {
       setIsConnecting(false);
       setIsSpeaking(false);
       setTranscript([]);
+      setCallError(null);
     };
   }, [vapiSecrets]);
 
   const startCall = useCallback(() => {
     const assistantId = widgetSettings?.vapiSettings?.assistantId;
 
-    // si mauvaise config → on NE bloque PAS le bouton
-    if (!vapiSecrets?.publicApiKey || !assistantId || assistantId === "none") {
-      console.warn("Vapi not configured correctly", {
-        hasSecrets: !!vapiSecrets,
-        assistantId,
-      });
+    if (!vapiSecrets?.publicApiKey) {
+      setCallError("Voice is not available yet (missing public key). Check Integrations → Voice.");
+      console.warn("Vapi not configured correctly", { hasSecrets: !!vapiSecrets, assistantId });
+      return;
+    }
+
+    if (!assistantId || assistantId === "none") {
+      setCallError("No voice assistant selected. Choose one in Integrations → Voice and save.");
+      console.warn("Vapi not configured correctly", { hasSecrets: !!vapiSecrets, assistantId });
       return;
     }
 
@@ -93,6 +103,7 @@ export const useVapi = () => {
       return;
     }
 
+    setCallError(null);
     setIsConnecting(true);
 
     try {
@@ -100,6 +111,7 @@ export const useVapi = () => {
     } catch (err) {
       console.error("Error starting Vapi call", err);
       setIsConnecting(false);
+      setCallError(err instanceof Error ? err.message : "Could not start voice call.");
     }
   }, [vapi, vapiSecrets, widgetSettings?.vapiSettings?.assistantId]);
 
@@ -116,5 +128,7 @@ export const useVapi = () => {
     transcript,
     startCall,
     endCall,
+    callError,
+    clearCallError: () => setCallError(null),
   };
 };

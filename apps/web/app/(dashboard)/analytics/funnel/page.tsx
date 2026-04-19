@@ -18,8 +18,8 @@ import {
   rangeToTimestamps,
   type AnalyticsRange,
 } from "@/modules/analytics/shared/analytics-date-range";
+import { FunnelSummaryBanner } from "@/modules/analytics/funnel/components/FunnelSummaryBanner";
 import { BrandPill, CardShell, Row } from "@/modules/analytics/shared/analytics-primitives";
-import { PrimaryOutcomeStrip } from "@/modules/analytics/shared/PrimaryOutcomeStrip";
 
 function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPlanBadges: boolean }) {
   return (
@@ -177,36 +177,39 @@ function FunnelsInner({
           </p>
           <div className="text-2xl font-semibold tracking-tight text-foreground">Pipeline &amp; motion</div>
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            One scroll: outcome first, then volume funnel, conversion efficiency, inbound handling, and proactive
-            touches — each block answers a different question so numbers are not repeated.
+            Period snapshot, then volume → step conversion → inbound ops → proactive. Step rates stay in the charts
+            below so they are not duplicated in the summary.
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
 
       {primary ? (
-        <PrimaryOutcomeStrip
+        <FunnelSummaryBanner
           meetings={Number(primary.meetings ?? 0)}
-          sessions={Number(primary.sessions ?? 0)}
-          conversations={Number(primary.conversations ?? 0)}
           meetingsDelta={primary.meetingsDelta ?? null}
+          sessions={Number(engagement.sessions ?? 0)}
+          conversations={Number(engagement.conversations ?? 0)}
+          inboundRequests={Number(inbound?.requests ?? 0)}
         />
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-12">
+      <div className="grid gap-6 lg:grid-cols-12">
         <CardShell
           title="Volume funnel"
-          subtitle="Where traffic compresses into meetings (counts on the chart; retention below)"
+          subtitle="Stage counts and where volume drops between steps"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           className="lg:col-span-7"
         >
           <EngagementFunnelChart data={engagement as any} />
-          <FunnelDropoffStrip data={engagement as any} />
+          <div className="mt-5 border-t border-border/60 pt-5">
+            <FunnelDropoffStrip data={engagement as any} />
+          </div>
         </CardShell>
 
         <CardShell
           title="Step conversion"
-          subtitle="Experience → conversation and conversation → meeting (hover chart for numerators)"
+          subtitle="Cohort-style rates between adjacent stages (tooltip shows the ratio)"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           className="lg:col-span-5"
         >
@@ -215,7 +218,7 @@ function FunnelsInner({
 
         <CardShell
           title="Inbound handling"
-          subtitle="Request → rep → booking proposal → meeting"
+          subtitle="Rep routing and booking motion on inbound chats"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           className="lg:col-span-12"
         >
@@ -248,7 +251,7 @@ function FunnelsInner({
 
         <CardShell
           title="Proactive (pounce)"
-          subtitle="Separate from the volume funnel — automation-led touches"
+          subtitle="Automation-led touches — separate from organic funnel counts"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           className="lg:col-span-12"
         >

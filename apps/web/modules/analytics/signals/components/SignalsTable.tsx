@@ -53,7 +53,7 @@ type SortKey = "score" | "sessions" | "meetings" | "account" | "lastSeen";
 
 type SignalsPreset = "all" | "hot" | "warm_plus";
 
-export type SignalsAudience = "companies" | "domains" | "anonymous";
+export type SignalsAudience = "companies" | "domains";
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : "";
@@ -345,14 +345,12 @@ export function SignalsTable({
 
     if (audience === "companies") {
       base = base.filter((r) => r.identityKind === "company" || r.identityKind === "account");
-    } else if (audience === "domains") {
-      base = base.filter((r) => r.identityKind === "domain");
     } else {
-      base = base.filter((r) => r.identityKind === "visitor" || r.identityKind === "unknown");
+      base = base.filter((r) => r.identityKind === "domain");
     }
 
     if (audience === "companies" && hideJunkCompanies) base = base.filter((r) => !isGarbageCompanyRow(r));
-    if (audience !== "anonymous" && !showUnattributed) base = base.filter((r) => !isUnattributedRow(r));
+    if (!showUnattributed) base = base.filter((r) => !isUnattributedRow(r));
     if (query) {
       base = base.filter((r) => {
         const blob = [r.account, r.companyName, r.workDomain].map((x) => safeStr(x).toLowerCase()).join(" ");
@@ -391,7 +389,7 @@ export function SignalsTable({
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search account, domain, or visitor…"
+                placeholder="Search company, domain, or account…"
                 className="h-10 rounded-xl border-border/80 bg-white pl-9 dark:bg-card"
               />
             </div>
@@ -519,18 +517,16 @@ export function SignalsTable({
             </Label>
           </div>
         ) : null}
-        {audience !== "anonymous" ? (
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="sig-show-unknown"
-              checked={showUnattributed}
-              onCheckedChange={(v) => setShowUnattributed(v === true)}
-            />
-            <Label htmlFor="sig-show-unknown" className="cursor-pointer text-xs text-muted-foreground">
-              Show unattributed bucket
-            </Label>
-          </div>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="sig-show-unknown"
+            checked={showUnattributed}
+            onCheckedChange={(v) => setShowUnattributed(v === true)}
+          />
+          <Label htmlFor="sig-show-unknown" className="cursor-pointer text-xs text-muted-foreground">
+            Show unattributed bucket
+          </Label>
+        </div>
       </div>
 
       <div
@@ -567,10 +563,8 @@ export function SignalsTable({
           <p className="text-sm font-medium text-foreground">No matching accounts</p>
           <p className="mt-1 text-xs text-muted-foreground">
             {audience === "companies"
-              ? "No company or CRM-linked rows in this range — try Domains / Anonymous tabs or widen the period."
-              : audience === "domains"
-                ? "No email-domain groups in this range — widen the period or capture work emails."
-                : "No anonymous rows in this range — widen filters or the date range."}
+              ? "No company or CRM-linked rows in this range — try the Email domains tab or widen the period."
+              : "No email-domain groups in this range — widen the period or capture emails on events."}
           </p>
         </div>
       ) : (

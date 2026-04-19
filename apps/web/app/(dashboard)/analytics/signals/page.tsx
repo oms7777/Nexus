@@ -21,7 +21,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 
 function normalizeAudience(raw: string | null): SignalsAudience {
-  if (raw === "domains" || raw === "anonymous") return raw;
+  if (raw === "domains") return "domains";
   return "companies";
 }
 
@@ -55,6 +55,10 @@ export default function AnalyticsSignalsPage() {
     }
     if (n.get("preset") === "named") {
       n.delete("preset");
+      changed = true;
+    }
+    if (n.get("audience") === "anonymous") {
+      n.set("audience", "companies");
       changed = true;
     }
     if (!changed) return;
@@ -107,12 +111,8 @@ export default function AnalyticsSignalsPage() {
             </p>
             <p>
               <span className="font-medium text-foreground">Companies &amp; CRM</span> groups by company name or CRM
-              account id. <span className="font-medium text-foreground">Email domains</span> groups by the work email
-              domain when events include an email (same visitor can appear in both lists).{" "}
-              <span className="font-medium text-foreground">Anonymous</span> is everyone we only know as a{" "}
-              <span className="font-medium text-foreground">Visitor …</span> id (no CRM id, no company string, no usable
-              email on events) — not specifically “skipped name on booking”; they never got a stable identity signal in
-              analytics.
+              account id. <span className="font-medium text-foreground">Email domains</span> groups by the email domain
+              when events include an address — the same activity can appear in both views.
             </p>
           </div>
         </div>
@@ -148,15 +148,12 @@ export default function AnalyticsSignalsPage() {
       ) : (
         <div className="space-y-4">
           <Tabs value={audience} onValueChange={(v) => setAudience(v as SignalsAudience)}>
-            <TabsList className="grid h-auto w-full max-w-lg grid-cols-3 gap-1 rounded-xl bg-muted/80 p-1 sm:w-auto sm:max-w-none sm:inline-grid">
+            <TabsList className="inline-grid h-auto w-full max-w-md grid-cols-2 gap-1 rounded-xl bg-muted/80 p-1 sm:w-auto">
               <TabsTrigger value="companies" className="rounded-lg text-xs sm:text-sm">
                 Companies &amp; CRM
               </TabsTrigger>
               <TabsTrigger value="domains" className="rounded-lg text-xs sm:text-sm">
                 Email domains
-              </TabsTrigger>
-              <TabsTrigger value="anonymous" className="rounded-lg text-xs sm:text-sm">
-                Anonymous
               </TabsTrigger>
             </TabsList>
           </Tabs>

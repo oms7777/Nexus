@@ -51,6 +51,10 @@ type PromoPayload = {
   identityMode?: "auto" | "logo" | "avatars";
   ctaList?: SimpleCta[];
   canUseVoice?: boolean;
+  /** When false, hide host nudge mic (Integrations toggle). */
+  voiceButtonEnabled?: boolean;
+  /** When false, hide host nudge mic (no assistant selected). */
+  voiceAssistantConfigured?: boolean;
   nudgeSize?: "sm" | "md" | "lg" | "xl";
   mediaPlacement?: "top" | "bottom" | "left" | "right" | "framed";
   mediaHeight?: "compact" | "standard" | "tall" | "hero";
@@ -433,6 +437,8 @@ type SuggestionsPayload = {
   theme?: ThemePayload;
   brandLogoUrl?: string;
   canUseVoice?: boolean;
+  voiceButtonEnabled?: boolean;
+  voiceAssistantConfigured?: boolean;
   /**
    * Optional override for how the host should display the nudge sequence.
    * Allows per-page / per-promo customization from the widget iframe.
@@ -1461,6 +1467,10 @@ type NudgeKind = "promo" | "suggestions" | null;
     const micBg = palette.chatBubbleColor || palette.primaryColor || "#a855f7";
     const micFg = palette.primaryTextColor || "#ffffff";
     const canUseVoice = payload.canUseVoice !== false;
+    const voiceAllowedByWidget =
+      (payload.voiceButtonEnabled ?? true) !== false &&
+      (payload.voiceAssistantConfigured ?? true) !== false;
+    const showVoiceMic = canUseVoice && voiceAllowedByWidget;
     const spec = nudgeLayoutSpec(normalizeNudgeSize(payload.nudgeSize));
     const effectiveMediaH = resolveMediaPixelHeight(spec, normalizeMediaHeight(payload.mediaHeight));
     const rawPlacementForMerge = normalizeMediaPlacement(payload.mediaPlacement);
@@ -1777,7 +1787,7 @@ type NudgeKind = "promo" | "suggestions" | null;
         </div>
       `;
 
-    const micHtml = canUseVoice
+    const micHtml = showVoiceMic
       ? `
         <div style="display:flex;justify-content:center;margin-top:10px;">
           <button id="nexus-voice"
@@ -2047,7 +2057,7 @@ type NudgeKind = "promo" | "suggestions" | null;
     const closeBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-close");
     const voiceBtn = nudge!.querySelector<HTMLButtonElement>("#nexus-voice");
 
-    if (canUseVoice) {
+    if (showVoiceMic) {
       voiceBtn?.addEventListener("mouseenter", () => {
         if (!voiceBtn) return;
         voiceBtn.style.transform = "scale(1.06)";

@@ -60,6 +60,10 @@ type PromoEmbedItem = {
   identityMode?: "auto" | "logo" | "avatars";
   ctaList?: { kind: string; label: string; url?: string }[];
   canUseVoice?: boolean;
+  /** Mirrors widget `vapiSettings.voiceButtonEnabled` — host nudge mic hidden when false. */
+  voiceButtonEnabled?: boolean;
+  /** True when a Vapi assistant is selected (not "none"). */
+  voiceAssistantConfigured?: boolean;
   /** Host-page nudge width tier. */
   nudgeSize?: NudgeSize;
   /** Image/video strip height tier. */
@@ -114,6 +118,8 @@ type SuggestionsPayload = {
   theme?: ThemePayload;
   brandLogoUrl?: string;
   canUseVoice?: boolean;
+  voiceButtonEnabled?: boolean;
+  voiceAssistantConfigured?: boolean;
   nudgeDisplay?: {
     countPerPage?: number;
     showDelayAfterNavMs?: number;
@@ -300,6 +306,25 @@ export default function SmartPromo() {
         return;
       }
 
+      if (t === "nexus:open-voice") {
+        if (!orgId) return;
+        const consentCfg = (ws as any)?.consent;
+        const consentEnabled = !!consentCfg && consentCfg.enabled !== false;
+        if (!consentEnabled || consentGiven) {
+          setScreen("voice");
+          return;
+        }
+        try {
+          sessionStorage.setItem("nexus:after-consent", "voice");
+        } catch {
+          /* ignore */
+        }
+        setBookingIntent("chat");
+        setStep("consent" as any);
+        setScreen("chat");
+        return;
+      }
+
       if (t === "nexus:run-primary-cta") {
         const p = promoRef.current;
         void (p?.primaryCta ? runCta(p.primaryCta) : ensureAndStart("chat"));
@@ -353,9 +378,12 @@ export default function SmartPromo() {
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, consentGiven, contactSessionId, currentConvId]);
+  }, [orgId, consentGiven, contactSessionId, currentConvId, ws]);
 
   const makePromoPayload = (promoDoc: Doc<"promos">): PromoEmbedItem => {
+    const vs = (ws as any)?.vapiSettings;
+    const voiceAssistantConfigured = !!(vs?.assistantId && String(vs.assistantId).trim() !== "none");
+    const voiceButtonEnabled = vs?.voiceButtonEnabled !== false;
 
     const avatars: string[] =
       (Array.isArray(memberAvatars) && memberAvatars.length
@@ -399,6 +427,8 @@ export default function SmartPromo() {
       identityMode: promoDoc.identityMode ?? "auto",
       ctaList: simpleCtaList,
       canUseVoice,
+      voiceButtonEnabled,
+      voiceAssistantConfigured,
       nudgeSize: card?.nudgeSize,
       mediaHeight: card?.mediaHeight,
       mediaPlacement: card?.mediaPlacement,
@@ -509,6 +539,10 @@ export default function SmartPromo() {
           }
         : undefined;
 
+    const vs = (ws as any)?.vapiSettings;
+    const voiceAssistantConfigured = !!(vs?.assistantId && String(vs.assistantId).trim() !== "none");
+    const voiceButtonEnabled = vs?.voiceButtonEnabled !== false;
+
     return {
       greetMessage,
       suggestions,
@@ -516,6 +550,8 @@ export default function SmartPromo() {
       theme,
       brandLogoUrl,
       canUseVoice,
+      voiceButtonEnabled,
+      voiceAssistantConfigured,
       nudgeDisplay,
     };
   };
@@ -562,14 +598,18 @@ export default function SmartPromo() {
       animationPreset: firstSettings.animationPreset ?? "soft_slide",
     };
 
+    const vsKey = (ws as any)?.vapiSettings;
+    const voiceHostKey = `${vsKey?.voiceButtonEnabled !== false}:${!!(vsKey?.assistantId && String(vsKey.assistantId).trim() !== "none")}`;
+
     const key = [
       itemsRaw
         .map(
           (x) =>
-            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}:${(x as PromoEmbedItem).nudgeSize || ""}:${(x as PromoEmbedItem).mediaHeight || ""}:${(x as PromoEmbedItem).mediaPlacement || ""}:${JSON.stringify((x as PromoEmbedItem).contentBlocks || [])}:${JSON.stringify((x as any).ctaList || [])}`,
+            `${x.title || ""}:${x.body || ""}:${(x as any).imageUrl || ""}:${(x as any).videoUrl || ""}:${(x as PromoEmbedItem).nudgeSize || ""}:${(x as PromoEmbedItem).mediaHeight || ""}:${(x as PromoEmbedItem).mediaPlacement || ""}:${JSON.stringify((x as PromoEmbedItem).contentBlocks || [])}:${JSON.stringify((x as any).ctaList || [])}:${(x as PromoEmbedItem).voiceButtonEnabled !== false}:${(x as PromoEmbedItem).voiceAssistantConfigured === true}`,
         )
         .join("|"),
       JSON.stringify(sequenceSettings),
+      voiceHostKey,
     ].join("__");
 
     if (lastSentPromoKeyRef.current === key) return;
@@ -594,6 +634,7 @@ export default function SmartPromo() {
     const key = [
       payload.suggestions.join("|"),
       JSON.stringify(payload.nudgeDisplay ?? {}),
+      `${payload.voiceButtonEnabled !== false}:${payload.voiceAssistantConfigured === true}`,
     ].join("__");
 
     if (lastSentSuggestionsKeyRef.current === key) return;

@@ -25,14 +25,17 @@ export const WidgetVoiceScreen = () => {
     startCall,
     endCall,
     isConnecting,
+    callError,
+    clearCallError,
   } = useVapi();
 
   // ✅ AUTO-START : démarre l'appel dès l'arrivée sur l'écran Voice
   useEffect(() => {
+    if (callError) return;
     if (!isConnected && !isConnecting) {
       startCall();
     }
-  }, [isConnected, isConnecting, startCall]);
+  }, [isConnected, isConnecting, startCall, callError]);
 
   // ✅ STOP ON UNMOUNT : si on quitte l'écran, on coupe toujours l'appel
   useEffect(() => {
@@ -60,7 +63,21 @@ export const WidgetVoiceScreen = () => {
         </div>
       </WidgetHeader>
 
-      {transcript.length > 0 ? (
+      {callError ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-sm text-destructive">{callError}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              clearCallError();
+              void startCall();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : transcript.length > 0 ? (
         <AIConversation className="h-full">
           <AIConversationContent>
             {transcript.map((message, index) => (
@@ -79,51 +96,58 @@ export const WidgetVoiceScreen = () => {
           <div className="flex items-center justify-center rounded-full border bg-white p-3">
             <MicIcon className="size-6 text-muted-foreground" />
           </div>
-          <p className="text-muted-foreground">Transcript will appear here</p>
+          <p className="text-muted-foreground">
+            {isConnecting ? "Connecting…" : "Transcript will appear here"}
+          </p>
         </div>
       )}
 
-      <div className="border-t bg-background p-4">
-        <div className="flex flex-col items-center gap-y-4">
-          {isConnected && (
-            <div className="flex items-center gap-x-2">
-              <div
-                className={cn(
-                  "size-4 rounded-full",
-                  isSpeaking ? "animate-pulse bg-red-500" : "bg-green-500"
-                )}
-              />
-              <span className="text-muted-foreground text-sm">
-                {isSpeaking ? "Assistant Speaking..." : "Listening..."}
-              </span>
-            </div>
-          )}
-
-          <div className="flex w-full justify-center">
-            {isConnected ? (
-              <Button
-                className="w-full"
-                size="lg"
-                variant="destructive"
-                onClick={() => endCall()}
-              >
-                <MicOffIcon />
-                End call
-              </Button>
-            ) : (
-              <Button
-                className="w-full"
-                disabled={isConnecting}
-                size="lg"
-                onClick={() => startCall()}
-              >
-                <MicIcon />
-                Start call
-              </Button>
+      {!callError ? (
+        <div className="border-t bg-background p-4">
+          <div className="flex flex-col items-center gap-y-4">
+            {isConnected && (
+              <div className="flex items-center gap-x-2">
+                <div
+                  className={cn(
+                    "size-4 rounded-full",
+                    isSpeaking ? "animate-pulse bg-red-500" : "bg-green-500"
+                  )}
+                />
+                <span className="text-muted-foreground text-sm">
+                  {isSpeaking ? "Assistant Speaking..." : "Listening..."}
+                </span>
+              </div>
             )}
+
+            <div className="flex w-full justify-center">
+              {isConnected ? (
+                <Button
+                  className="w-full"
+                  size="lg"
+                  variant="destructive"
+                  onClick={() => endCall()}
+                >
+                  <MicOffIcon />
+                  End call
+                </Button>
+              ) : (
+                <Button
+                  className="w-full"
+                  disabled={isConnecting}
+                  size="lg"
+                  onClick={() => {
+                    clearCallError();
+                    void startCall();
+                  }}
+                >
+                  <MicIcon />
+                  {isConnecting ? "Connecting…" : "Start call"}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </>
   );
 };
