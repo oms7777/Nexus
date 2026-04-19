@@ -51,7 +51,9 @@ type Row = {
 
 type SortKey = "score" | "sessions" | "meetings" | "account" | "lastSeen";
 
-type SignalsPreset = "all" | "hot" | "warm_plus" | "named";
+type SignalsPreset = "all" | "hot" | "warm_plus";
+
+export type SignalsAudience = "companies" | "domains" | "anonymous";
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : "";
@@ -59,12 +61,6 @@ function safeStr(x: any) {
 function safeNum(x: any) {
   const n = Number(x ?? 0);
   return Number.isFinite(n) ? n : 0;
-}
-
-/** Rows where we have a real account / company / work domain (not anonymous visitor bucket). */
-function isNamedIdentity(r: Row): boolean {
-  const k = r.identityKind ?? "unknown";
-  return k === "account" || k === "company" || k === "domain";
 }
 
 function isUnattributedRow(r: Row) {
@@ -282,22 +278,24 @@ function IdentityBadge({ kind }: { kind?: Row["identityKind"] }) {
 export function SignalsTable({
   rows,
   advanced,
+  audience,
 }: {
   rows: Row[];
   advanced: boolean;
+  audience: SignalsAudience;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const preset = (searchParams.get("preset") ?? "named") as SignalsPreset;
+  const rawPreset = searchParams.get("preset");
+  const preset: SignalsPreset =
+    rawPreset === "hot" || rawPreset === "warm_plus" ? rawPreset : "all";
 
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [territoryFilter, setTerritoryFilter] = useState<string>("all");
   const [minScore, setMinScore] = useState<string>("0");
-  /** `named` = hide visitor hashes + unattributed rollup; show CRM / company / email domain only. */
-  const [identityFilter, setIdentityFilter] = useState<"all" | "named">("all");
   const [showUnattributed, setShowUnattributed] = useState(false);
   const [hideJunkCompanies, setHideJunkCompanies] = useState(true);
 
@@ -305,19 +303,12 @@ export function SignalsTable({
     if (p === "all") {
       setTierFilter("all");
       setMinScore("0");
-      setIdentityFilter("all");
     } else if (p === "hot") {
       setTierFilter("hot");
       setMinScore("0");
-      setIdentityFilter("all");
     } else if (p === "warm_plus") {
       setTierFilter("all");
       setMinScore("45");
-      setIdentityFilter("all");
-    } else if (p === "named") {
-      setTierFilter("all");
-      setMinScore("0");
-      setIdentityFilter("named");
     }
   };
 
@@ -331,7 +322,8 @@ export function SignalsTable({
   };
 
   useEffect(() => {
-    applyPresetToFilters((searchParams.get("preset") ?? "named") as SignalsPreset);
+    const raw = searchParams.get("preset");
+    applyPresetToFilters(raw === "hot" || raw === "warm_plus" ? raw : "all");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate saved view from URL once
   }, []);
 
@@ -350,8 +342,17 @@ export function SignalsTable({
     const minOk = Number.isFinite(min) ? min : 0;
 
     let base = rows.slice();
-    if (hideJunkCompanies) base = base.filter((r) => !isGarbageCompanyRow(r));
-    if (!showUnattributed) base = base.filter((r) => !isUnattributedRow(r));
+
+    if (audience === "companies") {
+      base = base.filter((r) => r.identityKind === "company" || r.identityKind === "account");
+    } else if (audience === "domains") {
+      base = base.filter((r) => r.identityKind === "domain");
+    } else {
+      base = base.filter((r) => r.identityKind === "visitor" || r.identityKind === "unknown");
+    }
+
+    if (audience === "companies" && hideJunkCompanies) base = base.filter((r) => !isGarbageCompanyRow(r));
+    if (audience !== "anonymous" && !showUnattributed) base = base.filter((r) => !isUnattributedRow(r));
     if (query) {
       base = base.filter((r) => {
         const blob = [r.account, r.companyName, r.workDomain].map((x) => safeStr(x).toLowerCase()).join(" ");
@@ -360,9 +361,6 @@ export function SignalsTable({
     }
     if (tierFilter !== "all") {
       base = base.filter((r) => (r.tier ?? "Neutral").toLowerCase() === tierFilter.toLowerCase());
-    }
-    if (identityFilter === "named") {
-      base = base.filter(isNamedIdentity);
     }
     if (territoryFilter !== "all" && advanced) {
       base = base.filter((r) => safeStr(r.territory) === territoryFilter);
@@ -381,7 +379,7 @@ export function SignalsTable({
     });
 
     return base;
-  }, [rows, q, sortKey, tierFilter, identityFilter, territoryFilter, minScore, advanced, hideJunkCompanies, showUnattributed]);
+  }, [rows, q, sortKey, tierFilter, territoryFilter, minScore, advanced, hideJunkCompanies, showUnattributed, audience]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm ring-1 ring-black/[0.04] dark:ring-white/10">
@@ -413,15 +411,6 @@ export function SignalsTable({
                   <SelectItem value="neutral">Neutral</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={identityFilter} onValueChange={(v) => setIdentityFilter(v as "all" | "named")}>
-                <SelectTrigger className="h-9 min-w-[168px] rounded-xl text-xs" size="sm">
-                  <SelectValue placeholder="Identity" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All identities</SelectItem>
-                  <SelectItem value="named">Named only</SelectItem>
-                </SelectContent>
-              </Select>
               {advanced ? (
                 <Select value={territoryFilter} onValueChange={setTerritoryFilter}>
                   <SelectTrigger className="h-9 min-w-[140px] rounded-xl text-xs" size="sm">
@@ -450,7 +439,6 @@ export function SignalsTable({
               {(tierFilter !== "all" ||
                 territoryFilter !== "all" ||
                 minScore !== "0" ||
-                identityFilter !== "all" ||
                 showUnattributed ||
                 !hideJunkCompanies ||
                 q) && (
@@ -463,7 +451,6 @@ export function SignalsTable({
                     setTierFilter("all");
                     setTerritoryFilter("all");
                     setMinScore("0");
-                    setIdentityFilter("all");
                     setShowUnattributed(false);
                     setHideJunkCompanies(true);
                     setQ("");
@@ -498,10 +485,9 @@ export function SignalsTable({
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Views</span>
         {(
           [
-            { id: "all" as const, label: "All" },
+            { id: "all" as const, label: "All tiers" },
             { id: "hot" as const, label: "Hot" },
             { id: "warm_plus" as const, label: "Warm+" },
-            { id: "named" as const, label: "Named orgs" },
           ] as const
         ).map((v) => {
           const active = preset === v.id;
@@ -521,26 +507,30 @@ export function SignalsTable({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-border/60 bg-muted/10 px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id="sig-hide-junk"
-            checked={hideJunkCompanies}
-            onCheckedChange={(v) => setHideJunkCompanies(v === true)}
-          />
-          <Label htmlFor="sig-hide-junk" className="cursor-pointer text-xs text-muted-foreground">
-            Hide junk “company” names
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id="sig-show-unknown"
-            checked={showUnattributed}
-            onCheckedChange={(v) => setShowUnattributed(v === true)}
-          />
-          <Label htmlFor="sig-show-unknown" className="cursor-pointer text-xs text-muted-foreground">
-            Show unattributed bucket
-          </Label>
-        </div>
+        {audience === "companies" ? (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="sig-hide-junk"
+              checked={hideJunkCompanies}
+              onCheckedChange={(v) => setHideJunkCompanies(v === true)}
+            />
+            <Label htmlFor="sig-hide-junk" className="cursor-pointer text-xs text-muted-foreground">
+              Hide junk “company” names
+            </Label>
+          </div>
+        ) : null}
+        {audience !== "anonymous" ? (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="sig-show-unknown"
+              checked={showUnattributed}
+              onCheckedChange={(v) => setShowUnattributed(v === true)}
+            />
+            <Label htmlFor="sig-show-unknown" className="cursor-pointer text-xs text-muted-foreground">
+              Show unattributed bucket
+            </Label>
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -576,9 +566,11 @@ export function SignalsTable({
         <div className="px-4 py-10 text-center">
           <p className="text-sm font-medium text-foreground">No matching accounts</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {identityFilter === "named"
-              ? "No CRM, company, or email-domain groups in this range — try “All identities” or widen the period."
-              : "Relax filters or widen the date range."}
+            {audience === "companies"
+              ? "No company or CRM-linked rows in this range — try Domains / Anonymous tabs or widen the period."
+              : audience === "domains"
+                ? "No email-domain groups in this range — widen the period or capture work emails."
+                : "No anonymous rows in this range — widen filters or the date range."}
           </p>
         </div>
       ) : (

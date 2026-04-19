@@ -1836,33 +1836,45 @@ export const WidgetChatScreen = () => {
                 onPick={async (slot) => {
                   if (!organizationId || !contactSessionId || !qdata.name || !qdata.email) return;
 
-                  const res = await bookSlot({
-                    organizationId,
-                    userId: selectedRep?.userId,
-                    contactSessionId,
-                    attendeeName: qdata.name,
-                    attendeeEmail: qdata.email,
-                    attendeePhone: (qdata as any).phone,
-                    attendeeCompany: qdata.company,
-                    attendeeRole: qdata.role,
-                    attendeeDescription: (qdata as any).description,
-                    start: slot.start,
-                    end: slot.end,
-                  });
+                  try {
+                    const res = await bookSlot({
+                      organizationId,
+                      userId: selectedRep?.userId,
+                      contactSessionId,
+                      attendeeName: qdata.name,
+                      attendeeEmail: qdata.email,
+                      attendeePhone: (qdata as any).phone,
+                      attendeeCompany: qdata.company,
+                      attendeeRole: qdata.role,
+                      attendeeDescription: (qdata as any).description,
+                      start: slot.start,
+                      end: slot.end,
+                    });
 
-                  setLocalMsgs((m) => [
-                    ...m,
-                    {
-                      role: "assistant",
-                      text: t.youAreBooked(
-                        selectedRep?.name || t.ourTeam,
-                        res?.meetingUrl || t.meetingUrlFallback,
-                      ),
-                    },
-                  ]);
+                    setLocalMsgs((m) => [
+                      ...m,
+                      {
+                        role: "assistant",
+                        text: t.youAreBooked(
+                          selectedRep?.name || t.ourTeam,
+                          res?.meetingUrl || t.meetingUrlFallback,
+                        ),
+                      },
+                    ]);
 
-                  setSlots(null);  // Réinitialiser les créneaux après la réservation
-                  setStep("done");  // Passer à l'étape finale
+                    setSlots(null);
+                    setStep("done");
+                  } catch (e: unknown) {
+                    const anyE = e as { data?: { message?: string }; message?: string };
+                    const msg =
+                      (typeof anyE?.data?.message === "string" && anyE.data.message) ||
+                      (typeof anyE?.message === "string" && anyE.message) ||
+                      "Booking failed. Please try again.";
+                    setLocalMsgs((m) => [
+                      ...m,
+                      { role: "assistant", text: msg.length > 280 ? `${msg.slice(0, 280)}…` : msg },
+                    ]);
+                  }
                 }}
                 onBack={async () => {
                   if (routingMode === "visitor_choice") {

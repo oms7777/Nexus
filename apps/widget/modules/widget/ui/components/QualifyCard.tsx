@@ -10,6 +10,7 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 import { Textarea } from "@workspace/ui/components/textarea"; // ✅ NEW (shadcn)
+import { bookingCompanyValidationMessage } from "../../../../lib/booking-company-validation";
 
 export default function QualifyCard({
   uiLang = "en",
@@ -48,7 +49,8 @@ export default function QualifyCard({
   const [description, setDescription] = useState(initial?.description ?? "");
 
   const emailOk = /\S+@\S+\.\S+/.test(email);
-  const canSubmit = name.trim() && emailOk && description.trim().length >= 5;
+  const companyErr = bookingCompanyValidationMessage(company);
+  const canSubmit = name.trim() && emailOk && description.trim().length >= 5 && !companyErr;
 
   return (
     <div className="p-3">
@@ -75,7 +77,13 @@ export default function QualifyCard({
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label className="text-xs font-medium text-muted-foreground">{tc.qualifyCompany}</Label>
-              <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder={tc.qualifyCompanyPlaceholder} className="h-9 rounded-lg" />
+              <Input
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder={tc.qualifyCompanyPlaceholder}
+                className={["h-9 rounded-lg", companyErr ? "border-rose-400" : ""].join(" ")}
+              />
+              {companyErr ? <p className="text-[11px] text-rose-600">{companyErr}</p> : null}
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-medium text-muted-foreground">{tc.qualifyRole}</Label>

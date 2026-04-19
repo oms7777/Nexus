@@ -1,6 +1,6 @@
 // packages/backend/convex/public/calendar.ts
 import { query, action } from "../_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 
@@ -37,6 +37,39 @@ function toErrString(e: unknown) {
 function isInvalidGrant(e: unknown) {
   const s = toErrString(e).toLowerCase();
   return s.includes("invalid_grant") || s.includes("calendar_reconnect_required");
+}
+
+const BOOKING_COMPANY_BLOCK = new Set([
+  "test",
+  "none",
+  "n/a",
+  "na",
+  "null",
+  "unknown",
+  "asdf",
+  "qwerty",
+  "qqq",
+  "xxx",
+  "hhh",
+  "daf",
+  "ads",
+  "sqd",
+  "dkf",
+  "sd",
+  "lol",
+  "foo",
+  "bar",
+  "abc",
+  "xyz",
+]);
+
+function isPlausibleBookingCompanyName(raw: string): boolean {
+  const s = raw.trim().toLowerCase();
+  if (s.length === 0) return true;
+  if (s.length < 3 || s.length > 120) return false;
+  if (/^(.)\1{2,}$/.test(s)) return false;
+  if (BOOKING_COMPANY_BLOCK.has(s)) return false;
+  return true;
 }
 
 /* -------------------------------------------------------------
@@ -341,6 +374,15 @@ export const bookSlot = action({
       attendeeDescription,
     },
   ): Promise<{ bookingId: Id<"calendarBookings">; meetingUrl?: string }> => {
+    const coCheck = (attendeeCompany ?? "").trim();
+    if (coCheck && !isPlausibleBookingCompanyName(coCheck)) {
+      throw new ConvexError({
+        code: "INVALID_COMPANY",
+        message:
+          "Please enter a real company name (at least 3 characters), or leave the field empty — test words like “abc” are not accepted.",
+      });
+    }
+
     // 0) routing (if user not forced)
     let effectiveUserId = userId;
 

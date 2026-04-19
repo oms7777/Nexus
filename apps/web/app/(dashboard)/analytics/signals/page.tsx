@@ -14,7 +14,16 @@ import {
   type AnalyticsRange,
 } from "@/modules/analytics/shared/analytics-date-range";
 import { LockedSignalsAdvancedCard } from "@/modules/analytics/signals/components/LockedSignalsAdvancedCard";
-import { SignalsTable } from "@/modules/analytics/signals/components/SignalsTable";
+import {
+  SignalsTable,
+  type SignalsAudience,
+} from "@/modules/analytics/signals/components/SignalsTable";
+import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
+
+function normalizeAudience(raw: string | null): SignalsAudience {
+  if (raw === "domains" || raw === "anonymous") return raw;
+  return "companies";
+}
 
 export default function AnalyticsSignalsPage() {
   const { organization } = useOrganization();
@@ -38,8 +47,19 @@ export default function AnalyticsSignalsPage() {
 
   useEffect(() => {
     if (!advancedEnabled) return;
-    if (searchParams.get("preset")) return;
-    router.replace(`${pathname}?preset=named`, { scroll: false });
+    const n = new URLSearchParams(searchParams.toString());
+    let changed = false;
+    if (!n.get("audience")) {
+      n.set("audience", "companies");
+      changed = true;
+    }
+    if (n.get("preset") === "named") {
+      n.delete("preset");
+      changed = true;
+    }
+    if (!changed) return;
+    const qs = n.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [advancedEnabled, pathname, router, searchParams]);
 
   if (!orgId) return <div className="p-6">No organization</div>;
@@ -65,6 +85,14 @@ export default function AnalyticsSignalsPage() {
   if (rows === undefined) return <div className="p-6">Loading…</div>;
 
   const isEmpty = Array.isArray(rows) && rows.length === 0;
+  const audience = normalizeAudience(searchParams.get("audience"));
+
+  const setAudience = (next: SignalsAudience) => {
+    const n = new URLSearchParams(searchParams.toString());
+    n.set("audience", next);
+    const qs = n.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -113,7 +141,22 @@ export default function AnalyticsSignalsPage() {
           </div>
         </div>
       ) : (
-        <SignalsTable rows={rows} advanced={advancedEnabled} />
+        <div className="space-y-4">
+          <Tabs value={audience} onValueChange={(v) => setAudience(v as SignalsAudience)}>
+            <TabsList className="grid h-auto w-full max-w-lg grid-cols-3 gap-1 rounded-xl bg-muted/80 p-1 sm:w-auto sm:max-w-none sm:inline-grid">
+              <TabsTrigger value="companies" className="rounded-lg text-xs sm:text-sm">
+                Companies &amp; CRM
+              </TabsTrigger>
+              <TabsTrigger value="domains" className="rounded-lg text-xs sm:text-sm">
+                Email domains
+              </TabsTrigger>
+              <TabsTrigger value="anonymous" className="rounded-lg text-xs sm:text-sm">
+                Anonymous
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <SignalsTable rows={rows} advanced={advancedEnabled} audience={audience} />
+        </div>
       )}
     </div>
   );

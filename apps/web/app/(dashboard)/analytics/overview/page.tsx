@@ -260,10 +260,10 @@ export default function AnalyticsOverviewPage() {
                 Funnel detail
               </Link>
               <Link
-                href="/analytics/signals?preset=named"
+                href="/analytics/signals?audience=companies"
                 className="inline-flex items-center rounded-full border border-border/80 bg-muted/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
               >
-                Named signals
+                Company signals
               </Link>
             </div>
           ) : null}

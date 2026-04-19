@@ -81,6 +81,10 @@ export const VapiConnectedView = ({
   } = useVapiPhoneNumbers();
 
   const vapiListError = assistantsError ?? phoneNumbersError;
+  const vapiInvalidKeyHint =
+    vapiListError &&
+    (/401|Invalid Key|Unauthorized/i.test(vapiListError.message) ||
+      /private key instead of the public/i.test(vapiListError.message));
 
   const handleRetryVapiLists = () => {
     retryAssistants();
@@ -145,6 +149,22 @@ export const VapiConnectedView = ({
               in your Convex deployment environment, redeploy, then retry. Your own keys (Voice+) skip that path once
               saved.
             </p>
+            {vapiInvalidKeyHint ? (
+              <p className="text-xs">
+                <span className="font-medium text-foreground">401 / Invalid key:</span> Vapi is rejecting the{" "}
+                <span className="font-medium">private</span> key used for server calls. Open the Vapi dashboard → API
+                keys: copy <span className="font-medium">Public</span> into{" "}
+                <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-[11px]">
+                  INBOUNDLESS_VAPI_PUBLIC_API_KEY
+                </code>{" "}
+                and <span className="font-medium">Private</span> into{" "}
+                <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-[11px]">
+                  INBOUNDLESS_VAPI_PRIVATE_API_KEY
+                </code>
+                . If it still fails, the two values were likely swapped — exchange them in Convex, save, redeploy, then
+                Retry.
+              </p>
+            ) : null}
             <Button
               className="mt-1"
               onClick={handleRetryVapiLists}

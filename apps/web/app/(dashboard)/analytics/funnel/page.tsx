@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
@@ -12,7 +12,9 @@ import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/Eng
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
 import { FunnelDropoffStrip } from "@/modules/analytics/funnel/components/FunnelDropoffStrip";
 import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
+import { PounceFunnelChart } from "@/modules/analytics/funnel/components/PounceFunnelChart";
 import { FunnelInsightsPanel } from "@/modules/analytics/funnel/components/FunnelInsightsPanel";
+import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 import {
   AnalyticsDateRangePicker,
   rangeToTimestamps,
@@ -42,9 +44,10 @@ function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPla
       </div>
 
       <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-        <div>• Engagement funnel (sessions → experiences → conversations → meetings)</div>
-        <div>• Conversion rates (exp → conv, conv → meeting)</div>
-        <div>• Inbound conversion health (requests → rep started → booking proposed → meetings)</div>
+        <div>• Engagement — sessions → experiences → conversations → meetings</div>
+        <div>• Conversion — strict rates (experience → conversation → meeting)</div>
+        <div>• Inbound health — requests → rep started → booking proposed → meetings</div>
+        <div>• Proactive — pounce attempts → conversations → meetings</div>
       </div>
 
       <div className="mt-6 rounded-xl bg-fuchsia-50/60 p-4 text-sm border border-fuchsia-100">
@@ -93,6 +96,14 @@ function extractReason(err: unknown) {
   return "Server error";
 }
 
+const FUNNEL_VIEWS = ["engagement", "conversion", "inbound", "proactive"] as const;
+type FunnelView = (typeof FUNNEL_VIEWS)[number];
+
+function normalizeFunnelView(raw: string | null): FunnelView {
+  if (raw === "conversion" || raw === "inbound" || raw === "proactive" || raw === "engagement") return raw;
+  return "engagement";
+}
+
 function FunnelsInner({
   orgId,
   advancedEnabled,
@@ -102,8 +113,33 @@ function FunnelsInner({
   advancedEnabled: boolean;
   showPlanBadges: boolean;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [range, setRange] = useState<AnalyticsRange>({ kind: "preset", days: 30 });
   const { fromTs, toTs } = useMemo(() => rangeToTimestamps(range), [range]);
+
+  const view = normalizeFunnelView(searchParams.get("view"));
+
+  useEffect(() => {
+    if (!advancedEnabled) return;
+    const raw = searchParams.get("view");
+    if (raw && !FUNNEL_VIEWS.includes(raw as FunnelView)) {
+      const n = new URLSearchParams(searchParams.toString());
+      n.delete("view");
+      const qs = n.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }
+  }, [advancedEnabled, pathname, router, searchParams]);
+
+  const setView = (next: FunnelView) => {
+    const n = new URLSearchParams(searchParams.toString());
+    if (next === "engagement") n.delete("view");
+    else n.set("view", next);
+    const qs = n.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
 
   const data = useQuery(
     api.public.analytics.funnels,
@@ -162,9 +198,17 @@ function FunnelsInner({
   };
 
   const inbound = data?.inbound ?? null;
+  const pounce = data?.pounce ?? { attempts: 0, conversations: 0, meetings: 0 };
   const primary = data?.primaryOutcome as
     | { meetings?: number; sessions?: number; conversations?: number; meetingsDelta?: number | null }
     | undefined;
+
+  const cNum = Number(conversion.conversations_from_experiences_num ?? 0);
+  const cDen = Number(conversion.conversations_from_experiences_den ?? 0);
+  const mNum = Number(conversion.meetings_from_conversations_num ?? 0);
+  const mDen = Number(conversion.meetings_from_conversations_den ?? 0);
+  const expToConvPct = cDen > 0 ? Math.round((cNum / cDen) * 100) : null;
+  const convToMeetPct = mDen > 0 ? Math.round((mNum / mDen) * 100) : null;
 
   return (
     <div className="p-6 space-y-6">
@@ -172,8 +216,9 @@ function FunnelsInner({
         <div className="space-y-1">
           <div className="text-2xl font-semibold tracking-tight">Funnels</div>
           <div className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            <span className="font-medium text-foreground">Step-through conversion:</span> where people drop between
-            sessions, product surfaces, and inbound handling — not headline outcomes (those stay on Overview).
+            <span className="font-medium text-foreground">Four views</span> — engagement, strict conversion, inbound
+            ops, and proactive pounce — same period as Overview. Use{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">?view=</code> to deep-link.
           </div>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
@@ -181,8 +226,8 @@ function FunnelsInner({
 
       <div className="rounded-2xl border border-border/80 bg-muted/20 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
         <span className="font-medium text-foreground">Overview</span> stays broad (acquisition + geo).{" "}
-        <span className="font-medium text-foreground">Funnels</span> focuses on step-through retention and inbound
-        health for the same period — with the same primary outcome strip as Overview.
+        <span className="font-medium text-foreground">Funnels</span> drills into drop-offs per story; the outcome strip
+        below is shared once for the period.
       </div>
 
       {primary ? (
@@ -196,10 +241,27 @@ function FunnelsInner({
 
       <FunnelInsightsPanel engagement={engagement as any} inbound={inbound as any} />
 
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+      <Tabs value={view} onValueChange={(v) => setView(v as FunnelView)}>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl bg-muted/80 p-1 lg:inline-grid lg:max-w-none lg:grid-cols-4">
+          <TabsTrigger value="engagement" className="rounded-lg text-xs sm:text-sm">
+            Engagement
+          </TabsTrigger>
+          <TabsTrigger value="conversion" className="rounded-lg text-xs sm:text-sm">
+            Conversion
+          </TabsTrigger>
+          <TabsTrigger value="inbound" className="rounded-lg text-xs sm:text-sm">
+            Inbound
+          </TabsTrigger>
+          <TabsTrigger value="proactive" className="rounded-lg text-xs sm:text-sm">
+            Proactive
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {view === "engagement" ? (
         <CardShell
           title="Engagement funnel"
-          subtitle="Macro funnel — counts then stage retention"
+          subtitle="Sessions → experiences → conversations → meetings (volumes + retention)"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
         >
           <div className="grid gap-2 md:grid-cols-2">
@@ -251,20 +313,57 @@ function FunnelsInner({
             <EngagementFunnelChart data={engagement as any} />
           </div>
         </CardShell>
+      ) : null}
 
+      {view === "conversion" ? (
         <CardShell
           title="Conversion rates"
-          subtitle="Strict cohort-style rates from funnel events"
+          subtitle="Strict cohort-style rates from funnel events (not duplicated in Engagement counts)"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
         >
-          <ConversionRatesChart data={conversion as any} />
+          <div className="grid gap-2 md:grid-cols-2">
+            <Row
+              label="Experience → conversation"
+              value={
+                expToConvPct !== null ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="font-semibold tabular-nums">{expToConvPct}%</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({cNum.toLocaleString()} / {cDen.toLocaleString()})
+                    </span>
+                  </span>
+                ) : (
+                  "—"
+                )
+              }
+            />
+            <Row
+              label="Conversation → meeting"
+              value={
+                convToMeetPct !== null ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="font-semibold tabular-nums">{convToMeetPct}%</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({mNum.toLocaleString()} / {mDen.toLocaleString()})
+                    </span>
+                  </span>
+                ) : (
+                  "—"
+                )
+              }
+            />
+          </div>
+          <div className="mt-4">
+            <ConversionRatesChart data={conversion as any} />
+          </div>
         </CardShell>
+      ) : null}
 
+      {view === "inbound" ? (
         <CardShell
           title="Inbound conversion health"
           subtitle="Intent → routing → booking — operational pipeline"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
-          className="lg:col-span-2"
         >
           {!inbound ? (
             <div className="text-sm text-muted-foreground">No inbound data.</div>
@@ -292,7 +391,31 @@ function FunnelsInner({
             </>
           )}
         </CardShell>
-      </div>
+      ) : null}
+
+      {view === "proactive" ? (
+        <CardShell
+          title="Proactive (pounce)"
+          subtitle="Outbound automation → conversation → meeting"
+          right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
+        >
+          <div className="grid gap-2 md:grid-cols-3">
+            <Row label="Pounce attempts" value={Number(pounce.attempts ?? 0).toLocaleString()} />
+            <Row label="Pounce conversations" value={Number(pounce.conversations ?? 0).toLocaleString()} />
+            <Row label="Pounce meetings" value={Number(pounce.meetings ?? 0).toLocaleString()} />
+          </div>
+          <div className="mt-4">
+            <PounceFunnelChart data={pounce as any} />
+          </div>
+          <div className="mt-4 rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+            Counts come from analytics event types{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">pounce_attempt</code>,{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">pounce_conversation</code>, and{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">pounce_meeting</code>. They are separate
+            from the engagement funnel totals above.
+          </div>
+        </CardShell>
+      ) : null}
     </div>
   );
 }
