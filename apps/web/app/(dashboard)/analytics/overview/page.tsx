@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
@@ -252,6 +253,22 @@ export default function AnalyticsOverviewPage() {
             Pipeline &amp; outcomes from the Inboundless widget on your sites — complementary to GA / ads tools for
             acquisition detail.
           </p>
+          {advancedEnabled ? (
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Link
+                href="/analytics/funnel#funnel-engagement"
+                className="inline-flex items-center rounded-full border border-border/80 bg-muted/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
+              >
+                Funnel detail
+              </Link>
+              <Link
+                href="/analytics/signals?preset=named"
+                className="inline-flex items-center rounded-full border border-border/80 bg-muted/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
+              >
+                Named signals
+              </Link>
+            </div>
+          ) : null}
           <p className="text-xs text-muted-foreground/90">
             <span className="font-medium text-foreground">Everyone in your organization</span> sees the same numbers
             here. Geography tabs below are views of the same data — global vs. your sales zones in Team &amp; Territories.

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Filter, HelpCircle, Search } from "lucide-react";
 
 import { displaySourceLabel } from "@/modules/analytics/shared/source-labels";
@@ -22,6 +23,8 @@ import {
 type Row = {
   groupKey?: string;
   account: string;
+  companyName?: string;
+  workDomain?: string;
   identityKind?: "account" | "company" | "domain" | "visitor" | "unknown";
   tier?: "Hot" | "Warm" | "Neutral" | string;
   score?: number;
@@ -41,9 +44,12 @@ type Row = {
   topPages?: string[];
   reasons?: string[];
   lastSeenTs?: number;
+  sparkline?: number[];
 };
 
-type SortKey = "score" | "sessions" | "meetings" | "account";
+type SortKey = "score" | "sessions" | "meetings" | "account" | "lastSeen";
+
+type SignalsPreset = "all" | "hot" | "warm_plus" | "named";
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : "";
@@ -57,6 +63,50 @@ function safeNum(x: any) {
 function isNamedIdentity(r: Row): boolean {
   const k = r.identityKind ?? "unknown";
   return k === "account" || k === "company" || k === "domain";
+}
+
+function formatRelativeShort(ts?: number) {
+  if (!ts) return "—";
+  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ago`;
+}
+
+function organizationPrimaryLabel(r: Row) {
+  if (safeStr(r.companyName)) return safeStr(r.companyName);
+  if (safeStr(r.workDomain)) return safeStr(r.workDomain);
+  return safeStr(r.account) || "—";
+}
+
+function ActivitySparkline({ values }: { values: number[] }) {
+  if (!values.length) return null;
+  const max = Math.max(1, ...values);
+  const w = 112;
+  const h = 30;
+  const n = values.length;
+  const step = n <= 1 ? w : w / (n - 1);
+  const pts = values.map((v, i) => {
+    const x = Math.round(i * step);
+    const y = Math.round(h - 4 - (v / max) * (h - 8));
+    return `${x},${y}`;
+  });
+  return (
+    <svg width={w} height={h} className="mt-2 text-fuchsia-500/90" aria-hidden>
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={pts.join(" ")}
+      />
+    </svg>
+  );
 }
 
 function TierBadge({ value }: { value?: string }) {
@@ -166,6 +216,11 @@ export function SignalsTable({
   rows: Row[];
   advanced: boolean;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const preset = (searchParams.get("preset") ?? "all") as SignalsPreset;
+
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [tierFilter, setTierFilter] = useState<string>("all");
@@ -173,6 +228,40 @@ export function SignalsTable({
   const [minScore, setMinScore] = useState<string>("0");
   /** `named` = hide visitor hashes + unattributed rollup; show CRM / company / email domain only. */
   const [identityFilter, setIdentityFilter] = useState<"all" | "named">("all");
+
+  const applyPresetToFilters = (p: SignalsPreset) => {
+    if (p === "all") {
+      setTierFilter("all");
+      setMinScore("0");
+      setIdentityFilter("all");
+    } else if (p === "hot") {
+      setTierFilter("hot");
+      setMinScore("0");
+      setIdentityFilter("all");
+    } else if (p === "warm_plus") {
+      setTierFilter("all");
+      setMinScore("45");
+      setIdentityFilter("all");
+    } else if (p === "named") {
+      setTierFilter("all");
+      setMinScore("0");
+      setIdentityFilter("named");
+    }
+  };
+
+  const setPreset = (p: SignalsPreset) => {
+    applyPresetToFilters(p);
+    const n = new URLSearchParams(searchParams.toString());
+    if (p === "all") n.delete("preset");
+    else n.set("preset", p);
+    const qs = n.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  useEffect(() => {
+    applyPresetToFilters((searchParams.get("preset") ?? "all") as SignalsPreset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate saved view from URL once
+  }, []);
 
   const territories = useMemo(() => {
     const s = new Set<string>();
@@ -190,7 +279,10 @@ export function SignalsTable({
 
     let base = rows.slice();
     if (query) {
-      base = base.filter((r) => safeStr(r.account).toLowerCase().includes(query));
+      base = base.filter((r) => {
+        const blob = [r.account, r.companyName, r.workDomain].map((x) => safeStr(x).toLowerCase()).join(" ");
+        return blob.includes(query);
+      });
     }
     if (tierFilter !== "all") {
       base = base.filter((r) => (r.tier ?? "Neutral").toLowerCase() === tierFilter.toLowerCase());
@@ -206,9 +298,11 @@ export function SignalsTable({
     }
 
     base.sort((a, b) => {
-      if (sortKey === "account") return safeStr(a.account).localeCompare(safeStr(b.account));
+      if (sortKey === "account")
+        return organizationPrimaryLabel(a).localeCompare(organizationPrimaryLabel(b));
       if (sortKey === "sessions") return safeNum(b.sessions) - safeNum(a.sessions);
       if (sortKey === "meetings") return safeNum(b.meetings) - safeNum(a.meetings);
+      if (sortKey === "lastSeen") return safeNum(b.lastSeenTs) - safeNum(a.lastSeenTs);
       return safeNum(b.score) - safeNum(a.score);
     });
 
@@ -295,6 +389,7 @@ export function SignalsTable({
                     setMinScore("0");
                     setIdentityFilter("all");
                     setQ("");
+                    router.replace(pathname, { scroll: false });
                   }}
                 >
                   Reset
@@ -306,18 +401,45 @@ export function SignalsTable({
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Sort</span>
             <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-              <SelectTrigger className="h-9 w-[148px] rounded-xl text-xs" size="sm">
+              <SelectTrigger className="h-9 w-[168px] rounded-xl text-xs" size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="score">Score</SelectItem>
                 <SelectItem value="sessions">Sessions</SelectItem>
                 <SelectItem value="meetings">Meetings</SelectItem>
+                <SelectItem value="lastSeen">Last activity</SelectItem>
                 <SelectItem value="account">Account</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/10 px-4 py-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Views</span>
+        {(
+          [
+            { id: "all" as const, label: "All" },
+            { id: "hot" as const, label: "Hot" },
+            { id: "warm_plus" as const, label: "Warm+" },
+            { id: "named" as const, label: "Named orgs" },
+          ] as const
+        ).map((v) => {
+          const active = preset === v.id;
+          return (
+            <Button
+              key={v.id}
+              type="button"
+              variant={active ? "default" : "outline"}
+              size="sm"
+              className="h-8 rounded-full px-3 text-xs"
+              onClick={() => setPreset(v.id)}
+            >
+              {v.label}
+            </Button>
+          );
+        })}
       </div>
 
       <div
@@ -328,7 +450,7 @@ export function SignalsTable({
             : "grid-cols-[minmax(0,2fr)_auto_auto_auto_auto]",
         ].join(" ")}
       >
-        <div>Account</div>
+        <div>Organization</div>
         <div>Tier</div>
         <div>Intent</div>
         <div className="inline-flex items-center gap-1">
@@ -370,10 +492,23 @@ export function SignalsTable({
             ].join(" ")}
           >
             <div className="min-w-0">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="truncate font-medium text-foreground">{row.account}</span>
-                <IdentityBadge kind={row.identityKind} />
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-base font-semibold tracking-tight text-foreground">
+                    {organizationPrimaryLabel(row)}
+                  </div>
+                  {safeStr(row.companyName) && safeStr(row.account) !== safeStr(row.companyName) ? (
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">{row.account}</div>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <IdentityBadge kind={row.identityKind} />
+                  <span className="text-[10px] tabular-nums text-muted-foreground" title="Most recent event in range">
+                    {formatRelativeShort(row.lastSeenTs)}
+                  </span>
+                </div>
               </div>
+              {row.sparkline && row.sparkline.length > 1 ? <ActivitySparkline values={row.sparkline} /> : null}
               <div className="mt-1 truncate text-xs text-muted-foreground">
                 {(row.reasons ?? []).slice(0, 3).join(" · ") || "—"}
               </div>

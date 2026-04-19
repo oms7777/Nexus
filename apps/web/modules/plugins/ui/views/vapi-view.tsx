@@ -253,10 +253,20 @@ export const VapiConnectionPanel = ({ canConfigureVoiceByo }: VapiConnectionPane
       <VapiPluginRemoveForm open={removeOpen} setOpen={setRemoveOpen} />
 
       {defaultsAvailable && !hasPlugin ? (
-        <p className="mb-4 text-sm text-muted-foreground">
-          Inboundless shared Vapi keys are active — pick an assistant and optional display number below. Voice+ lets you
-          override with your own Vapi account.
-        </p>
+        <div className="mb-4 space-y-2 text-sm text-muted-foreground">
+          <p>
+            Inboundless shared Vapi keys are active — pick an assistant and optional display number below. Voice+ lets
+            you override with your own Vapi account.
+          </p>
+          <p className="text-xs">
+            If lists stay empty, the keys must exist on your <span className="font-medium text-foreground">Convex</span>{" "}
+            deployment (not only in <code className="rounded bg-muted px-1 font-mono text-[11px]">.env.local</code> for
+            Next.js):{" "}
+            <code className="rounded bg-muted px-1 font-mono text-[11px]">INBOUNDLESS_VAPI_PUBLIC_API_KEY</code>,{" "}
+            <code className="rounded bg-muted px-1 font-mono text-[11px]">INBOUNDLESS_VAPI_PRIVATE_API_KEY</code>, then
+            redeploy Convex.
+          </p>
+        </div>
       ) : null}
 
       <VapiConnectedView

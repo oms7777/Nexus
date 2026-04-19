@@ -71,6 +71,7 @@ async function enrichMetaFromSession(ctx: any, sessionId?: any) {
   return {
     sessionName: safeString(session?.name),
     sessionEmail: safeString(session?.email),
+    company: safeString((m as any).company),
 
     city: safeString(m.city),
     countryCode: safeString(m.countryCode),
@@ -947,10 +948,13 @@ export const signals = query({
       const direct = safeString(e?.accountId) || safeString(meta?.accountId);
       if (direct) return { key: `account:${direct}`, label: direct };
 
-      const company = safeString(meta?.company) || safeString(meta?.account);
+      const company =
+        safeString(meta?.company) ||
+        safeString(meta?.account) ||
+        safeString(meta?.attendeeCompany);
       if (company) return { key: `company:${company.toLowerCase()}`, label: company };
 
-      const dom = emailDomain(safeString(meta?.sessionEmail));
+      const dom = emailDomain(safeString(meta?.sessionEmail) || safeString(meta?.attendeeEmail));
       if (dom) return { key: `emaildom:${dom}`, label: dom };
 
       const vid = safeString(meta?.visitorId);
@@ -1001,6 +1005,51 @@ export const signals = query({
       m.set(k, (m.get(k) ?? 0) + 1);
     };
 
+    const dailyByGroup = new Map<string, Map<string, number>>();
+    const bumpDayScore = (key: string, ts: number, delta: number) => {
+      if (!delta || !ts) return;
+      const day = dayKeyUTC(ts);
+      let dm = dailyByGroup.get(key);
+      if (!dm) {
+        dm = new Map();
+        dailyByGroup.set(key, dm);
+      }
+      dm.set(day, (dm.get(day) ?? 0) + delta);
+    };
+
+    function eventDayWeight(type: string) {
+      switch (type) {
+        case "meeting_booked":
+          return 50;
+        case "conversation_created":
+          return 15;
+        case "inbound_chat_requested":
+          return 8;
+        case "session_started":
+          return 3;
+        case "experience_shown":
+          return 1;
+        default:
+          return 0;
+      }
+    }
+
+    function dayKeysInRange(from: number, to: number, maxDays: number) {
+      const out: string[] = [];
+      const start = new Date(from);
+      start.setUTCHours(0, 0, 0, 0);
+      const end = new Date(to);
+      end.setUTCHours(0, 0, 0, 0);
+      for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+        out.push(dayKeyUTC(t));
+        if (out.length > 400) break;
+      }
+      if (out.length > maxDays) return out.slice(-maxDays);
+      return out;
+    }
+
+    const sparkDays = dayKeysInRange(fromTs, toTs, 30);
+
     for (const e of evts) {
       const meta = e?.meta ?? {};
       const { key, label } = accountKeyForEvent(e);
@@ -1008,6 +1057,8 @@ export const signals = query({
 
       const ts = safeNumber(e.ts, 0);
       if (ts) r.lastSeenTs = Math.max(r.lastSeenTs, ts);
+
+      bumpDayScore(key, ts, eventDayWeight(String(e.type ?? "")));
 
       const sk = getSessionKey(e);
       if (sk) r.sessions.add(sk);
@@ -1094,10 +1145,19 @@ export const signals = query({
       if (r.inboundRequests > 0) reasons.push(`${r.inboundRequests} inbound request(s)`);
       if (topPages?.length) reasons.push(`Top page: ${topPages[0]}`);
 
+      const identityKind = identityKindFromGroupKey(groupKey);
+      const companyName = identityKind === "company" ? r.label : undefined;
+      const workDomain = identityKind === "domain" ? r.label : undefined;
+
+      const dm = dailyByGroup.get(groupKey);
+      const sparkline = sparkDays.map((d) => Math.round(dm?.get(d) ?? 0));
+
       return {
         groupKey,
-        identityKind: identityKindFromGroupKey(groupKey),
+        identityKind,
         account: r.label,
+        companyName,
+        workDomain,
         tier,
         intent,
         score,
@@ -1111,6 +1171,7 @@ export const signals = query({
         topPages,
         reasons: reasons.slice(0, 4),
         lastSeenTs: r.lastSeenTs || undefined,
+        sparkline,
       };
     });
 

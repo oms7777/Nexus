@@ -40,6 +40,8 @@ const MetadataSchema = v.object({
   visitorId: v.optional(v.string()),
   clientIp: v.optional(v.string()),
 
+  company: v.optional(v.string()),
+
   // legacy visitor_choice in metadata (keep)
   preferredRepUserId: v.optional(v.string()),
 });
@@ -75,6 +77,8 @@ type Metadata = {
 
   visitorId?: string;
   clientIp?: string;
+
+  company?: string;
 
   preferredRepUserId?: string;
 };
@@ -144,6 +148,10 @@ function mergeMetadata(oldMd: Metadata, incoming?: Metadata) {
 
   const incFt = trim(incoming.firstTouchReferrer);
   merged.firstTouchReferrer = trim(oldMd.firstTouchReferrer) ?? incFt ?? trim(merged.referrer);
+
+  const incCompany = trim(incoming.company);
+  if (incCompany) merged.company = incCompany;
+  else if (trim(oldMd.company)) merged.company = trim(oldMd.company);
 
   return merged;
 }
@@ -388,6 +396,30 @@ export const validate = mutation({
     if (!s) return { valid: false, reason: "Contact session not found" };
     if (s.expiresAt < Date.now()) return { valid: false, reason: "Contact session expired" };
     return { valid: true, contactSession: s };
+  },
+});
+
+/** Called after a booking so analytics enrichment + Signals can group by company. */
+export const applyBookingCompany = mutation({
+  args: {
+    sessionId: v.id("contactSessions"),
+    company: v.string(),
+  },
+  handler: async (ctx, { sessionId, company }) => {
+    const cur = await ctx.db.get(sessionId);
+    if (!cur) return { ok: false as const };
+    const c = company.trim();
+    if (!c) return { ok: false as const };
+
+    const oldMd = (cur.metadata ?? {}) as Metadata;
+    const newMd = mergeMetadata(oldMd, { company: c });
+
+    await ctx.db.patch(sessionId, {
+      metadata: newMd,
+      expiresAt: Date.now() + SESSION_DURATION_MS,
+    });
+
+    return { ok: true as const };
   },
 });
 

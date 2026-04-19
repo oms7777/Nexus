@@ -31,11 +31,18 @@ import {
 import { Label } from "@workspace/ui/components/label";
 
 import {
+  AlertCircleIcon,
   BotIcon,
   PhoneIcon,
   SettingsIcon,
   UnplugIcon,
 } from "lucide-react";
+
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@workspace/ui/components/alert";
 
 import { VapiPhoneNumbersTab } from "./vapi-phone-numbers-tab";
 import { VapiAssistantsTab } from "./vapi-assistants-tab";
@@ -55,14 +62,31 @@ export const VapiConnectedView = ({
   showDisconnect = true,
 }: VapiConnectedViewProps) => {
   const [activeTab, setActiveTab] = useState("phone-numbers");
+  const [listRefreshKey, setListRefreshKey] = useState(0);
 
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
   const upsertWidgetSettings = useMutation(api.private.widgetSettings.upsert);
 
-  const { data: assistants = [], isLoading: assistantsLoading } =
-    useVapiAssistants();
-  const { data: phoneNumbers = [], isLoading: phoneNumbersLoading } =
-    useVapiPhoneNumbers();
+  const {
+    data: assistants = [],
+    isLoading: assistantsLoading,
+    error: assistantsError,
+    retry: retryAssistants,
+  } = useVapiAssistants();
+  const {
+    data: phoneNumbers = [],
+    isLoading: phoneNumbersLoading,
+    error: phoneNumbersError,
+    retry: retryPhoneNumbers,
+  } = useVapiPhoneNumbers();
+
+  const vapiListError = assistantsError ?? phoneNumbersError;
+
+  const handleRetryVapiLists = () => {
+    retryAssistants();
+    retryPhoneNumbers();
+    setListRefreshKey((k) => k + 1);
+  };
 
   const [selectedAssistantId, setSelectedAssistantId] = useState("none");
   const [selectedPhoneNumberId, setSelectedPhoneNumberId] = useState("none");
@@ -103,6 +127,37 @@ export const VapiConnectedView = ({
 
   return (
     <div className="space-y-6">
+      {vapiListError ? (
+        <Alert variant="destructive">
+          <AlertCircleIcon />
+          <AlertTitle>Could not load Vapi data</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>{vapiListError.message}</p>
+            <p className="text-xs">
+              Shared keys are read on the Convex backend. Set{" "}
+              <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-[11px]">
+                INBOUNDLESS_VAPI_PUBLIC_API_KEY
+              </code>{" "}
+              and{" "}
+              <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-[11px]">
+                INBOUNDLESS_VAPI_PRIVATE_API_KEY
+              </code>{" "}
+              in your Convex deployment environment, redeploy, then retry. Your own keys (Voice+) skip that path once
+              saved.
+            </p>
+            <Button
+              className="mt-1"
+              onClick={handleRetryVapiLists}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {/* Top: integration card */}
       <Card>
         <CardHeader>
@@ -158,7 +213,7 @@ export const VapiConnectedView = ({
               <Select
                 value={selectedAssistantId}
                 onValueChange={setSelectedAssistantId}
-                disabled={assistantsLoading || assistants.length === 0}
+                disabled={assistantsLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Choose assistant" />
@@ -186,7 +241,7 @@ export const VapiConnectedView = ({
               <Select
                 value={selectedPhoneNumberId}
                 onValueChange={setSelectedPhoneNumberId}
-                disabled={phoneNumbersLoading || phoneNumbers.length === 0}
+                disabled={phoneNumbersLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Choose number" />
@@ -239,10 +294,10 @@ export const VapiConnectedView = ({
             </TabsTrigger>
           </TabsList>
           <TabsContent value="phone-numbers">
-            <VapiPhoneNumbersTab />
+            <VapiPhoneNumbersTab key={listRefreshKey} />
           </TabsContent>
           <TabsContent value="assistants">
-            <VapiAssistantsTab />
+            <VapiAssistantsTab key={listRefreshKey} />
           </TabsContent>
         </Tabs>
       </div>

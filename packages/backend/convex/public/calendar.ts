@@ -544,6 +544,19 @@ export const bookSlot = action({
       }
     }
 
+    // Persist company on session so later events enrich with Signals identity (non bloquant)
+    try {
+      const co = (attendeeCompany ?? "").trim();
+      if (co) {
+        await ctx.runMutation(api.public.contactSessions.applyBookingCompany, {
+          sessionId: contactSessionId,
+          company: co,
+        });
+      }
+    } catch (e) {
+      console.log("[calendar.bookSlot] session company patch skipped:", e);
+    }
+
     // analytics — non bloquant
     try {
       await ctx.runMutation(api.public.analytics.log, {

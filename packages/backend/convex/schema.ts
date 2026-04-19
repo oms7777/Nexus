@@ -270,6 +270,9 @@ export default defineSchema({
         visitorId: v.optional(v.string()),
         clientIp: v.optional(v.string()),
 
+        /** Captured on booking / forms — used for analytics identity (Signals). */
+        company: v.optional(v.string()),
+
         // legacy / keep for backward compat
         preferredRepUserId: v.optional(v.string()),
       })

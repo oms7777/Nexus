@@ -12,6 +12,7 @@ import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/Eng
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
 import { FunnelDropoffStrip } from "@/modules/analytics/funnel/components/FunnelDropoffStrip";
 import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
+import { FunnelInsightsPanel } from "@/modules/analytics/funnel/components/FunnelInsightsPanel";
 import {
   AnalyticsDateRangePicker,
   rangeToTimestamps,
@@ -180,17 +181,78 @@ function FunnelsInner({
         routing health — use both together, without duplicating the same top-line KPI strip.
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-white px-4 py-2.5 text-xs shadow-sm dark:bg-card">
+        <span className="font-semibold uppercase tracking-wide text-muted-foreground">Jump to</span>
+        <a
+          href="#funnel-engagement"
+          className="rounded-full border border-border/80 bg-muted/30 px-3 py-1 font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
+        >
+          Engagement
+        </a>
+        <a
+          href="#funnel-conversion"
+          className="rounded-full border border-border/80 bg-muted/30 px-3 py-1 font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
+        >
+          Conversion
+        </a>
+        <a
+          href="#funnel-inbound"
+          className="rounded-full border border-border/80 bg-muted/30 px-3 py-1 font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
+        >
+          Inbound health
+        </a>
+      </div>
+
+      <FunnelInsightsPanel engagement={engagement as any} inbound={inbound as any} />
+
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
         <CardShell
+          id="funnel-engagement"
           title="Engagement funnel"
           subtitle="Macro funnel — counts then stage retention"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
         >
-          <div className="space-y-2">
+          <div className="grid gap-2 md:grid-cols-2">
             <Row label="Sessions" value={Number(engagement.sessions ?? 0).toLocaleString()} />
-            <Row label="Experience shown" value={Number(engagement.experiences ?? 0).toLocaleString()} />
-            <Row label="Conversations created" value={Number(engagement.conversations ?? 0).toLocaleString()} />
-            <Row label="Meetings booked" value={Number(engagement.meetings ?? 0).toLocaleString()} />
+            <Row
+              label="Experience shown"
+              value={
+                <span className="inline-flex items-center gap-2">
+                  <span>{Number(engagement.experiences ?? 0).toLocaleString()}</span>
+                  <span className="rounded-full border bg-muted/60 px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                    {Number(engagement.sessions ?? 0) > 0
+                      ? `${Math.round((Number(engagement.experiences ?? 0) / Number(engagement.sessions ?? 0)) * 100)}%`
+                      : "—"}
+                  </span>
+                </span>
+              }
+            />
+            <Row
+              label="Conversations created"
+              value={
+                <span className="inline-flex items-center gap-2">
+                  <span>{Number(engagement.conversations ?? 0).toLocaleString()}</span>
+                  <span className="rounded-full border bg-muted/60 px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                    {Number(engagement.experiences ?? 0) > 0
+                      ? `${Math.round((Number(engagement.conversations ?? 0) / Number(engagement.experiences ?? 0)) * 100)}%`
+                      : "—"}
+                  </span>
+                </span>
+              }
+            />
+            <Row
+              label="Meetings booked"
+              value={
+                <span className="inline-flex items-center gap-2">
+                  <span>{Number(engagement.meetings ?? 0).toLocaleString()}</span>
+                  <span className="rounded-full border bg-muted/60 px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                    {Number(engagement.conversations ?? 0) > 0
+                      ? `${Math.round((Number(engagement.meetings ?? 0) / Number(engagement.conversations ?? 0)) * 100)}%`
+                      : "—"}
+                  </span>
+                </span>
+              }
+            />
           </div>
 
           <FunnelDropoffStrip data={engagement as any} />
@@ -201,6 +263,7 @@ function FunnelsInner({
         </CardShell>
 
         <CardShell
+          id="funnel-conversion"
           title="Conversion rates"
           subtitle="Strict cohort-style rates from funnel events"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
@@ -209,6 +272,7 @@ function FunnelsInner({
         </CardShell>
 
         <CardShell
+          id="funnel-inbound"
           title="Inbound conversion health"
           subtitle="Intent → routing → booking — operational pipeline"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}

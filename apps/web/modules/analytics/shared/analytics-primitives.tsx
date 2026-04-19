@@ -50,15 +50,18 @@ export function CardShell({
   right,
   children,
   className = "",
+  id,
 }: {
   title: string;
   subtitle?: string;
   right?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
     <div
+      id={id}
       className={[
         "rounded-2xl border border-border/80 bg-white p-6 shadow-sm ring-1 ring-black/[0.04] dark:bg-card dark:ring-white/10",
         PALETTE.cardHover,
