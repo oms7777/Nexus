@@ -44,6 +44,7 @@ const DefaultSuggestionsV = v.object({
 const VapiSettingsV = v.object({
   assistantId: v.optional(v.string()),
   phoneNumber: v.optional(v.string()),
+  voiceButtonEnabled: v.optional(v.boolean()),
 });
 
 const RoutingModeV = v.union(

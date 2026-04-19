@@ -123,6 +123,8 @@ export default defineSchema({
       v.object({
         assistantId: v.optional(v.string()),
         phoneNumber: v.optional(v.string()),
+        /** When false, hide the voice / mic entry point in the widget. Default: visible. */
+        voiceButtonEnabled: v.optional(v.boolean()),
       })
     ),
 

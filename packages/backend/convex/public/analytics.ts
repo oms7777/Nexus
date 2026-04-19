@@ -966,24 +966,43 @@ export const signals = query({
       return email.slice(at + 1).trim().toLowerCase();
     }
 
-    function accountKeyForEvent(e: any) {
+    function emailDomainFromMeta(meta: any) {
+      return emailDomain(
+        safeString(meta?.sessionEmail) ||
+          safeString(meta?.attendeeEmail) ||
+          safeString(meta?.email),
+      );
+    }
+
+    /**
+     * One event can attribute to multiple rows (e.g. company + work email domain) so
+     * "Email domains" stays useful even when booking always sends a company name.
+     */
+    function accountKeysForEvent(e: any): Array<{ key: string; label: string }> {
       const meta = e?.meta ?? {};
       const direct = safeString(e?.accountId) || safeString(meta?.accountId);
-      if (direct) return { key: `account:${direct}`, label: direct };
+      if (direct) return [{ key: `account:${direct}`, label: direct }];
 
       const company =
         safeString(meta?.company) ||
         safeString(meta?.account) ||
         safeString(meta?.attendeeCompany);
-      if (company) return { key: `company:${company.toLowerCase()}`, label: company };
+      const dom = emailDomainFromMeta(meta);
 
-      const dom = emailDomain(safeString(meta?.sessionEmail) || safeString(meta?.attendeeEmail));
-      if (dom) return { key: `emaildom:${dom}`, label: dom };
+      const out: Array<{ key: string; label: string }> = [];
+      if (company) {
+        out.push({ key: `company:${company.toLowerCase()}`, label: company });
+      }
+      if (dom) {
+        const dk = `emaildom:${dom}`;
+        if (!out.some((o) => o.key === dk)) out.push({ key: dk, label: dom });
+      }
+      if (out.length) return out;
 
       const vid = safeString(meta?.visitorId);
-      if (vid) return { key: `visitor:${vid}`, label: `Visitor ${vid.slice(0, 6)}` };
+      if (vid) return [{ key: `visitor:${vid}`, label: `Visitor ${vid.slice(0, 6)}` }];
 
-      return { key: "unknown", label: "Unknown" };
+      return [{ key: "unknown", label: "Unknown" }];
     }
 
     // Aggregations
@@ -1075,34 +1094,34 @@ export const signals = query({
 
     for (const e of evts) {
       const meta = e?.meta ?? {};
-      const { key, label } = accountKeyForEvent(e);
-      const r = ensure(key, label);
-
       const ts = safeNumber(e.ts, 0);
-      if (ts) r.lastSeenTs = Math.max(r.lastSeenTs, ts);
-
-      bumpDayScore(key, ts, eventDayWeight(String(e.type ?? "")));
-
       const sk = getSessionKey(e);
-      if (sk) r.sessions.add(sk);
-
       const ck = getConversationKey(e);
-      if (ck && e.type === "conversation_created") r.conversations.add(ck);
-
-      if (e.type === "meeting_booked") {
-        const mk = getMeetingKey(e);
-        if (mk) r.meetings.add(mk);
-      }
-
-      if (e.type === "experience_shown") r.experiences += 1;
-      if (e.type === "inbound_chat_requested") r.inboundRequests += 1;
-
-      // attribution
-      bump(r.sources, normalizeSource(meta));
-      bump(r.pages, normalizePage(meta));
-
+      const mk = e.type === "meeting_booked" ? getMeetingKey(e) : null;
+      const w = eventDayWeight(String(e.type ?? ""));
       const t = getTerritoryForEvent(e, ccToTerr);
-      bump(r.territories, t?.territoryLabel ?? "Unknown");
+
+      for (const { key, label } of accountKeysForEvent(e)) {
+        const r = ensure(key, label);
+
+        if (ts) r.lastSeenTs = Math.max(r.lastSeenTs, ts);
+
+        bumpDayScore(key, ts, w);
+
+        if (sk) r.sessions.add(sk);
+
+        if (ck && e.type === "conversation_created") r.conversations.add(ck);
+
+        if (e.type === "meeting_booked" && mk) r.meetings.add(mk);
+
+        if (e.type === "experience_shown") r.experiences += 1;
+        if (e.type === "inbound_chat_requested") r.inboundRequests += 1;
+
+        bump(r.sources, normalizeSource(meta));
+        bump(r.pages, normalizePage(meta));
+
+        bump(r.territories, t?.territoryLabel ?? "Unknown");
+      }
     }
 
     const pickTop = (m: Map<string, number>) => {

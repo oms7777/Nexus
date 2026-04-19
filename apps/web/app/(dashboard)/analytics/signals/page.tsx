@@ -106,8 +106,13 @@ export default function AnalyticsSignalsPage() {
               widget data.
             </p>
             <p>
-              Rows labeled <span className="font-medium text-foreground">Visitor …</span> are anonymous until you capture
-              company or email (CRM-linked accounts and domains surface automatically when events carry that metadata).
+              <span className="font-medium text-foreground">Companies &amp; CRM</span> groups by company name or CRM
+              account id. <span className="font-medium text-foreground">Email domains</span> groups by the work email
+              domain when events include an email (same visitor can appear in both lists).{" "}
+              <span className="font-medium text-foreground">Anonymous</span> is everyone we only know as a{" "}
+              <span className="font-medium text-foreground">Visitor …</span> id (no CRM id, no company string, no usable
+              email on events) — not specifically “skipped name on booking”; they never got a stable identity signal in
+              analytics.
             </p>
           </div>
         </div>

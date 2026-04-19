@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select";
 import { Label } from "@workspace/ui/components/label";
+import { Switch } from "@workspace/ui/components/switch";
 
 import {
   AlertCircleIcon,
@@ -94,7 +95,9 @@ export const VapiConnectedView = ({
 
   const [selectedAssistantId, setSelectedAssistantId] = useState("none");
   const [selectedPhoneNumberId, setSelectedPhoneNumberId] = useState("none");
+  const [voiceMicEnabled, setVoiceMicEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [togglingMic, setTogglingMic] = useState(false);
 
   // hydrate selects from current widget settings
   useEffect(() => {
@@ -105,20 +108,57 @@ export const VapiConnectedView = ({
     setSelectedPhoneNumberId(currentPhoneNumber || "none");
   }, [widgetSettings?.vapiSettings?.assistantId, widgetSettings?.vapiSettings?.phoneNumber]);
 
+  useEffect(() => {
+    setVoiceMicEnabled(widgetSettings?.vapiSettings?.voiceButtonEnabled !== false);
+  }, [widgetSettings?.vapiSettings?.voiceButtonEnabled]);
+
+  const buildVapiSettingsPatch = () => {
+    const prev = (widgetSettings?.vapiSettings ?? {}) as Record<string, unknown>;
+    const next: Record<string, unknown> = {
+      ...prev,
+      voiceButtonEnabled: voiceMicEnabled,
+    };
+    if (selectedAssistantId !== "none") {
+      next.assistantId = selectedAssistantId;
+    } else {
+      delete next.assistantId;
+    }
+    if (selectedPhoneNumberId !== "none") {
+      next.phoneNumber = selectedPhoneNumberId;
+    } else {
+      delete next.phoneNumber;
+    }
+    return next;
+  };
+
+  const handleVoiceMicToggle = async (checked: boolean) => {
+    const prevEnabled = voiceMicEnabled;
+    setVoiceMicEnabled(checked);
+    try {
+      setTogglingMic(true);
+      const prev = (widgetSettings?.vapiSettings ?? {}) as Record<string, unknown>;
+      await upsertWidgetSettings({
+        vapiSettings: { ...prev, voiceButtonEnabled: checked } as any,
+      });
+      toast.success(
+        checked ? "Voice button is shown in the widget" : "Voice button is hidden in the widget"
+      );
+    } catch (error) {
+      console.error(error);
+      setVoiceMicEnabled(prevEnabled);
+      toast.error("Could not update voice button setting");
+    } finally {
+      setTogglingMic(false);
+    }
+  };
+
   const handleSaveVoiceSettings = async () => {
     try {
       setSaving(true);
 
-      const vapiSettings: { assistantId?: string; phoneNumber?: string } = {};
-
-      if (selectedAssistantId !== "none") {
-        vapiSettings.assistantId = selectedAssistantId;
-      }
-      if (selectedPhoneNumberId !== "none") {
-        vapiSettings.phoneNumber = selectedPhoneNumberId;
-      }
-
-      await upsertWidgetSettings({ vapiSettings } as any);
+      await upsertWidgetSettings({
+        vapiSettings: buildVapiSettingsPatch() as any,
+      });
 
       toast.success("Voice assistant settings saved");
     } catch (error) {
@@ -280,6 +320,23 @@ export const VapiConnectedView = ({
                 Phone number to display in the widget.
               </p>
             </div>
+          </div>
+
+          <div className="flex flex-row items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/30 px-3 py-3">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium" htmlFor="voice-mic-widget-toggle">
+                Voice button in widget
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Show or hide the microphone entry point in the chat widget (between messages and the text field).
+              </p>
+            </div>
+            <Switch
+              checked={voiceMicEnabled}
+              disabled={togglingMic || widgetSettings === undefined}
+              id="voice-mic-widget-toggle"
+              onCheckedChange={(v) => void handleVoiceMicToggle(v)}
+            />
           </div>
 
           <div className="flex justify-end">

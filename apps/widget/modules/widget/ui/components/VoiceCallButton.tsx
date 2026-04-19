@@ -17,11 +17,18 @@ type Props = {
   className?: string;
   /** Subtle pulse + ring for a few seconds to draw attention (visitor guidance). */
   attentionPulse?: boolean;
+  /**
+   * When true (default), opening voice requires prior consent if the visitor has not consented yet
+   * (sessionStorage + consent step). Set to false when the org has no consent gate — otherwise the mic
+   * appears to do nothing.
+   */
+  gateVoiceOnConsent?: boolean;
 };
 
 export default function VoiceCallButton({
   className,
   attentionPulse = true,
+  gateVoiceOnConsent = true,
 }: Props) {
   const setScreen = useSetAtom(screenAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
@@ -45,7 +52,7 @@ export default function VoiceCallButton({
    */
   const onClick = () => {
     setPulseOn(false);
-    if (consentGiven) {
+    if (!gateVoiceOnConsent || consentGiven) {
       setScreen("voice");
       return;
     }

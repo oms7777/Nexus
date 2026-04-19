@@ -444,7 +444,7 @@ export const WidgetChatScreen = () => {
   const [, setAssignedRep] = useAtom(assignedRepAtom);
 
   const consentEnabled = !!consentCfg && consentCfg.enabled !== false;
-  // Soft consent: no longer blocks typing, only shown as notice
+  /** Hard gate before sending chat (disabled: consent is “soft” in the footer unless a flow sets step to consent). */
   const mustAcceptConsent = false;
 
   const ensureContactSession = useMutation(api.public.contactSessions.ensure);
@@ -475,8 +475,9 @@ export const WidgetChatScreen = () => {
   const canUseVoice = !!publicPlan?.canUseVoice;
   const hasVapiSecrets = useAtomValue(hasVapiSecretsAtom);
   const voiceAssistantConfigured = !!(widgetSettings as any)?.vapiSettings?.assistantId;
+  const voiceButtonEnabled = (widgetSettings as any)?.vapiSettings?.voiceButtonEnabled !== false;
   const showVoiceInHeader =
-    canUseVoice && hasVapiSecrets && voiceAssistantConfigured;
+    canUseVoice && hasVapiSecrets && voiceAssistantConfigured && voiceButtonEnabled;
 
   const handoffTarget = useQuery(
     api.public.routing.getWhatsAppHandoffDigits,
@@ -1467,7 +1468,6 @@ export const WidgetChatScreen = () => {
           >
             <CalendarIcon className="size-4" aria-hidden />
           </button>
-          {showVoiceInHeader ? <VoiceCallButton attentionPulse /> : null}
           {showWhatsAppHandoff ? (
             <button
               type="button"
@@ -1662,7 +1662,7 @@ export const WidgetChatScreen = () => {
 
 
             {/* consent card */}
-            {step === "consent" && mustAcceptConsent && consentCfg && consentCfg.enabled !== false && (
+            {step === "consent" && consentEnabled && consentCfg && (
                 <div className="p-3">
                   <div className="mb-2 rounded-lg border bg-background p-3 text-sm">
                     {(consentCfg.title || consentCfg.intro) && (
@@ -1962,6 +1962,18 @@ export const WidgetChatScreen = () => {
           </AIConversationContent>
         </AIConversation>
       </div>
+
+      {showVoiceInHeader &&
+      typeof window !== "undefined" &&
+      window !== window.parent ? (
+        <div className="flex shrink-0 justify-center border-t border-slate-100/90 bg-gradient-to-b from-white to-slate-50/50 px-3 py-2.5">
+          <VoiceCallButton
+            attentionPulse
+            className="size-11 border border-slate-200/60 shadow-md"
+            gateVoiceOnConsent={consentEnabled}
+          />
+        </div>
+      ) : null}
 
       {/* suggestions: show at start (below greet) */}
       {suggestions.length > 0 && uiMsgs.length <= 1 && (
