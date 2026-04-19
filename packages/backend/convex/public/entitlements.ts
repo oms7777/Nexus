@@ -14,6 +14,7 @@ function computeEntitlements(sub: any) {
 
   const canUseSlack = isActive && (plan === "growth" || plan === "enterprise");
   const canUseSalesforce = isActive && plan !== "starter" && addons.salesforce === true;
+  const canUseHubspot = isActive && plan !== "starter" && addons.hubspot === true;
 
   const voiceEnabled = addons.voice === true;
   const canUseVoice = isActive && voiceEnabled;
@@ -45,6 +46,7 @@ function computeEntitlements(sub: any) {
     features: {
       canUseSlack,
       canUseSalesforce,
+      canUseHubspot,
       canUseVoice,
       canUseAdvancedRouting,
       canUseAdvancedPromos,

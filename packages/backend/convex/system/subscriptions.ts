@@ -15,6 +15,7 @@ export const Status = v.union(v.literal("active"), v.literal("paused"), v.litera
 export const Addons = v.object({
   extraWebsites: v.number(),
   salesforce: v.boolean(),
+  hubspot: v.boolean(),
   voice: v.boolean(),
   advancedAnalytics: v.boolean(),
 });
@@ -37,6 +38,7 @@ function normalizeAddons(a: Record<string, unknown> | undefined | null) {
   return {
     extraWebsites: Math.max(0, Math.floor(Number(x.extraWebsites) || 0)),
     salesforce: Boolean(x.salesforce),
+    hubspot: Boolean(x.hubspot),
     voice,
     advancedAnalytics: Boolean(x.advancedAnalytics),
   };
@@ -48,6 +50,7 @@ function defaultAddons() {
   return {
     extraWebsites: 0,
     salesforce: false,
+    hubspot: false,
     voice: false,
     advancedAnalytics: false,
   };

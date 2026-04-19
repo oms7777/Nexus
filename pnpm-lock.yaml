@@ -127,6 +127,9 @@ importers:
       react:
         specifier: 19.1.2
         version: 19.1.2
+      react-day-picker:
+        specifier: ^9.9.0
+        version: 9.9.0(react@19.1.2)
       react-dom:
         specifier: 19.1.2
         version: 19.1.2(react@19.1.2)

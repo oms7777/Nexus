@@ -34,6 +34,7 @@ export function useEntitlements() {
     features: ent?.features ?? {
       canUseSlack: false,
       canUseSalesforce: false,
+      canUseHubspot: false,
       canUseVoice: false,
       canUseAdvancedRouting: false,
       canUseAdvancedPromos: false,
@@ -44,5 +45,6 @@ export function useEntitlements() {
     // helpers UI (optionnel)
     canUseSlack: ent?.features?.canUseSlack ?? false,
     canUseSalesforce: ent?.features?.canUseSalesforce ?? false,
+    canUseHubspot: ent?.features?.canUseHubspot ?? false,
   };
 }

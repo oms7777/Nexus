@@ -22,20 +22,18 @@ import {
 
 import {
   BrandPill,
-  RangePills,
   CardShell,
   StatCard,
   MiniBarTable,
-  MiniTable,
   DeltaPill,
+  GeoKpiTable,
 } from "@/modules/analytics/shared/analytics-primitives";
+import {
+  AnalyticsDateRangePicker,
+  rangeToTimestamps,
+  type AnalyticsRange,
+} from "@/modules/analytics/shared/analytics-date-range";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
-
-function makeRange(days: number) {
-  const toTs = Date.now();
-  const fromTs = toTs - days * 24 * 60 * 60 * 1000;
-  return { fromTs, toTs };
-}
 
 function niceDayLabel(day: string) {
   const parts = day.split("-");
@@ -123,8 +121,8 @@ export default function AnalyticsOverviewPage() {
   const ent = useEntitlements();
   const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
 
-  const [days, setDays] = useState(30);
-  const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
+  const [range, setRange] = useState<AnalyticsRange>({ kind: "preset", days: 30 });
+  const { fromTs, toTs } = useMemo(() => rangeToTimestamps(range), [range]);
 
   const overview = useQuery(
     api.public.analytics.overview,
@@ -274,11 +272,11 @@ export default function AnalyticsOverviewPage() {
             here. Geography tabs below are views of the same data — global vs. your sales zones in Team &amp; Territories.
           </p>
         </div>
-        <RangePills value={days} onChange={setDays} />
+        <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
 
       {/* Hero: primary business outcome — refonte focus */}
-      <div className="overflow-hidden rounded-2xl border border-fuchsia-200/50 bg-gradient-to-br from-fuchsia-50/90 via-white to-rose-50/60 shadow-sm dark:border-fuchsia-900/30 dark:from-fuchsia-950/25 dark:via-background dark:to-rose-950/20">
+      <div className="overflow-hidden rounded-2xl border border-fuchsia-200/50 bg-gradient-to-br from-fuchsia-50/90 via-white to-rose-50/60 shadow-sm ring-1 ring-black/[0.04] dark:border-fuchsia-900/30 dark:from-fuchsia-950/25 dark:via-background dark:to-rose-950/20 dark:ring-white/10">
         <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between lg:p-8">
           <div className="min-w-0 space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-800/90 dark:text-fuchsia-300/90">
@@ -460,12 +458,13 @@ export default function AnalyticsOverviewPage() {
                               No visits could be assigned to a country this period.
                             </p>
                           ) : (
-                            <MiniTable
-                              columns={["Country", "Sessions • Conversations • Meetings"]}
-                              rows={topCountriesKnown.slice(0, 8).map((t: any) => [
-                                normalizeLabel(t.countryLabel ?? t.countryCode),
-                                `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                              ])}
+                            <GeoKpiTable
+                              rows={topCountriesKnown.slice(0, 8).map((t: any) => ({
+                                label: normalizeLabel(t.countryLabel ?? t.countryCode),
+                                sessions: Number(t.sessions ?? 0),
+                                conversations: Number(t.conversations ?? 0),
+                                meetings: Number(t.meetings ?? 0),
+                              }))}
                             />
                           )}
                           {unknownCountryRow ? (
@@ -526,12 +525,13 @@ export default function AnalyticsOverviewPage() {
                                 (z: any) => String(z.territoryKey) === selectedZoneTerritoryKey,
                               )?.territoryLabel ?? selectedZoneTerritoryKey}
                             </div>
-                            <MiniTable
-                              columns={["Country", "Sessions • Conversations • Meetings"]}
-                              rows={countriesInSelectedZone.slice(0, 8).map((t: any) => [
-                                normalizeLabel(t.countryLabel ?? t.countryCode),
-                                `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                              ])}
+                            <GeoKpiTable
+                              rows={countriesInSelectedZone.slice(0, 8).map((t: any) => ({
+                                label: normalizeLabel(t.countryLabel ?? t.countryCode),
+                                sessions: Number(t.sessions ?? 0),
+                                conversations: Number(t.conversations ?? 0),
+                                meetings: Number(t.meetings ?? 0),
+                              }))}
                             />
                             {countriesInSelectedZone.length === 0 ? (
                               <p className="mt-2 text-xs text-muted-foreground">
@@ -559,12 +559,13 @@ export default function AnalyticsOverviewPage() {
                             No visits could be assigned to a country this period.
                           </p>
                         ) : (
-                          <MiniTable
-                            columns={["Country", "Sessions • Conversations • Meetings"]}
-                            rows={topCountriesKnown.slice(0, 8).map((t: any) => [
-                              normalizeLabel(t.countryLabel ?? t.countryCode),
-                              `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                            ])}
+                          <GeoKpiTable
+                            rows={topCountriesKnown.slice(0, 8).map((t: any) => ({
+                              label: normalizeLabel(t.countryLabel ?? t.countryCode),
+                              sessions: Number(t.sessions ?? 0),
+                              conversations: Number(t.conversations ?? 0),
+                              meetings: Number(t.meetings ?? 0),
+                            }))}
                           />
                         )}
                         {unknownCountryRow ? (
@@ -592,12 +593,14 @@ export default function AnalyticsOverviewPage() {
                       Country-level detail will show once visits can be attributed to a country. Until then, here is the
                       rollup by sales territory.
                     </p>
-                    <MiniTable
-                      columns={["Territory", "Sessions • Conversations • Meetings"]}
-                      rows={topTerritories.slice(0, 8).map((t: any) => [
-                        normalizeLabel(t.territoryLabel ?? t.territoryKey),
-                        `${Number(t.sessions ?? 0).toLocaleString()} • ${Number(t.conversations ?? 0).toLocaleString()} • ${Number(t.meetings ?? 0).toLocaleString()}`,
-                      ])}
+                    <GeoKpiTable
+                      nameColumnLabel="Territory"
+                      rows={topTerritories.slice(0, 8).map((t: any) => ({
+                        label: normalizeLabel(t.territoryLabel ?? t.territoryKey),
+                        sessions: Number(t.sessions ?? 0),
+                        conversations: Number(t.conversations ?? 0),
+                        meetings: Number(t.meetings ?? 0),
+                      }))}
                     />
                   </div>
                 ) : null}

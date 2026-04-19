@@ -461,6 +461,26 @@ export const bookSlot = action({
       console.log("Salesforce create Lead/Event failed:", e);
     }
 
+    // HubSpot — non bloquant
+    try {
+      await ctx.runAction(api.hubspot.createHubSpotContactFromBooking, {
+        organizationId,
+        attendeeName,
+        attendeeEmail,
+        attendeePhone,
+        attendeeCompany,
+        attendeeRole,
+        attendeeDescription: useCase || undefined,
+        conversationUrl: bookingConversationUrl,
+        startIso: new Date(start).toISOString(),
+        endIso: new Date(end).toISOString(),
+        meetingUrl,
+        source: "Inboundless",
+      });
+    } catch (e) {
+      console.log("HubSpot contact upsert failed:", e);
+    }
+
     // Slack — non bloquant
     try {
       const startDate = new Date(start);

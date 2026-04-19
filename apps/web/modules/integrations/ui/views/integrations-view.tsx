@@ -37,6 +37,7 @@ export const IntegrationsView = () => {
   // ✅ new entitlements shape
   const showSlack = !!ent.isActive && !!ent.canUseSlack;
   const showSalesforce = !!ent.isActive && !!ent.canUseSalesforce;
+  const showHubspot = !!ent.isActive && !!ent.canUseHubspot;
 
   const slackIntegration = useQuery(
     api.integrations.getSlackIntegration,
@@ -53,11 +54,24 @@ export const IntegrationsView = () => {
     showSalesforce ? {} : ("skip" as any)
   );
 
+  const hubspotIntegration = useQuery(
+    api.integrations.getHubSpotIntegration,
+    showHubspot ? {} : ("skip" as any)
+  );
+
+  const hubspotAppConfig = useQuery(
+    api.integrations.getHubSpotAppConfig,
+    showHubspot ? {} : ("skip" as any)
+  );
+
   // Local form state for Salesforce app config
   const [sfClientId, setSfClientId] = useState("");
   const [sfClientSecret, setSfClientSecret] = useState("");
   const [sfLoginUrl, setSfLoginUrl] = useState("https://login.salesforce.com");
   const [sfSaving, setSfSaving] = useState(false);
+  const [hsClientId, setHsClientId] = useState("");
+  const [hsClientSecret, setHsClientSecret] = useState("");
+  const [hsSaving, setHsSaving] = useState(false);
   const [domainInput, setDomainInput] = useState("");
 
   const websites = useQuery((api as any).private.websites.list, {}) ?? [];
@@ -98,6 +112,12 @@ export const IntegrationsView = () => {
     setSfLoginUrl((salesforceAppConfig.loginUrl ?? "https://login.salesforce.com").trim());
   }, [salesforceAppConfig]);
 
+  useEffect(() => {
+    if (!hubspotAppConfig) return;
+    setHsClientId(hubspotAppConfig.clientId ?? "");
+    setHsClientSecret(hubspotAppConfig.clientSecret ?? "");
+  }, [hubspotAppConfig]);
+
   const { isSlackConnected, slackTeamLabel, slackChannelLabel } = useMemo(() => {
     if (!slackIntegration) {
       return { isSlackConnected: false, slackTeamLabel: "", slackChannelLabel: "" };
@@ -126,6 +146,16 @@ export const IntegrationsView = () => {
     return { isSalesforceConnected: true, salesforceInstanceLabel: host };
   }, [salesforceIntegration]);
 
+  const { isHubspotConnected, hubspotPortalLabel } = useMemo(() => {
+    if (!hubspotIntegration) {
+      return { isHubspotConnected: false, hubspotPortalLabel: "" };
+    }
+    const label =
+      hubspotIntegration.hubDomain?.trim() ||
+      (hubspotIntegration.portalId ? `Portal ${hubspotIntegration.portalId}` : "HubSpot");
+    return { isHubspotConnected: true, hubspotPortalLabel: label };
+  }, [hubspotIntegration]);
+
   const isSalesforceConfigSaved = useMemo(() => {
     return Boolean(
       (salesforceAppConfig?.clientId ?? "").trim() &&
@@ -137,6 +167,16 @@ export const IntegrationsView = () => {
   const canSaveSfConfig = useMemo(() => {
     return Boolean(sfClientId.trim() && sfClientSecret.trim() && sfLoginUrl.trim());
   }, [sfClientId, sfClientSecret, sfLoginUrl]);
+
+  const isHubspotConfigSaved = useMemo(() => {
+    return Boolean(
+      (hubspotAppConfig?.clientId ?? "").trim() && (hubspotAppConfig?.clientSecret ?? "").trim()
+    );
+  }, [hubspotAppConfig]);
+
+  const canSaveHsConfig = useMemo(() => {
+    return Boolean(hsClientId.trim() && hsClientSecret.trim());
+  }, [hsClientId, hsClientSecret]);
 
   const handleIntegrationClick = (integrationId: IntegrationId) => {
     if (!organization) {
@@ -187,6 +227,51 @@ export const IntegrationsView = () => {
       window.location.reload();
     } catch {
       toast.error("Failed to disconnect Salesforce");
+    }
+  };
+
+  const handleHubspotConnect = () => {
+    if (!organization) return toast.error("Organization ID not found");
+    if (!isHubspotConfigSaved) return toast.error("Save HubSpot credentials first.");
+    window.location.href = "/api/integrations/hubspot/start";
+  };
+
+  const handleHubspotDisconnect = async () => {
+    try {
+      const res = await fetch("/api/integrations/hubspot/disconnect", { method: "POST" });
+      if (!res.ok) throw new Error("Failed");
+      toast.success("HubSpot disconnected");
+      window.location.reload();
+    } catch {
+      toast.error("Failed to disconnect HubSpot");
+    }
+  };
+
+  const handleSaveHubspotConfig = async () => {
+    if (!organization) return toast.error("Organization ID not found");
+    if (!canSaveHsConfig) return toast.error("Fill Client ID and Client Secret.");
+
+    try {
+      setHsSaving(true);
+      const res = await fetch("/api/integrations/hubspot/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: hsClientId.trim(),
+          clientSecret: hsClientSecret.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(txt || "Failed");
+      }
+
+      toast.success("HubSpot config saved");
+    } catch (e: any) {
+      toast.error(`Failed to save HubSpot config${e?.message ? `: ${e.message}` : ""}`);
+    } finally {
+      setHsSaving(false);
     }
   };
 
@@ -341,7 +426,7 @@ export const IntegrationsView = () => {
             )}
           </div>
 
-          {(showSlack || showSalesforce) && <Separator className="my-8" />}
+          {(showSlack || showSalesforce || showHubspot) && <Separator className="my-8" />}
 
           {/* Slack (only if allowed) */}
           {showSlack && (
@@ -471,6 +556,97 @@ export const IntegrationsView = () => {
                   {!isSalesforceConfigSaved && (
                     <p className="text-xs text-amber-600">
                       Save your Salesforce Client ID/Secret first to enable “Connect Salesforce”.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* HubSpot (only if allowed) */}
+          {showHubspot && (
+            <div className="mt-4 space-y-4 rounded-lg border bg-background p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-lg">HubSpot</Label>
+                    {isHubspotConnected && <ConnectedBadge />}
+                  </div>
+
+                  <p className="text-sm text-muted-foreground">
+                    Sync booked visitors as HubSpot contacts (OAuth).
+                  </p>
+
+                  {isHubspotConnected && (
+                    <p className="text-xs text-muted-foreground">
+                      Connected to <span className="font-mono">{hubspotPortalLabel}</span>.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={handleHubspotConnect}
+                    size="sm"
+                    variant="default"
+                    disabled={!isHubspotConfigSaved}
+                    title={!isHubspotConfigSaved ? "Save HubSpot credentials first" : undefined}
+                  >
+                    {isHubspotConnected ? "Reconnect HubSpot" : "Connect HubSpot"}
+                  </Button>
+
+                  {isHubspotConnected && (
+                    <Button onClick={handleHubspotDisconnect} size="sm" variant="destructive">
+                      Disconnect
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-lg bg-muted/50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">HubSpot OAuth app</Label>
+                    {isHubspotConfigSaved && <SavedBadge />}
+                  </div>
+                  <Button size="sm" onClick={handleSaveHubspotConfig} disabled={!canSaveHsConfig || hsSaving}>
+                    {hsSaving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+
+                <div className="grid gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="hs-client-id">Client ID</Label>
+                    <Input
+                      id="hs-client-id"
+                      placeholder="HubSpot app client id"
+                      value={hsClientId}
+                      onChange={(e) => setHsClientId(e.target.value)}
+                      className="bg-background"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="hs-client-secret">Client Secret</Label>
+                    <Input
+                      id="hs-client-secret"
+                      placeholder="HubSpot app client secret"
+                      value={hsClientSecret}
+                      onChange={(e) => setHsClientSecret(e.target.value)}
+                      className="bg-background"
+                    />
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    In the HubSpot developer project (<span className="font-mono">app-hsmeta.json</span> →{" "}
+                    <span className="font-mono">redirectUrls</span>), allow this callback on each environment, e.g.{" "}
+                    <span className="font-mono">http://localhost:3000/api/integrations/hubspot/callback</span> and your
+                    production origin with the same path.
+                  </p>
+
+                  {!isHubspotConfigSaved && (
+                    <p className="text-xs text-amber-600">
+                      Save your HubSpot Client ID and Secret first to enable “Connect HubSpot”.
                     </p>
                   )}
                 </div>

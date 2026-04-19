@@ -11,6 +11,7 @@
 import type * as constants from "../constants.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
+import type * as hubspot from "../hubspot.js";
 import type * as integrations from "../integrations.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_authz from "../lib/authz.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   constants: typeof constants;
   crons: typeof crons;
   http: typeof http;
+  hubspot: typeof hubspot;
   integrations: typeof integrations;
   "lib/audit": typeof lib_audit;
   "lib/authz": typeof lib_authz;

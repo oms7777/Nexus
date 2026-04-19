@@ -58,10 +58,16 @@ export function CardShell({
   className?: string;
 }) {
   return (
-    <div className={["rounded-2xl border bg-white p-6 shadow-sm", PALETTE.cardHover, className].join(" ")}>
+    <div
+      className={[
+        "rounded-2xl border border-border/80 bg-white p-6 shadow-sm ring-1 ring-black/[0.04] dark:bg-card dark:ring-white/10",
+        PALETTE.cardHover,
+        className,
+      ].join(" ")}
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-base font-semibold">{title}</div>
+          <div className="text-base font-semibold tracking-tight">{title}</div>
           {subtitle ? <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div> : null}
         </div>
         {right ? <div>{right}</div> : null}
@@ -109,7 +115,9 @@ export function StatCard({
   sub?: string;
 }) {
   return (
-    <div className={`rounded-2xl border bg-white p-6 shadow-sm ${PALETTE.cardHover}`}>
+    <div
+      className={`rounded-2xl border border-border/80 bg-white p-6 shadow-sm ring-1 ring-black/[0.04] dark:bg-card dark:ring-white/10 ${PALETTE.cardHover}`}
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="text-sm text-muted-foreground">{label}</div>
@@ -228,6 +236,53 @@ export function MiniBarTable({
               </div>
             );
           })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Geography / territory rows: separate numeric columns (more scannable than one concatenated cell). */
+export function GeoKpiTable({
+  rows,
+  nameColumnLabel = "Country",
+}: {
+  rows: Array<{
+    label: React.ReactNode;
+    sessions: number;
+    conversations: number;
+    meetings: number;
+  }>;
+  /** First column header (e.g. "Territory" for territory rollup). */
+  nameColumnLabel?: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/80 shadow-sm ring-1 ring-black/[0.03] dark:ring-white/10">
+      <div className="grid grid-cols-12 gap-2 border-b bg-gradient-to-r from-fuchsia-50/80 to-rose-50/40 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground dark:from-fuchsia-950/30 dark:to-rose-950/20">
+        <div className="col-span-4">{nameColumnLabel}</div>
+        <div className="col-span-2 text-right tabular-nums">Sessions</div>
+        <div className="col-span-3 text-right tabular-nums">Conversations</div>
+        <div className="col-span-3 text-right tabular-nums">Meetings</div>
+      </div>
+      <div className="divide-y divide-border/60">
+        {rows.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-muted-foreground">No data yet.</div>
+        ) : (
+          rows.map((r, idx) => (
+            <div
+              key={idx}
+              className="grid grid-cols-12 gap-2 px-4 py-2.5 text-sm transition hover:bg-fuchsia-50/35 dark:hover:bg-fuchsia-950/20"
+            >
+              <div className="col-span-4 min-w-0 truncate font-medium">{r.label}</div>
+              <div className="col-span-2 text-right tabular-nums text-foreground">{r.sessions.toLocaleString()}</div>
+              <div className="col-span-3 text-right tabular-nums text-muted-foreground">
+                {r.conversations.toLocaleString()}
+              </div>
+              <div className="col-span-3 text-right tabular-nums font-medium text-foreground">
+                {r.meetings.toLocaleString()}
+              </div>
+            </div>
+          ))
         )}
       </div>
     </div>

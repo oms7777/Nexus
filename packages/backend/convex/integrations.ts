@@ -59,6 +59,26 @@ export const _getSalesforceAppConfigByOrg = query({
   },
 });
 
+export const _getHubSpotIntegrationByOrg = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    return await ctx.db
+      .query("hubspotIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
+export const _getHubSpotAppConfigByOrg = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    return await ctx.db
+      .query("hubspotAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
 /* ============================================================
    Entitlements (works in queries/mutations & actions)
    ============================================================ */
@@ -97,6 +117,21 @@ async function requireSalesforceEntitled(ctx: any, organizationId: string) {
     throw new ConvexError({
       code: "FORBIDDEN",
       message: "Salesforce requires the Salesforce add-on (Growth/Enterprise only).",
+    });
+  }
+  return sub;
+}
+
+async function requireHubSpotEntitled(ctx: any, organizationId: string) {
+  const sub = await getSubscriptionByOrgSafe(ctx, organizationId);
+  const plan: Plan = (sub?.plan ?? "starter") as Plan;
+  const status = sub?.status ?? "paused";
+  const addons = sub?.addons ?? {};
+
+  if (!isActiveStatus(status) || plan === "starter" || addons.hubspot !== true) {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "HubSpot requires the HubSpot add-on (Growth/Enterprise only).",
     });
   }
   return sub;
@@ -444,6 +479,170 @@ export const disconnectSalesforceIntegration = mutation({
       actorOrgRole: orgRole,
       action: "integration.salesforce.disconnected",
       entityType: "salesforceIntegration",
+      entityId: String(existing._id),
+    });
+  },
+});
+
+/* ============================================================
+   HUBSPOT: APP CONFIG + CONNECTION (dashboard/private)
+   ============================================================ */
+
+export const getHubSpotAppConfig = query({
+  args: {},
+  handler: async (ctx) => {
+    const { orgId: organizationId } = await requireOrgAdmin(ctx);
+    await requireHubSpotEntitled(ctx, organizationId);
+
+    return await ctx.db
+      .query("hubspotAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
+export const upsertHubSpotAppConfig = mutation({
+  args: {
+    clientId: v.string(),
+    clientSecret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
+    await requireHubSpotEntitled(ctx, organizationId);
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("hubspotAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        clientId: args.clientId,
+        clientSecret: args.clientSecret,
+        updatedAt: now,
+      });
+      await writeAuditLog(ctx, {
+        organizationId,
+        actorUserId: userId,
+        actorOrgRole: orgRole,
+        action: "integration.hubspot_app_config.updated",
+        entityType: "hubspotAppConfig",
+        entityId: String(existing._id),
+        meta: { clientId: args.clientId },
+      });
+      return;
+    }
+
+    const inserted = await ctx.db.insert("hubspotAppConfigs", {
+      organizationId,
+      clientId: args.clientId,
+      clientSecret: args.clientSecret,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "integration.hubspot_app_config.created",
+      entityType: "hubspotAppConfig",
+      entityId: String(inserted),
+      meta: { clientId: args.clientId },
+    });
+  },
+});
+
+export const getHubSpotIntegration = query({
+  args: {},
+  handler: async (ctx) => {
+    const { orgId: organizationId } = await requireOrgAdmin(ctx);
+    await requireHubSpotEntitled(ctx, organizationId);
+
+    return await ctx.db
+      .query("hubspotIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+  },
+});
+
+export const saveHubSpotIntegration = mutation({
+  args: {
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    portalId: v.optional(v.string()),
+    hubDomain: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
+    await requireHubSpotEntitled(ctx, organizationId);
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("hubspotIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        accessToken: args.accessToken,
+        ...(args.refreshToken ? { refreshToken: args.refreshToken } : {}),
+        ...(args.portalId !== undefined ? { portalId: args.portalId } : {}),
+        ...(args.hubDomain !== undefined ? { hubDomain: args.hubDomain } : {}),
+        updatedAt: now,
+      });
+      await writeAuditLog(ctx, {
+        organizationId,
+        actorUserId: userId,
+        actorOrgRole: orgRole,
+        action: "integration.hubspot.updated",
+        entityType: "hubspotIntegration",
+        entityId: String(existing._id),
+        meta: { portalId: args.portalId, hubDomain: args.hubDomain },
+      });
+      return;
+    }
+
+    const inserted = await ctx.db.insert("hubspotIntegrations", {
+      organizationId,
+      accessToken: args.accessToken,
+      refreshToken: args.refreshToken,
+      portalId: args.portalId,
+      hubDomain: args.hubDomain,
+      connectedAt: now,
+      updatedAt: now,
+    });
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "integration.hubspot.connected",
+      entityType: "hubspotIntegration",
+      entityId: String(inserted),
+      meta: { portalId: args.portalId, hubDomain: args.hubDomain },
+    });
+  },
+});
+
+export const disconnectHubSpotIntegration = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
+    await requireHubSpotEntitled(ctx, organizationId);
+
+    const existing = await ctx.db
+      .query("hubspotIntegrations")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (!existing) return;
+    await ctx.db.delete(existing._id);
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId: userId,
+      actorOrgRole: orgRole,
+      action: "integration.hubspot.disconnected",
+      entityType: "hubspotIntegration",
       entityId: String(existing._id),
     });
   },

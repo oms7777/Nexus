@@ -17,6 +17,7 @@ export default defineSchema({
     addons: v.object({
       extraWebsites: v.number(),
       salesforce: v.boolean(),
+      hubspot: v.boolean(),
       voice: v.boolean(),
       advancedAnalytics: v.boolean(),
       /** Legacy — required in schema until every document is migrated (deploy fails otherwise). */
@@ -716,6 +717,26 @@ export default defineSchema({
     accessToken: v.string(),
     refreshToken: v.optional(v.string()),
     instanceUrl: v.string(),
+    connectedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organization_id", ["organizationId"]),
+
+  /* ---------- HubSpot ---------- */
+  hubspotAppConfigs: defineTable({
+    organizationId: v.string(),
+    clientId: v.string(),
+    clientSecret: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organization_id", ["organizationId"]),
+
+  hubspotIntegrations: defineTable({
+    organizationId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    /** HubSpot hub (portal) id from token metadata. */
+    portalId: v.optional(v.string()),
+    hubDomain: v.optional(v.string()),
     connectedAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organization_id", ["organizationId"]),
