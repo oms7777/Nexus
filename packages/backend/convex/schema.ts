@@ -245,8 +245,16 @@ export default defineSchema({
         timezoneOffset: v.optional(v.number()),
         cookieEnabled: v.optional(v.boolean()),
         referrer: v.optional(v.string()),
+        /** First non-empty referrer observed for this session (survives later empty heartbeats). */
+        firstTouchReferrer: v.optional(v.string()),
         currentUrl: v.optional(v.string()),
         utmSource: v.optional(v.string()),
+        /** Lowercase utm_* (aligned with live heartbeat merge + analytics enrich). */
+        utm_source: v.optional(v.string()),
+        utm_medium: v.optional(v.string()),
+        utm_campaign: v.optional(v.string()),
+        utm_term: v.optional(v.string()),
+        utm_content: v.optional(v.string()),
         title: v.optional(v.string()),
         ip: v.optional(v.string()),
         city: v.optional(v.string()),

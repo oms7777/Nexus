@@ -54,6 +54,10 @@ function normalizeSourceLabel(raw: any) {
   const v = normalizeLabel(raw);
   const lower = v.toLowerCase();
   if (lower === "direct") return "Direct / Unattributed";
+  if (lower === "google_ads") return "Google Ads";
+  if (lower === "meta_ads") return "Meta Ads";
+  if (lower === "microsoft_ads") return "Microsoft Ads";
+  if (lower === "linkedin_ads") return "LinkedIn Ads";
   if (/(^|\\.)google\\./.test(lower)) return "Google";
   if (lower === "t.co" || lower.includes("twitter.com") || lower.includes("x.com")) return "X (Twitter)";
   if (lower.includes("linkedin.com")) return "LinkedIn";
@@ -386,10 +390,12 @@ export default function AnalyticsOverviewPage() {
                     })}
                   />
                   <div className="mt-2 rounded-lg border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
-                    <span className="font-medium text-foreground">UTM parameters</span> are the reliable signal for
-                    campaigns. Raw <span className="font-medium text-foreground">referrer</span> is often stripped
-                    (browsers, privacy), so &quot;Direct / Unattributed&quot; stays high — use GA or ad platforms for full
-                    acquisition breakdown.
+                    <span className="font-medium text-foreground">UTM parameters</span> are the most reliable campaign
+                    labels. We also keep a <span className="font-medium text-foreground">first-touch referrer</span> and
+                    detect common ad click ids (<span className="font-medium text-foreground">gclid</span>,{" "}
+                    <span className="font-medium text-foreground">fbclid</span>, etc.) when UTMs are missing. Raw
+                    referrers are still often stripped (in-app browsers, privacy), so &quot;Direct&quot; can stay high —
+                    cross-check with GA / ads when needed.
                   </div>
                 </div>
 

@@ -19,8 +19,14 @@ const MetadataSchema = v.object({
   timezoneOffset: v.optional(v.number()),
   cookieEnabled: v.optional(v.boolean()),
   referrer: v.optional(v.string()),
+  firstTouchReferrer: v.optional(v.string()),
   currentUrl: v.optional(v.string()),
   utmSource: v.optional(v.string()),
+  utm_source: v.optional(v.string()),
+  utm_medium: v.optional(v.string()),
+  utm_campaign: v.optional(v.string()),
+  utm_term: v.optional(v.string()),
+  utm_content: v.optional(v.string()),
   title: v.optional(v.string()),
   pages: v.optional(v.array(v.string())),
 
@@ -50,8 +56,14 @@ type Metadata = {
   timezoneOffset?: number;
   cookieEnabled?: boolean;
   referrer?: string;
+  firstTouchReferrer?: string;
   currentUrl?: string;
   utmSource?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
   title?: string;
   pages?: string[];
 
@@ -123,6 +135,15 @@ function mergeMetadata(oldMd: Metadata, incoming?: Metadata) {
   const a = Array.isArray(oldMd?.pages) ? oldMd.pages : [];
   const b = Array.isArray(incoming.pages) ? incoming.pages : [];
   if (a.length || b.length) merged.pages = mergePagesPreserveOrder(a, b, 20);
+
+  const trim = (s?: string) => (typeof s === "string" && s.trim().length ? s.trim() : undefined);
+
+  // Never replace stored referrer with an empty string.
+  const incRef = trim(incoming.referrer);
+  if (!incRef && oldMd?.referrer) merged.referrer = oldMd.referrer;
+
+  const incFt = trim(incoming.firstTouchReferrer);
+  merged.firstTouchReferrer = trim(oldMd.firstTouchReferrer) ?? incFt ?? trim(merged.referrer);
 
   return merged;
 }
@@ -329,12 +350,19 @@ export const setCurrentUrl = mutation({
 
     const capped = pages.length > 20 ? pages.slice(pages.length - 20) : pages;
 
+    const nextRef =
+      typeof referrer === "string" && referrer.trim().length > 0 ? referrer.trim() : md.referrer;
+    const nextFt =
+      (md as any).firstTouchReferrer ||
+      (typeof referrer === "string" && referrer.trim().length > 0 ? referrer.trim() : undefined);
+
     await ctx.db.patch(sessionId, {
       metadata: {
         ...md,
         currentUrl: url,
         title: title ?? md.title,
-        referrer: typeof referrer === "string" ? referrer : md.referrer,
+        referrer: nextRef,
+        firstTouchReferrer: nextFt,
         pages: capped,
       },
       expiresAt: Date.now() + SESSION_DURATION_MS,

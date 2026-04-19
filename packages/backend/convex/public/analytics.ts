@@ -39,6 +39,21 @@ function pickUtm(currentUrl?: string) {
   }
 }
 
+/** When ads platforms append click ids but marketing forgot UTMs — cheap synthetic source bucket. */
+function inferSyntheticUtmSource(currentUrl?: string): string | undefined {
+  if (!currentUrl) return undefined;
+  try {
+    const p = new URL(currentUrl).searchParams;
+    if (p.get("gclid") || p.get("wbraid") || p.get("gbraid")) return "google_ads";
+    if (p.get("fbclid")) return "meta_ads";
+    if (p.get("msclkid")) return "microsoft_ads";
+    if (p.get("li_fat_id")) return "linkedin_ads";
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function mergeMeta(base: any, extra: any) {
   const b = base && typeof base === "object" ? base : {};
   const e = extra && typeof extra === "object" ? extra : {};
@@ -51,6 +66,8 @@ async function enrichMetaFromSession(ctx: any, sessionId?: any) {
   const m = session?.metadata ?? {};
   const currentUrl = safeString(m.currentUrl);
 
+  const syntheticSource = inferSyntheticUtmSource(currentUrl);
+
   return {
     sessionName: safeString(session?.name),
     sessionEmail: safeString(session?.email),
@@ -62,13 +79,18 @@ async function enrichMetaFromSession(ctx: any, sessionId?: any) {
 
     currentUrl,
     referrer: safeString(m.referrer),
+    firstTouchReferrer: safeString((m as any).firstTouchReferrer),
     title: safeString(m.title),
 
     visitorId: safeString(m.visitorId),
 
     // Prefer first-touch / persisted UTMs when available.
     // Fallback: parse from the currentUrl (may lose UTMs after navigation).
-    utm_source: safeString((m as any).utm_source) ?? (pickUtm(currentUrl) as any).utm_source,
+    // Finally: synthetic buckets from ad click ids (gclid/fbclid/…) when UTMs absent.
+    utm_source:
+      safeString((m as any).utm_source) ??
+      (pickUtm(currentUrl) as any).utm_source ??
+      syntheticSource,
     utm_medium: safeString((m as any).utm_medium) ?? (pickUtm(currentUrl) as any).utm_medium,
     utm_campaign: safeString((m as any).utm_campaign) ?? (pickUtm(currentUrl) as any).utm_campaign,
     utm_term: safeString((m as any).utm_term) ?? (pickUtm(currentUrl) as any).utm_term,
@@ -305,7 +327,12 @@ function normalizeSource(meta: any) {
   const s = safeString(meta?.utm_source);
   if (s) return s;
 
-  const ref = safeString(meta?.referrer);
+  // Synthetic source from URL click ids (set in enrichMeta before this runs).
+  const syn = inferSyntheticUtmSource(safeString(meta?.currentUrl));
+  if (syn) return syn;
+
+  const ref =
+    safeString(meta?.firstTouchReferrer) || safeString(meta?.referrer);
   if (!ref) return "direct";
 
   // Ignore widget/app/internal referrers (they are not acquisition sources).

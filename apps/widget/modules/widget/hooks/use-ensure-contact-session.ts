@@ -8,6 +8,7 @@ import { api } from "@workspace/backend/_generated/api";
 import { contactSessionIdAtom } from "../atoms/widget-atoms";
 
 import { getOrCreateExternalSessionId, getOrCreateVisitorId } from "../../../lib/external-session";
+import { getPersistedFirstTouchReferrer } from "../../../lib/first-touch-referrer";
 import { getHostPageUrlSync } from "../../../lib/host-page-url";
 
 export function useEnsureContactSession(organizationId: string | null) {
@@ -60,6 +61,7 @@ export function useEnsureContactSession(organizationId: string | null) {
                 : undefined,
             currentUrl: getHostPageUrlSync(),
             referrer: typeof document !== "undefined" ? document.referrer || undefined : undefined,
+            firstTouchReferrer: getPersistedFirstTouchReferrer(),
           },
         })) as unknown as string;
 

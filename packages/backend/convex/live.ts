@@ -101,6 +101,11 @@ async function geoFromIpdata(ip: string): Promise<GeoResult | null> {
  * HTTPS fallback when ipdata is not configured or errors.
  * Prefer setting IPDATA_API_KEY in production (SLA / limits).
  */
+function safeTrimRef(x?: string): string | undefined {
+  const s = typeof x === "string" ? x.trim() : "";
+  return s.length ? s : undefined;
+}
+
 async function geoFromIpWhoFallback(ip: string): Promise<GeoResult | null> {
   const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`);
   if (!res.ok) throw new Error(`ipwho http ${res.status}`);
@@ -275,6 +280,8 @@ export const upsertHeartbeat = internalMutation({
 
     const now = Date.now();
     const prevMetadata = session.metadata ?? {};
+    /** Non-empty referrer from this heartbeat only (never treat "" as a real update). */
+    const incomingReferrer = safeTrimRef(args.referrer);
 
     const minimalUpdate: Record<string, any> = {
       expiresAt: now + SESSION_TTL_MS,
@@ -303,7 +310,8 @@ export const upsertHeartbeat = internalMutation({
       !!effectiveCurrentUrl && !!nextUrlKey && nextUrlKey !== prevUrlKey;
     const geoDataAvailable = args.city || args.countryCode || args.lat || args.lng;
 
-    if (urlChanged || geoDataAvailable) {
+    /** Persist attribution even on “quiet” heartbeats (fixes missing first-touch when geo is delayed). */
+    if (urlChanged || geoDataAvailable || incomingReferrer) {
       const prevPages: string[] = Array.isArray(prevMetadata.pages) ? (prevMetadata.pages as string[]) : [];
 
       const addPage = (pages: string[], url?: string) => {
@@ -347,7 +355,9 @@ export const upsertHeartbeat = internalMutation({
         screenResolution: args.screenResolution ?? prevMetadata.screenResolution,
         viewportSize: args.viewportSize ?? prevMetadata.viewportSize,
         timezone: args.timezone ?? prevMetadata.timezone,
-        referrer: args.referrer ?? prevMetadata.referrer,
+        referrer: incomingReferrer ?? safeTrimRef(prevMetadata.referrer as string | undefined),
+        firstTouchReferrer:
+          safeTrimRef((prevMetadata as any).firstTouchReferrer) ?? incomingReferrer ?? undefined,
 
         title: args.title ?? prevMetadata.title,
         userAgent: args.userAgent ?? prevMetadata.userAgent,
@@ -371,6 +381,17 @@ export const upsertHeartbeat = internalMutation({
         utm_content: (prevMetadata as any).utm_content ?? utmFromUrl.utm_content,
       };
     }
+
+    // Always merge referrer / first-touch so later heartbeats cannot wipe attribution with "".
+    const mdBase = minimalUpdate.metadata ?? prevMetadata;
+    const mergedReferrer = incomingReferrer ?? safeTrimRef(mdBase.referrer as string | undefined);
+    const mergedFirstTouch =
+      safeTrimRef((mdBase as any).firstTouchReferrer) ?? incomingReferrer ?? undefined;
+    minimalUpdate.metadata = {
+      ...mdBase,
+      referrer: mergedReferrer,
+      firstTouchReferrer: mergedFirstTouch,
+    };
 
     // --- NON-STICKY territory routing ---
     // We recompute assignment when we have a country code.
