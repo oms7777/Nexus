@@ -23,6 +23,7 @@ import {
   conversationIdAtom,
   contactSessionIdAtom,
   organizationIdAtom,
+  hasVapiSecretsAtom,
   widgetSettingsAtom,
   screenAtom,
 } from "../../atoms/widget-atoms";
@@ -472,6 +473,10 @@ export const WidgetChatScreen = () => {
   );
 
   const canUseVoice = !!publicPlan?.canUseVoice;
+  const hasVapiSecrets = useAtomValue(hasVapiSecretsAtom);
+  const voiceAssistantConfigured = !!(widgetSettings as any)?.vapiSettings?.assistantId;
+  const showVoiceInHeader =
+    canUseVoice && hasVapiSecrets && voiceAssistantConfigured;
 
   const handoffTarget = useQuery(
     api.public.routing.getWhatsAppHandoffDigits,
@@ -1452,7 +1457,7 @@ export const WidgetChatScreen = () => {
     >
       {/* Boutons flottants (mêmes pour tous les layouts) */}
       {typeof window !== "undefined" && window !== window.parent && (
-        <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5">
+        <div className="absolute top-4 right-4 z-20 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-end gap-1.5">
           <button
             type="button"
             onClick={startBookingLikePromo}
@@ -1462,6 +1467,7 @@ export const WidgetChatScreen = () => {
           >
             <CalendarIcon className="size-4" aria-hidden />
           </button>
+          {showVoiceInHeader ? <VoiceCallButton attentionPulse /> : null}
           {showWhatsAppHandoff ? (
             <button
               type="button"
@@ -1493,15 +1499,10 @@ export const WidgetChatScreen = () => {
           </button>
         </div>
       )}
-      {isFullWidth && canUseVoice && (
-        <div className="absolute top-4 left-4 z-10">
-          <VoiceCallButton />
-        </div>
-      )}
 
       {/* Header: who you’re talking to + short promise (clarity like modern B2B widgets) */}
       <div className="relative z-10 shrink-0 border-b border-slate-200/60 bg-gradient-to-b from-slate-50/95 to-white px-4 pb-3.5 pt-4 sm:pt-5">
-        <div className="flex items-start gap-3 pr-[5.75rem]">
+        <div className="flex items-start gap-3 pr-[min(42vw,12rem)] sm:pr-[13rem]">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
             <img
               src={brandLogoUrl}

@@ -10,14 +10,15 @@ import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
 import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/EngagementFunnelChart";
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
+import { FunnelDropoffStrip } from "@/modules/analytics/funnel/components/FunnelDropoffStrip";
+import { FunnelHeroStrip } from "@/modules/analytics/funnel/components/FunnelHeroStrip";
 import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
-import { BrandPill, RangePills, CardShell, Row } from "@/modules/analytics/shared/analytics-primitives";
-
-function makeRange(days: number) {
-  const toTs = Date.now();
-  const fromTs = toTs - days * 24 * 60 * 60 * 1000;
-  return { fromTs, toTs };
-}
+import {
+  AnalyticsDateRangePicker,
+  rangeToTimestamps,
+  type AnalyticsRange,
+} from "@/modules/analytics/shared/analytics-date-range";
+import { BrandPill, CardShell, Row } from "@/modules/analytics/shared/analytics-primitives";
 
 function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPlanBadges: boolean }) {
   return (
@@ -100,8 +101,8 @@ function FunnelsInner({
   advancedEnabled: boolean;
   showPlanBadges: boolean;
 }) {
-  const [days, setDays] = useState(30);
-  const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
+  const [range, setRange] = useState<AnalyticsRange>({ kind: "preset", days: 30 });
+  const { fromTs, toTs } = useMemo(() => rangeToTimestamps(range), [range]);
 
   const data = useQuery(
     api.public.analytics.funnels,
@@ -138,7 +139,7 @@ function FunnelsInner({
               Engagement → conversations → meetings, plus inbound performance.
             </div>
           </div>
-          <RangePills value={days} onChange={setDays} />
+          <AnalyticsDateRangePicker value={range} onChange={setRange} />
         </div>
         <div className="rounded-2xl border bg-white p-6 shadow-sm">Loading…</div>
       </div>
@@ -164,19 +165,25 @@ function FunnelsInner({
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="text-2xl font-semibold">Funnels</div>
-          <div className="text-sm text-muted-foreground">
-            Engagement → conversations → meetings, plus inbound performance.
+        <div className="space-y-1">
+          <div className="text-2xl font-semibold tracking-tight">Funnels</div>
+          <div className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            Engagement → conversations → meetings, plus inbound routing health for the same period as Overview.
           </div>
         </div>
-        <RangePills value={days} onChange={setDays} />
+        <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
+
+      <FunnelHeroStrip
+        meetings={Number(engagement.meetings ?? 0)}
+        conversations={Number(engagement.conversations ?? 0)}
+        sessions={Number(engagement.sessions ?? 0)}
+      />
 
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
         <CardShell
           title="Engagement funnel"
-          subtitle="High-level product usage"
+          subtitle="Macro funnel — counts then stage retention"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
         >
           <div className="space-y-2">
@@ -186,6 +193,8 @@ function FunnelsInner({
             <Row label="Meetings booked" value={Number(engagement.meetings ?? 0).toLocaleString()} />
           </div>
 
+          <FunnelDropoffStrip data={engagement as any} />
+
           <div className="mt-4">
             <EngagementFunnelChart data={engagement as any} />
           </div>
@@ -193,7 +202,7 @@ function FunnelsInner({
 
         <CardShell
           title="Conversion rates"
-          subtitle="Exp → Conv and Conv → Meeting"
+          subtitle="Strict cohort-style rates from funnel events"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
         >
           <ConversionRatesChart data={conversion as any} />
@@ -201,7 +210,7 @@ function FunnelsInner({
 
         <CardShell
           title="Inbound conversion health"
-          subtitle="Requests → rep started → booking proposed (30s) → meetings booked"
+          subtitle="Intent → routing → booking — operational pipeline"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           className="lg:col-span-2"
         >
@@ -221,6 +230,12 @@ function FunnelsInner({
 
               <div className="mt-4">
                 <InboundHealthChart data={inbound as any} />
+              </div>
+
+              <div className="mt-4 rounded-xl border border-dashed border-fuchsia-200/70 bg-fuchsia-50/40 px-4 py-3 text-xs leading-relaxed text-muted-foreground dark:border-fuchsia-900/40 dark:bg-fuchsia-950/25">
+                <span className="font-medium text-foreground">Rep started</span> stays at zero until reps emit{" "}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">inbound_rep_started</code> from the
+                inbox workflow. Requests and meetings can still move without it depending on automation.
               </div>
             </>
           )}

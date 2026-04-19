@@ -7,15 +7,13 @@ import { useOrganization } from "@clerk/nextjs";
 
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
-import { RangePills } from "@/modules/analytics/shared/analytics-primitives";
+import {
+  AnalyticsDateRangePicker,
+  rangeToTimestamps,
+  type AnalyticsRange,
+} from "@/modules/analytics/shared/analytics-date-range";
 import { LockedSignalsAdvancedCard } from "@/modules/analytics/signals/components/LockedSignalsAdvancedCard";
 import { SignalsTable } from "@/modules/analytics/signals/components/SignalsTable";
-
-function makeRange(days: number) {
-  const toTs = Date.now();
-  const fromTs = toTs - days * 24 * 60 * 60 * 1000;
-  return { fromTs, toTs };
-}
 
 export default function AnalyticsSignalsPage() {
   const { organization } = useOrganization();
@@ -24,8 +22,8 @@ export default function AnalyticsSignalsPage() {
   const ent = useEntitlements();
   const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
 
-  const [days, setDays] = useState(30);
-  const { fromTs, toTs } = useMemo(() => makeRange(days), [days]);
+  const [range, setRange] = useState<AnalyticsRange>({ kind: "preset", days: 30 });
+  const { fromTs, toTs } = useMemo(() => rangeToTimestamps(range), [range]);
 
   // ✅ HARDBLOCK: si pas advanced, on ne call pas la query (sinon FORBIDDEN)
   const rows = useQuery(
@@ -39,13 +37,13 @@ export default function AnalyticsSignalsPage() {
     return (
       <div className="p-6 space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-2xl font-semibold">Signals</div>
-            <div className="text-sm text-muted-foreground">
-              Prioritize accounts most likely to convert — based on real intent signals.
+          <div className="space-y-1">
+            <div className="text-2xl font-semibold tracking-tight">Signals</div>
+            <div className="max-w-xl text-sm text-muted-foreground">
+              Prioritize accounts by intent — unlocks with Advanced Analytics.
             </div>
           </div>
-          <RangePills value={days} onChange={setDays} />
+          <AnalyticsDateRangePicker value={range} onChange={setRange} />
         </div>
 
         <LockedSignalsAdvancedCard />
@@ -60,45 +58,39 @@ export default function AnalyticsSignalsPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-2xl font-semibold">Signals</div>
-          <div className="text-sm text-muted-foreground">
-            Prioritize accounts most likely to convert — based on real intent signals (sessions, inbound requests,
-            conversations, bookings).
+        <div className="space-y-1">
+          <div className="text-2xl font-semibold tracking-tight">Signals</div>
+          <div className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            Prioritize accounts most likely to convert — scored from sessions, inbound touches, conversations, and
+            meetings for the selected period.
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <RangePills value={days} onChange={setDays} />
+          <AnalyticsDateRangePicker value={range} onChange={setRange} />
         </div>
       </div>
 
       {isEmpty ? (
-        <div className="rounded-2xl border bg-white p-8 shadow-sm transition hover:shadow-md hover:border-fuchsia-200">
-          <div className="text-lg font-semibold">No signals yet</div>
-          <div className="mt-2 text-sm text-muted-foreground max-w-2xl">
+        <div className="overflow-hidden rounded-2xl border border-dashed border-fuchsia-200/80 bg-gradient-to-br from-fuchsia-50/50 to-white p-8 shadow-sm ring-1 ring-black/[0.04] dark:border-fuchsia-900/40 dark:from-fuchsia-950/20 dark:to-background dark:ring-white/10">
+          <div className="text-lg font-semibold tracking-tight">No signals yet</div>
+          <div className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Signals appear when visitors generate trackable events (sessions, inbound requests, conversations, bookings).
-            If your traffic is mostly anonymous, Signals will show “Visitor IDs” until an email/company is captured.
+            If your traffic is mostly anonymous, you will see visitor-style keys until an email or company is captured.
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <div className="rounded-xl border p-4">
+            <div className="rounded-xl border border-border/80 bg-white/90 p-4 shadow-sm dark:bg-card">
               <div className="text-sm font-medium">Capture identity</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Ask email in chat / booking, or enrich via CRM.
-              </div>
+              <div className="mt-1 text-xs text-muted-foreground">Email in chat, booking, or CRM enrichment.</div>
             </div>
-            <div className="rounded-xl border p-4">
-              <div className="text-sm font-medium">Enable pounce</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Convert high-intent visitors before they bounce.
-              </div>
+            <div className="rounded-xl border border-border/80 bg-white/90 p-4 shadow-sm dark:bg-card">
+              <div className="text-sm font-medium">Respond fast</div>
+              <div className="mt-1 text-xs text-muted-foreground">Intent decays quickly on inbound touches.</div>
             </div>
-            <div className="rounded-xl border p-4">
-              <div className="text-sm font-medium">Route to reps</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Response speed strongly correlates with booked meetings.
-              </div>
+            <div className="rounded-xl border border-border/80 bg-white/90 p-4 shadow-sm dark:bg-card">
+              <div className="text-sm font-medium">Route reps</div>
+              <div className="mt-1 text-xs text-muted-foreground">Territories lift routing quality in Signals.</div>
             </div>
           </div>
         </div>

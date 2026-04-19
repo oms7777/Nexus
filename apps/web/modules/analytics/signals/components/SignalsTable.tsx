@@ -1,6 +1,23 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { Filter, HelpCircle, Search } from "lucide-react";
+
+import { displaySourceLabel } from "@/modules/analytics/shared/source-labels";
+import { Button } from "@workspace/ui/components/button";
+import { Input } from "@workspace/ui/components/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
 
 type Row = {
   account: string;
@@ -44,8 +61,12 @@ function TierBadge({ value }: { value?: string }) {
   return (
     <span
       className={[
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
-        isHot ? "bg-red-50" : isWarm ? "bg-amber-50" : "bg-muted",
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+        isHot
+          ? "border-rose-200 bg-gradient-to-r from-rose-50 to-orange-50 text-rose-900 dark:border-rose-900/50 dark:from-rose-950/60 dark:to-orange-950/40 dark:text-rose-100"
+          : isWarm
+            ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/45 dark:bg-amber-950/40 dark:text-amber-100"
+            : "border-border/80 bg-muted/70 text-muted-foreground",
       ].join(" ")}
     >
       {label}
@@ -62,14 +83,21 @@ function IntentBadge({ value }: { value?: string }) {
   return (
     <span
       className={[
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
-        isHigh ? "bg-emerald-50" : isMedium ? "bg-fuchsia-50" : "bg-muted",
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+        isHigh
+          ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/45 dark:bg-emerald-950/45 dark:text-emerald-100"
+          : isMedium
+            ? "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900 dark:border-fuchsia-900/45 dark:bg-fuchsia-950/40 dark:text-fuchsia-100"
+            : "border-border/80 bg-muted/70 text-muted-foreground",
       ].join(" ")}
     >
       Intent: {label}
     </span>
   );
 }
+
+const SCORE_HELP =
+  "Weighted blend of meetings (×50), conversations (×15), inbound requests (×8), sessions (×3), experiences (×1). Thresholds: Hot ≥120, Warm ≥45.";
 
 export function SignalsTable({
   rows,
@@ -80,13 +108,37 @@ export function SignalsTable({
 }) {
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("score");
+  const [tierFilter, setTierFilter] = useState<string>("all");
+  const [territoryFilter, setTerritoryFilter] = useState<string>("all");
+  const [minScore, setMinScore] = useState<string>("0");
+
+  const territories = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) {
+      const t = safeStr(r.territory);
+      if (t) s.add(t);
+    }
+    return [...s].sort((a, b) => a.localeCompare(b));
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
+    const min = Number(minScore);
+    const minOk = Number.isFinite(min) ? min : 0;
 
-    const base = query
-      ? rows.filter((r) => safeStr(r.account).toLowerCase().includes(query))
-      : rows.slice();
+    let base = rows.slice();
+    if (query) {
+      base = base.filter((r) => safeStr(r.account).toLowerCase().includes(query));
+    }
+    if (tierFilter !== "all") {
+      base = base.filter((r) => (r.tier ?? "Neutral").toLowerCase() === tierFilter.toLowerCase());
+    }
+    if (territoryFilter !== "all" && advanced) {
+      base = base.filter((r) => safeStr(r.territory) === territoryFilter);
+    }
+    if (minOk > 0) {
+      base = base.filter((r) => safeNum(r.score) >= minOk);
+    }
 
     base.sort((a, b) => {
       if (sortKey === "account") return safeStr(a.account).localeCompare(safeStr(b.account));
@@ -96,72 +148,148 @@ export function SignalsTable({
     });
 
     return base;
-  }, [rows, q, sortKey]);
+  }, [rows, q, sortKey, tierFilter, territoryFilter, minScore, advanced]);
 
   return (
-    <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
-      {/* controls */}
-      <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search account…"
-            className="h-10 w-full sm:w-72 rounded-xl border bg-white px-3 text-sm"
-          />
-        </div>
+    <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm ring-1 ring-black/[0.04] dark:ring-white/10">
+      <div className="border-b border-border/70 bg-gradient-to-r from-fuchsia-50/50 to-rose-50/30 px-4 py-3 dark:from-fuchsia-950/20 dark:to-rose-950/10">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <div className="relative min-w-0 flex-1 sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search account…"
+                className="h-10 rounded-xl border-border/80 bg-white pl-9 dark:bg-card"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                <Filter className="size-3.5" />
+                Filters
+              </span>
+              <Select value={tierFilter} onValueChange={setTierFilter}>
+                <SelectTrigger className="h-9 w-[120px] rounded-xl text-xs" size="sm">
+                  <SelectValue placeholder="Tier" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All tiers</SelectItem>
+                  <SelectItem value="hot">Hot</SelectItem>
+                  <SelectItem value="warm">Warm</SelectItem>
+                  <SelectItem value="neutral">Neutral</SelectItem>
+                </SelectContent>
+              </Select>
+              {advanced ? (
+                <Select value={territoryFilter} onValueChange={setTerritoryFilter}>
+                  <SelectTrigger className="h-9 min-w-[140px] rounded-xl text-xs" size="sm">
+                    <SelectValue placeholder="Territory" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All territories</SelectItem>
+                    {territories.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <Select value={minScore} onValueChange={setMinScore}>
+                <SelectTrigger className="h-9 w-[130px] rounded-xl text-xs" size="sm">
+                  <SelectValue placeholder="Min score" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">Any score</SelectItem>
+                  <SelectItem value="45">≥ 45 (Warm+)</SelectItem>
+                  <SelectItem value="120">≥ 120 (Hot)</SelectItem>
+                </SelectContent>
+              </Select>
+              {(tierFilter !== "all" || territoryFilter !== "all" || minScore !== "0" || q) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 rounded-xl text-xs"
+                  onClick={() => {
+                    setTierFilter("all");
+                    setTerritoryFilter("all");
+                    setMinScore("0");
+                    setQ("");
+                  }}
+                >
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Sort</span>
-          <select
-            className="h-10 rounded-xl border bg-white px-3 text-sm"
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
-          >
-            <option value="score">Score</option>
-            <option value="sessions">Sessions</option>
-            <option value="meetings">Meetings</option>
-            <option value="account">Account</option>
-          </select>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Sort</span>
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+              <SelectTrigger className="h-9 w-[148px] rounded-xl text-xs" size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="score">Score</SelectItem>
+                <SelectItem value="sessions">Sessions</SelectItem>
+                <SelectItem value="meetings">Meetings</SelectItem>
+                <SelectItem value="account">Account</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
-      {/* header */}
       <div
         className={[
-          "grid gap-3 border-b px-4 py-2 text-xs text-muted-foreground uppercase",
+          "grid gap-3 border-b border-border/60 bg-muted/25 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground",
           advanced
-            ? "grid-cols-[2.2fr_0.8fr_1fr_0.9fr_0.8fr_1fr_1fr]"
-            : "grid-cols-[2.2fr_0.8fr_1fr_0.9fr_0.8fr]",
+            ? "grid-cols-[minmax(0,2fr)_auto_auto_auto_auto_auto_auto]"
+            : "grid-cols-[minmax(0,2fr)_auto_auto_auto_auto]",
         ].join(" ")}
       >
         <div>Account</div>
         <div>Tier</div>
         <div>Intent</div>
-        <div>Score</div>
+        <div className="inline-flex items-center gap-1">
+          Score
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" className="rounded-md p-0.5 text-muted-foreground hover:text-foreground">
+                <HelpCircle className="size-3.5" aria-label="How score works" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+              {SCORE_HELP}
+            </TooltipContent>
+          </Tooltip>
+        </div>
         <div>Sessions</div>
         {advanced ? <div>Territory</div> : null}
         {advanced ? <div>Source</div> : null}
       </div>
 
-      {/* rows */}
       {filtered.length === 0 ? (
-        <div className="p-6 text-sm text-muted-foreground">No results.</div>
+        <div className="px-4 py-10 text-center">
+          <p className="text-sm font-medium text-foreground">No matching accounts</p>
+          <p className="mt-1 text-xs text-muted-foreground">Relax filters or widen the date range.</p>
+        </div>
       ) : (
         filtered.map((row) => (
           <div
             key={row.account}
             className={[
-              "grid gap-3 px-4 py-3 border-b last:border-0 items-center",
+              "grid gap-3 border-b border-border/50 px-4 py-3.5 transition last:border-0 items-center hover:bg-fuchsia-50/40 dark:hover:bg-fuchsia-950/15",
               advanced
-                ? "grid-cols-[2.2fr_0.8fr_1fr_0.9fr_0.8fr_1fr_1fr]"
-                : "grid-cols-[2.2fr_0.8fr_1fr_0.9fr_0.8fr]",
+                ? "grid-cols-[minmax(0,2fr)_auto_auto_auto_auto_auto_auto]"
+                : "grid-cols-[minmax(0,2fr)_auto_auto_auto_auto]",
             ].join(" ")}
           >
             <div className="min-w-0">
-              <div className="font-medium truncate">{row.account}</div>
-              <div className="mt-1 text-xs text-muted-foreground truncate">
-                {(row.reasons ?? []).slice(0, 3).join(" • ") || "—"}
+              <div className="truncate font-medium text-foreground">{row.account}</div>
+              <div className="mt-1 truncate text-xs text-muted-foreground">
+                {(row.reasons ?? []).slice(0, 3).join(" · ") || "—"}
               </div>
             </div>
 
@@ -173,16 +301,18 @@ export function SignalsTable({
               <IntentBadge value={row.intent} />
             </div>
 
-            <div className="tabular-nums text-sm font-medium">
-              {safeNum(row.score).toLocaleString()}
-            </div>
+            <div className="tabular-nums text-sm font-semibold text-foreground">{safeNum(row.score).toLocaleString()}</div>
 
-            <div className="tabular-nums text-sm font-medium">
-              {safeNum(row.sessions).toLocaleString()}
-            </div>
+            <div className="tabular-nums text-sm font-medium">{safeNum(row.sessions).toLocaleString()}</div>
 
-            {advanced ? <div className="text-sm">{row.territory ?? "—"}</div> : null}
-            {advanced ? <div className="text-sm">{row.source ?? "direct"}</div> : null}
+            {advanced ? (
+              <div className="truncate text-sm text-muted-foreground">{row.territory ?? "—"}</div>
+            ) : null}
+            {advanced ? (
+              <div className="truncate text-sm font-medium text-foreground" title={row.source ?? "direct"}>
+                {displaySourceLabel(row.source ?? "direct")}
+              </div>
+            ) : null}
           </div>
         ))
       )}

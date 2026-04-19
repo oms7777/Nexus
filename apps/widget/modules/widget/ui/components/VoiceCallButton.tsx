@@ -1,8 +1,10 @@
 "use client";
 
-import { Button } from "@workspace/ui/components/button";
 import { MicIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+
+import { cn } from "@workspace/ui/lib/utils";
 
 import { screenAtom } from "../../atoms/widget-atoms";
 import {
@@ -11,21 +13,38 @@ import {
   consentGivenAtom,
 } from "../../atoms/qualify-atoms";
 
-type Props = { className?: string };
+type Props = {
+  className?: string;
+  /** Subtle pulse + ring for a few seconds to draw attention (visitor guidance). */
+  attentionPulse?: boolean;
+};
 
-export default function VoiceCallButton({ className }: Props) {
+export default function VoiceCallButton({
+  className,
+  attentionPulse = true,
+}: Props) {
   const setScreen = useSetAtom(screenAtom);
   const setBookingIntent = useSetAtom(bookingIntentAtom);
   const setQualifyStep = useSetAtom(qualifyStepAtom);
 
   const consentGiven = useAtomValue(consentGivenAtom);
 
+  const [pulseOn, setPulseOn] = useState(attentionPulse);
+
+  useEffect(() => {
+    if (!attentionPulse) {
+      setPulseOn(false);
+      return;
+    }
+    const id = window.setTimeout(() => setPulseOn(false), 12000);
+    return () => window.clearTimeout(id);
+  }, [attentionPulse]);
+
   /**
-   * ✅ VOICE (CONSENT-GATED)
-   * - SI CONSENT OK => VOICE DIRECT
-   * - SINON => CONSENT DANS CHAT + FLAG POUR REDIRIGER VERS VOICE APRÈS ACCEPT
+   * Voice (consent-gated): consent OK → voice screen; otherwise chat + redirect after consent.
    */
   const onClick = () => {
+    setPulseOn(false);
     if (consentGiven) {
       setScreen("voice");
       return;
@@ -41,14 +60,22 @@ export default function VoiceCallButton({ className }: Props) {
   };
 
   return (
-    <Button
-      variant="transparent"
-      size="icon"
-      className={className}
+    <button
+      type="button"
       onClick={onClick}
       title="Voice call with AI assistant"
+      aria-label="Voice call with AI assistant"
+      className={cn(
+        "size-9 flex shrink-0 items-center justify-center rounded-full border border-white/20 shadow-md transition-all hover:scale-[1.03] active:scale-[0.98]",
+        pulseOn && "animate-pulse shadow-[0_0_0_3px_rgba(99,102,241,0.45)]",
+        className
+      )}
+      style={{
+        backgroundColor: "var(--widget-primary)",
+        color: "var(--widget-primary-text)",
+      }}
     >
-      <MicIcon className="size-5" />
-    </Button>
+      <MicIcon className="size-4" aria-hidden />
+    </button>
   );
 }
