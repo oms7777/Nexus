@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   getFormattingLocaleForWidget,
   widgetCopyFor,
@@ -21,6 +22,7 @@ export default function CalendarContainerBeautified({
   uiLang?: WidgetUiLanguage;
 }) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
+  const dayScrollerRef = useRef<HTMLDivElement>(null);
   const tc = widgetCopyFor(uiLang);
   const intlLocale = getFormattingLocaleForWidget(uiLang);
 
@@ -59,71 +61,113 @@ export default function CalendarContainerBeautified({
   const currentSlots: Slot[] = grouped[currentDay] ?? [];
   const monthLabel = days.length > 0 ? getMonthLabel(currentDay, grouped, intlLocale) : "";
 
+  const scrollDays = (dir: -1 | 1) => {
+    const el = dayScrollerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.min(200, el.clientWidth * 0.6), behavior: "smooth" });
+  };
+
   return (
-    <div className="flex h-full w-full min-w-0 max-w-full flex-col gap-4 overflow-hidden">
-      <div className="shrink-0 text-center">
-        <h3 className="text-sm font-semibold text-foreground">{tc.calendarPickTime}</h3>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {tc.calendarTimesTimezone}
-        </p>
+    <div className="flex h-full w-full min-w-0 max-w-full flex-col gap-4 overflow-hidden rounded-2xl border bg-white/95 shadow-sm ring-1 ring-black/[0.04] backdrop-blur-[2px] dark:bg-card dark:ring-white/10">
+      <div
+        className="shrink-0 rounded-t-2xl px-4 pb-3 pt-4 text-center"
+        style={{
+          background:
+            "linear-gradient(135deg, color-mix(in srgb, var(--widget-primary) 14%, transparent), color-mix(in srgb, var(--widget-primary) 4%, transparent))",
+        }}
+      >
+        <h3 className="text-sm font-semibold tracking-tight text-foreground">{tc.calendarPickTime}</h3>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{tc.calendarTimesTimezone}</p>
       </div>
 
-      {monthLabel && (
-        <p className="shrink-0 text-center text-xs font-medium text-muted-foreground">
-          {monthLabel}
-        </p>
-      )}
+      <div className="flex min-w-0 flex-col gap-3 px-3 pb-4">
+        {monthLabel ? (
+          <p className="shrink-0 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {monthLabel}
+          </p>
+        ) : null}
 
-      <div className="flex min-w-0 gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
-        {days.map((day, idx) => {
-          const active = idx === safeIndex;
-          const firstSlot = grouped[day]?.[0];
-          const label = firstSlot
-            ? formatWeekdayAndDay(firstSlot.start, intlLocale)
-            : formatDayShort(day);
-          return (
-            <button
-              key={day}
-              onClick={() => setActiveIndex(idx)}
-              className={[
-                "min-w-[72px] shrink-0 rounded-xl px-2.5 py-2 text-center text-xs transition",
-                "flex flex-col justify-center border",
-                active ? "shadow-sm" : "bg-white text-foreground",
-              ].join(" ")}
-              style={
-                active
-                  ? { backgroundColor: "var(--widget-primary)", color: "var(--widget-primary-text)", borderColor: "var(--widget-primary)" }
-                  : { borderColor: "color-mix(in srgb, var(--widget-primary) 20%, transparent)" }
-              }
-            >
-              <span className="uppercase tracking-wide opacity-90">{label.weekday}</span>
-              <span className="font-semibold">{label.day}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="grid min-w-0 grid-cols-2 gap-2 overflow-auto content-start">
-        {currentSlots.map((slot, idx) => (
+        <div className="flex min-w-0 items-center gap-1">
           <button
-            key={`${slot.start}-${slot.end}-${idx}`}
-            onClick={() => onPick(slot)}
-            className="min-w-0 rounded-xl border bg-white px-2 py-2.5 text-xs font-medium transition active:scale-[0.98] truncate"
-            style={{
-              borderColor: "color-mix(in srgb, var(--widget-primary) 25%, transparent)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--widget-primary)";
-              e.currentTarget.style.color = "var(--widget-primary-text)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "";
-              e.currentTarget.style.color = "";
-            }}
+            type="button"
+            aria-label="Previous days"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition hover:border-[color-mix(in_srgb,var(--widget-primary)_25%,transparent)] hover:bg-[color-mix(in_srgb,var(--widget-primary)_8%,transparent)] hover:text-foreground"
+            onClick={() => scrollDays(-1)}
           >
-            {formatTime(slot.start, intlLocale)} – {formatTime(slot.end, intlLocale)}
+            <ChevronLeft className="size-4" />
           </button>
-        ))}
+          <div
+            ref={dayScrollerRef}
+            className="flex min-w-0 flex-1 gap-2 overflow-x-auto scrollbar-none pb-0.5"
+            style={{ scrollSnapType: "x proximity" }}
+          >
+            {days.map((day, idx) => {
+              const active = idx === safeIndex;
+              const firstSlot = grouped[day]?.[0];
+              const label = firstSlot
+                ? formatWeekdayAndDay(firstSlot.start, intlLocale)
+                : formatDayShort(day);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => setActiveIndex(idx)}
+                  className={[
+                    "min-w-[76px] shrink-0 snap-start rounded-xl px-2.5 py-2.5 text-center text-xs transition",
+                    "flex flex-col justify-center border",
+                    active ? "shadow-md ring-2 ring-[color-mix(in_srgb,var(--widget-primary)_35%,transparent)]" : "bg-white text-foreground",
+                  ].join(" ")}
+                  style={
+                    active
+                      ? {
+                          backgroundColor: "var(--widget-primary)",
+                          color: "var(--widget-primary-text)",
+                          borderColor: "var(--widget-primary)",
+                        }
+                      : {
+                          borderColor: "color-mix(in srgb, var(--widget-primary) 18%, transparent)",
+                        }
+                  }
+                >
+                  <span className="uppercase tracking-wide opacity-90">{label.weekday}</span>
+                  <span className="text-[15px] font-semibold tabular-nums">{label.day}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            aria-label="Next days"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition hover:border-[color-mix(in_srgb,var(--widget-primary)_25%,transparent)] hover:bg-[color-mix(in_srgb,var(--widget-primary)_8%,transparent)] hover:text-foreground"
+            onClick={() => scrollDays(1)}
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 min-w-0 grid-cols-2 gap-2 overflow-auto content-start">
+          {currentSlots.map((slot, idx) => (
+            <button
+              key={`${slot.start}-${slot.end}-${idx}`}
+              type="button"
+              onClick={() => onPick(slot)}
+              className="min-w-0 rounded-xl border bg-white px-2 py-2.5 text-xs font-medium shadow-sm transition active:scale-[0.98] dark:bg-card truncate"
+              style={{
+                borderColor: "color-mix(in srgb, var(--widget-primary) 22%, transparent)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "var(--widget-primary)";
+                e.currentTarget.style.color = "var(--widget-primary-text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "";
+                e.currentTarget.style.color = "";
+              }}
+            >
+              {formatTime(slot.start, intlLocale)} – {formatTime(slot.end, intlLocale)}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

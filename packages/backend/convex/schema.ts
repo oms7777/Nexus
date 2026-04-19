@@ -6,6 +6,9 @@ export default defineSchema({
   /* ---------- Org plan & limits (Convex source of truth; no payment provider) ---------- */
   subscriptions: defineTable({
     organizationId: v.string(),
+    /** Copied from Clerk org (`name` / `slug`) via webhook — helps identify rows in Convex Data. */
+    organizationName: v.optional(v.string()),
+    organizationSlug: v.optional(v.string()),
 
     plan: v.union(v.literal("starter"), v.literal("growth"), v.literal("enterprise")),
 
@@ -14,6 +17,10 @@ export default defineSchema({
 
     status: v.union(v.literal("active"), v.literal("paused"), v.literal("trial")),
 
+    /**
+     * Feature flags: product add-ons (voice, analytics) + integration entitlements (salesforce, hubspot).
+     * Optional keys are legacy/enterprise packs; see `normalizeAddons` in `system/subscriptions.ts` when migrating.
+     */
     addons: v.object({
       extraWebsites: v.number(),
       salesforce: v.boolean(),
@@ -31,6 +38,7 @@ export default defineSchema({
       compliancePack: v.optional(v.boolean()),
     }),
 
+    /** Plan entitlements / metering caps (widget, AI, voice, analytics storage). Zeros often mean paused/starter or pending provisioning. */
     limits: v.object({
       websites: v.number(),
       reps: v.number(),

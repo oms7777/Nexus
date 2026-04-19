@@ -107,6 +107,38 @@ export const ensureForOrg = internalMutation({
   },
 });
 
+/** Sync org display name from Clerk webhooks so Convex `subscriptions` rows are human-readable in the dashboard. */
+export const setOrganizationProfile = internalMutation({
+  args: {
+    organizationId: v.string(),
+    organizationName: v.optional(v.string()),
+    organizationSlug: v.optional(v.string()),
+  },
+  handler: async (ctx, { organizationId, organizationName, organizationSlug }) => {
+    const existing = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (!existing) {
+      return { ok: false as const, reason: "NOT_FOUND" as const };
+    }
+
+    const now = Date.now();
+    const patch: {
+      organizationName?: string;
+      organizationSlug?: string;
+      updatedAt: number;
+    } = { updatedAt: now };
+
+    if (organizationName !== undefined) patch.organizationName = organizationName;
+    if (organizationSlug !== undefined) patch.organizationSlug = organizationSlug;
+
+    await ctx.db.patch(existing._id, patch);
+    return { ok: true as const };
+  },
+});
+
 export const upsertFull = internalMutation({
   args: {
     organizationId: v.string(),
@@ -200,6 +232,9 @@ export const migrateSubscriptionShape = internalMutation({
     for (const doc of rows) {
       await ctx.db.replace(doc._id, {
         organizationId: doc.organizationId,
+        organizationName: doc.organizationName,
+        organizationSlug: doc.organizationSlug,
+        enterpriseTier: doc.enterpriseTier,
         plan: doc.plan,
         status: doc.status,
         addons: normalizeAddons(doc.addons as Record<string, unknown>),

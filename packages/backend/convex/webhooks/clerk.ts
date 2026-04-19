@@ -66,12 +66,54 @@ export async function handleClerkWebhook(ctx: ActionCtx, req: Request) {
         }
 
         // ensure sub
-        const subId = await ctx.runMutation(internal.system.subscriptions.ensureForOrg, { organizationId });
+        const subRes = await ctx.runMutation(internal.system.subscriptions.ensureForOrg, { organizationId });
+
+        const orgName = typeof data?.name === "string" ? data.name : undefined;
+        const orgSlug = typeof data?.slug === "string" ? data.slug : undefined;
+        if (orgName !== undefined || orgSlug !== undefined) {
+          await ctx.runMutation(internal.system.subscriptions.setOrganizationProfile, {
+            organizationId,
+            organizationName: orgName,
+            organizationSlug: orgSlug,
+          });
+        }
 
         return new Response(
-          JSON.stringify({ ok: true, handled: "organization.created", organizationId, subId }),
+          JSON.stringify({
+            ok: true,
+            handled: "organization.created",
+            organizationId,
+            subId: subRes,
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+
+      case "organization.updated": {
+        const data = event.data as any;
+        const organizationId: string | undefined = data?.id;
+        if (!organizationId) return new Response("Missing organization id", { status: 400 });
+
+        const orgName = typeof data?.name === "string" ? data.name : undefined;
+        const orgSlug = typeof data?.slug === "string" ? data.slug : undefined;
+        if (orgName === undefined && orgSlug === undefined) {
+          return new Response(JSON.stringify({ ok: true, skipped: true, reason: "no_name_change" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        await ctx.runMutation(internal.system.subscriptions.ensureForOrg, { organizationId });
+        await ctx.runMutation(internal.system.subscriptions.setOrganizationProfile, {
+          organizationId,
+          organizationName: orgName,
+          organizationSlug: orgSlug,
+        });
+
+        return new Response(JSON.stringify({ ok: true, handled: "organization.updated", organizationId }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       default:

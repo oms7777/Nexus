@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { DateRange } from "react-day-picker";
 import { differenceInCalendarDays, endOfDay, startOfDay, subDays } from "date-fns";
 import { CalendarRange } from "lucide-react";
@@ -44,17 +44,35 @@ export function AnalyticsDateRangePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<DateRange | undefined>();
+  /** Visible month (first pane) — must align with draft so range isn’t “hidden” on other months). */
+  const [month, setMonth] = useState<Date>(() => new Date());
 
   const presetActive = value.kind === "preset" ? value.days : null;
 
-  useEffect(() => {
-    if (!open) return;
-    if (value.kind === "custom") {
-      setDraft({ from: new Date(value.fromTs), to: new Date(value.toTs) });
-    } else {
-      setDraft({ from: subDays(new Date(), 29), to: new Date() });
-    }
-  }, [open, value]);
+  /** Init draft + calendar month only when the popover opens — avoids Strict Mode double-effect wiping range clicks. */
+  const handlePopoverOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (!nextOpen) return;
+      if (value.kind === "custom") {
+        const from = new Date(value.fromTs);
+        const to = new Date(value.toTs);
+        setDraft({ from, to });
+        setMonth(from);
+      } else {
+        const to = new Date();
+        const from = subDays(to, 29);
+        setDraft({ from, to });
+        setMonth(from);
+      }
+    },
+    [value],
+  );
+
+  /** DayPicker v9: (selectedRange, triggerDate, modifiers, event) — only the first arg matters for state. */
+  const handleSelect = useCallback((range: DateRange | undefined) => {
+    setDraft(range);
+  }, []);
 
   const applyCustom = () => {
     if (!draft?.from || !draft?.to) return;
@@ -97,7 +115,7 @@ export function AnalyticsDateRangePicker({
             </button>
           );
         })}
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover modal={false} open={open} onOpenChange={handlePopoverOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -112,13 +130,19 @@ export function AnalyticsDateRangePicker({
               {customButtonLabel}
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="end">
+          <PopoverContent
+            className="w-auto p-0"
+            align="end"
+            onOpenAutoFocus={(e) => e.preventDefault()}
+          >
             <Calendar
               mode="range"
               numberOfMonths={2}
+              month={month}
+              onMonthChange={setMonth}
               className="p-2"
               selected={draft}
-              onSelect={setDraft}
+              onSelect={handleSelect}
               disabled={(date) => date > new Date() || date < new Date(Date.now() - 730 * 86400000)}
             />
             <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
