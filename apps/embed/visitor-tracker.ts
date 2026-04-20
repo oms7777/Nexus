@@ -6,15 +6,25 @@ import Pusher, { type Channel } from "pusher-js";
 type VisitorTrackingOptions = {
   orgId: string;
   sessionId: string;
+  /**
+   * Optional overrides so the host tracker can be loaded by different shells
+   * (e.g. widget.js) without hardcoding app domains in the bundle.
+   */
+  config?: Partial<{
+    pusherKey: string;
+    pusherCluster: string;
+    pusherAuthUrl: string;
+    snapshotUrl: string;
+  }>;
 };
 
 // =======================
 // Config
 // =======================
-const PUSHER_KEY = "913d0c824be3b5eb38bc";
-const PUSHER_CLUSTER = "eu";
-const PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
-const SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
+const DEFAULT_PUSHER_KEY = "913d0c824be3b5eb38bc";
+const DEFAULT_PUSHER_CLUSTER = "eu";
+const DEFAULT_PUSHER_AUTH_URL = "https://app.inboundless.co/api/realtime/pusher-auth";
+const DEFAULT_SNAPSHOT_URL = "https://app.inboundless.co/api/tracker/snapshot";
 
 // Pusher client events payload limit ~10KB
 const MAX_PAYLOAD_BYTES = 9_000;
@@ -94,6 +104,18 @@ let totalEvents = 0;
 // unload handlers (we REMOVE them on destroy)
 let onBeforeUnload: (() => void) | null = null;
 let onPageHide: (() => void) | null = null;
+
+let runtimeConfig: {
+  pusherKey: string;
+  pusherCluster: string;
+  pusherAuthUrl: string;
+  snapshotUrl: string;
+} = {
+  pusherKey: DEFAULT_PUSHER_KEY,
+  pusherCluster: DEFAULT_PUSHER_CLUSTER,
+  pusherAuthUrl: DEFAULT_PUSHER_AUTH_URL,
+  snapshotUrl: DEFAULT_SNAPSHOT_URL,
+};
 
 function safeBytes(str: string) {
   return new TextEncoder().encode(str).length;
@@ -192,7 +214,7 @@ function persistSnapshotToDbDebounced(opts: {
     const ctx = getPageContext();
 
     try {
-      const res = await fetch(SNAPSHOT_URL, {
+      const res = await fetch(runtimeConfig.snapshotUrl, {
         method: "POST",
         mode: "cors",
         credentials: "omit",
@@ -683,7 +705,14 @@ export function destroyVisitorTracking() {
 // =======================
 // Init
 // =======================
-export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions) {
+export function initVisitorTracking({ orgId, sessionId, config }: VisitorTrackingOptions) {
+  runtimeConfig = {
+    pusherKey: DEFAULT_PUSHER_KEY,
+    pusherCluster: DEFAULT_PUSHER_CLUSTER,
+    pusherAuthUrl: DEFAULT_PUSHER_AUTH_URL,
+    snapshotUrl: DEFAULT_SNAPSHOT_URL,
+    ...(config ?? {}),
+  };
   if (!isNonEmptyString(orgId) || !isNonEmptyString(sessionId)) return;
   if (started) return;
   if (typeof window === "undefined") return;
@@ -696,14 +725,14 @@ export function initVisitorTracking({ orgId, sessionId }: VisitorTrackingOptions
   lastActivityAt = now();
   totalEvents = 0;
 
-  const pusher = new Pusher(PUSHER_KEY, {
-    cluster: PUSHER_CLUSTER,
+  const pusher = new Pusher(runtimeConfig.pusherKey, {
+    cluster: runtimeConfig.pusherCluster,
     forceTLS: true,
     disableStats: true,
     enabledTransports: ["ws", "wss"],
     disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
     channelAuthorization: {
-      endpoint: PUSHER_AUTH_URL,
+      endpoint: runtimeConfig.pusherAuthUrl,
       transport: "ajax",
       params: { orgId, sessionId },
     },
