@@ -108,7 +108,7 @@ export function LiveVisitorStreamCard({
 
         <div className="px-2 pb-2 pt-2" onClick={(e) => e.stopPropagation()}>
           {sessionId && isSelected ? (
-            <LiveVisitorView orgId={orgId} sessionId={sessionId} compact />
+            <LiveVisitorView orgId={orgId} sessionId={sessionId} compact currentUrl={visitor.currentUrl} />
           ) : (
             <div className="flex min-h-[128px] cursor-pointer items-center justify-center rounded-lg border border-dashed border-border/80 bg-muted/30 px-3 text-center text-xs text-muted-foreground">
               {isSelected && !sessionId

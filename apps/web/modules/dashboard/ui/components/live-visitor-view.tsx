@@ -32,10 +32,13 @@ export function LiveVisitorView({
   sessionId,
   /** Tighter frame for live list cards (map + stream column). */
   compact = false,
+  /** Best-known current page URL (fallback when realtime page events are absent). */
+  currentUrl,
 }: {
   orgId: string;
   sessionId: Id<"contactSessions">;
   compact?: boolean;
+  currentUrl?: string;
 }) {
   const maxUpscale = 1; // avoid blur/pixelation from scaling above 1x
 
@@ -356,7 +359,7 @@ export function LiveVisitorView({
   const aspect = src?.width && src?.height ? `${src.width}/${src.height}` : "16/9";
 
   const livePath = useMemo(() => {
-    const href = livePage?.href;
+    const href = livePage?.href ?? currentUrl;
     if (!href) return null;
     try {
       const u = new URL(href);
@@ -364,7 +367,7 @@ export function LiveVisitorView({
     } catch {
       return href;
     }
-  }, [livePage?.href]);
+  }, [livePage?.href, currentUrl]);
 
   return (
     <div
@@ -387,7 +390,7 @@ export function LiveVisitorView({
         {livePath ? (
           <div
             className="max-w-[18rem] truncate rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-slate-700 shadow-sm ring-1 ring-black/5 backdrop-blur"
-            title={livePage?.href}
+            title={livePage?.href ?? currentUrl}
           >
             Live: {livePath}
           </div>
