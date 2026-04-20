@@ -36,8 +36,7 @@ export function PrimaryOutcomeStrip({
             <DeltaPill delta={meetingsDelta ?? null} className="mb-1" />
           </div>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Booked meetings attributed to this period. Conversion rates summarize how efficiently sessions and
-            conversations turn into outcomes — not raw marketing traffic.
+            Booked meetings attributed to this period.
           </p>
         </div>
         <div className="grid w-full max-w-md shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:max-w-lg">

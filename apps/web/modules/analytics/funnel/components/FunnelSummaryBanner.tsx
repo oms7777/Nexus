@@ -80,8 +80,7 @@ export function FunnelSummaryBanner({
             </div>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Share of sessions in this period that resulted in at least one meeting — different from step conversion in
-            the charts below.
+            Share of sessions in this period that resulted in at least one meeting.
           </p>
         </div>
 

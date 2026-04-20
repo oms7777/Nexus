@@ -248,25 +248,8 @@ export default function AnalyticsOverviewPage() {
         <div className="max-w-2xl space-y-2">
           <div className="text-2xl font-semibold tracking-tight">Executive Analytics</div>
           <p className="text-sm text-muted-foreground">
-            Pipeline &amp; outcomes from the Inboundless widget on your sites — complementary to GA / ads tools for
-            acquisition detail.
+            Pipeline &amp; outcomes from the Inboundless widget on your sites
           </p>
-          {advancedEnabled ? (
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Link
-                href="/analytics/funnel"
-                className="inline-flex items-center rounded-full border border-border/80 bg-muted/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
-              >
-                Funnel detail
-              </Link>
-              <Link
-                href="/analytics/signals?audience=companies"
-                className="inline-flex items-center rounded-full border border-border/80 bg-muted/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/25"
-              >
-                Company signals
-              </Link>
-            </div>
-          ) : null}
           <p className="text-xs text-muted-foreground/90">
             <span className="font-medium text-foreground">Everyone in your organization</span> sees the same numbers
             here. Geography tabs below are views of the same data — global vs. your sales zones in Team &amp; Territories.
@@ -356,21 +339,6 @@ export default function AnalyticsOverviewPage() {
                       };
                     })}
                   />
-                  <div className="mt-2 rounded-lg border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
-                    Rows use <span className="font-medium text-foreground">readable names</span> where we recognize the
-                    key (e.g. <span className="font-medium text-foreground">linkedin.com</span> → LinkedIn). Attribution:
-                    prefer <span className="font-medium text-foreground">utm_source</span> on landing URLs; otherwise
-                    referrer / first-touch; paid clicks often carry{" "}
-                    <span className="font-medium text-foreground">gclid</span> /{" "}
-                    <span className="font-medium text-foreground">fbclid</span>. Many browsers strip referrers, so
-                    &quot;Direct&quot; can dominate — validate with GA when needed.
-                    <span className="mt-1 block text-[10px] text-muted-foreground/95">
-                      Quick test: open your site as{" "}
-                      <span className="font-medium text-foreground">?utm_source=linkedin&amp;utm_medium=social</span> or
-                      append <span className="font-medium text-foreground">&amp;gclid=test</span> once to see a labeled
-                      row appear for new sessions.
-                    </span>
-                  </div>
                 </div>
 
                 <div>
@@ -424,7 +392,7 @@ export default function AnalyticsOverviewPage() {
 
                         <TabsContent value="global" className="mt-0 space-y-3 outline-none">
                           <p className="text-xs text-muted-foreground">
-                            Top countries by activity for this period — <span className="font-medium text-foreground">all</span>{" "}
+                            Top countries by activity for this period, <span className="font-medium text-foreground">all</span>{" "}
                             visitors we can place geographically (not filtered by sales zones).
                           </p>
                           {geoInsight ? (

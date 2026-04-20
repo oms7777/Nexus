@@ -1,7 +1,7 @@
 // LiveVisitorView.tsx — MAJ: reset on sessionId change (important)
 "use client";
 
-import { useRef, useEffect, useCallback, useMemo } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import type { Id } from "@workspace/backend/_generated/dataModel";
@@ -67,6 +67,7 @@ export function LiveVisitorView({
 
   const snapshotLoading = snaps === undefined;
   const latest = snaps?.[0];
+  const [livePage, setLivePage] = useState<{ href?: string; title?: string; ts?: number } | null>(null);
 
   // Avoid putting `latest` in bootFromEvents deps — it would change often and retrigger the
   // Convex hydrate effect, resetting the replayer and wiping Pusher live increments.
@@ -173,6 +174,7 @@ export function LiveVisitorView({
   // ✅ MAJ: reset hard when session changes
   useEffect(() => {
     destroyReplayer();
+    setLivePage(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
@@ -323,6 +325,7 @@ export function LiveVisitorView({
     sessionId,
     onRrweb,
     onSnapshot,
+    onPage: (p) => setLivePage(p),
   });
 
   let cursorPx: { left: number; top: number } | null = null;
@@ -352,6 +355,17 @@ export function LiveVisitorView({
 
   const aspect = src?.width && src?.height ? `${src.width}/${src.height}` : "16/9";
 
+  const livePath = useMemo(() => {
+    const href = livePage?.href;
+    if (!href) return null;
+    try {
+      const u = new URL(href);
+      return `${u.pathname}${u.search}` || u.href;
+    } catch {
+      return href;
+    }
+  }, [livePage?.href]);
+
   return (
     <div
       className="relative w-full overflow-hidden rounded-2xl border bg-background shadow-sm"
@@ -370,6 +384,14 @@ export function LiveVisitorView({
             {deviceLabel}
           </div>
         )}
+        {livePath ? (
+          <div
+            className="max-w-[18rem] truncate rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-slate-700 shadow-sm ring-1 ring-black/5 backdrop-blur"
+            title={livePage?.href}
+          >
+            Live: {livePath}
+          </div>
+        ) : null}
       </div>
 
       {snapshotLoading && (
