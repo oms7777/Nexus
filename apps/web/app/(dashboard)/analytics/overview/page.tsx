@@ -250,10 +250,6 @@ export default function AnalyticsOverviewPage() {
           <p className="text-sm text-muted-foreground">
             Pipeline &amp; outcomes from the Inboundless widget on your sites
           </p>
-          <p className="text-xs text-muted-foreground/90">
-            <span className="font-medium text-foreground">Everyone in your organization</span> sees the same numbers
-            here. Geography tabs below are views of the same data — global vs. your sales zones in Team &amp; Territories.
-          </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
@@ -268,7 +264,6 @@ export default function AnalyticsOverviewPage() {
       <div className="space-y-3">
         <div className="px-0.5">
           <h2 className="text-sm font-semibold text-foreground">Pipeline volume</h2>
-          <p className="text-xs text-muted-foreground">Funnel counts for the selected period — compare to prior below.</p>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           {cards.map((c) => (
@@ -435,14 +430,8 @@ export default function AnalyticsOverviewPage() {
                             <p>
                               Same numbers as <span className="font-medium text-foreground">Global</span>, but only countries
                               that belong to each <span className="font-medium text-foreground">sales zone</span> you set
-                              in Team &amp; Territories — so you can read performance per region (e.g. “Europe”) without
+                              in Team &amp; Territories, so you can read performance per region (e.g. “Europe”) without
                               mixing in the rest of the world.
-                            </p>
-                            <p>
-                              <span className="font-medium text-foreground">Why only one pill (e.g. Europe)?</span> Not
-                              hardcoded: we list zones that have a country list, excluding “Whole world”, up to four — and
-                              only if that zone has attributed traffic this period. If most activity maps to one zone, you
-                              may see a single tab until other regions get traffic.
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2">

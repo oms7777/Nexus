@@ -389,7 +389,7 @@ export const IntegrationsView = () => {
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <CardTitle className="text-lg">Chat widget</CardTitle>
                   <CardDescription>
-                    Add one script tag to show the Inboundless visitor chat on your site or app—no framework required.
+                    Add one script tag to show the Inboundless visitor chat on your site or app, no framework required.
                   </CardDescription>
                 </div>
               </CardHeader>
@@ -425,7 +425,7 @@ export const IntegrationsView = () => {
                 <div className="space-y-1">
                   <CardTitle className="text-base">Allowed domains</CardTitle>
                   <CardDescription>
-                    Sessions and snapshots are only accepted from domains you list—add production (and www) before going
+                    Sessions and snapshots are only accepted from domains you list, add production (and www) before going
                     live.
                   </CardDescription>
                 </div>

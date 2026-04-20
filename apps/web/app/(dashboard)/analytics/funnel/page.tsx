@@ -237,13 +237,6 @@ function FunnelsInner({
               </div>
             </div>
           )}
-          {inbound ? (
-            <div className="mt-4 rounded-xl border border-dashed border-fuchsia-200/70 bg-fuchsia-50/40 px-4 py-3 text-xs leading-relaxed text-muted-foreground dark:border-fuchsia-900/40 dark:bg-fuchsia-950/25">
-              <span className="font-medium text-foreground">Rep started</span> stays at zero until reps emit{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">inbound_rep_started</code> from the
-              inbox workflow.
-            </div>
-          ) : null}
         </CardShell>
       </div>
     </div>
