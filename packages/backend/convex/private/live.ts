@@ -226,6 +226,9 @@ export const getActiveVisitors = query({
         name: s.name,
         email: s.email,
 
+        /** Deduped navigation trail (same order as session heartbeat updates). */
+        pageUrls: pages,
+
         city: md.city as string | undefined,
         countryCode: md.countryCode as string | undefined,
         lat: typeof md.lat === "number" ? (md.lat as number) : undefined,

@@ -30,6 +30,21 @@ function Boundary({ children }: PropsWithChildren) {
   return <ErrorBoundary fallback={null}>{children}</ErrorBoundary>;
 }
 
+/** Prefer reloading the host page when the widget is same-origin; otherwise reload the iframe only. */
+function reloadHostedWidget(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const topWin = window.top;
+    if (topWin && topWin !== window) {
+      topWin.location.reload();
+      return;
+    }
+  } catch {
+    /* cross-origin parent: cannot drive top navigation */
+  }
+  window.location.reload();
+}
+
 function RefreshFallback() {
   const widgetSettings = useAtomValue(widgetSettingsAtom);
   const lang = getWidgetUiLanguage(widgetSettings ?? undefined);
@@ -37,17 +52,15 @@ function RefreshFallback() {
 
   return (
     <div
-      className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
+      className="flex h-full w-full flex-col items-center justify-center p-6 text-center"
       role="alert"
       aria-live="polite"
     >
-      <p className="max-w-[18rem] text-sm leading-relaxed text-slate-600">{copy.errorBoundaryBody}</p>
       <button
         type="button"
-        className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-        onClick={() => {
-          if (typeof window !== "undefined") window.location.reload();
-        }}
+        className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+        aria-label={copy.errorBoundaryRefresh}
+        onClick={() => reloadHostedWidget()}
       >
         {copy.errorBoundaryRefresh}
       </button>

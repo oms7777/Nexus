@@ -8,16 +8,22 @@ export type Visitor = {
   _id: string;
   name?: string;
   email?: string;
+  /** Recent page URLs from session metadata (navigation history). */
+  pageUrls?: string[];
   city?: string;
   countryCode?: string;
   lat?: number;
   lng?: number;
   currentUrl?: string;
   title?: string;
+  /** Best-effort page views count (matches metadata.pages length server-side). */
   pageCount?: number;
   timeOnSiteMs?: number;
   contactSessionId?: string;
   conversationId?: string | null;
+  userAgent?: string;
+  timezoneOffset?: number;
+  cookieEnabled?: boolean;
   lastSeen?: number;
 };
 

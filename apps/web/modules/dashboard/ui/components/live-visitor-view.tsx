@@ -30,9 +30,12 @@ function clamp01(n: number) {
 export function LiveVisitorView({
   orgId,
   sessionId,
+  /** Tighter frame for live list cards (map + stream column). */
+  compact = false,
 }: {
   orgId: string;
   sessionId: Id<"contactSessions">;
+  compact?: boolean;
 }) {
   const maxUpscale = 1; // avoid blur/pixelation from scaling above 1x
 
@@ -355,8 +358,8 @@ export function LiveVisitorView({
       style={{
         aspectRatio: aspect as any,
         height: "auto",
-        minHeight: 320,
-        maxHeight: 560,
+        minHeight: compact ? 200 : 320,
+        maxHeight: compact ? 300 : 560,
       }}
     >
       <div ref={outerRef} className="absolute inset-0 overflow-hidden" />
