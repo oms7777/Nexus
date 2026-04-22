@@ -175,6 +175,8 @@ export default defineSchema({
      */
     whatsappHandoffEnabled: v.optional(v.boolean()),
     whatsappPhoneDigits: v.optional(v.string()),
+    /** When false: always use org default digits (ignore assigned rep). Default true. */
+    whatsappUseAssignedRepFirst: v.optional(v.boolean()),
     /** Supports placeholders: {pageLabel}, {pageUrl} (alias), {chatExcerpt}, {locale} */
     whatsappPrefillTemplate: v.optional(v.string()),
 

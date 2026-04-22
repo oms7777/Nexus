@@ -1402,11 +1402,10 @@ export const WidgetChatScreen = () => {
 
   const greet = widgetSettings?.greetMessage?.trim();
 
-  const filteredBackend = greet
-    ? backendMsgs.filter((m) => String(m.text ?? "").trim() !== greet)
-    : backendMsgs;
-
-  let baseMsgs = [...filteredBackend, ...localMsgs];
+  // IMPORTANT: Do not drop the greet message from backend history.
+  // Previously we filtered it out, which makes the first "Hi, how can I help?" appear then disappear
+  // once real messages arrive / on refresh.
+  let baseMsgs = [...backendMsgs, ...localMsgs];
 
   // Réordonner les messages système d'escalade / booking sans toucher aux réponses humaines :
   // 1) "If you'd like..." (suggestion)
@@ -1493,7 +1492,8 @@ export const WidgetChatScreen = () => {
 
   let uiMsgs = baseMsgs;
 
-  // Always show greet as first message when present and no actual messages yet
+  // Only inject greet when there's genuinely nothing yet (and no playbook overlay).
+  // If backend already has greet, we keep it in history above.
   if (greet && uiMsgs.length === 0 && !playbookBlocking) {
     uiMsgs = [{ role: "assistant" as const, text: greet }];
   }

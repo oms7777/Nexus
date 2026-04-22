@@ -101,6 +101,7 @@ export const upsert = mutation({
 
     whatsappHandoffEnabled: v.optional(v.boolean()),
     whatsappPhoneDigits: v.optional(v.string()),
+    whatsappUseAssignedRepFirst: v.optional(v.boolean()),
     whatsappPrefillTemplate: v.optional(v.string()),
 
     widgetUiLanguage: v.optional(WidgetUiLanguageV),
@@ -159,6 +160,8 @@ export const upsert = mutation({
     if ("whatsappHandoffEnabled" in args)
       patch.whatsappHandoffEnabled = args.whatsappHandoffEnabled;
     if ("whatsappPhoneDigits" in args) patch.whatsappPhoneDigits = args.whatsappPhoneDigits;
+    if ("whatsappUseAssignedRepFirst" in args)
+      patch.whatsappUseAssignedRepFirst = args.whatsappUseAssignedRepFirst;
     if ("whatsappPrefillTemplate" in args)
       patch.whatsappPrefillTemplate = args.whatsappPrefillTemplate;
 
@@ -188,6 +191,7 @@ export const upsert = mutation({
         vapiSettings: patch.vapiSettings,
         whatsappHandoffEnabled: patch.whatsappHandoffEnabled,
         whatsappPhoneDigits: patch.whatsappPhoneDigits,
+        whatsappUseAssignedRepFirst: patch.whatsappUseAssignedRepFirst,
         whatsappPrefillTemplate: patch.whatsappPrefillTemplate,
         widgetUiLanguage: patch.widgetUiLanguage,
       });

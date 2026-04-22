@@ -569,11 +569,13 @@ export const getWhatsAppHandoffDigits = query({
       (settings as { whatsappPhoneDigits?: string }).whatsappPhoneDigits,
     );
 
+    const useRepFirst = (settings as any)?.whatsappUseAssignedRepFirst !== false;
+
     const repUserId =
       session.assignedRepUserId ??
       session.preferredRepUserId ??
       (session.metadata as { preferredRepUserId?: string } | undefined)?.preferredRepUserId;
-    if (repUserId) {
+    if (useRepFirst && repUserId) {
       const rep = await ctx.db
         .query("repsPresence")
         .withIndex("by_org_user", (q) =>

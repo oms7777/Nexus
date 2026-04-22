@@ -477,6 +477,16 @@ export const create = action({
 
       const { text: kbRaw } = await smartRagSearch(ctx, orgId, prompt, 5);
 
+      // Debug (server logs only): helps diagnose "KB indexed but not found" cases.
+      try {
+        console.log("kb_only.rag", {
+          orgId,
+          prompt: prompt.slice(0, 160),
+          kbLen: (kbRaw ?? "").trim().length,
+          hasPricingCue: kbRaw ? kbSnippetContainsPricingOrCommercialDetail(kbRaw) : false,
+        });
+      } catch {}
+
       if (isNoKbResult(kbRaw)) {
         await saveMessage(ctx, components.agent, {
           threadId: args.threadId,
