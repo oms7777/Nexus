@@ -164,6 +164,12 @@ export default defineSchema({
     escalationSuggestionAfterMessages: v.optional(v.number()),
 
     /**
+     * Guided playbook (multi-step pills before / alongside free-form AI chat).
+     * `"off"` = suggestions + IA only. Other values = preset IDs (widget + dashboard evolve together).
+     */
+    playbookPresetId: v.optional(v.string()),
+
+    /**
      * Handoff: open WhatsApp (wa.me) for the visitor — no Meta API key required.
      * `whatsappPhoneDigits`: digits only, country code included (e.g. 33612345678).
      */

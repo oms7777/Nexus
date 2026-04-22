@@ -97,6 +97,8 @@ export const upsert = mutation({
 
     escalationSuggestionAfterMessages: v.optional(v.number()),
 
+    playbookPresetId: v.optional(v.string()),
+
     whatsappHandoffEnabled: v.optional(v.boolean()),
     whatsappPhoneDigits: v.optional(v.string()),
     whatsappPrefillTemplate: v.optional(v.string()),
@@ -151,6 +153,8 @@ export const upsert = mutation({
     if ("vapiSettings" in args) patch.vapiSettings = args.vapiSettings;
     if ("escalationSuggestionAfterMessages" in args)
       patch.escalationSuggestionAfterMessages = args.escalationSuggestionAfterMessages;
+
+    if ("playbookPresetId" in args) patch.playbookPresetId = args.playbookPresetId;
 
     if ("whatsappHandoffEnabled" in args)
       patch.whatsappHandoffEnabled = args.whatsappHandoffEnabled;

@@ -95,6 +95,12 @@ export type WidgetUiCopy = {
   /** React error boundary — avoid “bug” wording for visitors */
   errorBoundaryBody: string;
   errorBoundaryRefresh: string;
+  /** Guided playbook (floating panel) */
+  playbookSkip: string;
+  playbookOtherLabel: string;
+  playbookOtherPlaceholder: string;
+  playbookCloseAria: string;
+  playbookPrevAria: string;
 };
 
 export const widgetUiCopy = {
@@ -173,6 +179,11 @@ export const widgetUiCopy = {
     whatsappHandoff: "Continue on WhatsApp",
     errorBoundaryBody: "",
     errorBoundaryRefresh: "Refresh",
+    playbookSkip: "Skip",
+    playbookOtherLabel: "Something else",
+    playbookOtherPlaceholder: "Type your answer…",
+    playbookCloseAria: "Close questionnaire",
+    playbookPrevAria: "Previous question",
   },
   fr: {
     preparingResponse:
@@ -253,6 +264,11 @@ export const widgetUiCopy = {
     whatsappHandoff: "Continuer sur WhatsApp",
     errorBoundaryBody: "",
     errorBoundaryRefresh: "Actualiser",
+    playbookSkip: "Passer",
+    playbookOtherLabel: "Autre chose",
+    playbookOtherPlaceholder: "Votre réponse…",
+    playbookCloseAria: "Fermer le questionnaire",
+    playbookPrevAria: "Question précédente",
   },
 } as const satisfies Record<"en" | "fr", WidgetUiCopy>;
 

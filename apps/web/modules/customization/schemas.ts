@@ -150,6 +150,15 @@ export const widgetSettingsSchema = z
     escalationSuggestionAfterMessages: z.number().min(0).max(10).optional(),
 
     // -------------------------
+    // Playbook (guided flow — optional preset, URL rules later)
+    // -------------------------
+    /** `off` = only default suggestions + AI. Other values = built-in template ids. */
+    playbookPresetId: z
+      .enum(["off", "book_demo_qual_v1"])
+      .optional()
+      .default("off"),
+
+    // -------------------------
     // Branding
     // -------------------------
     brandLogoUrl: optionalUrlOrEmpty,

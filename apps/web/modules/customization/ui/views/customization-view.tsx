@@ -2,7 +2,7 @@
 
 import { api } from "@workspace/backend/_generated/api";
 import { useQuery } from "convex/react";
-import { Loader2Icon, Sparkles, Target, ShieldCheck } from "lucide-react";
+import { Loader2Icon, MessageCircle, Sparkles, Target, ShieldCheck, ListTree } from "lucide-react";
 import { CustomizationForm } from "../components/customization-form";
 
 export const CustomizationView = () => {
@@ -39,7 +39,15 @@ export const CustomizationView = () => {
           <div className="flex flex-wrap gap-2 text-xs md:text-sm">
             <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-sm">
               <Sparkles className="h-4 w-4 text-sky-500" />
-              <span>Branding & Chat</span>
+              <span>Branding</span>
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-sm">
+              <MessageCircle className="h-4 w-4 text-indigo-500" />
+              <span>General chat</span>
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-sm">
+              <ListTree className="h-4 w-4 text-amber-600" />
+              <span>Playbook</span>
             </div>
             <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-sm">
               <Target className="h-4 w-4 text-violet-500" />
@@ -47,7 +55,7 @@ export const CustomizationView = () => {
             </div>
             <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-sm">
               <ShieldCheck className="h-4 w-4 text-emerald-500" />
-              <span>Consent & Privacy</span>
+              <span>Consent &amp; Privacy</span>
             </div>
           </div>
         </header>

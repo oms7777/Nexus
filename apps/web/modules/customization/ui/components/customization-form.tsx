@@ -129,6 +129,10 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
       whatsappHandoffEnabled: (initialData as any)?.whatsappHandoffEnabled ?? false,
       whatsappPhoneDigits: (initialData as any)?.whatsappPhoneDigits ?? "",
       whatsappPrefillTemplate: (initialData as any)?.whatsappPrefillTemplate ?? "",
+      playbookPresetId:
+        (initialData as any)?.playbookPresetId === "book_demo_qual_v1"
+          ? "book_demo_qual_v1"
+          : "off",
     },
   });
 
@@ -199,6 +203,7 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         defaultSuggestions: values.defaultSuggestions,
         escalationSuggestionAfterMessages:
           values.escalationSuggestionAfterMessages ?? 3,
+        playbookPresetId: values.playbookPresetId ?? "off",
         teamAvatars: undefined,
         embedLayout: values.embedLayout,
         widgetUiLanguage: values.widgetUiLanguage,
@@ -259,18 +264,20 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
         onSubmit={form.handleSubmit(onSubmit, onError)}
       >
         <Tabs defaultValue="branding" className="w-full">
-          <TabsList className="mb-2 w-full justify-start">
-            <TabsTrigger value="branding">Branding & Chat</TabsTrigger>
+          <TabsList className="mb-2 flex w-full flex-wrap justify-start gap-1">
+            <TabsTrigger value="branding">Branding</TabsTrigger>
+            <TabsTrigger value="chat">General chat</TabsTrigger>
+            <TabsTrigger value="playbook">Playbook</TabsTrigger>
 
             {/* ✅ Starter: hide completely */}
             {canUseAdvancedPromos ? (
               <TabsTrigger value="promos">Page-based Promos</TabsTrigger>
             ) : null}
 
-            <TabsTrigger value="consent">Consent & Privacy</TabsTrigger>
+            <TabsTrigger value="consent">Consent &amp; Privacy</TabsTrigger>
           </TabsList>
 
-          {/* 1️⃣ BRANDING & CHAT */}
+          {/* Branding (look & feel) */}
           <TabsContent value="branding" className="space-y-6">
             <Card>
               <CardHeader>
@@ -788,7 +795,10 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
 
+          {/* Greeting, suggestions, escalation, WhatsApp — not visual branding */}
+          <TabsContent value="chat" className="space-y-6">
             {/* ---------- General Chat Settings ---------- */}
             <Card>
               <CardHeader>
@@ -1003,6 +1013,57 @@ export const CustomizationForm = ({ initialData }: CustomizationFormProps) => {
 
             {/* 1.5️⃣ PAGE-BASED NUDGES (Starter only) */}
             {!canUseAdvancedPromos ? <PageNudgesPanel /> : null}
+          </TabsContent>
+
+          <TabsContent value="playbook" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Guided playbook</CardTitle>
+                <CardDescription>
+                  Optional guided steps (chips) before free-form AI + knowledge base. Per-page routing next (same idea
+                  as {canUseAdvancedPromos ? "promos" : "page nudges"}).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <FormField
+                  control={form.control as any}
+                  name="playbookPresetId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Preset</FormLabel>
+                      <FormControl>
+                        <select
+                          value={field.value ?? "off"}
+                          onChange={(e) =>
+                            field.onChange(e.target.value as "off" | "book_demo_qual_v1")
+                          }
+                          className="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+                        >
+                          <option value="off">Off — standard chat (suggestions + AI + knowledge base)</option>
+                          <option value="book_demo_qual_v1">
+                            Book a demo — qualification (needs / wants / role / next step → handoff)
+                          </option>
+                        </select>
+                      </FormControl>
+                      <FormDescription>
+                        Saves to your organization. When “Book a demo — qualification” is selected, visitors see a
+                        short guided questionnaire in the embedded widget before free chat.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">Book a demo — qualification</p>
+                  <ul className="mt-2 list-inside list-disc space-y-1">
+                    <li>Fixed questions and chip answers (deterministic, CRM-friendly).</li>
+                    <li>Ends with a clear handoff (e.g. calendar) separate from default greeting suggestions.</li>
+                    <li>Escalation “Talk to someone” still applies after AI replies once the visitor is in free chat.</li>
+                  </ul>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* 2️⃣ PAGE-BASED PROMOS (Growth/Enterprise only) */}

@@ -11,7 +11,7 @@
  *   4) picking (slots pour le rep choisi)
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -76,6 +76,12 @@ import {
   buildWhatsAppHandoffUrl,
   resolveWhatsAppPrefill,
 } from "../../../../lib/whatsapp-handoff";
+import type { PlaybookAnswer } from "../../../../lib/playbook-presets";
+import {
+  formatPlaybookSummaryMarkdown,
+  getPlaybookSteps,
+} from "../../../../lib/playbook-presets";
+import PlaybookPanel from "../components/PlaybookPanel";
 /* ---------------- helpers ---------------- */
 
 const formSchema = z.object({ message: z.string().min(1) });
@@ -719,6 +725,63 @@ export const WidgetChatScreen = () => {
   const [localMsgs, setLocalMsgs] = useState<
     Array<{ role: "assistant" | "user"; text: string }>
   >([]);
+
+  const playbookPresetRaw =
+    ((widgetSettings as any)?.playbookPresetId as string | undefined) ?? "off";
+  const playbookSteps = useMemo(
+    () => getPlaybookSteps(playbookPresetRaw),
+    [playbookPresetRaw],
+  );
+
+  const playbookStorageKey =
+    organizationId && playbookPresetRaw !== "off"
+      ? `nexus_pb_${organizationId}_${playbookPresetRaw}`
+      : null;
+
+  function readPlaybookDone(key: string | null): boolean {
+    if (!key || typeof sessionStorage === "undefined") return false;
+    try {
+      const v = sessionStorage.getItem(key);
+      return v === "1" || v === "skip";
+    } catch {
+      return false;
+    }
+  }
+
+  const [playbookDone, setPlaybookDone] = useState(false);
+
+  useEffect(() => {
+    setPlaybookDone(readPlaybookDone(playbookStorageKey));
+  }, [playbookStorageKey]);
+
+  const playbookBlocking =
+    !!playbookSteps?.length &&
+    !playbookDone &&
+    step === "idle" &&
+    playbookPresetRaw === "book_demo_qual_v1";
+
+  const finishPlaybook = useCallback(
+    (answers: Record<string, PlaybookAnswer>) => {
+      if (playbookStorageKey) sessionStorage.setItem(playbookStorageKey, "1");
+      setPlaybookDone(true);
+      const md = formatPlaybookSummaryMarkdown(playbookSteps!, answers, uiLang);
+      const gm = widgetSettings?.greetMessage?.trim();
+      if (gm) {
+        setLocalMsgs([
+          { role: "assistant", text: gm },
+          { role: "assistant", text: md },
+        ]);
+      } else {
+        setLocalMsgs([{ role: "assistant", text: md }]);
+      }
+    },
+    [playbookStorageKey, playbookSteps, uiLang, widgetSettings?.greetMessage],
+  );
+
+  const skipPlaybook = useCallback(() => {
+    if (playbookStorageKey) sessionStorage.setItem(playbookStorageKey, "skip");
+    setPlaybookDone(true);
+  }, [playbookStorageKey]);
 
   // --- pending assistant (prevents "silent" UX + fixes "needs 2nd message" perception)
   const [isPendingAssistant, setIsPendingAssistant] = useState(false);
@@ -1425,7 +1488,7 @@ export const WidgetChatScreen = () => {
   let uiMsgs = baseMsgs;
 
   // Always show greet as first message when present and no actual messages yet
-  if (greet && uiMsgs.length === 0) {
+  if (greet && uiMsgs.length === 0 && !playbookBlocking) {
     uiMsgs = [{ role: "assistant" as const, text: greet }];
   }
 
@@ -1530,7 +1593,7 @@ export const WidgetChatScreen = () => {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0"> 
+      <div className="relative flex-1 min-h-0">
         <AIConversation className="h-full flex flex-col">
           <AIConversationContent
             className={cn(
@@ -1973,10 +2036,25 @@ export const WidgetChatScreen = () => {
             )}
           </AIConversationContent>
         </AIConversation>
+
+        {playbookBlocking && playbookSteps?.length ? (
+          <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-end bg-gradient-to-t from-white via-white/85 to-white/25 px-3 pb-5 pt-24">
+            <PlaybookPanel
+              className="pointer-events-auto shadow-2xl"
+              steps={playbookSteps}
+              uiLang={uiLang}
+              t={t}
+              primaryBg={themePrimary}
+              primaryFg={themePrimaryText}
+              onComplete={finishPlaybook}
+              onSkip={skipPlaybook}
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* suggestions: show at start (below greet) */}
-      {suggestions.length > 0 && uiMsgs.length <= 1 && (
+      {suggestions.length > 0 && uiMsgs.length <= 1 && !playbookBlocking && (
         <div className="border-t border-slate-100/90 bg-gradient-to-b from-slate-50/60 to-slate-50/30 px-3 py-1.5">
           <div className="flex w-full flex-wrap gap-1.5">
             {suggestions.map((s) => (
@@ -2006,7 +2084,8 @@ export const WidgetChatScreen = () => {
         <AIInput
           className={cn(
             "flex flex-row items-end gap-2 !divide-y-0 border-0 border-t border-slate-200/70 bg-gradient-to-t from-slate-100/50 to-slate-50/30 px-3 pb-3 pt-2",
-            isFullWidth && "border-t"
+            isFullWidth && "border-t",
+            playbookBlocking && "pointer-events-none opacity-40",
           )}
           onSubmit={form.handleSubmit(onSubmit)}
         >
