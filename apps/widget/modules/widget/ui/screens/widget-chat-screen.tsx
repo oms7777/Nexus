@@ -1298,12 +1298,18 @@ export const WidgetChatScreen = () => {
 
 
       try {
-        await createMessage({
-          threadId: thr,
-          prompt: textToSend,
-          contactSessionId,
-          visitorLocale: visitorLocaleForBackend(uiLang),
-        });
+        // Hard timeout: avoids infinite "taking longer..." when backend action hangs.
+        await Promise.race([
+          createMessage({
+            threadId: thr,
+            prompt: textToSend,
+            contactSessionId,
+            visitorLocale: visitorLocaleForBackend(uiLang),
+          }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("createMessage timeout")), 45000),
+          ),
+        ]);
       } catch {
         setIsPendingAssistant(false);
         if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current);
@@ -1505,6 +1511,9 @@ export const WidgetChatScreen = () => {
       (s) => s.length > 0,
     );
   }, [widgetSettings]);
+
+  const showReaskContext =
+    !!playbookSteps?.length && playbookPresetRaw === "book_demo_qual_v1" && !playbookBlocking;
 
 
   return (
@@ -2077,6 +2086,26 @@ export const WidgetChatScreen = () => {
           </div>
         </div>
       )}
+
+      {showReaskContext && playbookStorageKey ? (
+        <div className="px-3 pt-2">
+          <button
+            type="button"
+            className="w-full rounded-xl border border-dashed border-slate-200/90 bg-white px-3 py-2 text-left text-[12px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            style={{
+              borderColor: "color-mix(in srgb, var(--widget-primary) 22%, transparent)",
+            }}
+            onClick={() => {
+              try {
+                sessionStorage.removeItem(playbookStorageKey);
+              } catch {}
+              setPlaybookDone(false);
+            }}
+          >
+            {uiLang === "fr" ? "Reposer les questions de contexte" : "Ask context questions again"}
+          </button>
+        </div>
+      ) : null}
 
 
       {/* composer — input + send icon sur une seule ligne (type your message à droite de l'icône) */}

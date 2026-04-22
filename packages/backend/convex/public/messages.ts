@@ -67,19 +67,16 @@ function kbSnippetContainsPricingOrCommercialDetail(kb: string): boolean {
   if (/[€$£]\s*\d|\d[\d.,]*\s*(€|eur|\$|usd|£)/.test(k)) return true;
   if (/\b(per month|\/mo|\/month|monthly|annual|annually|par mois|mensuel|annuel|\/an)\b/.test(k)) return true;
   if (/\b(free trial|essai gratuit|no credit card)\b/.test(k)) return true;
-  if (
-    /\b(contact|sales|commercial|devis|demo|book a|schedule|talk to)\b/.test(k) &&
-    /\b(pricing|price|plan|tarif|abonnement|offre)\b/.test(k)
-  )
-    return true;
-  /** Indexed pricing pages often list tiers + CTAs without dollar amounts in the same chunk. */
-  const hasTier = /\b(starter|growth|enterprise|professional|business|scale|most popular)\b/.test(k);
-  const hasPlanCue = /\b(pricing|plan|plans|subscription|tier|tiers|per seat|\/month)\b/.test(k);
-  if (hasTier && hasPlanCue) return true;
-  if (hasTier && /\b(feature|includes|everything|integration|sandbox|sso|sla)\b/.test(k)) return true;
-  /** Many sites omit list prices but describe tiers + demo/sales CTAs in one section. */
-  if (hasTier && /\b(demo|sales|schedule|contact|meeting|book|reps?|qualified)\b/.test(k)) return true;
-  if (/\bpricing\b/.test(k) && (hasTier || /\b(schedule|demo|sales|contact)\b/.test(k))) return true;
+  // Accept "no list price" style pricing pages: clear CTA to contact sales or book a demo for pricing.
+  const hasCommercialCue =
+    /\b(pricing|price|plan|tarif|abonnement|offre|devis|quote)\b/.test(k) &&
+    /\b(contact sales|talk to sales|sales team|contact us|schedule|book( a)? demo|book( a)? meeting|prendre rendez-vous|parler.*commercial|contacter.*commercial)\b/.test(
+      k,
+    );
+  if (hasCommercialCue) return true;
+
+  // Accept explicit "custom pricing" statements (still commercial, but no amounts).
+  if (/\b(custom pricing|pricing is custom|tarif sur devis|sur devis)\b/.test(k)) return true;
   return false;
 }
 

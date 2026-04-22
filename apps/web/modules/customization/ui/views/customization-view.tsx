@@ -2,7 +2,7 @@
 
 import { api } from "@workspace/backend/_generated/api";
 import { useQuery } from "convex/react";
-import { Loader2Icon, MessageCircle, Sparkles, Target, ShieldCheck, ListTree } from "lucide-react";
+import { Loader2Icon, MessageCircle, Sparkles, Target, ShieldCheck } from "lucide-react";
 import { CustomizationForm } from "../components/customization-form";
 
 export const CustomizationView = () => {
@@ -44,10 +44,6 @@ export const CustomizationView = () => {
             <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-sm">
               <MessageCircle className="h-4 w-4 text-indigo-500" />
               <span>General chat</span>
-            </div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-sm">
-              <ListTree className="h-4 w-4 text-amber-600" />
-              <span>Playbook</span>
             </div>
             <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-sm">
               <Target className="h-4 w-4 text-violet-500" />
