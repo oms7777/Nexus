@@ -365,7 +365,7 @@ export default defineSchema({
   calendarAccounts: defineTable({
     organizationId: v.string(),
     userId: v.string(),
-    provider: v.literal("google"),
+    provider: v.union(v.literal("google"), v.literal("microsoft")),
     email: v.optional(v.string()),
     refreshToken: v.string(),
     scope: v.optional(v.string()),
@@ -381,7 +381,7 @@ export default defineSchema({
     timezone: v.optional(v.string()),
     durationMin: v.number(),
     bufferMin: v.optional(v.number()),
-    meetingLinkType: v.union(v.literal("google_meet"), v.literal("manual")),
+    meetingLinkType: v.union(v.literal("google_meet"), v.literal("teams"), v.literal("manual")),
     manualUrl: v.optional(v.string()),
     weekly: v.array(
       v.object({

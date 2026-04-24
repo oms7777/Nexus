@@ -66,7 +66,7 @@ export default function Page() {
   const bookings = useQuery(api.private.booking.listMine, { limit: 50 });
 
   const [meetingLinkType, setMeetingLinkType] = useState<
-    "google_meet" | "manual"
+    "google_meet" | "teams" | "manual"
   >("google_meet");
   const [manualUrl, setManualUrl] = useState("");
   const [durationMin, setDurationMin] = useState(30);
@@ -77,7 +77,7 @@ export default function Page() {
 
   useEffect(() => {
     if (settings) {
-      setMeetingLinkType(settings.meetingLinkType ?? "google_meet");
+      setMeetingLinkType((settings.meetingLinkType as any) ?? "google_meet");
       setManualUrl(settings.manualUrl ?? "");
       setDurationMin(settings.durationMin ?? 30);
       setBufferMin(settings.bufferMin ?? 0);
@@ -86,8 +86,11 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings?._id]);
 
-  const onConnect = () => {
+  const onConnectGoogle = () => {
     window.location.href = "/api/integrations/google/start";
+  };
+  const onConnectMicrosoft = () => {
+    window.location.href = "/api/integrations/microsoft/start";
   };
 
   const disconnect = useMutation(api.private.calendar.disconnect);
@@ -145,12 +148,13 @@ export default function Page() {
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">Connected</Badge>
                 <span className="text-sm text-muted-foreground">
-                  {account.email ?? "Google Calendar"}
+                  {account.email ??
+                    (account.provider === "microsoft" ? "Microsoft Calendar" : "Google Calendar")}
                 </span>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Connect Google Calendar to read availability and create events.
+                Connect a calendar to read availability and create events.
               </p>
             )}
           </div>
@@ -159,7 +163,12 @@ export default function Page() {
               Disconnect
             </Button>
           ) : (
-            <Button onClick={onConnect}>Connect Google Calendar</Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={onConnectGoogle}>
+                Connect Google
+              </Button>
+              <Button onClick={onConnectMicrosoft}>Connect Microsoft</Button>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -184,6 +193,7 @@ export default function Page() {
                   <SelectItem value="google_meet">
                     Google Meet (default)
                   </SelectItem>
+                  <SelectItem value="teams">Microsoft Teams</SelectItem>
                   <SelectItem value="manual">Manual link</SelectItem>
                 </SelectContent>
               </Select>

@@ -72,8 +72,32 @@ function isPlausibleBookingCompanyName(raw: string): boolean {
   return true;
 }
 
+function meetingUrlFromCreatedCalendarEvent(event: any): string | undefined {
+  // Google Calendar API
+  const hangout = typeof event?.hangoutLink === "string" ? event.hangoutLink : "";
+  if (hangout) return hangout;
+
+  // Microsoft Graph (Teams online meeting)
+  const teamsJoin =
+    typeof event?.onlineMeeting?.joinUrl === "string"
+      ? event.onlineMeeting.joinUrl
+      : typeof event?.onlineMeeting?.joinWebUrl === "string"
+        ? event.onlineMeeting.joinWebUrl
+        : "";
+  if (teamsJoin) return teamsJoin;
+
+  // Fallbacks
+  const web = typeof event?.webLink === "string" ? event.webLink : "";
+  if (web) return web;
+
+  const html = typeof event?.htmlLink === "string" ? event.htmlLink : "";
+  if (html) return html;
+
+  return undefined;
+}
+
 /* -------------------------------------------------------------
- * Compte Google connecté pour une org + user (multi-reps)
+ * Compte calendrier connecté pour une org + user (multi-reps)
  * ----------------------------------------------------------- */
 export const getAccount = query({
   args: {
@@ -81,7 +105,7 @@ export const getAccount = query({
     userId: v.optional(v.string()),
   },
   handler: async (ctx, { organizationId, userId }) => {
-    let acct: { userId: string; email?: string } | null = null;
+    let acct: { userId: string; email?: string; provider: "google" | "microsoft" } | null = null;
 
     if (userId) {
       const byUser = await ctx.db
@@ -107,7 +131,7 @@ export const getAccount = query({
     }
 
     if (!acct) return null;
-    return { userId: acct.userId, email: acct.email ?? "" };
+    return { userId: acct.userId, email: acct.email ?? "", provider: acct.provider };
   },
 });
 
@@ -394,7 +418,7 @@ export const bookSlot = action({
       if (assignment.assignedRepUserId) effectiveUserId = assignment.assignedRepUserId;
     }
 
-    // 1) choose google account
+    // 1) choose connected calendar account
     const acct = await ctx.runQuery(api.public.calendar.getAccount, {
       organizationId,
       userId: effectiveUserId,
@@ -413,7 +437,7 @@ export const bookSlot = action({
       attendeeRole ? `Role: ${attendeeRole}` : null,
     ].filter(Boolean);
 
-    // 2) create Google calendar event
+    // 2) create calendar event (Google Meet or Microsoft Teams, depending on provider)
     const event: any = await ctx.runAction(api.private.calendar.createEventForOrgUser, {
       organizationId,
       userId: acct.userId,
@@ -427,7 +451,7 @@ export const bookSlot = action({
       ],
     });
 
-    const meetingUrl: string | undefined = event?.hangoutLink ?? event?.htmlLink ?? undefined;
+    const meetingUrl: string | undefined = meetingUrlFromCreatedCalendarEvent(event);
 
     // 3) save booking in DB
     const bookingId = await ctx.runMutation(api.public.booking.create, {

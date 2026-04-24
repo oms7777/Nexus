@@ -76,6 +76,39 @@ export const saveGoogleAccount = mutation({
   },
 });
 
+export const saveMicrosoftAccount = mutation({
+  args: {
+    email: v.string(),
+    refreshToken: v.string(),
+    scope: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<Id<"calendarAccounts">> => {
+    const { orgId, userId } = await getAuth(ctx);
+    const existing = await ctx.db
+      .query("calendarAccounts")
+      .withIndex("by_org_user", (q) =>
+        q.eq("organizationId", orgId).eq("userId", userId)
+      )
+      .unique();
+
+    const doc = {
+      organizationId: orgId,
+      userId,
+      provider: "microsoft" as const,
+      email: args.email,
+      refreshToken: args.refreshToken,
+      scope: args.scope,
+      connectedAt: Date.now(),
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, doc);
+      return existing._id;
+    }
+    return await ctx.db.insert("calendarAccounts", doc);
+  },
+});
+
 export const disconnect = mutation({
   args: {},
   handler: async (ctx): Promise<void> => {
@@ -101,30 +134,68 @@ export const getAccessToken = action({
     const acct = await ctx.runQuery(api.private.calendar.accountForUser, { userId });
     if (!acct) throw new ConvexError("NO_CONNECTION");
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    if (!clientId || !clientSecret) throw new ConvexError("GOOGLE_OAUTH_NOT_CONFIGURED");
+    if (acct.provider === "google") {
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      if (!clientId || !clientSecret) throw new ConvexError("GOOGLE_OAUTH_NOT_CONFIGURED");
 
-    const params = new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: acct.refreshToken,
-    });
+      const params = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: acct.refreshToken,
+      });
 
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params.toString(),
-    });
-    const json = (await res.json()) as any;
-    if (!res.ok || !json.access_token) {
-      throw new ConvexError(json.error || json.error_description || "TOKEN_EXCHANGE_FAILED");
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+      const json = (await res.json()) as any;
+      if (!res.ok || !json.access_token) {
+        throw new ConvexError(json.error || json.error_description || "TOKEN_EXCHANGE_FAILED");
+      }
+      return {
+        accessToken: String(json.access_token),
+        expiresIn: Number(json.expires_in ?? 3600),
+      };
     }
-    return {
-      accessToken: String(json.access_token),
-      expiresIn: Number(json.expires_in ?? 3600),
-    };
+
+    if (acct.provider === "microsoft") {
+      const clientId = process.env.MICROSOFT_CLIENT_ID;
+      const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+      if (!clientId || !clientSecret) throw new ConvexError("MICROSOFT_OAUTH_NOT_CONFIGURED");
+
+      const scope =
+        acct.scope ||
+        ["offline_access", "openid", "profile", "email", "User.Read", "Calendars.ReadWrite"].join(
+          " "
+        );
+
+      const params = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: acct.refreshToken,
+        scope,
+      });
+
+      const res = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+      const json = (await res.json()) as any;
+      if (!res.ok || !json.access_token) {
+        throw new ConvexError(json.error || json.error_description || "TOKEN_EXCHANGE_FAILED");
+      }
+      return {
+        accessToken: String(json.access_token),
+        expiresIn: Number(json.expires_in ?? 3600),
+      };
+    }
+
+    throw new ConvexError("UNSUPPORTED_PROVIDER");
   },
 });
 
@@ -149,7 +220,7 @@ export const saveMySettings = mutation({
     timezone: v.optional(v.string()),
     durationMin: v.number(),
     bufferMin: v.optional(v.number()),
-    meetingLinkType: v.union(v.literal("google_meet"), v.literal("manual")),
+    meetingLinkType: v.union(v.literal("google_meet"), v.literal("teams"), v.literal("manual")),
     manualUrl: v.optional(v.string()),
     weekly: v.array(v.object({ day: v.number(), start: v.string(), end: v.string() })),
   },
@@ -184,7 +255,7 @@ export const saveMySettings = mutation({
 });
 
 /* =======================================================================
- * Google API helpers (AUTH)
+ * Calendar API helpers (AUTH)
  * ===================================================================== */
 export const freeBusy = action({
   args: {
@@ -196,25 +267,61 @@ export const freeBusy = action({
     ctx,
     { userId, timeMinIso, timeMaxIso }
   ): Promise<Array<{ start: number; end: number }>> => {
+    const acct = await ctx.runQuery(api.private.calendar.accountForUser, { userId });
+    if (!acct) throw new ConvexError("NO_CONNECTION");
+
     const { accessToken } = await ctx.runAction(api.private.calendar.getAccessToken, { userId });
 
-    const res = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ timeMin: timeMinIso, timeMax: timeMaxIso, items: [{ id: "primary" }] }),
-    });
+    if (acct.provider === "google") {
+      const res = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          timeMin: timeMinIso,
+          timeMax: timeMaxIso,
+          items: [{ id: "primary" }],
+        }),
+      });
 
-    const json = (await res.json()) as any;
-    if (!res.ok) throw new ConvexError(json?.error?.message || "FREEBUSY_FAILED");
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new ConvexError(json?.error?.message || "FREEBUSY_FAILED");
 
-    const busy = json?.calendars?.primary?.busy ?? [];
-    return busy.map((b: { start: string; end: string }) => ({
-      start: Date.parse(b.start),
-      end: Date.parse(b.end),
-    }));
+      const busy = json?.calendars?.primary?.busy ?? [];
+      return busy.map((b: { start: string; end: string }) => ({
+        start: Date.parse(b.start),
+        end: Date.parse(b.end),
+      }));
+    }
+
+    if (acct.provider === "microsoft") {
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/calendar/getSchedule", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          schedules: ["me"],
+          startTime: { dateTime: timeMinIso, timeZone: "UTC" },
+          endTime: { dateTime: timeMaxIso, timeZone: "UTC" },
+          availabilityViewInterval: 30,
+        }),
+      });
+
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new ConvexError(json?.error?.message || "FREEBUSY_FAILED");
+
+      const items = json?.value?.[0]?.scheduleItems ?? [];
+      return items.map((it: any) => ({
+        start: Date.parse(it?.start?.dateTime),
+        end: Date.parse(it?.end?.dateTime),
+      }));
+    }
+
+    throw new ConvexError("UNSUPPORTED_PROVIDER");
   },
 });
 
@@ -228,33 +335,73 @@ export const createEvent = action({
     attendees: v.optional(v.array(v.object({ email: v.string(), displayName: v.optional(v.string()) }))),
   },
   handler: async (ctx, args): Promise<any> => {
-    const { accessToken } = await ctx.runAction(api.private.calendar.getAccessToken, { userId: args.userId });
+    const acct = await ctx.runQuery(api.private.calendar.accountForUser, { userId: args.userId });
+    if (!acct) throw new ConvexError("NO_CONNECTION");
 
-    const event = {
-      summary: args.summary,
-      description: args.description,
-      start: { dateTime: args.startIso },
-      end: { dateTime: args.endIso },
-      attendees: args.attendees ?? [],
-      reminders: { useDefault: true },
-      conferenceData: { createRequest: { requestId: crypto.randomUUID() } },
-    };
+    const { accessToken } = await ctx.runAction(api.private.calendar.getAccessToken, {
+      userId: args.userId,
+    });
 
-    const res = await fetch(
-      "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1",
-      {
+    if (acct.provider === "google") {
+      const event = {
+        summary: args.summary,
+        description: args.description,
+        start: { dateTime: args.startIso },
+        end: { dateTime: args.endIso },
+        attendees: args.attendees ?? [],
+        reminders: { useDefault: true },
+        conferenceData: { createRequest: { requestId: crypto.randomUUID() } },
+      };
+
+      const res = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(event),
+        }
+      );
+
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new ConvexError(json?.error?.message || "CREATE_EVENT_FAILED");
+      return json;
+    }
+
+    if (acct.provider === "microsoft") {
+      const event = {
+        subject: args.summary,
+        body: {
+          contentType: "HTML",
+          content: args.description ?? "",
+        },
+        start: { dateTime: args.startIso, timeZone: "UTC" },
+        end: { dateTime: args.endIso, timeZone: "UTC" },
+        attendees: (args.attendees ?? []).map((a) => ({
+          emailAddress: { address: a.email, name: a.displayName ?? a.email },
+          type: "required",
+        })),
+        isOnlineMeeting: true,
+        onlineMeetingProvider: "teamsForBusiness",
+      };
+
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/events", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(event),
-      }
-    );
+      });
 
-    const json = (await res.json()) as any;
-    if (!res.ok) throw new ConvexError(json?.error?.message || "CREATE_EVENT_FAILED");
-    return json;
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new ConvexError(json?.error?.message || "CREATE_EVENT_FAILED");
+      return json;
+    }
+
+    throw new ConvexError("UNSUPPORTED_PROVIDER");
   },
 });
 
@@ -279,7 +426,7 @@ export const accountByOrgUserNoAuth = query({
 });
 
 /** Helper interne: échange refresh_token -> access_token (sans auth Convex) */
-async function accessTokenFromRefresh(refreshToken: string): Promise<string> {
+async function accessTokenFromRefreshGoogle(refreshToken: string): Promise<string> {
   const client_id = process.env.GOOGLE_CLIENT_ID;
   const client_secret = process.env.GOOGLE_CLIENT_SECRET;
 
@@ -295,6 +442,49 @@ async function accessTokenFromRefresh(refreshToken: string): Promise<string> {
   });
 
   const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  const json: any = await r.json();
+
+  if (!r.ok || !json.access_token) {
+    const err = String(json?.error || "").toLowerCase();
+    const desc = String(json?.error_description || "");
+    if (err === "invalid_grant") {
+      throw new ConvexError("invalid_grant");
+    }
+    throw new ConvexError(desc || json.error || "TOKEN_EXCHANGE_FAILED");
+  }
+
+  return String(json.access_token);
+}
+
+async function accessTokenFromRefreshMicrosoft(
+  refreshToken: string,
+  scope?: string
+): Promise<string> {
+  const client_id = process.env.MICROSOFT_CLIENT_ID;
+  const client_secret = process.env.MICROSOFT_CLIENT_SECRET;
+
+  if (!client_id || !client_secret) {
+    throw new ConvexError("MICROSOFT_OAUTH_NOT_CONFIGURED");
+  }
+
+  const scopes =
+    scope ||
+    ["offline_access", "openid", "profile", "email", "User.Read", "Calendars.ReadWrite"].join(" ");
+
+  const body = new URLSearchParams({
+    client_id,
+    client_secret,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    scope: scopes,
+  });
+
+  const r = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -334,7 +524,10 @@ export const freeBusyForOrgUser = action({
 
     let accessToken: string;
     try {
-      accessToken = await accessTokenFromRefresh(acct.refreshToken);
+      accessToken =
+        acct.provider === "microsoft"
+          ? await accessTokenFromRefreshMicrosoft(acct.refreshToken, acct.scope)
+          : await accessTokenFromRefreshGoogle(acct.refreshToken);
     } catch (e) {
       const msg = String((e as any)?.message ?? e ?? "").toLowerCase();
       if (msg.includes("invalid_grant")) {
@@ -346,20 +539,50 @@ export const freeBusyForOrgUser = action({
       throw e;
     }
 
-    const res = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ timeMin: timeMinIso, timeMax: timeMaxIso, items: [{ id: "primary" }] }),
-    });
+    if (acct.provider === "google") {
+      const res = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          timeMin: timeMinIso,
+          timeMax: timeMaxIso,
+          items: [{ id: "primary" }],
+        }),
+      });
 
-    const json: any = await res.json();
-    if (!res.ok) throw new ConvexError(json?.error?.message || "FREEBUSY_FAILED");
+      const json: any = await res.json();
+      if (!res.ok) throw new ConvexError(json?.error?.message || "FREEBUSY_FAILED");
 
-    const busy = json?.calendars?.primary?.busy ?? [];
-    return busy.map((b: { start: string; end: string }) => ({
-      start: Date.parse(b.start),
-      end: Date.parse(b.end),
-    }));
+      const busy = json?.calendars?.primary?.busy ?? [];
+      return busy.map((b: { start: string; end: string }) => ({
+        start: Date.parse(b.start),
+        end: Date.parse(b.end),
+      }));
+    }
+
+    if (acct.provider === "microsoft") {
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/calendar/getSchedule", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schedules: ["me"],
+          startTime: { dateTime: timeMinIso, timeZone: "UTC" },
+          endTime: { dateTime: timeMaxIso, timeZone: "UTC" },
+          availabilityViewInterval: 30,
+        }),
+      });
+
+      const json: any = await res.json();
+      if (!res.ok) throw new ConvexError(json?.error?.message || "FREEBUSY_FAILED");
+
+      const items = json?.value?.[0]?.scheduleItems ?? [];
+      return items.map((it: any) => ({
+        start: Date.parse(it?.start?.dateTime),
+        end: Date.parse(it?.end?.dateTime),
+      }));
+    }
+
+    throw new ConvexError("UNSUPPORTED_PROVIDER");
   },
 });
 
@@ -383,7 +606,10 @@ export const createEventForOrgUser = action({
 
     let accessToken: string;
     try {
-      accessToken = await accessTokenFromRefresh(acct.refreshToken);
+      accessToken =
+        acct.provider === "microsoft"
+          ? await accessTokenFromRefreshMicrosoft(acct.refreshToken, acct.scope)
+          : await accessTokenFromRefreshGoogle(acct.refreshToken);
     } catch (e) {
       const msg = String((e as any)?.message ?? e ?? "").toLowerCase();
       if (msg.includes("invalid_grant")) {
@@ -395,27 +621,56 @@ export const createEventForOrgUser = action({
       throw e;
     }
 
-    const event = {
-      summary: args.summary,
-      description: args.description,
-      start: { dateTime: args.startIso },
-      end: { dateTime: args.endIso },
-      attendees: args.attendees ?? [],
-      reminders: { useDefault: true },
-      conferenceData: { createRequest: { requestId: crypto.randomUUID() } },
-    };
+    if (acct.provider === "google") {
+      const event = {
+        summary: args.summary,
+        description: args.description,
+        start: { dateTime: args.startIso },
+        end: { dateTime: args.endIso },
+        attendees: args.attendees ?? [],
+        reminders: { useDefault: true },
+        conferenceData: { createRequest: { requestId: crypto.randomUUID() } },
+      };
 
-    const res = await fetch(
-      "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1",
-      {
+      const res = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify(event),
+        }
+      );
+
+      const json: any = await res.json();
+      if (!res.ok) throw new ConvexError(json?.error?.message || "CREATE_EVENT_FAILED");
+      return json;
+    }
+
+    if (acct.provider === "microsoft") {
+      const event = {
+        subject: args.summary,
+        body: { contentType: "HTML", content: args.description ?? "" },
+        start: { dateTime: args.startIso, timeZone: "UTC" },
+        end: { dateTime: args.endIso, timeZone: "UTC" },
+        attendees: (args.attendees ?? []).map((a) => ({
+          emailAddress: { address: a.email, name: a.displayName ?? a.email },
+          type: "required",
+        })),
+        isOnlineMeeting: true,
+        onlineMeetingProvider: "teamsForBusiness",
+      };
+
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/events", {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
         body: JSON.stringify(event),
-      }
-    );
+      });
 
-    const json: any = await res.json();
-    if (!res.ok) throw new ConvexError(json?.error?.message || "CREATE_EVENT_FAILED");
-    return json;
+      const json: any = await res.json();
+      if (!res.ok) throw new ConvexError(json?.error?.message || "CREATE_EVENT_FAILED");
+      return json;
+    }
+
+    throw new ConvexError("UNSUPPORTED_PROVIDER");
   },
 });

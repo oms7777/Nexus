@@ -952,86 +952,112 @@ export const IntegrationsView = () => {
             </>
           )}
 
-          {/* Handoff (bottom) */}
+          {/* Messaging (bottom) */}
           <section className="space-y-3">
-            <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Handoff</h2>
-            <Card className="border-border/60 shadow-sm">
-              <CardHeader className="flex flex-row items-start gap-4 pb-2">
-                <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#25D366]/10 text-[#25D366]">
-                  <svg className="size-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                  </svg>
-                </div>
-                <div className="space-y-1">
-                  <CardTitle className="text-base">WhatsApp</CardTitle>
-                  <CardDescription>
-                    Optional handoff button in the chat header. Uses assigned rep WhatsApp when enabled, else your
-                    company number.
-                  </CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-medium">Enable WhatsApp handoff</div>
-                    <div className="text-xs text-muted-foreground">
-                      Visitors can continue the conversation on WhatsApp (opens{" "}
-                      <code className="rounded bg-muted px-1">wa.me</code>).
-                    </div>
-                  </div>
-                  <Switch checked={waEnabled} onCheckedChange={setWaEnabled} />
-                </div>
+            <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Messaging</h2>
 
-                <div className="grid gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="wa-digits">Default company WhatsApp number</Label>
-                    <Input
-                      id="wa-digits"
-                      value={waDigits}
-                      onChange={(e) => setWaDigits(e.target.value)}
-                      disabled={!waEnabled}
-                      placeholder="+33 6 12 34 56 78"
-                      className="bg-background"
-                    />
-                    <p className="text-xs text-muted-foreground">Include country code. We store digits only.</p>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
-                    <div className="space-y-0.5">
-                      <div className="text-sm font-medium">Use assigned rep WhatsApp first</div>
-                      <div className="text-xs text-muted-foreground">
-                        If off, the chat always uses your company number even when a rep is assigned.
+            <Card className="overflow-hidden border-border/60 shadow-sm">
+              <Collapsible defaultOpen={false}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-4">
+                      <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#25D366]/10 text-[#25D366]">
+                        <svg className="size-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                        </svg>
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <CardTitle className="text-base">WhatsApp</CardTitle>
+                        <CardDescription>
+                          Optional button in the chat header. Uses assigned rep WhatsApp when enabled, else your company
+                          number.
+                        </CardDescription>
                       </div>
                     </div>
-                    <Switch checked={waUseRepFirst} onCheckedChange={setWaUseRepFirst} disabled={!waEnabled} />
-                  </div>
 
-                  <div className="space-y-1.5">
-                    <Label htmlFor="wa-template">Optional first message (template)</Label>
-                    <Textarea
-                      id="wa-template"
-                      value={waTemplate}
-                      onChange={(e) => setWaTemplate(e.target.value)}
-                      disabled={!waEnabled}
-                      rows={3}
-                      className="bg-background"
-                      placeholder="Hi! I'm messaging from the website chat. Context: {pageLabel} — optional: {chatExcerpt}"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Placeholders: <code className="rounded bg-muted px-1">{"{pageLabel}"}</code>,{" "}
-                      <code className="rounded bg-muted px-1">{"{pageUrl}"}</code>,{" "}
-                      <code className="rounded bg-muted px-1">{"{chatExcerpt}"}</code>,{" "}
-                      <code className="rounded bg-muted px-1">{"{locale}"}</code>.
-                    </p>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Switch checked={waEnabled} onCheckedChange={setWaEnabled} />
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex size-9 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-xs transition hover:bg-muted/40 hover:text-foreground"
+                          aria-label="Show WhatsApp details"
+                        >
+                          <ChevronDown className="size-4" />
+                        </button>
+                      </CollapsibleTrigger>
+                    </div>
                   </div>
-                </div>
+                </CardHeader>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleSaveWhatsapp} disabled={waSaving} type="button">
-                    {waSaving ? "Saving…" : "Save WhatsApp"}
-                  </Button>
-                </div>
-              </CardContent>
+                <CollapsibleContent>
+                  <CardContent className="border-t border-border/60 bg-muted/10 pb-6 pt-5">
+                    <div className="grid gap-4">
+                      <div className="rounded-lg border bg-background/60 px-4 py-3">
+                        <div className="text-sm font-medium">Enable WhatsApp handoff</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Visitors can continue the conversation on WhatsApp (opens{" "}
+                          <code className="rounded bg-muted px-1">wa.me</code>).
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="wa-digits">Default company WhatsApp number</Label>
+                          <Input
+                            id="wa-digits"
+                            value={waDigits}
+                            onChange={(e) => setWaDigits(e.target.value)}
+                            disabled={!waEnabled}
+                            placeholder="+33 6 12 34 56 78"
+                            className="bg-background"
+                          />
+                          <p className="text-xs text-muted-foreground">Include country code. We store digits only.</p>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-lg border bg-background/60 px-4 py-3">
+                          <div className="space-y-0.5">
+                            <div className="text-sm font-medium">Use assigned rep WhatsApp first</div>
+                            <div className="text-xs text-muted-foreground">
+                              If off, the chat always uses your company number even when a rep is assigned.
+                            </div>
+                          </div>
+                          <Switch
+                            checked={waUseRepFirst}
+                            onCheckedChange={setWaUseRepFirst}
+                            disabled={!waEnabled}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label htmlFor="wa-template">Optional first message (template)</Label>
+                          <Textarea
+                            id="wa-template"
+                            value={waTemplate}
+                            onChange={(e) => setWaTemplate(e.target.value)}
+                            disabled={!waEnabled}
+                            rows={3}
+                            className="bg-background"
+                            placeholder="Hi! I'm messaging from the website chat. Context: {pageLabel} — optional: {chatExcerpt}"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Placeholders: <code className="rounded bg-muted px-1">{"{pageLabel}"}</code>,{" "}
+                            <code className="rounded bg-muted px-1">{"{pageUrl}"}</code>,{" "}
+                            <code className="rounded bg-muted px-1">{"{chatExcerpt}"}</code>,{" "}
+                            <code className="rounded bg-muted px-1">{"{locale}"}</code>.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <Button onClick={handleSaveWhatsapp} disabled={waSaving} type="button">
+                          {waSaving ? "Saving…" : "Save WhatsApp"}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
             </Card>
           </section>
         </div>
