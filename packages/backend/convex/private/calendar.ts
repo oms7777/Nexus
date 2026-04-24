@@ -333,6 +333,10 @@ export const createEvent = action({
     startIso: v.string(),
     endIso: v.string(),
     attendees: v.optional(v.array(v.object({ email: v.string(), displayName: v.optional(v.string()) }))),
+    meetingLinkType: v.optional(
+      v.union(v.literal("google_meet"), v.literal("teams"), v.literal("manual"))
+    ),
+    manualUrl: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     const acct = await ctx.runQuery(api.private.calendar.accountForUser, { userId: args.userId });
@@ -342,19 +346,36 @@ export const createEvent = action({
       userId: args.userId,
     });
 
+    const meetingLinkType = args.meetingLinkType ?? "google_meet";
+    const manualUrl = (args.manualUrl ?? "").trim();
+
     if (acct.provider === "google") {
-      const event = {
+      const wantsMeet = meetingLinkType === "google_meet";
+      const wantsManual = meetingLinkType === "manual";
+      if (wantsManual && !manualUrl) {
+        throw new ConvexError("MANUAL_MEETING_URL_REQUIRED");
+      }
+
+      const manualBlock = wantsManual ? `\n\nJoin link: ${manualUrl}` : "";
+      const event: any = {
         summary: args.summary,
-        description: args.description,
+        description: `${args.description ?? ""}${manualBlock}`,
         start: { dateTime: args.startIso },
         end: { dateTime: args.endIso },
         attendees: args.attendees ?? [],
         reminders: { useDefault: true },
-        conferenceData: { createRequest: { requestId: crypto.randomUUID() } },
       };
+      if (wantsMeet) {
+        event.conferenceData = { createRequest: { requestId: crypto.randomUUID() } };
+      }
+      if (wantsManual) {
+        event.location = manualUrl;
+      }
 
       const res = await fetch(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1",
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all${
+          wantsMeet ? "&conferenceDataVersion=1" : ""
+        }`,
         {
           method: "POST",
           headers: {
@@ -371,11 +392,18 @@ export const createEvent = action({
     }
 
     if (acct.provider === "microsoft") {
-      const event = {
+      const wantsTeams = meetingLinkType === "teams";
+      const wantsManual = meetingLinkType === "manual";
+      if (wantsManual && !manualUrl) {
+        throw new ConvexError("MANUAL_MEETING_URL_REQUIRED");
+      }
+
+      const manualBlock = wantsManual ? `<p><b>Join link:</b> <a href="${manualUrl}">${manualUrl}</a></p>` : "";
+      const event: any = {
         subject: args.summary,
         body: {
           contentType: "HTML",
-          content: args.description ?? "",
+          content: `${args.description ?? ""}${manualBlock}`,
         },
         start: { dateTime: args.startIso, timeZone: "UTC" },
         end: { dateTime: args.endIso, timeZone: "UTC" },
@@ -383,8 +411,9 @@ export const createEvent = action({
           emailAddress: { address: a.email, name: a.displayName ?? a.email },
           type: "required",
         })),
-        isOnlineMeeting: true,
-        onlineMeetingProvider: "teamsForBusiness",
+        isOnlineMeeting: wantsTeams,
+        ...(wantsTeams ? { onlineMeetingProvider: "teamsForBusiness" } : {}),
+        ...(wantsManual ? { location: { displayName: manualUrl } } : {}),
       };
 
       const res = await fetch("https://graph.microsoft.com/v1.0/me/events", {
@@ -596,6 +625,10 @@ export const createEventForOrgUser = action({
     startIso: v.string(),
     endIso: v.string(),
     attendees: v.optional(v.array(v.object({ email: v.string(), displayName: v.optional(v.string()) }))),
+    meetingLinkType: v.optional(
+      v.union(v.literal("google_meet"), v.literal("teams"), v.literal("manual"))
+    ),
+    manualUrl: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     const acct = await ctx.runQuery(api.private.calendar.accountByOrgUserNoAuth, {
@@ -621,19 +654,36 @@ export const createEventForOrgUser = action({
       throw e;
     }
 
+    const meetingLinkType = args.meetingLinkType ?? "google_meet";
+    const manualUrl = (args.manualUrl ?? "").trim();
+
     if (acct.provider === "google") {
-      const event = {
+      const wantsMeet = meetingLinkType === "google_meet";
+      const wantsManual = meetingLinkType === "manual";
+      if (wantsManual && !manualUrl) {
+        throw new ConvexError("MANUAL_MEETING_URL_REQUIRED");
+      }
+
+      const manualBlock = wantsManual ? `\n\nJoin link: ${manualUrl}` : "";
+      const event: any = {
         summary: args.summary,
-        description: args.description,
+        description: `${args.description ?? ""}${manualBlock}`,
         start: { dateTime: args.startIso },
         end: { dateTime: args.endIso },
         attendees: args.attendees ?? [],
         reminders: { useDefault: true },
-        conferenceData: { createRequest: { requestId: crypto.randomUUID() } },
       };
+      if (wantsMeet) {
+        event.conferenceData = { createRequest: { requestId: crypto.randomUUID() } };
+      }
+      if (wantsManual) {
+        event.location = manualUrl;
+      }
 
       const res = await fetch(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1",
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all${
+          wantsMeet ? "&conferenceDataVersion=1" : ""
+        }`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -647,17 +697,25 @@ export const createEventForOrgUser = action({
     }
 
     if (acct.provider === "microsoft") {
-      const event = {
+      const wantsTeams = meetingLinkType === "teams";
+      const wantsManual = meetingLinkType === "manual";
+      if (wantsManual && !manualUrl) {
+        throw new ConvexError("MANUAL_MEETING_URL_REQUIRED");
+      }
+
+      const manualBlock = wantsManual ? `<p><b>Join link:</b> <a href="${manualUrl}">${manualUrl}</a></p>` : "";
+      const event: any = {
         subject: args.summary,
-        body: { contentType: "HTML", content: args.description ?? "" },
+        body: { contentType: "HTML", content: `${args.description ?? ""}${manualBlock}` },
         start: { dateTime: args.startIso, timeZone: "UTC" },
         end: { dateTime: args.endIso, timeZone: "UTC" },
         attendees: (args.attendees ?? []).map((a) => ({
           emailAddress: { address: a.email, name: a.displayName ?? a.email },
           type: "required",
         })),
-        isOnlineMeeting: true,
-        onlineMeetingProvider: "teamsForBusiness",
+        isOnlineMeeting: wantsTeams,
+        ...(wantsTeams ? { onlineMeetingProvider: "teamsForBusiness" } : {}),
+        ...(wantsManual ? { location: { displayName: manualUrl } } : {}),
       };
 
       const res = await fetch("https://graph.microsoft.com/v1.0/me/events", {

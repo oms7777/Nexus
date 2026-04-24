@@ -72,7 +72,10 @@ function isPlausibleBookingCompanyName(raw: string): boolean {
   return true;
 }
 
-function meetingUrlFromCreatedCalendarEvent(event: any): string | undefined {
+function meetingUrlFromCreatedCalendarEvent(event: any, manualUrl?: string): string | undefined {
+  const manual = (manualUrl ?? "").trim();
+  if (manual) return manual;
+
   // Google Calendar API
   const hangout = typeof event?.hangoutLink === "string" ? event.hangoutLink : "";
   if (hangout) return hangout;
@@ -425,6 +428,13 @@ export const bookSlot = action({
     });
     if (!acct) throw new Error("No connected calendar for this organization / user");
 
+    const settings = await ctx.runQuery(api.public.calendar.getSettingsForOrg, {
+      organizationId,
+      userId: acct.userId,
+    });
+    const meetingLinkType = settings?.meetingLinkType ?? "google_meet";
+    const manualUrl = (settings?.manualUrl ?? "").trim();
+
     const useCase = (attendeeDescription ?? "").trim();
 
     const descriptionLines = [
@@ -449,9 +459,11 @@ export const bookSlot = action({
         { email: attendeeEmail, displayName: attendeeName },
         ...(acct.email ? [{ email: acct.email }] : []),
       ],
+      meetingLinkType,
+      manualUrl: manualUrl || undefined,
     });
 
-    const meetingUrl: string | undefined = meetingUrlFromCreatedCalendarEvent(event);
+    const meetingUrl: string | undefined = meetingUrlFromCreatedCalendarEvent(event, manualUrl);
 
     // 3) save booking in DB
     const bookingId = await ctx.runMutation(api.public.booking.create, {
