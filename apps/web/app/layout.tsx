@@ -10,10 +10,6 @@ import { Toaster } from "sonner";
 export const metadata: Metadata = {
   title: "Inboundless - Dashboard",
   description: "Turn website traffic into pipeline",
-  icons: {
-    icon: "/logoo.jpg",
-    apple: "/logoo.jpg",
-  },
 };
 
 const fontSans = Geist({
