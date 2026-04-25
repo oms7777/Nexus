@@ -1,6 +1,7 @@
 // packages/backend/convex/private/notifications.ts
 import { action, query, mutation } from "../_generated/server";
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 
 /** Format helper (pas de lib externe) */
 function fmt(dt: Date) {
@@ -198,6 +199,81 @@ export const sendBookingEmailToSales = action({
 /* ------------------------------------------------------------------ */
 /*  User in-app notification preferences                              */
 /* ------------------------------------------------------------------ */
+
+export const listUnseenEscalationsForMe = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const orgId = (identity as any).orgId as string | undefined;
+    const meUserId = (identity as any).subject as string | undefined;
+    if (!orgId || !meUserId) return [];
+
+    const now = Date.now();
+
+    const base = await ctx.db
+      .query("conversations")
+      .withIndex("by_org_assigned_rep", (q) =>
+        q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId)
+      )
+      .collect();
+
+    const escalated = base
+      .filter(
+        (c) =>
+          c.status === "escalated" &&
+          (c.lastViewedByRepUserId !== meUserId || c.lastViewedByRepAt == null)
+      )
+      .sort((a, b) => Number(b.escalatedAt ?? b._creationTime) - Number(a.escalatedAt ?? a._creationTime));
+
+    const out: Array<{
+      conversationId: Id<"conversations">;
+      contactSessionId: Id<"contactSessions">;
+      escalatedAt: number;
+      visitor: {
+        name?: string;
+        email?: string;
+        city?: string;
+        countryCode?: string;
+        currentUrl?: string;
+        title?: string;
+        pageUrls?: string[];
+        pageCount?: number;
+        userAgent?: string;
+        timeOnSiteMs?: number;
+      };
+    }> = [];
+
+    for (const c of escalated) {
+      const session = await ctx.db.get(c.contactSessionId);
+      if (!session || session.organizationId !== orgId) continue;
+
+      const md: any = session.metadata ?? {};
+      const pages: string[] = Array.isArray(md.pages) ? md.pages.filter(Boolean) : [];
+
+      out.push({
+        conversationId: c._id,
+        contactSessionId: c.contactSessionId,
+        escalatedAt: Number(c.escalatedAt ?? c._creationTime),
+        visitor: {
+          name: session.name ?? undefined,
+          email: session.email ?? undefined,
+          city: md.city ?? undefined,
+          countryCode: md.countryCode ?? undefined,
+          currentUrl: md.currentUrl ?? undefined,
+          title: md.title ?? undefined,
+          pageUrls: pages.slice(0, 30),
+          pageCount: pages.length || undefined,
+          userAgent: md.userAgent ?? undefined,
+          timeOnSiteMs: typeof session._creationTime === "number" ? now - session._creationTime : undefined,
+        },
+      });
+    }
+
+    return out;
+  },
+});
 
 export const meNotificationPrefs = query({
   args: {},

@@ -40,11 +40,15 @@ export function LiveVisitorStreamCard({
   orgId,
   isSelected,
   onSelect,
+  mode = "select",
+  onOpenConversation,
 }: {
   visitor: Visitor;
   orgId: string;
   isSelected: boolean;
   onSelect: () => void;
+  mode?: "select" | "open_conversation";
+  onOpenConversation?: () => void;
 }) {
   const sessionId = visitor.contactSessionId
     ? (visitor.contactSessionId as Id<"contactSessions">)
@@ -73,7 +77,16 @@ export function LiveVisitorStreamCard({
           : "border-border ring-black/[0.04] dark:ring-white/10",
       )}
     >
-      <div className="cursor-pointer" onClick={onSelect}>
+      <div
+        className="cursor-pointer"
+        onClick={() => {
+          if (mode === "open_conversation" && visitor.conversationId && onOpenConversation) {
+            onOpenConversation();
+            return;
+          }
+          onSelect();
+        }}
+      >
         <div className="flex items-start justify-between gap-2 border-b border-border/70 bg-gradient-to-r from-fuchsia-50/50 to-transparent px-3 py-2.5 dark:from-fuchsia-950/20">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">

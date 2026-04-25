@@ -329,3 +329,33 @@ export const markViewed = mutation({
     });
   },
 });
+
+export const markAllEscalatedViewedForMe = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
+
+    const orgId = (identity as any).orgId as string | undefined;
+    const meUserId = (identity as any).subject as string | undefined;
+    if (!orgId || !meUserId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    const base = await ctx.db
+      .query("conversations")
+      .withIndex("by_org_assigned_rep", (q) => q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId))
+      .collect();
+
+    const now = Date.now();
+    const targets = base.filter(
+      (c) =>
+        c.status === "escalated" &&
+        (c.lastViewedByRepUserId !== meUserId || c.lastViewedByRepAt == null)
+    );
+
+    for (const c of targets) {
+      await ctx.db.patch(c._id, { lastViewedByRepUserId: meUserId, lastViewedByRepAt: now });
+    }
+
+    return { updated: targets.length };
+  },
+});
