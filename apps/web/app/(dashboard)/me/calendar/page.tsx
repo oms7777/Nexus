@@ -24,7 +24,6 @@ import {
 import { Input } from "@workspace/ui/components/input";
 import { Separator } from "@workspace/ui/components/separator";
 import { useEffect, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@workspace/ui/components/alert";
 
 const DAYS = [
   { label: "Monday", day: 1 },
@@ -84,39 +83,9 @@ export default function Page() {
       setDurationMin(settings.durationMin ?? 30);
       setBufferMin(settings.bufferMin ?? 0);
       setWeekly(settings.weekly ?? weekly);
-
-      // If the saved preference is incompatible with the currently connected calendar,
-      // fall back to the provider default (unless it's manual, which is always allowed).
-      if (account?.provider === "google" && savedType === "teams") {
-        setMeetingLinkType("google_meet");
-      }
-      if (account?.provider === "microsoft" && savedType === "google_meet") {
-        setMeetingLinkType("teams");
-      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings?._id, account?.provider]);
-
-  useEffect(() => {
-    if (!account) return;
-    if (account.provider === "google" && meetingLinkType === "teams") {
-      setMeetingLinkType("google_meet");
-    }
-    if (account.provider === "microsoft" && meetingLinkType === "google_meet") {
-      setMeetingLinkType("teams");
-    }
-  }, [account?.provider, meetingLinkType]);
-
-  useEffect(() => {
-    if (settings) return;
-    if (!account) return;
-    setMeetingLinkType((prev) => {
-      if (prev !== "manual") {
-        return account.provider === "microsoft" ? "teams" : "google_meet";
-      }
-      return prev;
-    });
-  }, [account?.provider, settings]);
+  }, [settings?._id]);
 
   const onConnectGoogle = () => {
     window.location.href = "/api/integrations/google/start";
@@ -229,22 +198,6 @@ export default function Page() {
           <CardTitle>Meeting details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Alert>
-            <AlertTitle>How this works</AlertTitle>
-            <AlertDescription>
-              <p>
-                <span className="font-medium">Calendar connection</span> decides where events are created
-                (Google Calendar vs Outlook/Microsoft 365).{" "}
-                <span className="font-medium">Meeting link type</span> decides what join link we generate for
-                bookings.
-              </p>
-              <p className="mt-2">
-                <span className="font-medium">Tip:</span> if you connect a new provider, it replaces your
-                previous calendar connection for this account (one active calendar per rep for now).
-              </p>
-            </AlertDescription>
-          </Alert>
-
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Meeting link type</Label>
@@ -256,37 +209,37 @@ export default function Page() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(!account || account.provider === "google") && (
-                    <SelectItem value="google_meet">Google Meet (default)</SelectItem>
-                  )}
-                  {(!account || account.provider === "microsoft") && (
-                    <SelectItem value="teams">Microsoft Teams</SelectItem>
-                  )}
+                  <SelectItem value="google_meet">Google Meet (auto when possible)</SelectItem>
+                  <SelectItem value="teams">Microsoft Teams (auto when possible)</SelectItem>
                   <SelectItem value="manual">Manual link</SelectItem>
                 </SelectContent>
               </Select>
-              {account?.provider === "google" && meetingLinkType === "google_meet" && (
-                <p className="text-xs text-muted-foreground">
-                  Meet links are created automatically on your Google Calendar events.
-                </p>
-              )}
-              {account?.provider === "microsoft" && meetingLinkType === "teams" && (
-                <p className="text-xs text-muted-foreground">
-                  Teams links are created automatically on your Microsoft 365 calendar events.
-                </p>
-              )}
-              {meetingLinkType === "manual" && (
-                <p className="text-xs text-muted-foreground">
-                  We will use your manual URL as the join link for visitors (Zoom, a static Teams room, etc.).
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                {meetingLinkType === "google_meet" && (
+                  <>
+                    Native Meet links are added when your calendar is Google. With Microsoft, paste a Meet
+                    link in the field below (optional) or use Manual.
+                  </>
+                )}
+                {meetingLinkType === "teams" && (
+                  <>
+                    Native Teams links are added when your calendar is Microsoft 365. With Google Calendar,
+                    paste a Teams room link below (optional) or use Manual.
+                  </>
+                )}
+                {meetingLinkType === "manual" && (
+                  <>A fixed link (Zoom, static Teams room, personal Meet link, etc.).</>
+                )}
+              </p>
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Manual meeting URL {meetingLinkType === "manual" ? "(required)" : "(optional)"}</Label>
+              <Label>
+                {meetingLinkType === "manual" ? "Meeting URL (required)" : "Join link (optional)"}
+              </Label>
               <Input
                 value={manualUrl}
                 onChange={(e) => setManualUrl(e.target.value)}
-                placeholder="https://meet.example.com/your-room"
+                placeholder="https://… (Meet, Teams, Zoom…)"
               />
             </div>
           </div>

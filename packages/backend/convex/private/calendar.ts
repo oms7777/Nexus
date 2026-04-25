@@ -352,14 +352,18 @@ export const createEvent = action({
     if (acct.provider === "google") {
       const wantsMeet = meetingLinkType === "google_meet";
       const wantsManual = meetingLinkType === "manual";
+      const wantsTeams = meetingLinkType === "teams";
       if (wantsManual && !manualUrl) {
         throw new ConvexError("MANUAL_MEETING_URL_REQUIRED");
       }
 
-      const manualBlock = wantsManual ? `\n\nJoin link: ${manualUrl}` : "";
+      let joinBlock = "";
+      if (wantsManual) joinBlock = `\n\nJoin link: ${manualUrl}`;
+      else if (wantsTeams && manualUrl) joinBlock = `\n\nJoin link (Teams): ${manualUrl}`;
+
       const event: any = {
         summary: args.summary,
-        description: `${args.description ?? ""}${manualBlock}`,
+        description: `${args.description ?? ""}${joinBlock}`,
         start: { dateTime: args.startIso },
         end: { dateTime: args.endIso },
         attendees: args.attendees ?? [],
@@ -368,7 +372,7 @@ export const createEvent = action({
       if (wantsMeet) {
         event.conferenceData = { createRequest: { requestId: crypto.randomUUID() } };
       }
-      if (wantsManual) {
+      if (wantsManual || (wantsTeams && manualUrl)) {
         event.location = manualUrl;
       }
 
@@ -394,16 +398,22 @@ export const createEvent = action({
     if (acct.provider === "microsoft") {
       const wantsTeams = meetingLinkType === "teams";
       const wantsManual = meetingLinkType === "manual";
+      const wantsGoogleMeet = meetingLinkType === "google_meet";
       if (wantsManual && !manualUrl) {
         throw new ConvexError("MANUAL_MEETING_URL_REQUIRED");
       }
 
-      const manualBlock = wantsManual ? `<p><b>Join link:</b> <a href="${manualUrl}">${manualUrl}</a></p>` : "";
+      let joinBlock = "";
+      if (wantsManual) {
+        joinBlock = `<p><b>Join link:</b> <a href="${manualUrl}">${manualUrl}</a></p>`;
+      } else if (wantsGoogleMeet && manualUrl) {
+        joinBlock = `<p><b>Join (Google Meet):</b> <a href="${manualUrl}">${manualUrl}</a></p>`;
+      }
       const event: any = {
         subject: args.summary,
         body: {
           contentType: "HTML",
-          content: `${args.description ?? ""}${manualBlock}`,
+          content: `${args.description ?? ""}${joinBlock}`,
         },
         start: { dateTime: args.startIso, timeZone: "UTC" },
         end: { dateTime: args.endIso, timeZone: "UTC" },
@@ -413,7 +423,9 @@ export const createEvent = action({
         })),
         isOnlineMeeting: wantsTeams,
         ...(wantsTeams ? { onlineMeetingProvider: "teamsForBusiness" } : {}),
-        ...(wantsManual ? { location: { displayName: manualUrl } } : {}),
+        ...((wantsManual || (wantsGoogleMeet && manualUrl)) && manualUrl
+          ? { location: { displayName: manualUrl } }
+          : {}),
       };
 
       const res = await fetch("https://graph.microsoft.com/v1.0/me/events", {
@@ -660,14 +672,18 @@ export const createEventForOrgUser = action({
     if (acct.provider === "google") {
       const wantsMeet = meetingLinkType === "google_meet";
       const wantsManual = meetingLinkType === "manual";
+      const wantsTeams = meetingLinkType === "teams";
       if (wantsManual && !manualUrl) {
         throw new ConvexError("MANUAL_MEETING_URL_REQUIRED");
       }
 
-      const manualBlock = wantsManual ? `\n\nJoin link: ${manualUrl}` : "";
+      let joinBlock = "";
+      if (wantsManual) joinBlock = `\n\nJoin link: ${manualUrl}`;
+      else if (wantsTeams && manualUrl) joinBlock = `\n\nJoin link (Teams): ${manualUrl}`;
+
       const event: any = {
         summary: args.summary,
-        description: `${args.description ?? ""}${manualBlock}`,
+        description: `${args.description ?? ""}${joinBlock}`,
         start: { dateTime: args.startIso },
         end: { dateTime: args.endIso },
         attendees: args.attendees ?? [],
@@ -676,7 +692,7 @@ export const createEventForOrgUser = action({
       if (wantsMeet) {
         event.conferenceData = { createRequest: { requestId: crypto.randomUUID() } };
       }
-      if (wantsManual) {
+      if (wantsManual || (wantsTeams && manualUrl)) {
         event.location = manualUrl;
       }
 
@@ -699,14 +715,20 @@ export const createEventForOrgUser = action({
     if (acct.provider === "microsoft") {
       const wantsTeams = meetingLinkType === "teams";
       const wantsManual = meetingLinkType === "manual";
+      const wantsGoogleMeet = meetingLinkType === "google_meet";
       if (wantsManual && !manualUrl) {
         throw new ConvexError("MANUAL_MEETING_URL_REQUIRED");
       }
 
-      const manualBlock = wantsManual ? `<p><b>Join link:</b> <a href="${manualUrl}">${manualUrl}</a></p>` : "";
+      let joinBlock = "";
+      if (wantsManual) {
+        joinBlock = `<p><b>Join link:</b> <a href="${manualUrl}">${manualUrl}</a></p>`;
+      } else if (wantsGoogleMeet && manualUrl) {
+        joinBlock = `<p><b>Join (Google Meet):</b> <a href="${manualUrl}">${manualUrl}</a></p>`;
+      }
       const event: any = {
         subject: args.summary,
-        body: { contentType: "HTML", content: `${args.description ?? ""}${manualBlock}` },
+        body: { contentType: "HTML", content: `${args.description ?? ""}${joinBlock}` },
         start: { dateTime: args.startIso, timeZone: "UTC" },
         end: { dateTime: args.endIso, timeZone: "UTC" },
         attendees: (args.attendees ?? []).map((a) => ({
@@ -715,7 +737,9 @@ export const createEventForOrgUser = action({
         })),
         isOnlineMeeting: wantsTeams,
         ...(wantsTeams ? { onlineMeetingProvider: "teamsForBusiness" } : {}),
-        ...(wantsManual ? { location: { displayName: manualUrl } } : {}),
+        ...((wantsManual || (wantsGoogleMeet && manualUrl)) && manualUrl
+          ? { location: { displayName: manualUrl } }
+          : {}),
       };
 
       const res = await fetch("https://graph.microsoft.com/v1.0/me/events", {
