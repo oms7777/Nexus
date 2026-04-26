@@ -100,6 +100,10 @@ export const IntegrationsView = () => {
   const [hsSaving, setHsSaving] = useState(false);
   const [domainInput, setDomainInput] = useState("");
 
+  // BYO: never re-hydrate secrets into the browser; allow "update without pasting" + optional replace flow.
+  const [sfSecretReplaceMode, setSfSecretReplaceMode] = useState(false);
+  const [hsSecretReplaceMode, setHsSecretReplaceMode] = useState(false);
+
   const websites = useQuery((api as any).private.websites.list, {}) ?? [];
 
   const widgetSettings = useQuery(api.private.widgetSettings.getOne);
@@ -169,14 +173,18 @@ export const IntegrationsView = () => {
   useEffect(() => {
     if (!salesforceAppConfig) return;
     setSfClientId(salesforceAppConfig.clientId ?? "");
-    setSfClientSecret(salesforceAppConfig.clientSecret ?? "");
+    // Do not hydrate secrets back into the browser.
+    setSfClientSecret("");
+    setSfSecretReplaceMode(false);
     setSfLoginUrl((salesforceAppConfig.loginUrl ?? "https://login.salesforce.com").trim());
   }, [salesforceAppConfig]);
 
   useEffect(() => {
     if (!hubspotAppConfig) return;
     setHsClientId(hubspotAppConfig.clientId ?? "");
-    setHsClientSecret(hubspotAppConfig.clientSecret ?? "");
+    // Do not hydrate secrets back into the browser.
+    setHsClientSecret("");
+    setHsSecretReplaceMode(false);
   }, [hubspotAppConfig]);
 
   const { isSlackConnected, slackTeamLabel, slackChannelLabel } = useMemo(() => {
@@ -220,7 +228,7 @@ export const IntegrationsView = () => {
   const hasSalesforceDbConfig = useMemo(() => {
     return Boolean(
       (salesforceAppConfig?.clientId ?? "").trim() &&
-        (salesforceAppConfig?.clientSecret ?? "").trim() &&
+        (salesforceAppConfig as any)?.hasClientSecret &&
         (salesforceAppConfig?.loginUrl ?? "").trim()
     );
   }, [salesforceAppConfig]);
@@ -231,12 +239,24 @@ export const IntegrationsView = () => {
   }, [hasSalesforceDbConfig, oauthHints?.salesforceDefaultsAvailable]);
 
   const canSaveSfConfig = useMemo(() => {
-    return Boolean(sfClientId.trim() && sfClientSecret.trim() && sfLoginUrl.trim());
-  }, [sfClientId, sfClientSecret, sfLoginUrl]);
+    if (!sfClientId.trim() || !sfLoginUrl.trim()) return false;
+    const hasSaved = Boolean((salesforceAppConfig as any)?.hasClientSecret);
+    const hasNew = Boolean(sfClientSecret.trim());
+    if (sfSecretReplaceMode) {
+      // Replacing: require a new value (can't meaningfully "replace" with an empty string).
+      return hasNew;
+    }
+    if (!hasSaved) {
+      // First time: need a client secret
+      return hasNew;
+    }
+    // Update without pasting: allowed (server keeps the existing secret)
+    return true;
+  }, [sfClientId, sfClientSecret, sfLoginUrl, salesforceAppConfig, sfSecretReplaceMode]);
 
   const hasHubspotDbConfig = useMemo(() => {
     return Boolean(
-      (hubspotAppConfig?.clientId ?? "").trim() && (hubspotAppConfig?.clientSecret ?? "").trim()
+      (hubspotAppConfig?.clientId ?? "").trim() && (hubspotAppConfig as any)?.hasClientSecret
     );
   }, [hubspotAppConfig]);
 
@@ -245,8 +265,13 @@ export const IntegrationsView = () => {
   }, [hasHubspotDbConfig, oauthHints?.hubspotDefaultsAvailable]);
 
   const canSaveHsConfig = useMemo(() => {
-    return Boolean(hsClientId.trim() && hsClientSecret.trim());
-  }, [hsClientId, hsClientSecret]);
+    if (!hsClientId.trim()) return false;
+    const hasSaved = Boolean((hubspotAppConfig as any)?.hasClientSecret);
+    const hasNew = Boolean(hsClientSecret.trim());
+    if (hsSecretReplaceMode) return hasNew;
+    if (!hasSaved) return hasNew;
+    return true;
+  }, [hsClientId, hsClientSecret, hubspotAppConfig, hsSecretReplaceMode]);
 
   const handleIntegrationClick = (integrationId: IntegrationId) => {
     if (!organization) {
@@ -319,7 +344,7 @@ export const IntegrationsView = () => {
 
   const handleSaveHubspotConfig = async () => {
     if (!organization) return toast.error("Organization ID not found");
-    if (!canSaveHsConfig) return toast.error("Fill Client ID and Client Secret.");
+    if (!canSaveHsConfig) return toast.error("Fill required fields (Client ID; Client Secret on first save).");
 
     try {
       setHsSaving(true);
@@ -328,7 +353,7 @@ export const IntegrationsView = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId: hsClientId.trim(),
-          clientSecret: hsClientSecret.trim(),
+          clientSecret: hsClientSecret.trim() || undefined,
         }),
       });
 
@@ -347,7 +372,13 @@ export const IntegrationsView = () => {
 
   const handleSaveSalesforceConfig = async () => {
     if (!organization) return toast.error("Organization ID not found");
-    if (!canSaveSfConfig) return toast.error("Fill Client ID, Client Secret and Login URL.");
+    if (!canSaveSfConfig) {
+      return toast.error(
+        (salesforceAppConfig as any)?.hasClientSecret
+          ? "Fill Client ID and Login URL, or use Replace to update the Client Secret."
+          : "Fill Client ID, Client Secret and Login URL (first time)."
+      );
+    }
 
     try {
       setSfSaving(true);
@@ -356,7 +387,7 @@ export const IntegrationsView = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId: sfClientId.trim(),
-          clientSecret: sfClientSecret.trim(),
+          clientSecret: sfClientSecret.trim() || undefined,
           loginUrl: sfLoginUrl.trim(),
         }),
       });
@@ -727,15 +758,54 @@ export const IntegrationsView = () => {
                               </div>
 
                               <div className="grid gap-2">
-                                <Label htmlFor="sf-client-secret">Client Secret</Label>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <Label htmlFor="sf-client-secret">Client Secret</Label>
+                                    {(salesforceAppConfig as any)?.hasClientSecret && !sfSecretReplaceMode ? (
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        Saved in Inboundless. For security, the secret is never shown again—use{" "}
+                                        <span className="font-medium text-foreground">Replace</span> to set a new one.
+                                      </p>
+                                    ) : null}
+                                    {(salesforceAppConfig as any)?.hasClientSecret && sfSecretReplaceMode ? (
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        Paste the new Client Secret from your Salesforce Connected App, then save.
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  {(salesforceAppConfig as any)?.hasClientSecret ? (
+                                    <Button
+                                      className="shrink-0"
+                                      onClick={() => {
+                                        setSfSecretReplaceMode((v) => {
+                                          const next = !v;
+                                          if (!next) setSfClientSecret("");
+                                          return next;
+                                        });
+                                      }}
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                    >
+                                      {sfSecretReplaceMode ? "Cancel" : "Replace secret"}
+                                    </Button>
+                                  ) : null}
+                                </div>
                                 <Input
                                   id="sf-client-secret"
-                                  placeholder="From your Connected App"
+                                  placeholder={
+                                    (salesforceAppConfig as any)?.hasClientSecret && !sfSecretReplaceMode
+                                      ? "•••••••• (secret saved — use Replace to update)"
+                                      : "From your Connected App"
+                                  }
                                   type="password"
                                   value={sfClientSecret}
                                   onChange={(e) => setSfClientSecret(e.target.value)}
                                   className="bg-background"
                                   autoComplete="off"
+                                  disabled={Boolean(
+                                    (salesforceAppConfig as any)?.hasClientSecret && !sfSecretReplaceMode
+                                  )}
                                 />
                               </div>
 
@@ -886,15 +956,52 @@ export const IntegrationsView = () => {
                               </div>
 
                               <div className="grid gap-2">
-                                <Label htmlFor="hs-client-secret">Client Secret</Label>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <Label htmlFor="hs-client-secret">Client Secret</Label>
+                                    {(hubspotAppConfig as any)?.hasClientSecret && !hsSecretReplaceMode ? (
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        Saved in Inboundless. The secret is never shown again—use{" "}
+                                        <span className="font-medium text-foreground">Replace</span> to set a new one.
+                                      </p>
+                                    ) : null}
+                                    {(hubspotAppConfig as any)?.hasClientSecret && hsSecretReplaceMode ? (
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        Paste the new Client Secret from your HubSpot app, then save.
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  {(hubspotAppConfig as any)?.hasClientSecret ? (
+                                    <Button
+                                      className="shrink-0"
+                                      onClick={() => {
+                                        setHsSecretReplaceMode((v) => {
+                                          const next = !v;
+                                          if (!next) setHsClientSecret("");
+                                          return next;
+                                        });
+                                      }}
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                    >
+                                      {hsSecretReplaceMode ? "Cancel" : "Replace secret"}
+                                    </Button>
+                                  ) : null}
+                                </div>
                                 <Input
                                   id="hs-client-secret"
-                                  placeholder="From your HubSpot app"
+                                  placeholder={
+                                    (hubspotAppConfig as any)?.hasClientSecret && !hsSecretReplaceMode
+                                      ? "•••••••• (secret saved — use Replace to update)"
+                                      : "From your HubSpot app"
+                                  }
                                   type="password"
                                   value={hsClientSecret}
                                   onChange={(e) => setHsClientSecret(e.target.value)}
                                   className="bg-background"
                                   autoComplete="off"
+                                  disabled={Boolean((hubspotAppConfig as any)?.hasClientSecret && !hsSecretReplaceMode)}
                                 />
                               </div>
                             </div>

@@ -19,14 +19,33 @@ async function getAuth(ctx: any): Promise<Auth> {
  * ===================================================================== */
 export const meConnection = query({
   args: {},
-  handler: async (ctx): Promise<Doc<"calendarAccounts"> | null> => {
+  handler: async (
+    ctx
+  ): Promise<
+    | {
+        provider: Doc<"calendarAccounts">["provider"];
+        email: string;
+        scope?: string;
+        connectedAt: number;
+      }
+    | null
+  > => {
     const { orgId, userId } = await getAuth(ctx);
-    return await ctx.db
+    const acct = await ctx.db
       .query("calendarAccounts")
       .withIndex("by_org_user", (q) =>
         q.eq("organizationId", orgId).eq("userId", userId)
       )
       .unique();
+
+    // Never expose refresh tokens to the client.
+    if (!acct) return null;
+    return {
+      provider: acct.provider,
+      email: acct.email ?? "",
+      scope: acct.scope,
+      connectedAt: acct.connectedAt,
+    };
   },
 });
 

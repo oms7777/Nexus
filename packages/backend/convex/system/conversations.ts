@@ -16,7 +16,7 @@ export const escalate = internalMutation({
     }
 
     const alreadyEscalated = conversation.status === "escalated";
-
+    const prevEscalatedAt = (conversation as any).escalatedAt as number | undefined;
     const now = Date.now();
 
     const assignment = await ctx.runMutation(api.routing.ensureAssignmentForSession, {
@@ -32,7 +32,8 @@ export const escalate = internalMutation({
 
     await ctx.db.patch(conversation._id, {
       status: "escalated",
-      escalatedAt: (conversation as any).escalatedAt ?? now,
+      // ✅ always bump escalatedAt so the conversation becomes "unseen" again if it was viewed long ago
+      escalatedAt: now,
       updatedAt: now,
       assignedRepUserId,
       assignedTerritoryKey,
@@ -46,8 +47,13 @@ export const escalate = internalMutation({
       });
     }
 
-    // Notify rep (Slack + email) once per conversation — first transition to escalated
-    if (!alreadyEscalated) {
+    // Notify rep (Slack + email) on first escalation, OR if re-escalated after a long time.
+    // This avoids spam loops while still surfacing "visitor came back after days".
+    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+    const shouldNotify =
+      !alreadyEscalated || (typeof prevEscalatedAt === "number" && now - prevEscalatedAt > THREE_DAYS_MS);
+
+    if (shouldNotify) {
       await ctx.scheduler.runAfter(0, internal.private.leadNotify.sendEscalationDigest, {
         conversationId: conversation._id,
       });

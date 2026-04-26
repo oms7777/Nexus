@@ -168,14 +168,14 @@ function buildLlmPlusKbVisitorSystem(
 
 const VISITOR_SYSTEM_MESSAGES = {
   en: {
-    escalationConnecting: "Got it — connecting you with someone from the team now.",
+    escalationConnecting: "Got it, connecting you with someone from the team now!",
     assistantInactive:
       "The AI assistant isn’t available on this workspace yet (plan inactive). Please use the site’s contact options or ask your host to activate the plan.",
     generationFallback:
       "Something went wrong on our side. Please try again in a moment, or ask to speak with someone from the team.",
   },
   fr: {
-    escalationConnecting: "Parfait — je vous mets en relation avec quelqu’un de l’équipe.",
+    escalationConnecting: "Parfait, je vous mets en relation avec quelqu’un de l’équipe !",
     assistantInactive:
       "L’assistant IA n’est pas disponible sur cet espace pour le moment (offre inactive). Utilisez les moyens de contact du site ou demandez l’activation du plan.",
     generationFallback:

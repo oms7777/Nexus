@@ -153,10 +153,20 @@ export const getSlackIntegration = query({
     const { orgId: organizationId } = await requireOrgAdmin(ctx);
     await requireSlackEntitled(ctx, organizationId);
 
-    return await ctx.db
+    const integration = await ctx.db
       .query("slackIntegrations")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
+
+    // Never expose access tokens to the client.
+    if (!integration) return null;
+    return {
+      teamId: integration.teamId,
+      teamName: integration.teamName,
+      defaultChannel: integration.defaultChannel,
+      createdAt: integration.createdAt,
+      updatedAt: integration.updatedAt,
+    };
   },
 });
 
@@ -336,10 +346,20 @@ export const getSalesforceAppConfig = query({
     const { orgId: organizationId } = await requireOrgAdmin(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
 
-    return await ctx.db
+    const cfg = await ctx.db
       .query("salesforceAppConfigs")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
+
+    // Never expose clientSecret to the client.
+    if (!cfg) return null;
+    return {
+      clientId: cfg.clientId,
+      loginUrl: cfg.loginUrl,
+      createdAt: cfg.createdAt,
+      updatedAt: cfg.updatedAt,
+      hasClientSecret: Boolean((cfg.clientSecret ?? "").trim()),
+    };
   },
 });
 
@@ -359,7 +379,7 @@ export const getInboundlessOAuthEnvHints = query({
 export const upsertSalesforceAppConfig = mutation({
   args: {
     clientId: v.string(),
-    clientSecret: v.string(),
+    clientSecret: v.optional(v.string()),
     loginUrl: v.string(),
   },
   handler: async (ctx, args) => {
@@ -372,10 +392,15 @@ export const upsertSalesforceAppConfig = mutation({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
 
+    const newSecret = (args.clientSecret ?? "").trim();
+    if (!existing && !newSecret) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Client secret is required" });
+    }
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         clientId: args.clientId,
-        clientSecret: args.clientSecret,
+        clientSecret: newSecret ? newSecret : existing.clientSecret,
         loginUrl: args.loginUrl,
         updatedAt: now,
       });
@@ -394,7 +419,7 @@ export const upsertSalesforceAppConfig = mutation({
     const inserted = await ctx.db.insert("salesforceAppConfigs", {
       organizationId,
       clientId: args.clientId,
-      clientSecret: args.clientSecret,
+      clientSecret: newSecret,
       loginUrl: args.loginUrl,
       createdAt: now,
       updatedAt: now,
@@ -417,10 +442,19 @@ export const getSalesforceIntegration = query({
     const { orgId: organizationId } = await requireOrgAdmin(ctx);
     await requireSalesforceEntitled(ctx, organizationId);
 
-    return await ctx.db
+    const integration = await ctx.db
       .query("salesforceIntegrations")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
+
+    // Never expose access/refresh tokens to the client.
+    if (!integration) return null;
+    return {
+      instanceUrl: integration.instanceUrl,
+      connectedAt: integration.connectedAt,
+      updatedAt: integration.updatedAt,
+      hasRefreshToken: Boolean((integration.refreshToken ?? "").trim()),
+    };
   },
 });
 
@@ -513,17 +547,26 @@ export const getHubSpotAppConfig = query({
     const { orgId: organizationId } = await requireOrgAdmin(ctx);
     await requireHubSpotEntitled(ctx, organizationId);
 
-    return await ctx.db
+    const cfg = await ctx.db
       .query("hubspotAppConfigs")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
+
+    // Never expose clientSecret to the client.
+    if (!cfg) return null;
+    return {
+      clientId: cfg.clientId,
+      createdAt: cfg.createdAt,
+      updatedAt: cfg.updatedAt,
+      hasClientSecret: Boolean((cfg.clientSecret ?? "").trim()),
+    };
   },
 });
 
 export const upsertHubSpotAppConfig = mutation({
   args: {
     clientId: v.string(),
-    clientSecret: v.string(),
+    clientSecret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
@@ -535,10 +578,15 @@ export const upsertHubSpotAppConfig = mutation({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
 
+    const newSecret = (args.clientSecret ?? "").trim();
+    if (!existing && !newSecret) {
+      throw new ConvexError({ code: "BAD_REQUEST", message: "Client secret is required" });
+    }
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         clientId: args.clientId,
-        clientSecret: args.clientSecret,
+        clientSecret: newSecret ? newSecret : existing.clientSecret,
         updatedAt: now,
       });
       await writeAuditLog(ctx, {
@@ -556,7 +604,7 @@ export const upsertHubSpotAppConfig = mutation({
     const inserted = await ctx.db.insert("hubspotAppConfigs", {
       organizationId,
       clientId: args.clientId,
-      clientSecret: args.clientSecret,
+      clientSecret: newSecret,
       createdAt: now,
       updatedAt: now,
     });
@@ -578,10 +626,20 @@ export const getHubSpotIntegration = query({
     const { orgId: organizationId } = await requireOrgAdmin(ctx);
     await requireHubSpotEntitled(ctx, organizationId);
 
-    return await ctx.db
+    const integration = await ctx.db
       .query("hubspotIntegrations")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
       .unique();
+
+    // Never expose access/refresh tokens to the client.
+    if (!integration) return null;
+    return {
+      portalId: integration.portalId,
+      hubDomain: integration.hubDomain,
+      connectedAt: integration.connectedAt,
+      updatedAt: integration.updatedAt,
+      hasRefreshToken: Boolean((integration.refreshToken ?? "").trim()),
+    };
   },
 });
 

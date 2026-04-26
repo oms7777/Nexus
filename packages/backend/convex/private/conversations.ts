@@ -276,15 +276,36 @@ export const countUnseenEscalated = query({
     const meUserId = (identity as any).subject as string | undefined;
     if (!orgId || !meUserId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
 
+    const orgRole =
+      ((identity as any)?.orgRole ??
+        (identity as any)?.org_role ??
+        (identity as any)?.organizationRole ??
+        undefined) as string | undefined;
+    const isAdmin = typeof orgRole === "string" && orgRole.includes("admin");
+
+    if (isAdmin) {
+      const base = await ctx.db
+        .query("conversations")
+        .withIndex("by_status_and_organization_id", (q) =>
+          q.eq("status", "escalated").eq("organizationId", orgId)
+        )
+        .collect();
+
+      // Admin: unseen if never viewed OR was re-escalated after the last view.
+      return base.filter((c) => (c.lastViewedByRepAt ?? 0) < (c.escalatedAt ?? 0)).length;
+    }
+
     const base = await ctx.db
       .query("conversations")
-      .withIndex("by_org_assigned_rep", (q) => q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId))
+      .withIndex("by_org_assigned_rep", (q) =>
+        q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId)
+      )
       .collect();
 
     return base.filter(
       (c) =>
         c.status === "escalated" &&
-        (c.lastViewedByRepUserId !== meUserId || c.lastViewedByRepAt == null)
+        ((c.lastViewedByRepAt ?? 0) < (c.escalatedAt ?? 0))
     ).length;
   },
 });
@@ -349,7 +370,7 @@ export const markAllEscalatedViewedForMe = mutation({
     const targets = base.filter(
       (c) =>
         c.status === "escalated" &&
-        (c.lastViewedByRepUserId !== meUserId || c.lastViewedByRepAt == null)
+        (c.lastViewedByRepAt ?? 0) < (c.escalatedAt ?? 0)
     );
 
     for (const c of targets) {

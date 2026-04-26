@@ -17,7 +17,8 @@ export async function POST(req: Request) {
   const clientSecret = String(body.clientSecret ?? "").trim();
   const loginUrl = String(body.loginUrl ?? "https://login.salesforce.com").trim();
 
-  if (!clientId || !clientSecret || !loginUrl) {
+  // Client secret is optional on update: Convex keeps the existing value when omitted/empty.
+  if (!clientId || !loginUrl) {
     return new NextResponse("Missing fields", { status: 400 });
   }
 
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
     api.integrations.upsertSalesforceAppConfig,
     {
       clientId,
-      clientSecret,
+      clientSecret: clientSecret ? clientSecret : undefined,
       loginUrl,
     },
     { token: convexToken ?? undefined }

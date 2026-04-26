@@ -1,7 +1,7 @@
 // packages/backend/convex/private/notifications.ts
 import { action, query, mutation } from "../_generated/server";
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 
 /** Format helper (pas de lib externe) */
 function fmt(dt: Date) {
@@ -212,20 +212,45 @@ export const listUnseenEscalationsForMe = query({
 
     const now = Date.now();
 
-    const base = await ctx.db
-      .query("conversations")
-      .withIndex("by_org_assigned_rep", (q) =>
-        q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId)
-      )
-      .collect();
+    const orgRole =
+      ((identity as any)?.orgRole ??
+        (identity as any)?.org_role ??
+        (identity as any)?.organizationRole ??
+        undefined) as string | undefined;
+    const isAdmin = typeof orgRole === "string" && orgRole.includes("admin");
 
-    const escalated = base
-      .filter(
-        (c) =>
-          c.status === "escalated" &&
-          (c.lastViewedByRepUserId !== meUserId || c.lastViewedByRepAt == null)
-      )
-      .sort((a, b) => Number(b.escalatedAt ?? b._creationTime) - Number(a.escalatedAt ?? a._creationTime));
+    let escalated: Array<Doc<"conversations">> = [];
+    if (isAdmin) {
+      const base = await ctx.db
+        .query("conversations")
+        .withIndex("by_status_and_organization_id", (q) =>
+          q.eq("status", "escalated").eq("organizationId", orgId)
+        )
+        .collect();
+
+      escalated = base
+        .filter((c) => (c.lastViewedByRepAt ?? 0) < (c.escalatedAt ?? 0))
+        .sort(
+          (a, b) => Number(b.escalatedAt ?? b._creationTime) - Number(a.escalatedAt ?? a._creationTime)
+        );
+    } else {
+      const base = await ctx.db
+        .query("conversations")
+        .withIndex("by_org_assigned_rep", (q) =>
+          q.eq("organizationId", orgId).eq("assignedRepUserId", meUserId)
+        )
+        .collect();
+
+      escalated = base
+        .filter(
+          (c) =>
+            c.status === "escalated" &&
+            (c.lastViewedByRepAt ?? 0) < (c.escalatedAt ?? 0)
+        )
+        .sort(
+          (a, b) => Number(b.escalatedAt ?? b._creationTime) - Number(a.escalatedAt ?? a._creationTime)
+        );
+    }
 
     const out: Array<{
       conversationId: Id<"conversations">;

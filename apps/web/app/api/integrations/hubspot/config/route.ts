@@ -16,7 +16,8 @@ export async function POST(req: Request) {
   const clientId = String(body.clientId ?? "").trim();
   const clientSecret = String(body.clientSecret ?? "").trim();
 
-  if (!clientId || !clientSecret) {
+  // Client secret is optional on update: Convex keeps the existing value when omitted/empty.
+  if (!clientId) {
     return new NextResponse("Missing fields", { status: 400 });
   }
 
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
     api.integrations.upsertHubSpotAppConfig,
     {
       clientId,
-      clientSecret,
+      clientSecret: clientSecret ? clientSecret : undefined,
     },
     { token: convexToken ?? undefined }
   );
