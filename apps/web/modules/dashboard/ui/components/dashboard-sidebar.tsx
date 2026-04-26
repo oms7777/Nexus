@@ -44,6 +44,7 @@ import {
 } from "@workspace/ui/components/dialog";
 import { Button } from "@workspace/ui/components/button";
 import { Switch } from "@workspace/ui/components/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 import { LiveVisitorStreamCard } from "@/modules/live/components/LiveVisitorStreamCard";
 
 function BrandHeader() {
@@ -120,7 +121,7 @@ export const DashboardSidebar = () => {
   }, [escalatedCount, playSoundEnabled]);
 
   const [notifOpen, setNotifOpen] = useState(false);
-  const [notifSettingsOpen, setNotifSettingsOpen] = useState(false);
+  const [notifTab, setNotifTab] = useState<"escalations" | "settings">("escalations");
   const [showBadgesLocal, setShowBadgesLocal] = useState(showBadges);
   const [playSoundLocal, setPlaySoundLocal] = useState(playSoundEnabled);
 
@@ -172,11 +173,11 @@ export const DashboardSidebar = () => {
   }, [canUseAdvancedAnalytics]);
 
   const profileItems = useMemo(() => {
-    const base = [
+    const base: { title: string; url: string; icon: typeof UserIcon }[] = [
       { title: "Account", url: "/me/profile", icon: UserIcon },
     ];
     if (canUseBooking) {
-      base.splice(1, 0, { title: "Calendar", url: "/me/calendar", icon: CalendarIcon });
+      base.push({ title: "Calendar", url: "/me/calendar", icon: CalendarIcon });
     }
     return base;
   }, [canUseBooking]);
@@ -195,7 +196,7 @@ export const DashboardSidebar = () => {
   const labelClass = "group-data-[collapsible=icon]:hidden";
   const iconClass = "size-5";
   const itemClass =
-    "flex items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm hover:bg-muted " +
+    "flex w-full min-w-0 items-center justify-start gap-3 rounded-md border border-transparent px-3 py-2 text-left text-sm hover:bg-muted " +
     "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2";
 
   return (
@@ -261,27 +262,6 @@ export const DashboardSidebar = () => {
           <SidebarGroupLabel className={labelClass}>Profile</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem key="Notifications">
-                <button
-                  type="button"
-                  onClick={() => setNotifOpen(true)}
-                  className={cn(itemClass, notifOpen && SIDEBAR_ITEM_ACTIVE)}
-                  title="Notifications"
-                >
-                  <BellIcon className={iconClass} />
-                  <span className={labelClass}>Notifications</span>
-                  {showBadges && Number(escalatedCount ?? 0) > 0 ? (
-                    <span
-                      className={cn(
-                        "ml-auto rounded-full bg-red-600 text-white text-[11px] px-2 py-0.5",
-                        "group-data-[collapsible=icon]:hidden"
-                      )}
-                    >
-                      {Number(escalatedCount ?? 0)}
-                    </span>
-                  ) : null}
-                </button>
-              </SidebarMenuItem>
               {profileItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <Link
@@ -294,6 +274,27 @@ export const DashboardSidebar = () => {
                   </Link>
                 </SidebarMenuItem>
               ))}
+              <SidebarMenuItem key="Notifications">
+                <button
+                  type="button"
+                  onClick={() => setNotifOpen(true)}
+                  className={cn(itemClass, notifOpen && SIDEBAR_ITEM_ACTIVE)}
+                  title="Notifications"
+                >
+                  <BellIcon className={iconClass} />
+                  <span className={labelClass}>Notifications</span>
+                  {showBadges && Number(escalatedCount ?? 0) > 0 ? (
+                    <span
+                      className={cn(
+                        "ml-auto shrink-0 rounded-full bg-red-600 text-white text-[11px] px-2 py-0.5",
+                        "group-data-[collapsible=icon]:hidden"
+                      )}
+                    >
+                      {Number(escalatedCount ?? 0)}
+                    </span>
+                  ) : null}
+                </button>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -329,113 +330,132 @@ export const DashboardSidebar = () => {
 
       <SidebarRail />
 
-      <Dialog open={notifOpen} onOpenChange={setNotifOpen}>
+      <Dialog
+        open={notifOpen}
+        onOpenChange={(open) => {
+          setNotifOpen(open);
+          if (open) setNotifTab("escalations");
+        }}
+      >
         <DialogContent className="max-w-5xl gap-0 overflow-hidden p-0">
-          <DialogHeader className="space-y-1 border-b px-6 py-5 text-left">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <DialogTitle className="text-xl font-semibold">Notifications</DialogTitle>
-                <DialogDescription className="text-base text-muted-foreground">
-                  Escalated visitors assigned to you.
-                </DialogDescription>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={async () => {
-                    await markAllViewed({});
-                  }}
-                  disabled={Number(escalatedCount ?? 0) === 0}
-                >
-                  Mark all as read
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setNotifSettingsOpen((v) => !v)}
-                >
-                  Settings
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <div className="grid grid-cols-1 gap-0 lg:grid-cols-[1fr_340px]">
-            <div className="max-h-[70vh] overflow-auto p-6">
-              {visitors.length === 0 ? (
-                <div className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-                  No escalations right now.
+          <Tabs
+            value={notifTab}
+            onValueChange={(v) => setNotifTab(v as "escalations" | "settings")}
+            className="gap-0"
+          >
+            <DialogHeader className="space-y-0 border-b px-6 py-4 text-left">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <DialogTitle className="text-xl font-semibold">Notifications</DialogTitle>
+                  <DialogDescription className="mt-1 text-base text-muted-foreground">
+                    Escalated visitors assigned to you.
+                  </DialogDescription>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  {visitors.map((v) => (
-                    <LiveVisitorStreamCard
-                      key={v._id}
-                      visitor={v as any}
-                      orgId={(organization?.id || "") as any}
-                      isSelected={false}
-                      onSelect={() => {}}
-                      mode="open_conversation"
-                      onOpenConversation={() => {
-                        setNotifOpen(false);
-                        router.push(`/conversations/${v.conversationId}`);
+                {notifTab === "escalations" ? (
+                  <div className="shrink-0 sm:pt-0.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={async () => {
+                        await markAllViewed({});
                       }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="border-l bg-muted/10 p-6">
-              <div className="text-sm font-semibold">Settings</div>
-              <div className={cn("mt-3 space-y-4", notifSettingsOpen ? "" : "opacity-50")}>
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">Show badge</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      Show the escalated count next to the bell.
-                    </div>
+                      disabled={Number(escalatedCount ?? 0) === 0}
+                    >
+                      Mark all as read
+                    </Button>
                   </div>
-                  <Switch
-                    checked={showBadgesLocal}
-                    onCheckedChange={(v) => setShowBadgesLocal(Boolean(v))}
-                    disabled={!notifSettingsOpen}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">Play sound</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      Beep when new escalations arrive.
-                    </div>
-                  </div>
-                  <Switch
-                    checked={playSoundLocal}
-                    onCheckedChange={(v) => setPlaySoundLocal(Boolean(v))}
-                    disabled={!notifSettingsOpen}
-                  />
-                </div>
-
-                <Button
-                  type="button"
-                  className="w-full"
-                  disabled={!notifSettingsOpen}
-                  onClick={async () => {
-                    await savePrefs({
-                      showBadges: showBadgesLocal,
-                      playSound: playSoundLocal,
-                      autoOpenConversation: false,
-                    });
-                    setNotifSettingsOpen(false);
-                  }}
-                >
-                  Save
-                </Button>
+                ) : null}
               </div>
-            </div>
-          </div>
+              <TabsList className="mt-4 h-9 w-full max-w-md">
+                <TabsTrigger value="escalations" className="flex-1">
+                  Escalations
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="flex-1">
+                  Settings
+                </TabsTrigger>
+              </TabsList>
+            </DialogHeader>
+
+            <TabsContent
+              value="escalations"
+              className="m-0 mt-0 data-[state=active]:block max-h-[min(70vh,720px)] overflow-y-auto p-0 outline-none"
+            >
+              <div className="p-6">
+                {visitors.length === 0 ? (
+                  <div className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                    No escalations right now.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {visitors.map((v) => (
+                      <LiveVisitorStreamCard
+                        key={v._id}
+                        visitor={v as any}
+                        orgId={(organization?.id || "") as any}
+                        isSelected={false}
+                        onSelect={() => {}}
+                        mode="open_conversation"
+                        onOpenConversation={() => {
+                          setNotifOpen(false);
+                          router.push(`/conversations/${v.conversationId}`);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent
+              value="settings"
+              className="m-0 mt-0 data-[state=active]:block max-h-[min(70vh,720px)] overflow-y-auto border-0 p-0 outline-none"
+            >
+              <div className="bg-muted/10 p-6">
+                <div className="mx-auto w-full max-w-lg space-y-4">
+                  <div className="text-sm font-semibold">Settings</div>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">Show badge</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          Show the escalated count next to the bell.
+                        </div>
+                      </div>
+                      <Switch
+                        checked={showBadgesLocal}
+                        onCheckedChange={(v) => setShowBadgesLocal(Boolean(v))}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">Play sound</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          Beep when new escalations arrive.
+                        </div>
+                      </div>
+                      <Switch checked={playSoundLocal} onCheckedChange={(v) => setPlaySoundLocal(Boolean(v))} />
+                    </div>
+
+                    <Button
+                      type="button"
+                      className="w-full"
+                      onClick={async () => {
+                        await savePrefs({
+                          showBadges: showBadgesLocal,
+                          playSound: playSoundLocal,
+                          autoOpenConversation: false,
+                        });
+                        setNotifTab("escalations");
+                      }}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
     </Sidebar>
