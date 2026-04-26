@@ -115,6 +115,8 @@ export const IntegrationsView = () => {
   const [waUseRepFirst, setWaUseRepFirst] = useState(true);
   const [waSaving, setWaSaving] = useState(false);
 
+  const [voicePanelOpen, setVoicePanelOpen] = useState(false);
+
   useEffect(() => {
     if (widgetSettings === undefined) return;
     setWaEnabled(!!(widgetSettings as any)?.whatsappHandoffEnabled);
@@ -417,6 +419,7 @@ export const IntegrationsView = () => {
     if (ent.isLoading) return;
     if (typeof window === "undefined" || window.location.hash !== "#voice") return;
     if (!showVoice) return;
+    setVoicePanelOpen(true);
     const id = window.setTimeout(() => {
       voiceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 120);
@@ -1034,24 +1037,45 @@ export const IntegrationsView = () => {
                       </h3>
                     </div>
                     <Card className="overflow-hidden border-border/60 shadow-sm">
-                      <CardHeader className="flex flex-row items-start gap-4 pb-2">
-                        <div
-                          className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-violet-500/12"
-                          aria-hidden
-                        >
-                          <Mic className="size-7 text-violet-600 dark:text-violet-400" />
-                        </div>
-                        <div className="min-w-0 space-y-1">
-                          <CardTitle className="text-lg">Voice</CardTitle>
-                          <CardDescription>
-                            Vapi voice in the widget: Inboundless can provide shared keys, or Voice+ lets you bring your
-                            own. Then pick an assistant and optional display number.
-                          </CardDescription>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="border-t border-border/60 bg-muted/10 pb-6 pt-5">
-                        <VapiConnectionPanel canConfigureVoiceByo={canConfigureVoiceByo} />
-                      </CardContent>
+                      <Collapsible open={voicePanelOpen} onOpenChange={setVoicePanelOpen}>
+                        <CardHeader className="pb-2">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex min-w-0 items-start gap-4">
+                              <div
+                                className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/12"
+                                aria-hidden
+                              >
+                                <Mic className="size-5 text-violet-600 dark:text-violet-400" />
+                              </div>
+                              <div className="min-w-0 space-y-1">
+                                <CardTitle className="text-base">Voice</CardTitle>
+                                <CardDescription>
+                                  Vapi voice in the widget: Inboundless can provide shared keys, or Voice+ lets you
+                                  bring your own. Then pick an assistant and optional display number.
+                                </CardDescription>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <CollapsibleTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="inline-flex size-9 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-xs transition hover:bg-muted/40 hover:text-foreground"
+                                  aria-label="Show voice details"
+                                >
+                                  <ChevronDown
+                                    className={cn("size-4 transition-transform", voicePanelOpen && "rotate-180")}
+                                  />
+                                </button>
+                              </CollapsibleTrigger>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CollapsibleContent>
+                          <CardContent className="border-t border-border/60 bg-muted/10 pb-6 pt-5">
+                            <VapiConnectionPanel canConfigureVoiceByo={canConfigureVoiceByo} />
+                          </CardContent>
+                        </CollapsibleContent>
+                      </Collapsible>
                     </Card>
                   </div>
                 )}
