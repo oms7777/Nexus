@@ -62,10 +62,12 @@ function userAsksPricingOrPlans(prompt: string): boolean {
  * True only if retrieved KB text plausibly contains real pricing / commercial info.
  * If the user asked for pricing but this is false, we must NOT call the LLM (it will invent $9.99 tiers).
  */
-function kbSnippetContainsPricingOrCommercialDetail(kb: string): boolean {
-  const k = kb.toLowerCase();
+function textContainsPricingOrCommercialDetail(text: string): boolean {
+  const k = (text ?? "").toLowerCase();
+  if (!k.trim()) return false;
   if (/[€$£]\s*\d|\d[\d.,]*\s*(€|eur|\$|usd|£)/.test(k)) return true;
-  if (/\b(per month|\/mo|\/month|monthly|annual|annually|par mois|mensuel|annuel|\/an)\b/.test(k)) return true;
+  if (/\b(per month|\/mo|\/month|monthly|annual|annually|par mois|mensuel|annuel|\/an|billed annually)\b/.test(k))
+    return true;
   if (/\b(free trial|essai gratuit|no credit card)\b/.test(k)) return true;
   // Accept "no list price" style pricing pages: clear CTA to contact sales or book a demo for pricing.
   const hasCommercialCue =
@@ -77,7 +79,22 @@ function kbSnippetContainsPricingOrCommercialDetail(kb: string): boolean {
 
   // Accept explicit "custom pricing" statements (still commercial, but no amounts).
   if (/\b(custom pricing|pricing is custom|tarif sur devis|sur devis)\b/.test(k)) return true;
+
+  // Named tiers with amounts (e.g. Starter €299, Growth €599).
+  if (/\b(starter|growth|enterprise)\b/.test(k) && /[€$£]\s*\d|\d[\d.,]*\s*(€|eur|\$|usd)/.test(k))
+    return true;
   return false;
+}
+
+function kbSnippetContainsPricingOrCommercialDetail(kb: string): boolean {
+  return textContainsPricingOrCommercialDetail(kb);
+}
+
+function hasVerifiedPricingContext(kbText: string, userPrompt: string): boolean {
+  return (
+    textContainsPricingOrCommercialDetail(kbText) ||
+    textContainsPricingOrCommercialDetail(userPrompt)
+  );
 }
 
 function kbStrictRewriteInstructions(exactFallback: string, loc: VisitorLocale): string {
@@ -149,10 +166,11 @@ function buildLlmPlusKbVisitorSystem(
     : "";
 
   const pricingGuard =
-    userAsksPricingOrPlans(userPrompt) &&
-    (!trimmedKb || !kbSnippetContainsPricingOrCommercialDetail(trimmedKb))
+    userAsksPricingOrPlans(userPrompt) && !hasVerifiedPricingContext(trimmedKb, userPrompt)
       ? `\n\n<<<PRICING_GUARD>>>\nThe visitor asked about pricing or plans. There is NO verified pricing in the excerpt above (or no excerpt). Do NOT invent amounts, tiers, storage, or contact emails. Say clearly you don't have confirmed pricing here and offer escalateConversationTool or the organization's official contact options.\n<<<END_PRICING_GUARD>>>\n`
-      : "";
+      : userAsksPricingOrPlans(userPrompt) && hasVerifiedPricingContext(trimmedKb, userPrompt)
+        ? `\n\n<<<PRICING_OK>>>\nThe visitor asked about pricing. Verified commercial detail exists in INTERNAL_KB_CONTEXT and/or in what the visitor wrote in this turn. Summarize the plans and amounts clearly (Starter/Growth/Enterprise if present). Do NOT refuse to share pricing that is already in context. Do NOT invent features or amounts that are not in context.\n<<<END_PRICING_OK>>>\n`
+        : "";
 
   return [
     visitorLanguageBlock(loc),

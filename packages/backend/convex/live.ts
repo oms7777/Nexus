@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { normalizeVisitorUrlKey } from "./lib/visitorUrls";
+import { SESSION_DURATION_MS } from "./constants";
 
 /** Helpers */
 function isPrivateOrLoopback(ip: string) {
@@ -283,8 +284,10 @@ export const upsertHeartbeat = internalMutation({
     /** Non-empty referrer from this heartbeat only (never treat "" as a real update). */
     const incomingReferrer = safeTrimRef(args.referrer);
 
+    // ✅ Do NOT shrink the long-lived contact session expiry to the live TTL.
+    // Keep session validity sliding (7d) while using `metadata.lastHeartbeatAt` for "Live" presence.
     const minimalUpdate: Record<string, any> = {
-      expiresAt: now + SESSION_TTL_MS,
+      expiresAt: Math.max(Number(session.expiresAt ?? 0), now + SESSION_DURATION_MS),
     };
 
     const isHostedIframeUrl = (url?: string): boolean => {
@@ -391,6 +394,7 @@ export const upsertHeartbeat = internalMutation({
       ...mdBase,
       referrer: mergedReferrer,
       firstTouchReferrer: mergedFirstTouch,
+      lastHeartbeatAt: now,
     };
 
     // --- NON-STICKY territory routing ---

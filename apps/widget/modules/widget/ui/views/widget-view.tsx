@@ -1,8 +1,9 @@
 // apps/widget/modules/widget/ui/views/widget-view.tsx
 "use client";
 
-import React, { type PropsWithChildren } from "react";
+import React, { type PropsWithChildren, useEffect, useMemo } from "react";
 import { useAtomValue } from "jotai";
+import { LoaderIcon } from "lucide-react";
 
 import {
   getWidgetUiLanguage,
@@ -50,20 +51,51 @@ function RefreshFallback() {
   const lang = getWidgetUiLanguage(widgetSettings ?? undefined);
   const copy = widgetCopyFor(lang);
 
+  const canAutoReload = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const k = "nx_widget_last_autoreload_at";
+      const last = Number(window.sessionStorage.getItem(k) ?? "0");
+      const now = Date.now();
+      // Avoid infinite reload loops if a persistent bug keeps crashing the widget.
+      // If we already auto-reloaded very recently, stop and show the manual button.
+      if (now - last < 10_000) return false;
+      window.sessionStorage.setItem(k, String(now));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!canAutoReload) return;
+    const id = window.setTimeout(() => {
+      reloadHostedWidget();
+    }, 600);
+    return () => window.clearTimeout(id);
+  }, [canAutoReload]);
+
   return (
     <div
       className="flex h-full w-full flex-col items-center justify-center p-6 text-center"
       role="alert"
       aria-live="polite"
     >
-      <button
-        type="button"
-        className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-        aria-label={copy.errorBoundaryRefresh}
-        onClick={() => reloadHostedWidget()}
-      >
-        {copy.errorBoundaryRefresh}
-      </button>
+      {canAutoReload ? (
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <LoaderIcon className="h-4 w-4 animate-spin" aria-hidden />
+          <div className="text-xs">Reconnecting…</div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+          aria-label={copy.errorBoundaryRefresh}
+          onClick={() => reloadHostedWidget()}
+        >
+          {copy.errorBoundaryRefresh}
+        </button>
+      )}
     </div>
   );
 }

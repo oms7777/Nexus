@@ -30,10 +30,10 @@ or you can use record.mirror to access the mirror instance during recording.`,Nr
       ${k?`left: 50%; transform: translate(-50%, 16px);
            width: min(1200px, calc(100vw - 96px)); max-width: 1200px;
            bottom: 80px; height: min(500px, 48vh); max-height: calc(100vh - 100px);
-           border-radius: 16px; box-shadow: 0 -2px 16px rgba(0,0,0,.08);`:`${le==="bottom-right"?"right: 16px;":"left: 16px;"} bottom: 88px;
-           width: 380px; height: 560px; max-width: calc(100vw - 32px); max-height: calc(100vh - 100px);
+           border-radius: 16px; box-shadow: 0 -2px 16px rgba(0,0,0,.08);`:`${le==="bottom-right"?"right: 16px;":"left: 16px;"} bottom: 96px;
+           width: 400px; height: min(680px, 62vh); max-width: calc(100vw - 32px); max-height: calc(100vh - 88px);
            border-radius: 14px; box-shadow: 0 2px 16px rgba(0,0,0,.08);
-           transform: translateY(8px);`}
+           transform: translateY(0);`}
       z-index: 2147482999; overflow: hidden;
       display: none; opacity: 0;
       transition: all .28s ease; background: #fff;

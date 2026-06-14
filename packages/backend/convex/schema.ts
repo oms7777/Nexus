@@ -261,6 +261,8 @@ export default defineSchema({
         referrer: v.optional(v.string()),
         /** First non-empty referrer observed for this session (survives later empty heartbeats). */
         firstTouchReferrer: v.optional(v.string()),
+        /** Timestamp of last heartbeat received (used for "Live" view; avoids shrinking session expiry). */
+        lastHeartbeatAt: v.optional(v.number()),
         currentUrl: v.optional(v.string()),
         utmSource: v.optional(v.string()),
         /** Lowercase utm_* (aligned with live heartbeat merge + analytics enrich). */

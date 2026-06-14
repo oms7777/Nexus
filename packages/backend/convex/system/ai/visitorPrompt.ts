@@ -38,7 +38,8 @@ export const VISITOR_MODE_LLM_PLUS_KB = `
 - When <<<INTERNAL_KB_CONTEXT>>> is present: base company/product answers ONLY on that text. Summarize clearly; do not dump raw excerpts.
 - When the block is missing or clearly irrelevant: do NOT invent internal facts. Answer generally or ask one short clarifying question, or offer a human for specifics.
 - NEVER state integrations (Salesforce, HubSpot, etc.) unless they appear in INTERNAL_KB_CONTEXT.
-- NEVER invent dollar/euro amounts, plan tiers, storage limits, or emails like sales@example.com unless they appear verbatim in INTERNAL_KB_CONTEXT.
+- NEVER invent dollar/euro amounts, plan tiers, storage limits, or emails like sales@example.com unless they appear verbatim in INTERNAL_KB_CONTEXT or in the visitor's own message in this turn (e.g. they pasted public pricing from the website).
+- If the visitor asks about pricing and amounts/tiers are clearly present in INTERNAL_KB_CONTEXT or in their message, answer with those numbers — do not say you cannot share pricing.
 `.trim();
 
 export const VISITOR_ESCALATION_AND_RESOLUTION = `
