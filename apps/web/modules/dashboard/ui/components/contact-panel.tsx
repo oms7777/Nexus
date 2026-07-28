@@ -2,7 +2,7 @@
 
 import Bowser from "bowser";
 import React, { useCallback, useMemo, useState } from "react";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 
 import {
@@ -11,6 +11,17 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@workspace/ui/components/accordion";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@workspace/ui/components/alert-dialog";
 import { Button } from "@workspace/ui/components/button";
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
 
@@ -25,6 +36,7 @@ import {
   LinkIcon,
   Download,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -178,6 +190,21 @@ export const ContactPanel = () => {
 
   const cityLabel = contactSession?.metadata?.city ?? undefined;
 
+  /** A company the visitor typed wins over the one inferred from their IP range. */
+  const companyInfo = useMemo(() => {
+    const md = (contactSession?.metadata ?? {}) as Record<string, unknown>;
+    const declared = typeof md.company === "string" ? md.company.trim() : "";
+    const inferred = typeof md.ipCompanyName === "string" ? md.ipCompanyName.trim() : "";
+    const name = declared || inferred;
+    if (!name) return undefined;
+
+    return {
+      name,
+      source: declared ? ("declared" as const) : ("ip" as const),
+      domain: typeof md.ipCompanyDomain === "string" ? md.ipCompanyDomain.trim() : undefined,
+    };
+  }, [contactSession?.metadata]);
+
   const utm = useMemo(
     () => parseUtm(contactSession?.metadata?.currentUrl),
     [contactSession?.metadata?.currentUrl],
@@ -271,6 +298,16 @@ export const ContactPanel = () => {
         icon: GlobeIcon,
         title: "Location & Language",
         items: [
+          ...(companyInfo
+            ? [
+                {
+                  label: companyInfo.source === "ip" ? "Company (from IP)" : "Company",
+                  value: companyInfo.domain
+                    ? `${companyInfo.name} · ${companyInfo.domain}`
+                    : companyInfo.name,
+                },
+              ]
+            : []),
           ...(cityLabel ? [{ label: "City", value: cityLabel }] : []),
           ...(countryInfo
             ? [
@@ -398,7 +435,16 @@ export const ContactPanel = () => {
         ],
       },
     ];
-  }, [contactSession, userAgentInfo, countryInfo, cityLabel, utm, lastPages, timeOnSite]);
+  }, [
+    contactSession,
+    userAgentInfo,
+    countryInfo,
+    cityLabel,
+    companyInfo,
+    utm,
+    lastPages,
+    timeOnSite,
+  ]);
 
   if (contactSession === undefined || contactSession === null) return null;
 
@@ -568,8 +614,68 @@ export const ContactPanel = () => {
               </div>
             </div>
           </div>
+
+          <EraseVisitorSection contactSessionId={contactSession._id} />
         </div>
       </div>
+    </div>
+  );
+};
+
+/** GDPR right to erasure, actioned where the rep actually receives the request. */
+const EraseVisitorSection = ({
+  contactSessionId,
+}: {
+  contactSessionId: Id<"contactSessions">;
+}) => {
+  const eraseVisitor = useMutation(api.private.privacy.eraseVisitor);
+  const [isErasing, setIsErasing] = useState(false);
+
+  const handleErase = async () => {
+    setIsErasing(true);
+    try {
+      const res = await eraseVisitor({ contactSessionId });
+      toast.success(
+        `Erased ${res.snapshotsDeleted} recording(s) and ${res.eventsDeleted} event(s).`,
+      );
+    } catch (e) {
+      toast.error(
+        (e as { data?: { message?: string } })?.data?.message ?? "Could not erase this visitor",
+      );
+    } finally {
+      setIsErasing(false);
+    }
+  };
+
+  return (
+    <div className="border-t pt-4">
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button className="h-8 text-xs" size="sm" type="button" variant="outline">
+            <Trash2 className="size-3.5" />
+            Erase visitor data
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Erase this visitor&apos;s data?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deletes their session recordings and analytics events, and anonymizes their name and
+              email. The conversation is kept without identity so your reporting stays accurate.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={isErasing} onClick={handleErase}>
+              {isErasing ? "Erasing…" : "Erase data"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Use this when a visitor exercises their right to erasure. Admins only.
+      </p>
     </div>
   );
 };

@@ -9,6 +9,102 @@ function monthKey(ts: number) {
   return `${y}-${m}`;
 }
 
+/* -------------------------------------------------------------
+ * Cost circuit breaker
+ *
+ * `public.messages.create` is an unauthenticated endpoint that calls a paid LLM.
+ * These are deliberately generous safety limits, not plan entitlements: the goal
+ * is to survive a scraper or a runaway loop, not to meter customers.
+ * ----------------------------------------------------------- */
+
+const DEFAULTS = {
+  /** Per organization, per calendar month. */
+  monthlyCap: 5000,
+  /** Per visitor session, per rolling window. */
+  windowMs: 5 * 60 * 1000,
+  maxPerWindow: 30,
+};
+
+function envInt(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
+}
+
+export type AiMessageBudget =
+  | { allowed: true; used: number; cap: number }
+  | { allowed: false; reason: "RATE_LIMITED" | "MONTHLY_CAP" };
+
+export const consumeAiMessage = internalMutation({
+  args: {
+    organizationId: v.string(),
+    /** Visitor bucket key — the contact session id. */
+    subjectKey: v.string(),
+  },
+  handler: async (ctx, { organizationId, subjectKey }): Promise<AiMessageBudget> => {
+    const now = Date.now();
+
+    // 1) Burst protection per visitor.
+    const windowMs = envInt("AI_RATE_WINDOW_MS", DEFAULTS.windowMs);
+    const maxPerWindow = envInt("AI_RATE_MAX_PER_WINDOW", DEFAULTS.maxPerWindow);
+
+    const bucket = await ctx.db
+      .query("aiRateLimits")
+      .withIndex("by_org_subject", (q) =>
+        q.eq("organizationId", organizationId).eq("subjectKey", subjectKey),
+      )
+      .unique();
+
+    if (!bucket) {
+      await ctx.db.insert("aiRateLimits", {
+        organizationId,
+        subjectKey,
+        windowStartedAt: now,
+        count: 1,
+        updatedAt: now,
+      });
+    } else if (now - bucket.windowStartedAt > windowMs) {
+      await ctx.db.patch(bucket._id, { windowStartedAt: now, count: 1, updatedAt: now });
+    } else if (bucket.count >= maxPerWindow) {
+      return { allowed: false, reason: "RATE_LIMITED" };
+    } else {
+      await ctx.db.patch(bucket._id, { count: bucket.count + 1, updatedAt: now });
+    }
+
+    // 2) Monthly ceiling per organization.
+    const month = monthKey(now);
+    const cap = envInt("AI_MESSAGES_MONTHLY_CAP", DEFAULTS.monthlyCap);
+
+    const row = await ctx.db
+      .query("usageMonthly")
+      .withIndex("by_org_month", (q) => q.eq("organizationId", organizationId).eq("month", month))
+      .unique();
+
+    const used = row?.aiMessages ?? 0;
+    if (used >= cap) {
+      console.log(
+        `[usage] monthly AI message cap reached org=${organizationId} month=${month} cap=${cap}`,
+      );
+      return { allowed: false, reason: "MONTHLY_CAP" };
+    }
+
+    if (!row) {
+      await ctx.db.insert("usageMonthly", {
+        organizationId,
+        month,
+        events: 0,
+        aiTokens: 0,
+        voiceMinutes: 0,
+        aiMessages: 1,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(row._id, { aiMessages: used + 1, updatedAt: now });
+    }
+
+    return { allowed: true, used: used + 1, cap };
+  },
+});
+
 export const getOrCreateUsageRow = internalMutation({
   args: {
     organizationId: v.string(),

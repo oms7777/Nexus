@@ -33,6 +33,36 @@ export interface GeoResult {
   countryCode?: string;
   lat?: number;
   lng?: number;
+  /** Employer inferred from a corporate IP range. Absent on residential / datacenter IPs. */
+  companyName?: string;
+  companyDomain?: string;
+  /** ipdata network class: business | education | government | isp | hosting. */
+  connectionType?: string;
+}
+
+/**
+ * Network classes where the IP owner is plausibly the visitor's employer.
+ * Residential ISPs resolve to "Orange", "Free"… and datacenters to cloud providers,
+ * so surfacing those as company names would be misleading in the dashboard.
+ */
+const CORPORATE_CONNECTION_TYPES = new Set(["business", "education", "government"]);
+
+function normalizeOrgIdentity(input: {
+  name?: string | null;
+  domain?: string | null;
+  type?: string | null;
+}): Pick<GeoResult, "companyName" | "companyDomain" | "connectionType"> {
+  const connectionType = (input.type ?? "").trim().toLowerCase() || undefined;
+
+  if (!connectionType || !CORPORATE_CONNECTION_TYPES.has(connectionType)) {
+    return { connectionType };
+  }
+
+  return {
+    companyName: (input.name ?? "").trim() || undefined,
+    companyDomain: (input.domain ?? "").trim().toLowerCase() || undefined,
+    connectionType,
+  };
 }
 
 /** Cache lookup */
@@ -54,6 +84,9 @@ export const setCached = internalMutation({
     countryCode: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
+    companyName: v.optional(v.string()),
+    companyDomain: v.optional(v.string()),
+    connectionType: v.optional(v.string()),
     ttlMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -66,6 +99,9 @@ export const setCached = internalMutation({
       countryCode: args.countryCode,
       lat: args.lat,
       lng: args.lng,
+      companyName: args.companyName,
+      companyDomain: args.companyDomain,
+      connectionType: args.connectionType,
       expiresAt,
     };
 
@@ -89,13 +125,23 @@ async function geoFromIpdata(ip: string): Promise<GeoResult | null> {
     country_code?: string;
     latitude?: number;
     longitude?: number;
+    asn?: { name?: string; domain?: string; type?: string };
+    company?: { name?: string; domain?: string; type?: string };
   };
 
   const city = data.city ?? undefined;
   const countryCode = data.country_code ?? undefined;
   const lat = typeof data.latitude === "number" ? data.latitude : undefined;
   const lng = typeof data.longitude === "number" ? data.longitude : undefined;
-  return { city, countryCode, lat, lng };
+
+  // `company` is more precise than `asn` when the plan returns it; fall back to `asn`.
+  const identity = normalizeOrgIdentity({
+    name: data.company?.name ?? data.asn?.name,
+    domain: data.company?.domain ?? data.asn?.domain,
+    type: data.company?.type ?? data.asn?.type,
+  });
+
+  return { city, countryCode, lat, lng, ...identity };
 }
 
 /**
@@ -156,6 +202,10 @@ function mergeGeo(a: GeoResult, b: GeoResult | null | undefined): GeoResult {
     countryCode: b.countryCode ?? a.countryCode,
     lat: b.lat ?? a.lat,
     lng: b.lng ?? a.lng,
+    // Only ipdata classifies networks, so the geo fallbacks never overwrite identity.
+    companyName: b.companyName ?? a.companyName,
+    companyDomain: b.companyDomain ?? a.companyDomain,
+    connectionType: b.connectionType ?? a.connectionType,
   };
 }
 
@@ -165,8 +215,17 @@ export const lookupIp = internalAction({
   handler: async (ctx, { ip }): Promise<GeoResult> => {
     const cached = await ctx.runQuery(internal.live.getCached, { ip });
     // Old cache rows could have city/country but no coords — re-fetch to populate map pins.
+    // Rows cached before network identity shipped simply pick it up when their TTL expires.
     if (cached && cached.lat != null && cached.lng != null) {
-      return { city: cached.city, countryCode: cached.countryCode, lat: cached.lat, lng: cached.lng };
+      return {
+        city: cached.city,
+        countryCode: cached.countryCode,
+        lat: cached.lat,
+        lng: cached.lng,
+        companyName: cached.companyName,
+        companyDomain: cached.companyDomain,
+        connectionType: cached.connectionType,
+      };
     }
 
     let merged: GeoResult = {
@@ -174,6 +233,9 @@ export const lookupIp = internalAction({
       countryCode: cached?.countryCode,
       lat: cached?.lat,
       lng: cached?.lng,
+      companyName: cached?.companyName,
+      companyDomain: cached?.companyDomain,
+      connectionType: cached?.connectionType,
     };
 
     try {
@@ -202,9 +264,18 @@ export const lookupIp = internalAction({
       return { city: undefined, countryCode: undefined, lat: undefined, lng: undefined };
     }
 
-    const { city, countryCode, lat, lng } = merged;
-    await ctx.runMutation(internal.live.setCached, { ip, city, countryCode, lat, lng });
-    return { city, countryCode, lat, lng };
+    const { city, countryCode, lat, lng, companyName, companyDomain, connectionType } = merged;
+    await ctx.runMutation(internal.live.setCached, {
+      ip,
+      city,
+      countryCode,
+      lat,
+      lng,
+      companyName,
+      companyDomain,
+      connectionType,
+    });
+    return { city, countryCode, lat, lng, companyName, companyDomain, connectionType };
   },
 });
 
@@ -254,7 +325,38 @@ async function pickRepForTerritory(ctx: any, organizationId: string, territoryKe
   return online[0].userId as string;
 }
 
-/** Upsert heartbeat + enrich metadata + bump session TTL + territory assign (NON-STICKY) */
+/**
+ * Whether an already-assigned rep may keep the session.
+ * Heartbeats fire every 60s, so re-picking a rep on every beat makes leads hop
+ * between equally valid reps on the Live map and can contradict the assignment
+ * `routing.ensureAssignmentForSession` pinned for an ongoing conversation.
+ */
+async function repStillEligibleForTerritory(
+  ctx: any,
+  organizationId: string,
+  userId: string,
+  territoryKey?: string,
+): Promise<boolean> {
+  const reps = await ctx.db
+    .query("repsPresence")
+    .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
+    .collect();
+
+  const current = reps.find((r: any) => r.userId === userId);
+  if (!current || current.available !== true) return false;
+  if (!territoryKey) return true;
+
+  const covers = (r: any) =>
+    Array.isArray(r.regions) && (r.regions as string[]).includes(territoryKey);
+
+  if (covers(current)) return true;
+
+  // Nobody online covers this territory, so the current rep stays a valid fallback
+  // (same rule `pickRepForTerritory` applies when it falls back to any online rep).
+  return !reps.some((r: any) => r.available === true && covers(r));
+}
+
+/** Upsert heartbeat + enrich metadata + bump session TTL + territory assign (STICKY while valid) */
 export const upsertHeartbeat = internalMutation({
   args: {
     organizationId: v.string(),
@@ -270,6 +372,9 @@ export const upsertHeartbeat = internalMutation({
     countryCode: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
+    companyName: v.optional(v.string()),
+    companyDomain: v.optional(v.string()),
+    connectionType: v.optional(v.string()),
     title: v.optional(v.string()),
     userAgent: v.optional(v.string()),
     cookieEnabled: v.optional(v.boolean()),
@@ -395,16 +500,20 @@ export const upsertHeartbeat = internalMutation({
       referrer: mergedReferrer,
       firstTouchReferrer: mergedFirstTouch,
       lastHeartbeatAt: now,
+      // Network identity is sticky: a later heartbeat without geo must not erase it.
+      ipCompanyName: args.companyName ?? (mdBase as any).ipCompanyName,
+      ipCompanyDomain: args.companyDomain ?? (mdBase as any).ipCompanyDomain,
+      ipConnectionType: args.connectionType ?? (mdBase as any).ipConnectionType,
     };
 
-    // --- NON-STICKY territory routing ---
-    // We recompute assignment when we have a country code.
-    // This makes changes in Team & Territories take effect immediately (next heartbeat).
+    // --- Territory routing: territory label always refreshes, rep assignment is sticky ---
+    // The territory key keeps following Team & Territories changes immediately, but the
+    // assigned rep only moves when the current one is no longer eligible. Otherwise a
+    // visitor would change owner mid-visit and reps would see leads jump on the Live map.
     const cc = normCC((args.countryCode ?? (prevMetadata as any)?.countryCode) as string | undefined);
 
     if (cc) {
       const territoryKey = await resolveTerritoryKey(ctx, args.organizationId, cc);
-      const chosenRepUserId = await pickRepForTerritory(ctx, args.organizationId, territoryKey);
 
       // Patch only if changed (avoid write spam)
       const prevAssignedRep = (session.assignedRepUserId as string | undefined) || undefined;
@@ -413,8 +522,21 @@ export const upsertHeartbeat = internalMutation({
       if (territoryKey !== prevTerritory) {
         minimalUpdate.assignedTerritoryKey = territoryKey;
       }
-      if (chosenRepUserId && chosenRepUserId !== prevAssignedRep) {
-        minimalUpdate.assignedRepUserId = chosenRepUserId;
+
+      const keepCurrentRep =
+        !!prevAssignedRep &&
+        (await repStillEligibleForTerritory(
+          ctx,
+          args.organizationId,
+          prevAssignedRep,
+          territoryKey,
+        ));
+
+      if (!keepCurrentRep) {
+        const chosenRepUserId = await pickRepForTerritory(ctx, args.organizationId, territoryKey);
+        if (chosenRepUserId && chosenRepUserId !== prevAssignedRep) {
+          minimalUpdate.assignedRepUserId = chosenRepUserId;
+        }
       }
     }
 
@@ -472,6 +594,9 @@ export const heartbeatHttp = internalAction({
     let countryCode: string | undefined;
     let lat: number | undefined;
     let lng: number | undefined;
+    let companyName: string | undefined;
+    let companyDomain: string | undefined;
+    let connectionType: string | undefined;
 
     if (ip) {
       try {
@@ -480,6 +605,9 @@ export const heartbeatHttp = internalAction({
         countryCode = geo.countryCode;
         lat = geo.lat;
         lng = geo.lng;
+        companyName = geo.companyName;
+        companyDomain = geo.companyDomain;
+        connectionType = geo.connectionType;
       } catch {
         // best-effort
       }
@@ -499,6 +627,9 @@ export const heartbeatHttp = internalAction({
       countryCode,
       lat,
       lng,
+      companyName,
+      companyDomain,
+      connectionType,
       title: args.title,
       userAgent: args.userAgent,
       cookieEnabled: args.cookieEnabled,

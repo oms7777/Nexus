@@ -14,6 +14,12 @@ export type Visitor = {
   countryCode?: string;
   lat?: number;
   lng?: number;
+  /** Declared on a form, or inferred from a corporate IP range. */
+  company?: string;
+  companySource?: "declared" | "ip";
+  companyDomain?: string;
+  /** business | education | government | isp | hosting — "hosting" usually means a bot. */
+  connectionType?: string;
   currentUrl?: string;
   title?: string;
   /** Best-effort page views count (matches metadata.pages length server-side). */

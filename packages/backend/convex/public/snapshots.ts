@@ -7,6 +7,23 @@ import { normalizeHostname } from "../lib/domains";
 const MAX_SNAPSHOT_CHARS = 2_000_000; // ~2MB-ish worst case (ajuste si besoin)
 const KEEP_LAST = 25;
 
+/** Retention bounds for session replay. Kept short by default. */
+export const SNAPSHOT_RETENTION = {
+  defaultDays: 30,
+  minDays: 1,
+  maxDays: 365,
+};
+
+/** Clamps a stored setting into the allowed window, falling back to the default. */
+export function snapshotRetentionDays(days: unknown): number {
+  const raw = Number(days);
+  if (!Number.isFinite(raw)) return SNAPSHOT_RETENTION.defaultDays;
+  return Math.min(
+    Math.max(Math.floor(raw), SNAPSHOT_RETENTION.minDays),
+    SNAPSHOT_RETENTION.maxDays,
+  );
+}
+
 export const save = mutation({
   args: {
     organizationId: v.string(),
@@ -49,6 +66,8 @@ export const save = mutation({
       return { ok: false, error: "Snapshot too large" };
     }
 
+    // Retention is enforced by the sweep in `private/privacy.ts`, from `ts` and the
+    // organization's current setting — nothing to stamp here.
     const id = await ctx.db.insert("sessionSnapshots", {
       organizationId,
       sessionId,

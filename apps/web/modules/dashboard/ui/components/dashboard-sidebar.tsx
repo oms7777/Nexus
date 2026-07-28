@@ -11,6 +11,7 @@ import {
   BookOpen,
   SlidersHorizontal,
   ScrollText,
+  ShieldCheck,
 } from "lucide-react";
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
@@ -190,6 +191,7 @@ export const DashboardSidebar = () => {
       { title: "Widget Customization", url: "/customization", icon: SlidersHorizontal },
       { title: "Integrations", url: "/integrations", icon: InboxIcon },
       { title: "Audit log", url: "/org/audit", icon: ScrollText },
+      { title: "Privacy & retention", url: "/org/privacy", icon: ShieldCheck },
     ].filter(Boolean) as { title: string; url: string; icon: any }[];
   }, [ent.isLoading]);
 

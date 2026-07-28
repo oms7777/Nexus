@@ -74,6 +74,29 @@ export default defineSchema({
     .index("by_org_domain", ["organizationId", "domain"])
     .index("by_org_normalized_domain", ["organizationId", "normalizedDomain"]),
 
+  /**
+   * Outbound webhooks. Lets a customer pipe Inboundless events into their own stack
+   * (n8n, Zapier, internal services) without waiting for a first-party integration.
+   */
+  webhookEndpoints: defineTable({
+    organizationId: v.string(),
+    url: v.string(),
+    /** Shared secret for the HMAC-SHA256 signature header. Never exposed after creation. */
+    secret: v.string(),
+    /** Event names this endpoint subscribes to. Empty means every event. */
+    events: v.array(v.string()),
+    active: v.boolean(),
+    description: v.optional(v.string()),
+    /** Last delivery outcome, surfaced in the UI so a broken endpoint is visible. */
+    lastStatus: v.optional(v.number()),
+    lastAttemptAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    consecutiveFailures: v.optional(v.number()),
+    createdByUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]),
+
   auditLogs: defineTable({
     organizationId: v.string(),
     actorUserId: v.optional(v.string()),
@@ -108,8 +131,23 @@ export default defineSchema({
     events: v.number(),
     aiTokens: v.number(),
     voiceMinutes: v.number(),
+    /** Visitor messages answered by the AI this month. Drives the cost circuit breaker. */
+    aiMessages: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_org_month", ["organizationId", "month"]),
+
+  /**
+   * Sliding-window counters protecting the public chat endpoint.
+   * `subjectKey` is the visitor's contact session, so one abusive visitor cannot
+   * burn a whole organization's AI budget.
+   */
+  aiRateLimits: defineTable({
+    organizationId: v.string(),
+    subjectKey: v.string(),
+    windowStartedAt: v.number(),
+    count: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_subject", ["organizationId", "subjectKey"]),
 
   widgetSettings: defineTable({
     organizationId: v.string(),
@@ -194,6 +232,12 @@ export default defineSchema({
         modalContent: v.optional(v.string()),
       })
     ),
+
+    /**
+     * How long session replay snapshots are kept, in days (1–365, default 30).
+     * Lower is safer: snapshots capture a third party's browsing session.
+     */
+    snapshotRetentionDays: v.optional(v.number()),
   }).index("by_organization_id", ["organizationId"]),
 
   plugins: defineTable({
@@ -211,6 +255,11 @@ export default defineSchema({
     contactSessionId: v.id("contactSessions"),
     status: v.union(v.literal("unresolved"), v.literal("escalated"), v.literal("resolved")),
     escalatedAt: v.optional(v.number()),
+    /**
+     * First time a human operator actually replied in this thread.
+     * Once set, the AI must stay silent so rep and assistant never answer over each other.
+     */
+    repFirstRepliedAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
     // ✅ rep “owner” de la conversation
     assignedRepUserId: v.optional(v.string()),
@@ -285,6 +334,15 @@ export default defineSchema({
         /** Captured on booking / forms — used for analytics identity (Signals). */
         company: v.optional(v.string()),
 
+        /**
+         * Inferred from the visitor's IP (reverse lookup), never self-declared.
+         * Kept separate from `company` so a declared name always wins in the UI.
+         */
+        ipCompanyName: v.optional(v.string()),
+        ipCompanyDomain: v.optional(v.string()),
+        /** business | education | government | isp | hosting — "hosting" usually means a bot. */
+        ipConnectionType: v.optional(v.string()),
+
         // legacy / keep for backward compat
         preferredRepUserId: v.optional(v.string()),
       })
@@ -311,6 +369,11 @@ export default defineSchema({
     countryCode: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
+    /** Employer inferred from a corporate IP range (never set for residential / hosting IPs). */
+    companyName: v.optional(v.string()),
+    companyDomain: v.optional(v.string()),
+    /** Network class: business | education | government | isp | hosting. */
+    connectionType: v.optional(v.string()),
     expiresAt: v.number(),
   }).index("by_ip", ["ip"]),
 
@@ -417,11 +480,43 @@ export default defineSchema({
         description: v.optional(v.string()),
       })
     ),
+
+    /**
+     * CRM records created for this meeting. Required to walk back from a booking
+     * to the opportunity / deal it produced (revenue attribution).
+     */
+    crm: v.optional(
+      v.object({
+        salesforceLeadId: v.optional(v.string()),
+        salesforceEventId: v.optional(v.string()),
+        hubspotContactId: v.optional(v.string()),
+      })
+    ),
+
+    /**
+     * Filled by the `syncRevenueAttribution` cron, never by the booking flow.
+     * `amount` is the deal / opportunity value in `currency`, as reported by the CRM.
+     */
+    attribution: v.optional(
+      v.object({
+        provider: v.union(v.literal("salesforce"), v.literal("hubspot")),
+        dealId: v.optional(v.string()),
+        stage: v.optional(v.string()),
+        amount: v.optional(v.number()),
+        currency: v.optional(v.string()),
+        isWon: v.optional(v.boolean()),
+        isClosed: v.optional(v.boolean()),
+        closeDate: v.optional(v.string()),
+        checkedAt: v.number(),
+      })
+    ),
+
     createdAt: v.number(),
   })
     .index("by_org", ["organizationId"])
     .index("by_contact_session", ["contactSessionId"])
-    .index("by_org_start", ["organizationId", "start"]),
+    .index("by_org_start", ["organizationId", "start"])
+    .index("by_org_createdAt", ["organizationId", "createdAt"]),
 
   /* ---------- User notification prefs ---------- */
   userNotificationPrefs: defineTable({
@@ -484,6 +579,12 @@ export default defineSchema({
     width: v.optional(v.number()),
     height: v.optional(v.number()),
     snapshot: v.string(),
+    /**
+     * Legacy: an earlier design stamped a fixed deadline at capture time. Retention is
+     * now derived from `ts` and the organization's current setting, so shortening the
+     * window also applies to recordings already stored. Kept so existing rows validate.
+     */
+    expiresAt: v.optional(v.number()),
   })
     .index("by_session", ["sessionId"])
     .index("by_session_ts", ["sessionId", "ts"])

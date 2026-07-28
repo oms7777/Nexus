@@ -5,7 +5,7 @@ import { api } from "@workspace/backend/_generated/api";
 import { Id } from "@workspace/backend/_generated/dataModel";
 import { Button } from "@workspace/ui/components/button";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { MoreHorizontalIcon, Trash2Icon, Wand2Icon } from "lucide-react";
+import { GraduationCapIcon, MoreHorizontalIcon, Trash2Icon, Wand2Icon } from "lucide-react";
 import {
     AIConversation,
     AIConversationContent,
@@ -30,6 +30,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DicebearAvatar } from "@workspace/ui/components/dicebear-avatar";
 import { ConversationStatusButton } from "../components/conversation-status-button";
+import { CorrectAnswerDialog } from "../components/correct-answer-dialog";
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteScroll } from "@workspace/ui/hooks/use-infinite-scroll";
 import { InfiniteScrollTrigger } from "@workspace/ui/components/infinite-scroll-trigger";
@@ -89,6 +90,9 @@ export const ConversationIdView = ({
             message: "",
         },
     });
+
+    /** Correction target: the assistant answer a rep wants to teach the AI about. */
+    const [correction, setCorrection] = useState<{ question: string; answer: string } | null>(null);
 
     const [isEnhancing, setIsEnhancing] = useState(false);
     const enhanceResponse= useAction(api.private.messages.enhanceResponse);
@@ -205,24 +209,57 @@ export const ConversationIdView = ({
                         onLoadMore={handleLoadMore}
                         ref={topElementRef}
                     />
-                    {toUIMessages(messages.results ?? [])?.map((message) => (
-                        <AIMessage
-                            from={message.role === "user" ? "assistant" : "user"}
-                            key={message.id}
-                        >
-                            <AIMessageContent>
-                                <AIResponse>
-                                    {message.content}
-                                </AIResponse>
-                            </AIMessageContent>
-                            {message.role === "user" && (
-                                <DicebearAvatar 
-                                    seed={conversation?.contactSessionId ?? "user"}
-                                    size={32}
-                                />
-                            )}
-                        </AIMessage>
-                    ))}
+                    {(() => {
+                        const uiMessages = toUIMessages(messages.results ?? []) ?? [];
+
+                        return uiMessages.map((message, index) => {
+                            // The question a correction should be indexed against is the
+                            // visitor message right before the assistant's answer.
+                            const precedingQuestion =
+                                message.role === "assistant"
+                                    ? uiMessages
+                                          .slice(0, index)
+                                          .reverse()
+                                          .find((m) => m.role === "user")?.content ?? ""
+                                    : "";
+
+                            return (
+                                <AIMessage
+                                    from={message.role === "user" ? "assistant" : "user"}
+                                    key={message.id}
+                                >
+                                    <AIMessageContent>
+                                        <AIResponse>
+                                            {message.content}
+                                        </AIResponse>
+                                    </AIMessageContent>
+                                    {message.role === "user" ? (
+                                        <DicebearAvatar
+                                            seed={conversation?.contactSessionId ?? "user"}
+                                            size={32}
+                                        />
+                                    ) : (
+                                        <Button
+                                            className="mt-1 h-7 self-end px-2 text-xs text-muted-foreground hover:text-foreground"
+                                            onClick={() =>
+                                                setCorrection({
+                                                    question: precedingQuestion,
+                                                    answer: message.content,
+                                                })
+                                            }
+                                            size="sm"
+                                            title="Save a better answer to the knowledge base"
+                                            type="button"
+                                            variant="ghost"
+                                        >
+                                            <GraduationCapIcon className="size-3.5" />
+                                            Correct
+                                        </Button>
+                                    )}
+                                </AIMessage>
+                            );
+                        });
+                    })()}
                 </AIConversationContent>
                 <AIConversationScrollButton />
             </AIConversation>
@@ -287,6 +324,15 @@ export const ConversationIdView = ({
             </Form>
             </div>
 
+            <CorrectAnswerDialog
+                conversationId={conversationId}
+                initialAnswer={correction?.answer ?? ""}
+                initialQuestion={correction?.question ?? ""}
+                onOpenChange={(open) => {
+                    if (!open) setCorrection(null);
+                }}
+                open={correction !== null}
+            />
         </div>
     )
 }

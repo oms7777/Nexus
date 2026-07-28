@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, MapPin, MessageCircle } from "lucide-react";
+import { Building2, ChevronDown, MapPin, MessageCircle } from "lucide-react";
 import { Id } from "@workspace/backend/_generated/dataModel";
 import { LiveVisitorView } from "@/modules/dashboard/ui/components/live-visitor-view";
 import {
@@ -99,10 +99,31 @@ export function LiveVisitorStreamCard({
                   Browsing
                 </span>
               )}
+              {visitor.connectionType === "hosting" ? (
+                <span
+                  className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300"
+                  title="Traffic from a datacenter IP — most likely a crawler, not a buyer"
+                >
+                  Likely bot
+                </span>
+              ) : null}
             </div>
             <div className="mt-1 truncate text-sm font-semibold text-foreground">
-              {visitor.name || "Visitor"}
+              {visitor.name || visitor.company || "Visitor"}
             </div>
+            {visitor.company && visitor.name ? (
+              <div
+                className="mt-0.5 flex items-center gap-1 truncate text-[11px] font-medium text-foreground/80"
+                title={
+                  visitor.companySource === "ip"
+                    ? "Company inferred from the visitor's network"
+                    : undefined
+                }
+              >
+                <Building2 className="size-3 shrink-0 opacity-70" aria-hidden />
+                <span className="truncate">{visitor.company}</span>
+              </div>
+            ) : null}
             <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
               <span className="tabular-nums">{fmtTimeOnSite(visitor.timeOnSiteMs)} on site</span>
               {visitor.city || visitor.countryCode ? (

@@ -232,6 +232,17 @@ export const getActiveVisitors = query({
         lat: typeof md.lat === "number" ? (md.lat as number) : undefined,
         lng: typeof md.lng === "number" ? (md.lng as number) : undefined,
 
+        /** Declared name wins over the one inferred from the visitor's IP range. */
+        company: ((md as any).company ?? (md as any).ipCompanyName) as string | undefined,
+        companySource: (md as any).company
+          ? ("declared" as const)
+          : (md as any).ipCompanyName
+            ? ("ip" as const)
+            : undefined,
+        companyDomain: (md as any).ipCompanyDomain as string | undefined,
+        /** "hosting" is a strong bot signal; "isp" means residential traffic. */
+        connectionType: (md as any).ipConnectionType as string | undefined,
+
         currentUrl,
         title,
         userAgent: md.userAgent as string | undefined,

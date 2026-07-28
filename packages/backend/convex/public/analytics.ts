@@ -71,7 +71,18 @@ async function enrichMetaFromSession(ctx: any, sessionId?: any) {
   return {
     sessionName: safeString(session?.name),
     sessionEmail: safeString(session?.email),
-    company: safeString((m as any).company),
+    /**
+     * A name the visitor typed always wins; the reverse-IP company only fills the gap
+     * so anonymous corporate traffic still groups into an account in Signals.
+     */
+    company: safeString((m as any).company) ?? safeString((m as any).ipCompanyName),
+    companySource: safeString((m as any).company)
+      ? "declared"
+      : safeString((m as any).ipCompanyName)
+        ? "ip"
+        : undefined,
+    ipCompanyDomain: safeString((m as any).ipCompanyDomain),
+    ipConnectionType: safeString((m as any).ipConnectionType),
 
     city: safeString(m.city),
     countryCode: safeString(m.countryCode),

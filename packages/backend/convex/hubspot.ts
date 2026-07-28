@@ -28,7 +28,13 @@ async function requireHubSpotEntitled(ctx: any, organizationId: string) {
 const HUBSPOT_TOKEN_URL = "https://api.hubapi.com/oauth/v1/token";
 
 /** Must match scopes configured on the HubSpot app (see app-hsmeta.json). */
-export const HUBSPOT_OAUTH_SCOPES = ["oauth", "crm.objects.contacts.read", "crm.objects.contacts.write"].join(" ");
+export const HUBSPOT_OAUTH_SCOPES = [
+  "oauth",
+  "crm.objects.contacts.read",
+  "crm.objects.contacts.write",
+  // Read-only, used by revenue attribution to read the deals a booking produced.
+  "crm.objects.deals.read",
+].join(" ");
 
 export const updateHubSpotAccessTokenInternal = internalMutation({
   args: {
@@ -184,6 +190,82 @@ async function hubFetch(
   throw err;
 }
 
+/**
+ * Reads the deals associated with a contact, so a booking can be tied to pipeline value.
+ * Read-only: revenue attribution never writes to the CRM.
+ */
+export const fetchHubSpotDealsForContact = action({
+  args: {
+    organizationId: v.string(),
+    contactId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const integration = await ctx.runQuery(api.integrations._getHubSpotIntegrationByOrg, {
+      organizationId: args.organizationId,
+    });
+
+    if (!integration?.accessToken) {
+      return { ok: false as const, reason: "NO_HUBSPOT_CONNECTION" as const };
+    }
+
+    const accessToken = integration.accessToken;
+    const base = "https://api.hubapi.com";
+    const contactId = args.contactId.replace(/[^0-9]/g, "");
+
+    if (!contactId) return { ok: false as const, reason: "INVALID_CONTACT_ID" as const };
+
+    try {
+      const assocRes = await hubFetch(
+        ctx,
+        args.organizationId,
+        `${base}/crm/v4/objects/contacts/${contactId}/associations/deals?limit=20`,
+        { method: "GET" },
+        accessToken,
+      );
+      const assocJson: any = await assocRes.json().catch(() => ({}));
+      const dealIds: string[] = Array.isArray(assocJson?.results)
+        ? assocJson.results.map((r: any) => String(r?.toObjectId ?? "")).filter(Boolean)
+        : [];
+
+      if (dealIds.length === 0) return { ok: true as const, deals: [] };
+
+      const batchRes = await hubFetch(
+        ctx,
+        args.organizationId,
+        `${base}/crm/v3/objects/deals/batch/read`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            properties: ["amount", "dealstage", "closedate", "dealname", "hs_is_closed_won"],
+            inputs: dealIds.map((id) => ({ id })),
+          }),
+        },
+        accessToken,
+      );
+      const batchJson: any = await batchRes.json().catch(() => ({}));
+      const rows: any[] = Array.isArray(batchJson?.results) ? batchJson.results : [];
+
+      const deals = rows.map((d) => {
+        const p = d?.properties ?? {};
+        const amount = Number(p.amount);
+        return {
+          dealId: String(d?.id ?? ""),
+          amount: Number.isFinite(amount) ? amount : undefined,
+          stage: typeof p.dealstage === "string" ? p.dealstage : undefined,
+          closeDate: typeof p.closedate === "string" ? p.closedate : undefined,
+          // HubSpot returns this calculated property as the string "true" / "false".
+          isWon: p.hs_is_closed_won === "true" || p.hs_is_closed_won === true,
+        };
+      });
+
+      return { ok: true as const, deals };
+    } catch (e) {
+      console.log("HubSpot deals lookup failed:", (e as any)?.detail ?? e);
+      return { ok: false as const, reason: "LOOKUP_FAILED" as const };
+    }
+  },
+});
+
 export const createHubSpotContactFromBooking = action({
   args: {
     organizationId: v.string(),
@@ -317,7 +399,14 @@ export const createHubSpotContactFromBooking = action({
         }
       }
 
-      return { ok: true as const, contactId: contactId ?? "created" };
+      // On create, the real id only exists in the response body — and revenue
+      // attribution later needs it to walk from contact to associated deals.
+      if (!contactId) {
+        const created: any = await res.json().catch(() => ({}));
+        if (created?.id) contactId = String(created.id);
+      }
+
+      return { ok: true as const, contactId: contactId ?? undefined };
     } catch (e) {
       console.log("HubSpot contact upsert exception:", (e as any)?.detail ?? e);
       return {

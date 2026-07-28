@@ -908,6 +908,81 @@ function buildSalesforceLeadDescription(
 
 const SF_NOTE_BODY_MAX = 31_000;
 
+/**
+ * Reads the Opportunity a Lead converted into, so a booking can be tied to pipeline value.
+ * Read-only: revenue attribution never writes to the CRM.
+ */
+export const fetchSalesforceOpportunityForLead = action({
+  args: {
+    organizationId: v.string(),
+    leadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const integration = await ctx.runQuery(api.integrations._getSalesforceIntegrationByOrg, {
+      organizationId: args.organizationId,
+    });
+
+    if (!integration?.accessToken || !integration?.instanceUrl) {
+      return { ok: false as const, reason: "NO_SALESFORCE_CONNECTION" as const };
+    }
+
+    const accessToken = integration.accessToken;
+    const base = `${integration.instanceUrl}/services/data/v59.0`;
+    const safeLeadId = args.leadId.replace(/[^a-zA-Z0-9]/g, "");
+
+    if (!safeLeadId) return { ok: false as const, reason: "INVALID_LEAD_ID" as const };
+
+    try {
+      const leadSoql = `SELECT Id, IsConverted, ConvertedOpportunityId FROM Lead WHERE Id = '${safeLeadId}' LIMIT 1`;
+      const leadRes = await sfFetch(
+        ctx,
+        args.organizationId,
+        `${base}/query?q=${encodeURIComponent(leadSoql)}`,
+        { method: "GET" },
+        accessToken,
+      );
+      const leadJson: any = await leadRes.json().catch(() => ({}));
+      const lead = leadJson?.records?.[0];
+
+      if (!lead) return { ok: false as const, reason: "LEAD_NOT_FOUND" as const };
+      if (!lead.ConvertedOpportunityId) {
+        return { ok: true as const, converted: false as const };
+      }
+
+      const oppId = String(lead.ConvertedOpportunityId).replace(/[^a-zA-Z0-9]/g, "");
+      const oppSoql = `SELECT Id, Amount, StageName, IsClosed, IsWon, CloseDate, CurrencyIsoCode FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`;
+
+      const oppRes = await sfFetch(
+        ctx,
+        args.organizationId,
+        `${base}/query?q=${encodeURIComponent(oppSoql)}`,
+        { method: "GET" },
+        accessToken,
+      );
+      const oppJson: any = await oppRes.json().catch(() => ({}));
+      const opp = oppJson?.records?.[0];
+
+      if (!opp) return { ok: true as const, converted: false as const };
+
+      return {
+        ok: true as const,
+        converted: true as const,
+        dealId: String(opp.Id),
+        amount: typeof opp.Amount === "number" ? opp.Amount : undefined,
+        // Orgs without multi-currency enabled don't return CurrencyIsoCode at all.
+        currency: typeof opp.CurrencyIsoCode === "string" ? opp.CurrencyIsoCode : undefined,
+        stage: typeof opp.StageName === "string" ? opp.StageName : undefined,
+        isClosed: opp.IsClosed === true,
+        isWon: opp.IsWon === true,
+        closeDate: typeof opp.CloseDate === "string" ? opp.CloseDate : undefined,
+      };
+    } catch (e) {
+      console.log("Salesforce opportunity lookup failed:", (e as any)?.detail ?? e);
+      return { ok: false as const, reason: "LOOKUP_FAILED" as const };
+    }
+  },
+});
+
 export const createSalesforceLeadAndEvent = action({
   args: {
     organizationId: v.string(),

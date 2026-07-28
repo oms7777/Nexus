@@ -191,6 +191,10 @@ const VISITOR_SYSTEM_MESSAGES = {
       "The AI assistant isn’t available on this workspace yet (plan inactive). Please use the site’s contact options or ask your host to activate the plan.",
     generationFallback:
       "Something went wrong on our side. Please try again in a moment, or ask to speak with someone from the team.",
+    tooFast:
+      "You’re sending messages faster than I can keep up with. Please wait a moment before trying again, or ask to speak with someone from the team.",
+    budgetReached:
+      "The assistant has reached its usage limit for this site. Someone from the team will take over — please leave your question here.",
   },
   fr: {
     escalationConnecting: "Parfait, je vous mets en relation avec quelqu’un de l’équipe !",
@@ -198,12 +202,47 @@ const VISITOR_SYSTEM_MESSAGES = {
       "L’assistant IA n’est pas disponible sur cet espace pour le moment (offre inactive). Utilisez les moyens de contact du site ou demandez l’activation du plan.",
     generationFallback:
       "Un petit souci technique de notre côté. Réessayez dans un instant, ou demandez à parler à quelqu’un de l’équipe.",
+    tooFast:
+      "Vous envoyez des messages plus vite que je ne peux suivre. Patientez un instant avant de réessayer, ou demandez à parler à quelqu’un de l’équipe.",
+    budgetReached:
+      "L’assistant a atteint sa limite d’utilisation pour ce site. Quelqu’un de l’équipe prend le relais — laissez votre question ici.",
   },
 } as const;
 
+/**
+ * Injected when the visitor asked for a human but nobody is online.
+ * The team is still notified; the assistant keeps helping instead of promising an instant handoff.
+ */
+const NO_REP_ONLINE_DIRECTIVE = `
+<<<NO_REP_ONLINE>>>
+The visitor explicitly asked to talk to a human, but no rep is online right now. The team has already been notified by email/Slack.
+- Do NOT promise that someone is joining the conversation now.
+- Say plainly that nobody from the team is available at this moment and that their request has been passed on.
+- Then keep helping: answer the question yourself if you can, and offer to book a meeting so a rep can follow up.
+- Do not call escalateConversationTool again for this turn.
+<<<END_NO_REP_ONLINE>>>
+`.trim();
+
+/**
+ * The visitor prompt is normally persisted as a side effect of agent.generateText.
+ * Every early return must save it explicitly, otherwise the message vanishes from the
+ * thread and the rep opening the inbox never sees what the visitor asked.
+ */
+async function saveVisitorMessage(ctx: any, threadId: string, prompt: string) {
+  await saveMessage(ctx, components.agent, {
+    threadId,
+    message: { role: "user", content: prompt },
+  });
+}
+
 // ✅ hard human-intent detector (deterministic escalation)
 function wantsHuman(text: string) {
-  const t = (text || "").toLowerCase();
+  // iOS, Word and most French keyboards emit a typographic apostrophe (’), which would
+  // otherwise never match the straight quote used in the patterns below.
+  const t = (text || "")
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u02BC]/g, "'")
+    .replace(/\s+/g, " ");
   return (
     t.includes("talk to a human") ||
     t.includes("talk to human") ||
@@ -428,30 +467,72 @@ export const create = action({
         organizationId: conversation.organizationId,
       })) ?? [];
 
-    // ✅ HARD escalation if user asks AND someone available
-    if (wantsHuman(args.prompt)) {
-      await ctx.runMutation(internal.system.conversations.escalate, { threadId: args.threadId });
-
-      await saveMessage(ctx, components.agent, {
-        threadId: args.threadId,
-        message: {
-          role: "assistant",
-          content: sysMsg.escalationConnecting,
-        },
-      });
-
+    // A human operator already replied in this thread: stay silent so rep and AI
+    // never answer the visitor at the same time. Still persist the visitor message.
+    if (conversation.repFirstRepliedAt != null) {
+      await saveVisitorMessage(ctx, args.threadId, args.prompt);
       return;
     }
 
     const subStatus = subscription?.status;
     const shouldTriggerAgent = subStatus === "active" || subStatus === "trial";
 
+    // ✅ HARD escalation when the visitor explicitly asks for a human.
+    // With a rep online we hand over immediately; with nobody online we still notify
+    // the team but let the assistant keep helping instead of promising an instant handoff.
+    let escalatedWithNoRepOnline = false;
+
+    if (wantsHuman(args.prompt)) {
+      await ctx.runMutation(internal.system.conversations.escalate, { threadId: args.threadId });
+
+      if (availableReps.length > 0) {
+        await saveVisitorMessage(ctx, args.threadId, args.prompt);
+        await saveMessage(ctx, components.agent, {
+          threadId: args.threadId,
+          message: {
+            role: "assistant",
+            content: sysMsg.escalationConnecting,
+          },
+        });
+        return;
+      }
+
+      escalatedWithNoRepOnline = true;
+    }
+
     if (!shouldTriggerAgent) {
+      await saveVisitorMessage(ctx, args.threadId, args.prompt);
       await saveMessage(ctx, components.agent, {
         threadId: args.threadId,
         message: {
           role: "assistant",
           content: sysMsg.assistantInactive,
+        },
+      });
+      return;
+    }
+
+    // Cost circuit breaker: this endpoint is public and calls a paid LLM.
+    const budget = await ctx.runMutation(internal.system.usage.consumeAiMessage, {
+      organizationId: conversation.organizationId,
+      subjectKey: args.contactSessionId,
+    });
+
+    if (!budget.allowed) {
+      await saveVisitorMessage(ctx, args.threadId, args.prompt);
+
+      if (budget.reason === "MONTHLY_CAP") {
+        // Get a human involved: the assistant is out of budget, the visitor is not at fault.
+        await ctx.runMutation(internal.system.conversations.escalate, {
+          threadId: args.threadId,
+        });
+      }
+
+      await saveMessage(ctx, components.agent, {
+        threadId: args.threadId,
+        message: {
+          role: "assistant",
+          content: budget.reason === "RATE_LIMITED" ? sysMsg.tooFast : sysMsg.budgetReached,
         },
       });
       return;
@@ -467,7 +548,12 @@ export const create = action({
       })
       .join(", ");
 
-    const repsBlock = `<<<REPS_AVAILABLE count="${availableReps.length}" reps="${repsLabel}" >>>`;
+    const repsBlock = [
+      `<<<REPS_AVAILABLE count="${availableReps.length}" reps="${repsLabel}" >>>`,
+      escalatedWithNoRepOnline ? NO_REP_ONLINE_DIRECTIVE : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
     const agent = makeSupportAgent({ llmProvider, llmModel });
 

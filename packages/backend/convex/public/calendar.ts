@@ -39,6 +39,98 @@ function isInvalidGrant(e: unknown) {
   return s.includes("invalid_grant") || s.includes("calendar_reconnect_required");
 }
 
+/* -------------------------------------------------------------
+ * Timezone helpers
+ *
+ * Availability windows ("09:00"–"17:00") are wall-clock times in the rep's own
+ * timezone. The Convex runtime is UTC, so `Date#setHours` would silently shift
+ * every slot by the rep's UTC offset. Everything below resolves wall-clock times
+ * against `calendarSettings.timezone` instead.
+ * ----------------------------------------------------------- */
+
+const UTC_TZ = "UTC";
+
+function safeTimeZone(tz?: string | null): string {
+  const candidate = (tz ?? "").trim();
+  if (!candidate) return UTC_TZ;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate });
+    return candidate;
+  } catch {
+    console.log(`[calendar] invalid timezone "${candidate}" -> falling back to UTC`);
+    return UTC_TZ;
+  }
+}
+
+function zonedParts(utcMs: number, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(utcMs));
+
+  const map: Record<string, number> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = Number(p.value);
+  }
+
+  return {
+    year: map.year ?? 1970,
+    month: map.month ?? 1,
+    day: map.day ?? 1,
+    // Intl can emit hour 24 for midnight in some locales/zones.
+    hour: (map.hour ?? 0) % 24,
+    minute: map.minute ?? 0,
+    second: map.second ?? 0,
+  };
+}
+
+/** Offset in ms such that localWallClock = utc + offset, for the instant `utcMs`. */
+function timeZoneOffsetMs(utcMs: number, timeZone: string): number {
+  const p = zonedParts(utcMs, timeZone);
+  const asIfUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return asIfUtc - Math.floor(utcMs / 1000) * 1000;
+}
+
+/**
+ * Converts a wall-clock time in `timeZone` to a UTC timestamp.
+ * The second pass handles DST transitions, where the offset at the naive instant
+ * differs from the offset at the resolved instant.
+ */
+function zonedWallClockToUtcMs(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string,
+): number {
+  const naive = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  const firstGuess = naive - timeZoneOffsetMs(naive, timeZone);
+  const refinedOffset = timeZoneOffsetMs(firstGuess, timeZone);
+  return naive - refinedOffset;
+}
+
+/** ISO-ish day of week (Mon = 1 … Sun = 7) for a calendar date. */
+function isoDayOfWeek(year: number, month: number, day: number): number {
+  const jsDay = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return jsDay === 0 ? 7 : jsDay;
+}
+
+function parseHhMm(hhmm: string): { hour: number; minute: number } | null {
+  const [hStr = "", mStr = ""] = (hhmm ?? "").split(":");
+  const hour = Number(hStr);
+  const minute = Number(mStr);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (hour < 0 || hour > 24 || minute < 0 || minute > 59) return null;
+  return { hour, minute };
+}
+
 const BOOKING_COMPANY_BLOCK = new Set([
   "test",
   "none",
@@ -239,37 +331,39 @@ export const listSlots = action({
 
     const slots: Array<{ start: number; end: number }> = [];
 
-    const jsToOurDow = (jsDay: number) => (jsDay === 0 ? 7 : jsDay);
+    // Windows are wall-clock in the rep's timezone, not in the (UTC) server timezone.
+    const timeZone = safeTimeZone(settings?.timezone);
 
-    const getWindowForDate = (d: Date) => {
-      const ourDow = jsToOurDow(d.getDay());
-      const rec = weekly.find((w) => w.day === ourDow);
+    const getWindowForZonedDay = (utcMsInDay: number) => {
+      const { year, month, day } = zonedParts(utcMsInDay, timeZone);
+      const rec = weekly.find((w) => w.day === isoDayOfWeek(year, month, day));
       if (!rec) return null;
 
-      const mkTs = (hhmm: string) => {
-        const [hStr = "0", mStr = "0"] = (hhmm ?? "").split(":");
-        const h = Number(hStr);
-        const m = Number(mStr);
-        if (!Number.isFinite(h) || !Number.isFinite(m)) {
-          throw new Error(`Invalid time string: "${hhmm}"`);
-        }
-        const nd = new Date(d);
-        nd.setHours(h, m, 0, 0);
-        return nd.getTime();
-      };
+      const from = parseHhMm(rec.start);
+      const to = parseHhMm(rec.end);
+      if (!from || !to) {
+        console.log(
+          `[calendar.listSlots] invalid availability window "${rec.start}"-"${rec.end}" -> skipped`,
+        );
+        return null;
+      }
 
-      return { startMs: mkTs(rec.start), endMs: mkTs(rec.end) };
+      return {
+        startMs: zonedWallClockToUtcMs(year, month, day, from.hour, from.minute, timeZone),
+        endMs: zonedWallClockToUtcMs(year, month, day, to.hour, to.minute, timeZone),
+      };
     };
 
     for (let i = 0; i < days; i++) {
-      const day = new Date(now + i * 24 * 60 * 60 * 1000);
-      const win = getWindowForDate(day);
-      if (!win) continue;
+      const win = getWindowForZonedDay(now + i * 24 * 60 * 60 * 1000);
+      if (!win || win.endMs <= win.startMs) continue;
 
-      for (let t = win.startMs; t + durationMs <= win.endMs; t += stepMs) {
-        const start = Math.max(t, now);
+      for (let start = win.startMs; start + durationMs <= win.endMs; start += stepMs) {
+        // Only offer slots that still lie ahead, on the window's own grid, so the
+        // visitor never sees an off-grid time such as 14:37.
+        if (start < now) continue;
+
         const end = start + durationMs;
-
         const paddedStart = start - bufferMs;
         const paddedEnd = end + bufferMs;
 
@@ -428,6 +522,49 @@ export const bookSlot = action({
     });
     if (!acct) throw new Error("No connected calendar for this organization / user");
 
+    // 1b) Idempotency: a retry or a double click must not create a second calendar
+    // event, a second CRM lead and a second Slack notification.
+    const alreadyBooked = await ctx.runQuery(api.public.booking.findExistingForSlot, {
+      organizationId,
+      contactSessionId,
+      start,
+      end,
+      createdByUserId: acct.userId,
+    });
+
+    if (alreadyBooked) {
+      return {
+        bookingId: alreadyBooked._id,
+        meetingUrl: alreadyBooked.meetingUrl,
+      };
+    }
+
+    // 1c) Re-check the rep's calendar: the slot list may be minutes old and the
+    // rep (or another visitor) could have taken this time in the meantime.
+    try {
+      const busyNow = await ctx.runAction(api.private.calendar.freeBusyForOrgUser, {
+        organizationId,
+        userId: acct.userId,
+        timeMinIso: new Date(start).toISOString(),
+        timeMaxIso: new Date(end).toISOString(),
+      });
+
+      const isTaken = busyNow.some((b: Slot) => start < b.end && end > b.start);
+      if (isTaken) {
+        throw new ConvexError({
+          code: "SLOT_TAKEN",
+          message: "This time slot has just been taken. Please pick another one.",
+        });
+      }
+    } catch (e) {
+      if (e instanceof ConvexError) throw e;
+      // Never block a booking because the availability re-check itself failed.
+      console.log(
+        `[calendar.bookSlot] freeBusy re-check failed for userId=${acct.userId} org=${organizationId}:`,
+        e,
+      );
+    }
+
     const settings = await ctx.runQuery(api.public.calendar.getSettingsForOrg, {
       organizationId,
       userId: acct.userId,
@@ -518,9 +655,15 @@ export const bookSlot = action({
       console.log("[calendar.bookSlot] lead context for notifications skipped:", e);
     }
 
+    // CRM record ids are kept on the booking so revenue attribution can later walk
+    // from this meeting to the opportunity / deal it produced.
+    let salesforceLeadId: string | undefined;
+    let salesforceEventId: string | undefined;
+    let hubspotContactId: string | undefined;
+
     // Salesforce — non bloquant (after lead extras: AI summary → Note; visitor text + conv link → Lead.Description)
     try {
-      await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
+      const sf = await ctx.runAction(api.integrations.createSalesforceLeadAndEvent, {
         organizationId,
         attendeeName,
         attendeeEmail,
@@ -535,13 +678,18 @@ export const bookSlot = action({
         meetingUrl,
         source: "Inboundless",
       });
+
+      if (sf?.ok) {
+        salesforceLeadId = (sf as any).leadId ?? undefined;
+        salesforceEventId = (sf as any).eventId ?? undefined;
+      }
     } catch (e) {
       console.log("Salesforce create Lead/Event failed:", e);
     }
 
     // HubSpot — non bloquant
     try {
-      await ctx.runAction(api.hubspot.createHubSpotContactFromBooking, {
+      const hs = await ctx.runAction(api.hubspot.createHubSpotContactFromBooking, {
         organizationId,
         attendeeName,
         attendeeEmail,
@@ -555,8 +703,47 @@ export const bookSlot = action({
         meetingUrl,
         source: "Inboundless",
       });
+
+      if (hs?.ok) hubspotContactId = (hs as any).contactId ?? undefined;
     } catch (e) {
       console.log("HubSpot contact upsert failed:", e);
+    }
+
+    // Outbound webhooks are scheduled, never awaited: a customer's endpoint must not
+    // be able to slow down or fail a confirmed booking.
+    try {
+      await ctx.scheduler.runAfter(0, internal.private.webhooks.dispatch, {
+        organizationId,
+        event: "meeting.booked",
+        payload: {
+          bookingId,
+          contactSessionId,
+          attendeeName,
+          attendeeEmail,
+          attendeeCompany,
+          attendeeRole,
+          start,
+          end,
+          meetingUrl,
+          assignedRepUserId: acct.userId,
+          conversationUrl: bookingConversationUrl,
+        },
+      });
+    } catch (e) {
+      console.log("[calendar.bookSlot] scheduling webhook failed:", e);
+    }
+
+    if (salesforceLeadId || salesforceEventId || hubspotContactId) {
+      try {
+        await ctx.runMutation(internal.public.booking.attachCrmIds, {
+          bookingId,
+          salesforceLeadId,
+          salesforceEventId,
+          hubspotContactId,
+        });
+      } catch (e) {
+        console.log("[calendar.bookSlot] attaching CRM ids failed:", e);
+      }
     }
 
     // Slack — non bloquant

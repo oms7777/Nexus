@@ -7,8 +7,14 @@ import { requireOrgAdminOrResponse } from "../../_lib/requireOrgAdmin";
 
 export const runtime = "nodejs";
 
-/** Keep in sync with `packages/backend/convex/integrations.ts` and HubSpot app-hsmeta.json */
-const HUBSPOT_OAUTH_SCOPES = ["oauth", "crm.objects.contacts.read", "crm.objects.contacts.write"].join(" ");
+/** Keep in sync with `packages/backend/convex/hubspot.ts` and HubSpot app-hsmeta.json */
+const HUBSPOT_OAUTH_SCOPES = [
+  "oauth",
+  "crm.objects.contacts.read",
+  "crm.objects.contacts.write",
+  // Read-only, used by revenue attribution to read the deals a booking produced.
+  "crm.objects.deals.read",
+].join(" ");
 
 export async function GET(req: Request) {
   const guard = await requireOrgAdminOrResponse();

@@ -40,6 +40,7 @@ import { api } from "@workspace/backend/_generated/api";
 
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 import { VapiConnectionPanel } from "@/modules/plugins/ui/views/vapi-view";
+import { WebhooksSection } from "../components/webhooks-section";
 
 export const IntegrationsView = () => {
   const { organization } = useOrganization();
@@ -1190,6 +1191,10 @@ export const IntegrationsView = () => {
                 </CollapsibleContent>
               </Collapsible>
             </Card>
+          </section>
+
+          <section>
+            <WebhooksSection />
           </section>
         </div>
       </div>

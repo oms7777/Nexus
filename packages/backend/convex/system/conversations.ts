@@ -57,6 +57,21 @@ export const escalate = internalMutation({
       await ctx.scheduler.runAfter(0, internal.private.leadNotify.sendEscalationDigest, {
         conversationId: conversation._id,
       });
+
+      // Outbound webhooks are scheduled, never awaited: a customer's endpoint
+      // must not be able to slow down or fail an escalation.
+      await ctx.scheduler.runAfter(0, internal.private.webhooks.dispatch, {
+        organizationId: conversation.organizationId,
+        event: "conversation.escalated",
+        payload: {
+          conversationId: conversation._id,
+          contactSessionId: conversation.contactSessionId,
+          threadId: conversation.threadId,
+          escalatedAt: now,
+          assignedRepUserId,
+          assignedTerritoryKey,
+        },
+      });
     }
   },
 });
@@ -74,6 +89,17 @@ export const resolve = internalMutation({
     }
 
     await ctx.db.patch(conversation._id, { status: "resolved" });
+
+    await ctx.scheduler.runAfter(0, internal.private.webhooks.dispatch, {
+      organizationId: conversation.organizationId,
+      event: "conversation.resolved",
+      payload: {
+        conversationId: conversation._id,
+        contactSessionId: conversation.contactSessionId,
+        threadId: conversation.threadId,
+        resolvedAt: Date.now(),
+      },
+    });
   },
 });
 

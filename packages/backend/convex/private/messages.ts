@@ -146,6 +146,11 @@ export const create = mutation({
       message: { role: "assistant", content: args.prompt },
     });
 
+    // 2b) Hand the thread over to the human: the visitor-facing AI stops replying from now on.
+    if (conversation.repFirstRepliedAt == null) {
+      await ctx.db.patch(conversation._id, { repFirstRepliedAt: now });
+    }
+
     // 3) Auto escalate (business rule) — same path as AI tool (routing + Slack/email digest once)
     if (conversation.status === "unresolved") {
       await ctx.runMutation(internal.system.conversations.escalate, {
