@@ -90,6 +90,42 @@ const HUMAN_FALLBACK_SECONDS = 30; // délai avant fallback booking
 
 type Slot = { start: number; end: number };
 
+type ThreadMsg = { role: "assistant" | "user"; text: string };
+
+/** Backend rows carry the server creation time. */
+type BackendMsg = ThreadMsg & { at: number };
+
+/**
+ * Booking and escalation notices are rendered from React state, so they have no
+ * server timestamp. `anchor` records the newest backend message that existed when
+ * they were pushed, which is what keeps them in place once later messages arrive.
+ */
+type LocalMsg = ThreadMsg & { anchor?: number; seq?: number };
+
+/**
+ * Interleaves local notices back into the server history.
+ *
+ * Anchors come from the server clock rather than `Date.now()`, so a skewed visitor
+ * clock cannot push a booking confirmation to the wrong end of the thread.
+ */
+function mergeThread(backend: BackendMsg[], local: LocalMsg[]): ThreadMsg[] {
+  const entries = [
+    ...backend.map((msg, i) => ({ msg, at: msg.at, isLocal: 0, seq: i })),
+    ...local.map((msg, i) => ({
+      // An unstamped notice sorts last, which is the pre-existing behaviour.
+      msg,
+      at: msg.anchor ?? Number.MAX_SAFE_INTEGER,
+      isLocal: 1,
+      seq: msg.seq ?? i,
+    })),
+  ];
+
+  // A local notice shares its anchor's timestamp, so `isLocal` puts it just after.
+  entries.sort((a, b) => a.at - b.at || a.isLocal - b.isLocal || a.seq - b.seq);
+
+  return entries.map((e) => e.msg);
+}
+
 // doit matcher le retour de api.public.routing.listRepsForVisitor
 export type PublicRep = {
   userId: string;
@@ -722,9 +758,27 @@ export const WidgetChatScreen = () => {
 
 
   // local messages + booking
-  const [localMsgs, setLocalMsgs] = useState<
-    Array<{ role: "assistant" | "user"; text: string }>
-  >([]);
+  const [localMsgs, setLocalMsgsRaw] = useState<LocalMsg[]>([]);
+
+  /** Newest backend timestamp, used to anchor local notices to the server clock. */
+  const backendLastAtRef = useRef(0);
+
+  // Stamps new entries on the way in so the 20 call sites stay plain pushes.
+  const setLocalMsgs = useCallback(
+    (updater: LocalMsg[] | ((prev: LocalMsg[]) => LocalMsg[])) => {
+      setLocalMsgsRaw((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        let seq = next.reduce((max, m) => (m.seq !== undefined && m.seq > max ? m.seq : max), 0);
+
+        return next.map((msg) =>
+          msg.seq === undefined
+            ? { ...msg, anchor: backendLastAtRef.current, seq: ++seq }
+            : msg,
+        );
+      });
+    },
+    [],
+  );
 
   const playbookPresetRaw =
     ((widgetSettings as any)?.playbookPresetId as string | undefined) ?? "off";
@@ -1331,12 +1385,19 @@ export const WidgetChatScreen = () => {
 
 
   /* -------- MESSAGES + GREET -------- */
-  const backendMsgs = toUIMessages(messages.results ?? [])
+  const backendMsgs: BackendMsg[] = toUIMessages(messages.results ?? [])
     .filter((m) => String(m.content ?? "").trim().length > 0)
     .map((m) => ({
       role: m.role === "user" ? ("user" as const) : ("assistant" as const),
       text: String(m.content ?? ""),
+      at: m.createdAt ? m.createdAt.getTime() : 0,
     }));
+
+  const backendLastAt = backendMsgs.reduce((max, m) => (m.at > max ? m.at : max), 0);
+
+  useEffect(() => {
+    backendLastAtRef.current = backendLastAt;
+  }, [backendLastAt]);
 
   const backendAssistantCount = backendMsgs.filter((m) => m.role === "assistant").length;
 
@@ -1405,7 +1466,7 @@ export const WidgetChatScreen = () => {
   // IMPORTANT: Do not drop the greet message from backend history.
   // Previously we filtered it out, which makes the first "Hi, how can I help?" appear then disappear
   // once real messages arrive / on refresh.
-  let baseMsgs = [...backendMsgs, ...localMsgs];
+  let baseMsgs: ThreadMsg[] = mergeThread(backendMsgs, localMsgs);
 
   // Réordonner les messages système d'escalade / booking sans toucher aux réponses humaines :
   // 1) "If you'd like..." (suggestion)
