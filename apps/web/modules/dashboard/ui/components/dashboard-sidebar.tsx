@@ -4,6 +4,7 @@ import { UserButton, useOrganization } from "@clerk/nextjs";
 import {
   BellIcon,
   CalendarIcon,
+  HomeIcon,
   InboxIcon,
   MapIcon,
   UserIcon,
@@ -34,6 +35,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import { SIDEBAR_ITEM_ACTIVE } from "@/modules/analytics/shared/analytics-primitives";
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
+import { useOrgCapabilities } from "@/modules/auth/hooks/use-org-capabilities";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import {
@@ -54,7 +56,7 @@ function BrandHeader() {
   return (
     <div className="px-3 pt-3 pb-2">
       <Link
-        href="/"
+        href="/home"
         className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted"
       >
         <img src="/logoo.jpg" alt="Inboundless" className="h-7 w-7 shrink-0 rounded-sm object-cover" />
@@ -88,8 +90,8 @@ function playBeep() {
 export const DashboardSidebar = () => {
   const pathname = usePathname();
   const router = useRouter();
-  const { membership, organization } = useOrganization();
-  const isAdmin = membership?.role === "org:admin";
+  const { organization } = useOrganization();
+  const { isAdmin, canManageOperations } = useOrgCapabilities();
 
   const ent = useEntitlements();
   const isActive = (url: string) =>
@@ -153,6 +155,7 @@ export const DashboardSidebar = () => {
   }, [escalations]);
 
   const pipelineItems = [
+    { title: "Home", url: "/home", icon: HomeIcon },
     { title: "Live Map", url: "/live", icon: MapIcon },
     {
       title: "Conversations",
@@ -185,15 +188,21 @@ export const DashboardSidebar = () => {
 
   const configurationItems = useMemo(() => {
     if (ent.isLoading) return [];
-    return [
-      { title: "Team & Territories", url: "/team", icon: Users },
-      { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen },
-      { title: "Widget Customization", url: "/customization", icon: SlidersHorizontal },
-      { title: "Integrations", url: "/integrations", icon: InboxIcon },
-      { title: "Audit log", url: "/org/audit", icon: ScrollText },
-      { title: "Privacy & retention", url: "/org/privacy", icon: ShieldCheck },
-    ].filter(Boolean) as { title: string; url: string; icon: any }[];
-  }, [ent.isLoading]);
+    const all = [
+      { title: "Team & Territories", url: "/team", icon: Users, adminOnly: false },
+      { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen, adminOnly: false },
+      {
+        title: "Widget Customization",
+        url: "/customization",
+        icon: SlidersHorizontal,
+        adminOnly: false,
+      },
+      { title: "Integrations", url: "/integrations", icon: InboxIcon, adminOnly: true },
+      { title: "Audit log", url: "/org/audit", icon: ScrollText, adminOnly: true },
+      { title: "Privacy & retention", url: "/org/privacy", icon: ShieldCheck, adminOnly: true },
+    ];
+    return all.filter((item) => (item.adminOnly ? isAdmin : canManageOperations));
+  }, [ent.isLoading, isAdmin, canManageOperations]);
 
   const labelClass = "group-data-[collapsible=icon]:hidden";
   const iconClass = "size-5";
@@ -301,7 +310,7 @@ export const DashboardSidebar = () => {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {isAdmin && configurationItems.length > 0 && (
+        {configurationItems.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel className={labelClass}>Configuration</SidebarGroupLabel>
             <SidebarGroupContent>

@@ -11,6 +11,7 @@ import {
 } from "@convex-dev/rag";
 import { action, mutation, query, QueryCtx } from "../_generated/server";
 import { extractTextContent } from "../lib/extractTextContent";
+import { requireOrgManager } from "../lib/authz";
 import rag from "../system/ai/rag";
 import { Id } from "../_generated/dataModel";
 import { paginationOptsValidator } from "convex/server";
@@ -162,15 +163,7 @@ export type PublicFile = {
 export const deleteFile = mutation({
   args: { entryId: vEntryId },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
-    }
-
-    const orgId = identity.orgId as string;
-    if (!orgId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-    }
+    const { orgId } = await requireOrgManager(ctx);
 
     const namespace = await rag.getNamespace(ctx, { namespace: orgId });
     if (!namespace) {
@@ -234,15 +227,7 @@ export const addFile = action({
     folder: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
-    }
-
-    const orgId = identity.orgId as string;
-    if (!orgId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-    }
+    const { orgId } = await requireOrgManager(ctx);
 
     // ✅ Resolve kind (system) with backward compatibility
     const legacyCategory = (args.category ?? "").trim();
@@ -361,15 +346,7 @@ export const crawlSite = action({
     ctx,
     args
   ): Promise<{ pagesVisited: number; pagesIndexed: number; limit: number }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
-    }
-
-    const orgId = (identity as any).orgId as string | undefined;
-    if (!orgId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-    }
+    const { orgId } = await requireOrgManager(ctx);
 
     return await ctx.runAction(
       (internal as any)["private/websiteIngest"].ingestPublicSite,
@@ -390,15 +367,7 @@ export const list = query({
     refreshToken: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
-    }
-
-    const orgId = identity.orgId as string;
-    if (!orgId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-    }
+    const { orgId } = await requireOrgManager(ctx);
 
     const namespace = await rag.getNamespace(ctx, { namespace: orgId });
     if (!namespace) {

@@ -15,6 +15,38 @@ import rag from "../system/ai/rag";
 const MAX_QUESTION_CHARS = 1000;
 const MAX_ANSWER_CHARS = 8000;
 
+/**
+ * Strips casing, accents and punctuation so "Quels sont vos prix ?" and
+ * "quels sont vos prix" resolve to the same correction.
+ */
+function normalizeQuestion(question: string): string {
+  return question
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Derives the entry key from the question, because `rag.add` replaces an entry with
+ * the same key. Without this, re-correcting one topic piles up near-identical entries:
+ * retrieval returns the 5 closest chunks ranked by similarity rather than recency, so
+ * the duplicates would crowd out the rest of the knowledge base and a stale answer
+ * could outrank the newest one.
+ */
+async function correctionKey(orgId: string, question: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(normalizeQuestion(question)),
+  );
+
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+
+  return `${orgId}/rep_correction/${hex.slice(0, 32)}`;
+}
+
 export const countForOrg = query({
   args: {},
   handler: async (ctx) => {
@@ -93,7 +125,7 @@ export const submit = action({
     const { entryId } = await rag.add(ctx, {
       namespace: orgId,
       text,
-      key: `${orgId}/rep_correction/${Date.now()}`,
+      key: await correctionKey(orgId, question),
       title: question.length > 80 ? `${question.slice(0, 77)}…` : question,
       metadata: {
         kind: "rep_correction",

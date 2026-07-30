@@ -1,12 +1,10 @@
-import { FilesView } from "@/modules/files/ui/views/files-view"
-import { Protect } from "@clerk/nextjs";
+import { FilesView } from "@/modules/files/ui/views/files-view";
+import { OperationsGate } from "@/modules/auth/ui/components/operations-gate";
 
-const Page = () => {
-    return (
-        <Protect>
-            <FilesView />
-        </Protect>
-    )
+export default function Page() {
+  return (
+    <OperationsGate title="Knowledge Base (AI)">
+      <FilesView />
+    </OperationsGate>
+  );
 }
-
-export default Page; 

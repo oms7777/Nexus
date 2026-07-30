@@ -1,13 +1,10 @@
-import { CustomizationView } from "@/modules/customization/ui/views/customization-view"
-import { Protect } from "@clerk/nextjs";
+import { CustomizationView } from "@/modules/customization/ui/views/customization-view";
+import { OperationsGate } from "@/modules/auth/ui/components/operations-gate";
 
-const Page = () => {
-    return (
-        <Protect
-        >
-            <CustomizationView />
-        </Protect>
-    )
+export default function Page() {
+  return (
+    <OperationsGate title="Widget Customization">
+      <CustomizationView />
+    </OperationsGate>
+  );
 }
-
-export default Page; 

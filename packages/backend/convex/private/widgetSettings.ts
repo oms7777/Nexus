@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { requireOrgManager } from "../lib/authz";
 
 function requireOrgId(identity: any) {
   const orgId = identity?.orgId as string | undefined;
@@ -107,8 +108,7 @@ export const upsert = mutation({
     widgetUiLanguage: v.optional(WidgetUiLanguageV),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    const orgId = requireOrgId(identity);
+    const { orgId } = await requireOrgManager(ctx);
 
     // Plan gating: Starter must use OpenAI (Growth/Enterprise can choose).
     const sub = await ctx.runQuery(internal.system.subscriptions.getByOrganizationId, {
@@ -227,8 +227,7 @@ export const getOne = query({
 export const setRoutingMode = mutation({
   args: { routingMode: RoutingModeV },
   handler: async (ctx, { routingMode }) => {
-    const identity = await ctx.auth.getUserIdentity();
-    const orgId = requireOrgId(identity);
+    const { orgId } = await requireOrgManager(ctx);
 
     const existing = await ctx.db
       .query("widgetSettings")
@@ -256,8 +255,7 @@ export const setRoutingMode = mutation({
 export const setKnowledgeMode = mutation({
   args: { knowledgeMode: KnowledgeModeV },
   handler: async (ctx, { knowledgeMode }) => {
-    const identity = await ctx.auth.getUserIdentity();
-    const orgId = requireOrgId(identity);
+    const { orgId } = await requireOrgManager(ctx);
 
     const existing = await ctx.db
       .query("widgetSettings")

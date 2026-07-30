@@ -35,6 +35,7 @@ import {
 } from "@workspace/ui/components/dialog";
 
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
+import { useOrgCapabilities } from "@/modules/auth/hooks/use-org-capabilities";
 
 type Membership = {
   id: string;
@@ -280,8 +281,8 @@ const COUNTRY_PRESETS: CountryPreset[] = [
 
 export default function TeamPage() {
   const router = useRouter();
-  const { organization, membership, isLoaded } = useOrganization();
-  const isAdmin = membership?.role === "org:admin";
+  const { organization, isLoaded } = useOrganization();
+  const { canManageOperations } = useOrgCapabilities();
 
   const ent = useEntitlements();
   const isStarter = ent.plan === "starter";
@@ -294,15 +295,15 @@ export default function TeamPage() {
   useEffect(() => {
     if (!isLoaded) return;
     if (!organization) return;
-    if (!isAdmin) router.replace("/");
-  }, [isLoaded, organization, isAdmin, router]);
+    if (!canManageOperations) router.replace("/home");
+  }, [isLoaded, organization, canManageOperations, router]);
 
   useEffect(() => {
     if (!inviteOpen) return;
     if (typeof window !== "undefined") window.location.hash = "members";
   }, [inviteOpen]);
 
-  const canQuery = Boolean(organization && isAdmin);
+  const canQuery = Boolean(organization && canManageOperations);
 
   const widgetSettings = useQuery(
     api.private.widgetSettings.getOne,
@@ -377,7 +378,7 @@ export default function TeamPage() {
   const [loadingMembers, setLoadingMembers] = useState(false);
 
   useEffect(() => {
-    if (!organization || !isAdmin) return;
+    if (!organization || !canManageOperations) return;
 
     let cancelled = false;
 
@@ -415,7 +416,7 @@ export default function TeamPage() {
     return () => {
       cancelled = true;
     };
-  }, [organization, isAdmin]);
+  }, [organization, canManageOperations]);
 
   // repsPresence
   const reps = useQuery(
@@ -464,7 +465,7 @@ export default function TeamPage() {
     slackUserId?: string;
     slackDmChannel?: string;
   }) => {
-    if (!organization || !isAdmin) return;
+    if (!organization || !canManageOperations) return;
 
     try {
       await upsertRep({
@@ -526,7 +527,7 @@ export default function TeamPage() {
   };
 
   const handleCreateTerritory = async () => {
-    if (!organization || !isAdmin) return;
+    if (!organization || !canManageOperations) return;
 
     const trimmedLabel = territoryLabel.trim();
     const trimmedKey = (territoryKey || slugify(territoryLabel)).trim();
@@ -566,7 +567,7 @@ export default function TeamPage() {
   };
 
   const handleDeleteTerritory = async (id: string) => {
-    if (!isAdmin) return;
+    if (!canManageOperations) return;
     try {
       await removeTerritory({ territoryId: id as any });
       toast.success("Territory removed");
@@ -589,8 +590,18 @@ export default function TeamPage() {
     );
   }
 
-  if (isLoaded && !isAdmin) {
-    return <Protect>{null}</Protect>;
+  if (isLoaded && !canManageOperations) {
+    return (
+      <Protect>
+        <div className="mx-auto max-w-lg space-y-4 p-8">
+          <h1 className="text-2xl font-semibold">Team & Territories</h1>
+          <p className="text-muted-foreground">
+            This area is for organization admins and managers. Ask an admin to
+            grant you the Manager or Admin role.
+          </p>
+        </div>
+      </Protect>
+    );
   }
 
   return (

@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, query, mutation } from "../_generated/server";
 import { crawlAndIndexPublicSite } from "./websiteIngest";
+import { requireOrgManager } from "../lib/authz";
 
 type Frequency = "off" | "daily" | "weekly";
 
@@ -51,14 +52,7 @@ export const upsertSettings = mutation({
     enabled: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Identity not found" });
-    }
-    const orgId = identity.orgId as string;
-    if (!orgId) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-    }
+    const { orgId } = await requireOrgManager(ctx);
 
     const rootUrl = normalizeUrl(args.rootUrl);
     const now = Date.now();

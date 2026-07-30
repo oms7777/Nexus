@@ -1,7 +1,7 @@
 // packages/backend/convex/private/territories.ts
 import { query, mutation } from "../_generated/server";
 import { ConvexError, v } from "convex/values";
-import { requireOrgAdmin, requireOrgId } from "../lib/authz";
+import { requireOrgId, requireOrgManager } from "../lib/authz";
 import { writeAuditLog } from "../lib/audit";
 
 /**
@@ -159,7 +159,7 @@ export const upsert = mutation({
     countryCodes: v.optional(v.array(v.string())),
   },
   handler: async (ctx, { organizationId: _clientOrgId, key, label, countryCodes }) => {
-    const { orgId: organizationId, userId, orgRole } = await requireOrgAdmin(ctx);
+    const { orgId: organizationId, userId, orgRole } = await requireOrgManager(ctx);
     const now = Date.now();
 
     const normalizedKey = key.trim().toLowerCase();
@@ -239,7 +239,7 @@ export const remove = mutation({
     territoryId: v.id("territories"),
   },
   handler: async (ctx, { territoryId }) => {
-    const { orgId, userId, orgRole } = await requireOrgAdmin(ctx);
+    const { orgId, userId, orgRole } = await requireOrgManager(ctx);
     const doc = await ctx.db.get(territoryId);
     if (!doc || doc.organizationId !== orgId) {
       throw new ConvexError({ code: "FORBIDDEN", message: "Territory not found" });

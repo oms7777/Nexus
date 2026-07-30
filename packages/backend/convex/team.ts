@@ -1,16 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { writeAuditLog } from "./lib/audit";
-
-async function requireOrgId(ctx: any): Promise<string> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
-
-  const orgId = identity.orgId as string | undefined;
-  if (!orgId) throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
-
-  return orgId;
-}
+import { requireOrgId, requireSelfOrOrgManager } from "./lib/authz";
 
 async function upsertUserProfileBestEffort(
   ctx: any,
@@ -208,16 +199,13 @@ export const upsertRepPresence = mutation({
     ctx,
     { userId, regions, available, whatsappPhoneDigits, slackUserId, slackDmChannel, profile },
   ) => {
-    const organizationId = await requireOrgId(ctx);
     if (!userId) throw new ConvexError({ code: "BAD_REQUEST", message: "userId is required" });
 
-    const identity = await ctx.auth.getUserIdentity();
-    const actorUserId = (identity as any)?.subject as string | undefined;
-    const actorOrgRole =
-      ((identity as any)?.orgRole ??
-        (identity as any)?.org_role ??
-        (identity as any)?.organizationRole ??
-        undefined) as string | undefined;
+    const {
+      orgId: organizationId,
+      userId: actorUserId,
+      orgRole: actorOrgRole,
+    } = await requireSelfOrOrgManager(ctx, userId);
 
     await upsertUserProfileBestEffort(ctx, organizationId, userId, profile as any);
 
@@ -293,7 +281,7 @@ export const connectRepSlack = mutation({
     slackDmChannel: v.string(),
   },
   handler: async (ctx, { userId, slackUserId, slackDmChannel }) => {
-    const organizationId = await requireOrgId(ctx);
+    const { orgId: organizationId } = await requireSelfOrOrgManager(ctx, userId);
     const now = Date.now();
 
     const existing = await ctx.db

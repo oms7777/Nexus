@@ -54,21 +54,37 @@ function isClerkOrgAdminRole(role: string): boolean {
   return false;
 }
 
-export async function requireOrgAdmin(ctx: any): Promise<{
-  orgId: string;
-  userId: string;
-  orgRole: string;
-}> {
+/**
+ * Day-to-day operations (team, routing, knowledge base, widget content) can be
+ * delegated to a Clerk custom role. Admins always qualify.
+ *
+ * Until the org actually creates that custom role in Clerk, no JWT carries it,
+ * so every manager-gated function stays admin-only — the check is a no-op.
+ */
+function isOrgManagerRole(role: string): boolean {
+  if (isClerkOrgAdminRole(role)) return true;
+  if (!role) return false;
+  return role === "org:manager" || role === "manager";
+}
+
+type Actor = { orgId: string; userId: string; orgRole: string };
+
+async function resolveActor(ctx: any): Promise<Actor> {
   const identity = (await requireIdentity(ctx)) as Record<string, unknown>;
   const orgId = identity.orgId as string | undefined;
   const userId = identity.subject as string | undefined;
-  const orgRole = extractOrgRoleFromIdentity(identity);
 
   if (!orgId || !userId) {
     throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
   }
 
-  if (!isClerkOrgAdminRole(orgRole)) {
+  return { orgId, userId, orgRole: extractOrgRoleFromIdentity(identity) };
+}
+
+export async function requireOrgAdmin(ctx: any): Promise<Actor> {
+  const actor = await resolveActor(ctx);
+
+  if (!isClerkOrgAdminRole(actor.orgRole)) {
     throw new ConvexError({
       code: "FORBIDDEN",
       message:
@@ -76,6 +92,44 @@ export async function requireOrgAdmin(ctx: any): Promise<{
     });
   }
 
-  return { orgId, userId, orgRole };
+  return actor;
+}
+
+/** For org-wide operational settings that are safe to delegate to a manager. */
+export async function requireOrgManager(ctx: any): Promise<Actor> {
+  const actor = await resolveActor(ctx);
+
+  if (!isOrgManagerRole(actor.orgRole)) {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "Admin or manager role required to change this setting.",
+    });
+  }
+
+  return actor;
+}
+
+/**
+ * For writes that target a specific member.
+ *
+ * A rep may edit their own row, but editing someone else's availability or
+ * territories silently reassigns that person's inbound leads, so it needs
+ * team-management rights.
+ */
+export async function requireSelfOrOrgManager(ctx: any, targetUserId: string): Promise<Actor> {
+  const actor = await resolveActor(ctx);
+
+  if (actor.userId === targetUserId) {
+    return actor;
+  }
+
+  if (!isOrgManagerRole(actor.orgRole)) {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "Only an admin or manager can change another member's rep settings.",
+    });
+  }
+
+  return actor;
 }
 
