@@ -19,13 +19,14 @@ export const useVapi = () => {
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [callError, setCallError] = useState<string | null>(null);
 
-  // ⚠️ IMPORTANT : dépend de vapiSecrets
+  // ⚠️ IMPORTANT : dépend de vapiSecrets ss
   useEffect(() => {
     if (!vapiSecrets?.publicApiKey) {
       setVapi(null);
       return;
     }
 
+    
     const vapiInstance = new Vapi(vapiSecrets.publicApiKey);
     setVapi(vapiInstance);
 
