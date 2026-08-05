@@ -818,16 +818,23 @@ export const overview = query({
     const loudNoBook = booking_paths
       .filter((p) => p.meetings === 0 && p.sessions >= 5)
       .sort((a, b) => b.sessions - a.sessions)[0];
+
+    const pathPhrase = (p: { source: string; page: string }) => {
+      const page = p.page || "/";
+      const src = String(p.source ?? "").toLowerCase();
+      // Don't lead with "Direct" — page is what a HoS acts on.
+      if (!src || src === "direct") return page === "/" ? "Homepage (/)" : page;
+      return `${p.source} → ${page}`;
+    };
+
     if (meetings === 0 && sessions >= 10) {
       booking_insight = `${sessions.toLocaleString()} sessions, 0 meetings booked — traffic is not converting in this period.`;
     } else if (bestPath) {
       const ratePct = (bestPath.meetingRate * 100).toFixed(0);
-      const srcLabel = bestPath.source === "direct" ? "Direct" : bestPath.source;
       if (loudNoBook && loudNoBook.sessions > bestPath.sessions * 1.5) {
-        const loudSrc = loudNoBook.source === "direct" ? "Direct" : loudNoBook.source;
-        booking_insight = `${srcLabel} → ${bestPath.page} booked (${bestPath.meetings} meeting${bestPath.meetings === 1 ? "" : "s"}, ${ratePct}% rate). High volume ${loudSrc} → ${loudNoBook.page} (${loudNoBook.sessions} sessions) produced none.`;
+        booking_insight = `${pathPhrase(bestPath)} booked (${bestPath.meetings} meeting${bestPath.meetings === 1 ? "" : "s"}, ${ratePct}% rate). High traffic on ${pathPhrase(loudNoBook)} (${loudNoBook.sessions} sessions) produced none.`;
       } else {
-        booking_insight = `${srcLabel} → ${bestPath.page}: ${ratePct}% meeting rate (${bestPath.meetings} of ${bestPath.sessions} sessions).`;
+        booking_insight = `${pathPhrase(bestPath)}: ${ratePct}% meeting rate (${bestPath.meetings} of ${bestPath.sessions} sessions).`;
       }
     } else if (meetings > 0) {
       booking_insight = `${meetings.toLocaleString()} meeting${meetings === 1 ? "" : "s"} booked — path attribution is thin for this period.`;

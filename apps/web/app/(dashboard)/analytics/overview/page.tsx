@@ -90,8 +90,6 @@ export default function AnalyticsOverviewPage() {
   const meetingsN = Number(kpi.meetings ?? 0);
   const sessionsN = Number(kpi.sessions ?? 0);
   const conversationsN = Number(kpi.conversations ?? 0);
-  const experiencesN = Number(kpi.experiences ?? 0);
-  const inboundN = Number(kpi.inboundRequests ?? 0);
 
   const insight = (overview as any)?.booking_insight as string | null | undefined;
   const bookingPaths = Array.isArray((overview as any)?.booking_paths)
@@ -150,13 +148,11 @@ export default function AnalyticsOverviewPage() {
 
       <div className="grid gap-6 xl:grid-cols-12">
         <div className="xl:col-span-5">
-          <PipelineFunnelStrip
-            sessions={sessionsN}
-            experiences={experiencesN}
-            inboundRequests={inboundN}
-            conversations={conversationsN}
-            meetings={meetingsN}
-          />
+      <PipelineFunnelStrip
+        sessions={sessionsN}
+        conversations={conversationsN}
+        meetings={meetingsN}
+      />
         </div>
         <div className="xl:col-span-7">
           <CardShell

@@ -8,50 +8,38 @@ type Step = {
 };
 
 /**
- * Classic funnel bars (wide → narrow) — not a row of slide cards.
+ * Executive funnel — 3 stages only. Widget shown / chat requested live on Funnel
+ * diagnostics; here a HoS needs Session → Conversation → Meeting.
  */
 export function PipelineFunnelStrip({
   sessions,
-  experiences,
-  inboundRequests,
   conversations,
   meetings,
 }: {
   sessions: number;
-  experiences: number;
-  inboundRequests: number;
   conversations: number;
   meetings: number;
+  /** Kept for call-site compat; ignored on Overview. */
+  experiences?: number;
+  inboundRequests?: number;
 }) {
   const steps: Step[] = [
     {
       key: "sessions",
       label: "Sessions",
-      hint: "Unique visitors who hit a page with the widget",
+      hint: "Visitors on pages with the widget",
       value: sessions,
-    },
-    {
-      key: "experiences",
-      label: "Widget shown",
-      hint: "Times the chat experience was actually shown",
-      value: experiences,
-    },
-    {
-      key: "inbound",
-      label: "Chat requested",
-      hint: "Visitor asked to talk to sales (inbound handoff)",
-      value: inboundRequests,
     },
     {
       key: "conversations",
       label: "Conversations",
-      hint: "Chat threads created",
+      hint: "Chat threads started",
       value: conversations,
     },
     {
       key: "meetings",
       label: "Meetings",
-      hint: "Meetings booked in Inboundless",
+      hint: "Booked in Inboundless",
       value: meetings,
     },
   ];
@@ -63,7 +51,7 @@ export function PipelineFunnelStrip({
       <div className="mb-5">
         <h2 className="text-base font-semibold tracking-tight text-foreground">Conversion funnel</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          How traffic becomes a booked meeting — bar width = relative volume
+          Traffic → chat → booked meeting. Finer steps are on the Funnel tab.
         </p>
       </div>
 
@@ -72,8 +60,7 @@ export function PipelineFunnelStrip({
           const prev = i > 0 ? steps[i - 1]!.value : null;
           const keep =
             prev != null && prev > 0 ? Math.round((step.value / prev) * 1000) / 10 : null;
-          // Funnel shape: top ~100%, bottom narrower but never tiny for readability
-          const widthPct = 42 + (step.value / max) * 58;
+          const widthPct = 48 + (step.value / max) * 52;
 
           return (
             <div key={step.key} className="w-full">
@@ -87,7 +74,7 @@ export function PipelineFunnelStrip({
                         : "bg-muted text-muted-foreground",
                     ].join(" ")}
                   >
-                    {keep}% kept
+                    {keep}% converted
                   </span>
                 </div>
               ) : null}
@@ -99,7 +86,7 @@ export function PipelineFunnelStrip({
               >
                 <div
                   className={[
-                    "flex items-center justify-between gap-3 rounded-lg px-4 py-2.5 text-white shadow-sm",
+                    "flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-white shadow-sm",
                     i === steps.length - 1
                       ? "bg-gradient-to-r from-rose-500 to-fuchsia-600"
                       : "bg-gradient-to-r from-fuchsia-600/90 to-fuchsia-500/85",

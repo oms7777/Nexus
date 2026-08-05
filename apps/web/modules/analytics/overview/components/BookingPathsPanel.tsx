@@ -24,6 +24,43 @@ export type BookingPath = {
   conversationIds?: string[];
 };
 
+const MAX_BOOKED = 5;
+const MAX_ZERO = 3;
+
+/** Page-first label: hide "Direct →" noise; keep real channels (LinkedIn, Ads…). */
+function pathTitle(p: BookingPath): string {
+  const page = p.page || "/";
+  const pageLabel = page === "/" ? "Homepage (/)" : page;
+  const src = String(p.source ?? "").toLowerCase().trim();
+  if (!src || src === "direct") return pageLabel;
+  return `${displaySourceLabel(p.source)} → ${pageLabel}`;
+}
+
+/**
+ * Cap the list: every path that booked, plus a few high-traffic pages that didn't.
+ * Never dump every URL on a large site.
+ */
+function selectPaths(paths: BookingPath[]): { rows: BookingPath[]; hiddenZero: number } {
+  const list = (paths ?? []).filter((p) => p.sessions > 0 || p.meetings > 0);
+  const booked = list
+    .filter((p) => p.meetings > 0)
+    .sort(
+      (a, b) =>
+        b.meetings - a.meetings || b.meetingRate - a.meetingRate || b.sessions - a.sessions,
+    )
+    .slice(0, MAX_BOOKED);
+
+  const bookedKeys = new Set(booked.map((p) => `${p.source}\0${p.page}`));
+  const zeros = list
+    .filter((p) => p.meetings === 0 && !bookedKeys.has(`${p.source}\0${p.page}`))
+    .sort((a, b) => b.sessions - a.sessions);
+
+  const shownZeros = zeros.slice(0, MAX_ZERO);
+  const hiddenZero = Math.max(0, zeros.length - shownZeros.length);
+
+  return { rows: [...booked, ...shownZeros], hiddenZero };
+}
+
 export function BookingPathsPanel({
   paths,
   showPlanBadge,
@@ -32,28 +69,29 @@ export function BookingPathsPanel({
   showPlanBadge?: React.ReactNode;
 }) {
   const [selected, setSelected] = useState<BookingPath | null>(null);
+  const { rows, hiddenZero } = useMemo(() => selectPaths(paths), [paths]);
 
-  const rows = useMemo(() => {
-    return (paths ?? []).filter((p) => p.sessions > 0 || p.meetings > 0).slice(0, 10);
-  }, [paths]);
-
-  const maxMeetings = Math.max(1, ...rows.map((r) => r.meetings));
+  const maxMeetings = Math.max(1, ...rows.map((r) => r.meetings), 1);
+  const hasCampaignChannel = rows.some((p) => {
+    const s = String(p.source ?? "").toLowerCase();
+    return s && s !== "direct";
+  });
 
   return (
     <>
       <CardShell
-        title="Paths that book"
-        subtitle="Channel → page, ranked by meetings (click a row to open conversations)"
+        title="Pages that book"
+        subtitle="Top converting pages — click a row for conversations"
         right={showPlanBadge}
       >
-        <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-          <span className="font-medium text-foreground">Direct</span> = no UTM / no external referrer
-          (typed URL, bookmark, or navigation on your own site).{" "}
-          <span className="font-medium text-foreground">LinkedIn / Google…</span> = real acquisition
-          channel when UTMs or referrer are present.
-        </p>
+        {hasCampaignChannel ? (
+          <p className="mb-3 text-xs text-muted-foreground">
+            When a campaign is detected (UTM / LinkedIn / Ads), it appears before the page.
+          </p>
+        ) : null}
+
         {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No attributed paths in this period yet.</p>
+          <p className="text-sm text-muted-foreground">No page activity in this period yet.</p>
         ) : (
           <div className="space-y-2">
             {rows.map((p) => {
@@ -68,7 +106,7 @@ export function BookingPathsPanel({
                   className={[
                     "group relative w-full overflow-hidden rounded-xl border px-3 py-3 text-left transition",
                     muted
-                      ? "border-border/50 bg-muted/15 opacity-75 hover:opacity-95"
+                      ? "border-border/50 bg-muted/15 opacity-80 hover:opacity-100"
                       : "border-fuchsia-200/70 bg-gradient-to-r from-fuchsia-50/80 to-white hover:border-fuchsia-300 dark:from-fuchsia-950/30 dark:to-card",
                   ].join(" ")}
                 >
@@ -79,25 +117,40 @@ export function BookingPathsPanel({
                   <div className="relative flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-foreground">
-                        {displaySourceLabel(p.source)}{" "}
-                        <span className="font-normal text-muted-foreground">→</span>{" "}
-                        <span className="font-medium">{p.page || "/"}</span>
+                        {pathTitle(p)}
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        <span className="font-semibold text-foreground">{ratePct}%</span> meeting rate ·{" "}
-                        {p.conversations.toLocaleString()} conv · {p.sessions.toLocaleString()} sessions
+                        {muted ? (
+                          <>
+                            Traffic without meetings · {p.sessions.toLocaleString()} sessions
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-semibold text-foreground">{ratePct}%</span> meeting
+                            rate · {p.conversations.toLocaleString()} conv ·{" "}
+                            {p.sessions.toLocaleString()} sessions
+                          </>
+                        )}
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
                       <div className="text-lg font-semibold tabular-nums text-foreground">
                         {p.meetings.toLocaleString()}
                       </div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">meetings</div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        meetings
+                      </div>
                     </div>
                   </div>
                 </button>
               );
             })}
+            {hiddenZero > 0 ? (
+              <p className="pt-1 text-center text-[11px] text-muted-foreground">
+                +{hiddenZero} other page{hiddenZero === 1 ? "" : "s"} with traffic, 0 meetings — not
+                listed
+              </p>
+            ) : null}
           </div>
         )}
       </CardShell>
@@ -105,11 +158,9 @@ export function BookingPathsPanel({
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <SheetContent side="right" className="w-full sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>Path detail</SheetTitle>
+            <SheetTitle>Page detail</SheetTitle>
             <SheetDescription>
-              {selected
-                ? `${displaySourceLabel(selected.source)} → ${selected.page}`
-                : "Conversation links for this acquisition path"}
+              {selected ? pathTitle(selected) : "Conversation links for this page"}
             </SheetDescription>
           </SheetHeader>
           {selected ? (
@@ -125,7 +176,8 @@ export function BookingPathsPanel({
                 </div>
                 {(selected.conversationIds?.length ?? 0) === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No conversation ids on events for this path yet. Open Inbox to find related threads.
+                    No conversation ids on events for this page yet. Open Inbox to find related
+                    threads.
                   </p>
                 ) : (
                   <ul className="space-y-2">
