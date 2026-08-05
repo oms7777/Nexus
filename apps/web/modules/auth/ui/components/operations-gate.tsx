@@ -29,8 +29,8 @@ export function OperationsGate({
             grant you the <span className="font-medium">Manager</span> or{" "}
             <span className="font-medium">Admin</span> role.
           </p>
-          <Link href="/home" className="text-sm font-medium underline underline-offset-4">
-            Back to home
+          <Link href="/live" className="text-sm font-medium underline underline-offset-4">
+            Back to Live Map
           </Link>
         </div>
       </Protect>

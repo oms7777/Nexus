@@ -4,7 +4,6 @@ import { UserButton, useOrganization } from "@clerk/nextjs";
 import {
   BellIcon,
   CalendarIcon,
-  HomeIcon,
   InboxIcon,
   MapIcon,
   UserIcon,
@@ -56,7 +55,7 @@ function BrandHeader() {
   return (
     <div className="px-3 pt-3 pb-2">
       <Link
-        href="/home"
+        href="/live"
         className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted"
       >
         <img src="/logoo.jpg" alt="Inboundless" className="h-7 w-7 shrink-0 rounded-sm object-cover" />
@@ -155,7 +154,6 @@ export const DashboardSidebar = () => {
   }, [escalations]);
 
   const pipelineItems = [
-    { title: "Home", url: "/home", icon: HomeIcon },
     { title: "Live Map", url: "/live", icon: MapIcon },
     {
       title: "Conversations",

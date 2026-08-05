@@ -295,7 +295,7 @@ export default function TeamPage() {
   useEffect(() => {
     if (!isLoaded) return;
     if (!organization) return;
-    if (!canManageOperations) router.replace("/home");
+    if (!canManageOperations) router.replace("/live");
   }, [isLoaded, organization, canManageOperations, router]);
 
   useEffect(() => {

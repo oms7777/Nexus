@@ -1,5 +1,5 @@
-import { HomeView } from "@/modules/dashboard/ui/views/home-view";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <HomeView />;
+  redirect("/live");
 }
