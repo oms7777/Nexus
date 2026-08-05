@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
@@ -10,8 +10,7 @@ import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
 import {
   AnalyticsDateRangePicker,
-  rangeToTimestamps,
-  type AnalyticsRange,
+  useAnalyticsRangeFromUrl,
 } from "@/modules/analytics/shared/analytics-date-range";
 import { LockedSignalsAdvancedCard } from "@/modules/analytics/signals/components/LockedSignalsAdvancedCard";
 import {
@@ -36,10 +35,8 @@ export default function AnalyticsSignalsPage() {
   const ent = useEntitlements();
   const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
 
-  const [range, setRange] = useState<AnalyticsRange>({ kind: "preset", days: 30 });
-  const { fromTs, toTs } = useMemo(() => rangeToTimestamps(range), [range]);
+  const { range, setRange, fromTs, toTs } = useAnalyticsRangeFromUrl();
 
-  // ✅ HARDBLOCK: si pas advanced, on ne call pas la query (sinon FORBIDDEN)
   const rows = useQuery(
     api.public.analytics.signals,
     orgId && advancedEnabled ? { organizationId: orgId, fromTs, toTs } : "skip",
@@ -70,7 +67,7 @@ export default function AnalyticsSignalsPage() {
 
   if (!advancedEnabled) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="space-y-6 p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <div className="text-2xl font-semibold tracking-tight">Signals</div>
@@ -98,36 +95,39 @@ export default function AnalyticsSignalsPage() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
+  const meetingsTotal = Array.isArray(rows)
+    ? rows.reduce((s, r: any) => s + Number(r.meetings ?? 0), 0)
+    : 0;
+  const sessionsTotal = Array.isArray(rows)
+    ? rows.reduce((s, r: any) => s + Number(r.sessions ?? 0), 0)
+    : 0;
+  const showAlert = meetingsTotal === 0 && sessionsTotal >= 10;
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-2xl font-semibold tracking-tight">Signals</div>
-        <div className="flex items-center gap-3">
-          <AnalyticsDateRangePicker value={range} onChange={setRange} />
+        <div className="space-y-1">
+          <div className="text-2xl font-semibold tracking-tight">Signals</div>
+          <p className="text-sm text-muted-foreground">
+            Hot accounts first — click a row to open related conversations
+          </p>
         </div>
+        <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
+
+      {showAlert ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+          <span className="font-semibold">0 meetings</span> across signals this period despite{" "}
+          {sessionsTotal.toLocaleString()} sessions — prioritize Warm/Hot outreach or check Funnel drop-off.
+        </div>
+      ) : null}
 
       {isEmpty ? (
         <div className="overflow-hidden rounded-2xl border border-dashed border-fuchsia-200/80 bg-gradient-to-br from-fuchsia-50/50 to-white p-8 shadow-sm ring-1 ring-black/[0.04] dark:border-fuchsia-900/40 dark:from-fuchsia-950/20 dark:to-background dark:ring-white/10">
           <div className="text-lg font-semibold tracking-tight">No signals yet</div>
           <div className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Signals appear when visitors generate trackable events (sessions, inbound requests, conversations, bookings).
-            If your traffic is mostly anonymous, you will see visitor-style keys until an email or company is captured.
-          </div>
-
-          <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <div className="rounded-xl border border-border/80 bg-white/90 p-4 shadow-sm dark:bg-card">
-              <div className="text-sm font-medium">Capture identity</div>
-              <div className="mt-1 text-xs text-muted-foreground">Email in chat, booking, or CRM enrichment.</div>
-            </div>
-            <div className="rounded-xl border border-border/80 bg-white/90 p-4 shadow-sm dark:bg-card">
-              <div className="text-sm font-medium">Respond fast</div>
-              <div className="mt-1 text-xs text-muted-foreground">Intent decays quickly on inbound touches.</div>
-            </div>
-            <div className="rounded-xl border border-border/80 bg-white/90 p-4 shadow-sm dark:bg-card">
-              <div className="text-sm font-medium">Route reps</div>
-              <div className="mt-1 text-xs text-muted-foreground">Territories lift routing quality in Signals.</div>
-            </div>
+            Signals appear when visitors generate trackable events (sessions, inbound requests, conversations,
+            bookings).
           </div>
         </div>
       ) : (

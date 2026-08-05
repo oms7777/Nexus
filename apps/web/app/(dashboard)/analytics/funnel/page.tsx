@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
@@ -14,10 +14,8 @@ import { FunnelDropoffStrip } from "@/modules/analytics/funnel/components/Funnel
 import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
 import {
   AnalyticsDateRangePicker,
-  rangeToTimestamps,
-  type AnalyticsRange,
+  useAnalyticsRangeFromUrl,
 } from "@/modules/analytics/shared/analytics-date-range";
-import { FunnelSummaryBanner } from "@/modules/analytics/funnel/components/FunnelSummaryBanner";
 import { BrandPill, CardShell, Row } from "@/modules/analytics/shared/analytics-primitives";
 
 function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPlanBadges: boolean }) {
@@ -29,7 +27,7 @@ function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPla
             Funnel Analytics {showPlanBadges ? "(Advanced)" : ""}
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            Funnels are available on Growth / Enterprise plans.
+            Drop-off diagnostics and inbound health require Advanced Analytics.
           </div>
           {reason ? (
             <div className="mt-2 text-xs text-muted-foreground">
@@ -37,26 +35,24 @@ function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPla
             </div>
           ) : null}
         </div>
-        <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs font-medium text-fuchsia-700">Locked</div>
+        <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs font-medium text-fuchsia-700">
+          Locked
+        </div>
       </div>
 
       <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-        <div>• Engagement — sessions → experiences → conversations → meetings</div>
-        <div>• Conversion — strict rates (experience → conversation → meeting)</div>
+        <div>• Drop-off between sessions → experiences → conversations → meetings</div>
+        <div>• Step conversion rates</div>
         <div>• Inbound health — requests → rep started → booking proposed → meetings</div>
       </div>
 
-      <div className="mt-6 rounded-xl bg-fuchsia-50/60 p-4 text-sm border border-fuchsia-100">
-        Upgrade to <span className="font-medium">Growth</span> to unlock Funnel.
+      <div className="mt-6 rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 p-4 text-sm">
+        Unlock with the <span className="font-medium">Advanced Analytics</span> add-on.
       </div>
     </div>
   );
 }
 
-/**
- * ✅ ErrorBoundary pour catcher les erreurs Convex (FORBIDDEN, etc.)
- * et éviter l’écran cassé + console spam.
- */
 class FunnelErrorBoundary extends React.Component<
   { children: React.ReactNode; fallback: (err: unknown) => React.ReactNode },
   { err: unknown }
@@ -67,10 +63,7 @@ class FunnelErrorBoundary extends React.Component<
     return { err };
   }
 
-  componentDidCatch(err: unknown) {
-    // optionnel : tu peux logger ici si tu veux
-    // console.error(err);
-  }
+  componentDidCatch(_err: unknown) {}
 
   render() {
     if (this.state.err) return this.props.fallback(this.state.err);
@@ -79,13 +72,9 @@ class FunnelErrorBoundary extends React.Component<
 }
 
 function extractReason(err: unknown) {
-  // ConvexError peut arriver sous plusieurs formes côté client bundlé,
-  // donc on reste robuste.
   const msg =
     (typeof err === "object" && err && "message" in err ? String((err as any).message) : "") || "";
 
-  // Si ton ConvexError est construit avec {code, message}, parfois il apparaît dans message stringify
-  // ex: "ConvexError: { code: 'FORBIDDEN', message: 'Advanced Analytics required' }"
   if (msg.toLowerCase().includes("advanced analytics required")) return "Advanced Analytics required";
   if (msg.toLowerCase().includes("forbidden")) return "Forbidden";
   if (msg) return msg.slice(0, 140);
@@ -101,8 +90,7 @@ function FunnelsInner({
   advancedEnabled: boolean;
   showPlanBadges: boolean;
 }) {
-  const [range, setRange] = useState<AnalyticsRange>({ kind: "preset", days: 30 });
-  const { fromTs, toTs } = useMemo(() => rangeToTimestamps(range), [range]);
+  const { range, setRange, fromTs, toTs } = useAnalyticsRangeFromUrl();
 
   const data = useQuery(
     api.public.analytics.funnels,
@@ -117,11 +105,11 @@ function FunnelsInner({
 
   if (!advancedEnabled) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="space-y-6 p-6">
         <div>
           <div className="text-2xl font-semibold">Funnels</div>
           <div className="text-sm text-muted-foreground">
-            Engagement → conversations → meetings, plus inbound performance.
+            Diagnostic view — drop-offs and inbound handling (not the executive overview).
           </div>
         </div>
         <LockedFunnelCard showPlanBadges={showPlanBadges} />
@@ -131,12 +119,12 @@ function FunnelsInner({
 
   if (data === undefined) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="space-y-6 p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-2xl font-semibold">Funnels</div>
             <div className="text-sm text-muted-foreground">
-              Engagement → conversations → meetings, plus inbound performance.
+              Drop-off and inbound health for the selected period.
             </div>
           </div>
           <AnalyticsDateRangePicker value={range} onChange={setRange} />
@@ -161,35 +149,21 @@ function FunnelsInner({
   };
 
   const inbound = data?.inbound ?? null;
-  const primary = data?.primaryOutcome as
-    | { meetings?: number; sessions?: number; conversations?: number; meetingsDelta?: number | null }
-    | undefined;
 
   return (
-    <div className="p-6 space-y-8">
+    <div className="space-y-8 p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-800/80 dark:text-fuchsia-300/80">
-            Funnel analytics
+            Funnel diagnostics
           </p>
-          <div className="text-2xl font-semibold tracking-tight text-foreground">Pipeline &amp; motion</div>
+          <div className="text-2xl font-semibold tracking-tight text-foreground">Where pipeline leaks</div>
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Period snapshot, then volume → step conversion → inbound handling. Step rates stay in the charts below so they
-            are not duplicated in the summary.
+            Step drop-offs and inbound handling. Outcomes live on Overview — this page is for diagnosis.
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
-
-      {primary ? (
-        <FunnelSummaryBanner
-          meetings={Number(primary.meetings ?? 0)}
-          meetingsDelta={primary.meetingsDelta ?? null}
-          sessions={Number(engagement.sessions ?? 0)}
-          conversations={Number(engagement.conversations ?? 0)}
-          inboundRequests={Number(inbound?.requests ?? 0)}
-        />
-      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-12">
         <CardShell
@@ -206,7 +180,7 @@ function FunnelsInner({
 
         <CardShell
           title="Step conversion"
-          subtitle="Cohort-style rates between adjacent stages (tooltip shows the ratio)"
+          subtitle="Cohort-style rates between adjacent stages"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           className="lg:col-span-5"
         >
@@ -258,20 +232,17 @@ export default function AnalyticsFunnelPage() {
   return (
     <FunnelErrorBoundary
       fallback={(err) => (
-        <div className="p-6 space-y-6">
+        <div className="space-y-6 p-6">
           <div>
             <div className="text-2xl font-semibold">Funnels</div>
             <div className="text-sm text-muted-foreground">
-              Engagement → conversations → meetings, plus inbound performance.
+              Drop-off diagnostics and inbound health.
             </div>
           </div>
-
-          {/* ✅ si backend dit FORBIDDEN / Advanced Analytics required */}
           <LockedFunnelCard reason={extractReason(err)} showPlanBadges={showPlanBadges} />
-
           <div className="text-xs text-muted-foreground">
             If this looks wrong, check the <span className="font-medium">subscriptions</span> row for this org in
-            Convex (plan / status / addons).
+            Convex (<span className="font-medium">addons.advancedAnalytics</span>).
           </div>
         </div>
       )}

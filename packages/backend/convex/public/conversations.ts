@@ -139,20 +139,7 @@ export const create = mutation({
         });
       }
 
-      await ctx.runMutation(api.public.analytics.log, {
-        organizationId: args.organizationId,
-        type: "experience_shown",
-        sessionId: args.contactSessionId,
-        conversationId: existingActive._id,
-        meta: {
-          threadId: existingActive.threadId,
-          reused: true,
-          suppressGreet: !!args.suppressGreet,
-          assignedRepUserId: sessionAssignedRep ?? null,
-          assignedTerritoryKey: sessionTerritory ?? null,
-        },
-      });
-
+      // Do not log experience_shown on reuse — it inflated session→meeting rates.
       await ctx.runMutation(api.public.analytics.log, {
         organizationId: args.organizationId,
         type: "conversation_reused",

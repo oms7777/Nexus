@@ -136,23 +136,41 @@ function getMeetingKey(e: any): string | null {
   return null;
 }
 
+/** Dashboard reads must use the Clerk org on the JWT — never trust a bare organizationId. */
+async function requireDashboardOrgId(ctx: any, clientOrgId: string): Promise<string> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+  }
+  const orgId = (identity as any).orgId as string | undefined;
+  if (!orgId) {
+    throw new ConvexError({ code: "UNAUTHORIZED", message: "Organization not found" });
+  }
+  if (clientOrgId && clientOrgId !== orgId) {
+    throw new ConvexError({ code: "FORBIDDEN", message: "Organization mismatch" });
+  }
+  return orgId;
+}
+
+/**
+ * Advanced Analytics is the `advancedAnalytics` addon (same flag as the web entitlements UI),
+ * not the plan name alone — Growth without the addon must not pass here.
+ */
 async function requireAdvancedAnalytics(ctx: any, organizationId: string) {
   const sub = await ctx.db
     .query("subscriptions")
     .withIndex("by_organization_id", (q: any) => q.eq("organizationId", organizationId))
     .unique();
 
-  // In local/dev environments we often don't bother seeding subscriptions.
-  // To avoid breaking dashboards, allow funnels when there's no subscription at all.
+  // Local/dev often has no subscription row — keep dashboards usable there.
   if (!sub && process.env.NODE_ENV !== "production") {
     return { plan: "dev", status: "active" };
   }
 
   const plan = String(sub?.plan ?? "starter");
   const status = String(sub?.status ?? "paused");
-
   const isActive = status === "active" || status === "trial";
-  const hasAdvanced = plan === "growth" || plan === "enterprise";
+  const hasAdvanced = Boolean(sub?.addons?.advancedAnalytics);
 
   if (!isActive || !hasAdvanced) {
     throw new ConvexError({
@@ -162,6 +180,21 @@ async function requireAdvancedAnalytics(ctx: any, organizationId: string) {
   }
 
   return { plan, status };
+}
+
+function isNoiseSourceKey(source: string): boolean {
+  const s = source.toLowerCase().trim();
+  if (!s || s === "direct") return false;
+  if (s === "localhost" || s.startsWith("127.") || s === "0.0.0.0" || s === "::1") return true;
+  if (s.endsWith(".vercel.app") || s.includes(".vercel.app")) return true;
+  if (s.includes("nexus-site-") || s.includes("-oms")) return true;
+  return false;
+}
+
+function countUniqueExperiences(evts: any[]): number {
+  return uniqueCount(
+    evts.filter((e) => e.type === "experience_shown").map((e) => getSessionKey(e)),
+  );
 }
 
 function uniqueCount(keys: Array<string | null | undefined>) {
@@ -410,6 +443,25 @@ export const log = mutation({
     meta: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    // Widget writes stay unauthenticated, but must prove they own a session/conversation
+    // in this org — otherwise anyone with an org id could forge KPIs.
+    if (args.sessionId) {
+      const session = await ctx.db.get(args.sessionId);
+      if (!session || session.organizationId !== args.organizationId) {
+        throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
+      }
+    } else if (args.conversationId) {
+      const conversation = await ctx.db.get(args.conversationId);
+      if (!conversation || conversation.organizationId !== args.organizationId) {
+        throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid conversation" });
+      }
+    } else {
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "sessionId or conversationId is required",
+      });
+    }
+
     const sessionMeta = await enrichMetaFromSession(ctx, args.sessionId);
 
     await ctx.db.insert("analyticsEvents", {
@@ -454,7 +506,10 @@ export const overview = query({
     toTs: v.number(),
     slaSeconds: v.optional(v.number()),
   },
-  handler: async (ctx, { organizationId, fromTs, toTs, slaSeconds }) => {
+  handler: async (ctx, args) => {
+    const organizationId = await requireDashboardOrgId(ctx, args.organizationId);
+    const { fromTs, toTs, slaSeconds } = args;
+
     const evts = await ctx.db
       .query("analyticsEvents")
       .withIndex("by_org_ts", (q: any) =>
@@ -474,13 +529,13 @@ export const overview = query({
       .collect();
 
     const sessions = computeSessionsRobust(evts);
-    const experiences = evts.filter((e) => e.type === "experience_shown").length;
+    const experiences = countUniqueExperiences(evts);
     const inboundRequests = evts.filter((e) => e.type === "inbound_chat_requested").length;
     const conversations = computeConversationsUnique(evts);
     const meetings = computeMeetingsUnique(evts);
 
     const prevSessions = computeSessionsRobust(prevEvts);
-    const prevExperiences = prevEvts.filter((e) => e.type === "experience_shown").length;
+    const prevExperiences = countUniqueExperiences(prevEvts);
     const prevInboundRequests = prevEvts.filter((e) => e.type === "inbound_chat_requested").length;
     const prevConversations = computeConversationsUnique(prevEvts);
     const prevMeetings = computeMeetingsUnique(prevEvts);
@@ -525,6 +580,7 @@ export const overview = query({
         conversations: r.conversations.size,
         meetings: r.meetings.size,
       }))
+      .filter((r) => !isNoiseSourceKey(r.source))
       .sort(
         (a, b) => b.meetings - a.meetings || b.conversations - a.conversations || b.sessions - a.sessions,
       );
@@ -678,6 +734,101 @@ export const overview = query({
       )
       .slice(0, 8);
 
+    // Paths that book: source × page, ranked by meetings then meeting rate (not volume).
+    const pathAgg = new Map<
+      string,
+      {
+        source: string;
+        page: string;
+        sessions: Set<string>;
+        conversations: Set<string>;
+        meetings: Set<string>;
+        conversationIds: Set<string>;
+      }
+    >();
+    const ensurePath = (source: string, page: string) => {
+      const key = `${source}\0${page}`;
+      let r = pathAgg.get(key);
+      if (!r) {
+        r = {
+          source,
+          page,
+          sessions: new Set(),
+          conversations: new Set(),
+          meetings: new Set(),
+          conversationIds: new Set(),
+        };
+        pathAgg.set(key, r);
+      }
+      return r;
+    };
+
+    for (const e of evts) {
+      const meta = e.meta ?? {};
+      const source = normalizeSource(meta);
+      if (isNoiseSourceKey(source)) continue;
+      const page = normalizePage(meta) || "/";
+      const r = ensurePath(source, page);
+
+      const sk = getSessionKey(e);
+      if (sk) r.sessions.add(sk);
+
+      const ck = getConversationKey(e);
+      if (ck && e.type === "conversation_created") {
+        r.conversations.add(ck);
+        if (e.conversationId) r.conversationIds.add(String(e.conversationId));
+      }
+
+      if (e.type === "meeting_booked") {
+        const mk = getMeetingKey(e);
+        if (mk) r.meetings.add(mk);
+        if (e.conversationId) r.conversationIds.add(String(e.conversationId));
+      }
+    }
+
+    const booking_paths = [...pathAgg.values()]
+      .map((r) => {
+        const sess = r.sessions.size;
+        const mtg = r.meetings.size;
+        return {
+          source: r.source,
+          page: r.page,
+          sessions: sess,
+          conversations: r.conversations.size,
+          meetings: mtg,
+          meetingRate: sess > 0 ? mtg / sess : 0,
+          conversationIds: [...r.conversationIds].slice(0, 12),
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.meetings - a.meetings ||
+          b.meetingRate - a.meetingRate ||
+          b.conversations - a.conversations ||
+          b.sessions - a.sessions,
+      )
+      .slice(0, 12);
+
+    // Verdict sentence for the hero (no LLM).
+    let booking_insight: string | null = null;
+    const bestPath = booking_paths.find((p) => p.meetings > 0);
+    const loudNoBook = booking_paths
+      .filter((p) => p.meetings === 0 && p.sessions >= 5)
+      .sort((a, b) => b.sessions - a.sessions)[0];
+    if (meetings === 0 && sessions >= 10) {
+      booking_insight = `${sessions.toLocaleString()} sessions, 0 meetings booked — traffic is not converting in this period.`;
+    } else if (bestPath) {
+      const ratePct = (bestPath.meetingRate * 100).toFixed(0);
+      const srcLabel = bestPath.source === "direct" ? "Direct" : bestPath.source;
+      if (loudNoBook && loudNoBook.sessions > bestPath.sessions * 1.5) {
+        booking_insight = `${srcLabel} → ${bestPath.page} booked (${bestPath.meetings} meeting${bestPath.meetings === 1 ? "" : "s"}, ${ratePct}% rate). High volume on ${loudNoBook.page} (${loudNoBook.sessions} sessions) produced none.`;
+      } else {
+        booking_insight = `${srcLabel} → ${bestPath.page}: ${ratePct}% meeting rate (${bestPath.meetings} of ${bestPath.sessions} sessions).`;
+      }
+    } else if (meetings > 0) {
+      booking_insight = `${meetings.toLocaleString()} meeting${meetings === 1 ? "" : "s"} booked — path attribution is thin for this period.`;
+    }
+
     return {
       period: { fromTs, toTs, durationMs: duration },
       kpi: { sessions, experiences, inboundRequests, conversations, meetings },
@@ -689,6 +840,8 @@ export const overview = query({
         meetings: deltaPct(meetings, prevMeetings),
       },
       inbound_response,
+      booking_insight,
+      booking_paths,
       top_sources: clampTopK(top_sources, 8),
       top_territories: clampTopK(top_territories, 8),
       top_countries: clampTopK(top_countries, 8),
@@ -709,8 +862,10 @@ export const funnels = query({
     toTs: v.number(),
     // ✅ removed slaSeconds
   },
-  handler: async (ctx, { organizationId, fromTs, toTs }) => {
+  handler: async (ctx, args) => {
+    const organizationId = await requireDashboardOrgId(ctx, args.organizationId);
     await requireAdvancedAnalytics(ctx, organizationId);
+    const { fromTs, toTs } = args;
 
     const evts = await ctx.db
       .query("analyticsEvents")
@@ -730,7 +885,7 @@ export const funnels = query({
       .collect();
 
     const sessions = computeSessionsRobust(evts);
-    const experiences = evts.filter((e) => e.type === "experience_shown").length;
+    const experiences = countUniqueExperiences(evts);
     const conversations = computeConversationsUnique(evts);
     const meetings = computeMeetingsUnique(evts);
 
@@ -801,7 +956,10 @@ export const territoryBreakdown = query({
     fromTs: v.number(),
     toTs: v.number(),
   },
-  handler: async (ctx, { organizationId, fromTs, toTs }) => {
+  handler: async (ctx, args) => {
+    const organizationId = await requireDashboardOrgId(ctx, args.organizationId);
+    const { fromTs, toTs } = args;
+
     const evts = await ctx.db
       .query("analyticsEvents")
       .withIndex("by_org_ts", (q: any) =>
@@ -865,7 +1023,10 @@ export const timeseries = query({
     toTs: v.number(),
     groupBy: v.optional(v.string()),
   },
-  handler: async (ctx, { organizationId, fromTs, toTs, groupBy }) => {
+  handler: async (ctx, args) => {
+    const organizationId = await requireDashboardOrgId(ctx, args.organizationId);
+    const { fromTs, toTs, groupBy } = args;
+
     const evts = await ctx.db
       .query("analyticsEvents")
       .withIndex("by_org_ts", (q: any) =>
@@ -960,7 +1121,11 @@ export const signals = query({
     fromTs: v.number(),
     toTs: v.number(),
   },
-  handler: async (ctx, { organizationId, fromTs, toTs }) => {
+  handler: async (ctx, args) => {
+    const organizationId = await requireDashboardOrgId(ctx, args.organizationId);
+    await requireAdvancedAnalytics(ctx, organizationId);
+    const { fromTs, toTs } = args;
+
     const evts = await ctx.db
       .query("analyticsEvents")
       .withIndex("by_org_ts", (q: any) =>
@@ -1030,6 +1195,8 @@ export const signals = query({
         sources: Map<string, number>;
         territories: Map<string, number>;
         pages: Map<string, number>;
+        companySources: Set<string>;
+        conversationIds: Set<string>;
       }
     >();
 
@@ -1047,6 +1214,8 @@ export const signals = query({
           sources: new Map(),
           territories: new Map(),
           pages: new Map(),
+          companySources: new Set(),
+          conversationIds: new Set(),
         };
         agg.set(key, r);
       }
@@ -1121,15 +1290,25 @@ export const signals = query({
 
         if (sk) r.sessions.add(sk);
 
-        if (ck && e.type === "conversation_created") r.conversations.add(ck);
+        if (ck && e.type === "conversation_created") {
+          r.conversations.add(ck);
+          if (e.conversationId) r.conversationIds.add(String(e.conversationId));
+        }
 
-        if (e.type === "meeting_booked" && mk) r.meetings.add(mk);
+        if (e.type === "meeting_booked" && mk) {
+          r.meetings.add(mk);
+          if (e.conversationId) r.conversationIds.add(String(e.conversationId));
+        }
 
         if (e.type === "experience_shown") r.experiences += 1;
         if (e.type === "inbound_chat_requested") r.inboundRequests += 1;
 
-        bump(r.sources, normalizeSource(meta));
+        const src = normalizeSource(meta);
+        if (!isNoiseSourceKey(src)) bump(r.sources, src);
         bump(r.pages, normalizePage(meta));
+
+        const cs = safeString(meta?.companySource);
+        if (cs === "declared" || cs === "ip") r.companySources.add(cs);
 
         bump(r.territories, t?.territoryLabel ?? "Unknown");
       }
@@ -1202,6 +1381,11 @@ export const signals = query({
       const companyName = identityKind === "company" ? r.label : undefined;
       const workDomain = identityKind === "domain" ? r.label : undefined;
 
+      let companySource: "declared" | "ip" | "mixed" | undefined;
+      if (r.companySources.has("declared") && r.companySources.has("ip")) companySource = "mixed";
+      else if (r.companySources.has("declared")) companySource = "declared";
+      else if (r.companySources.has("ip")) companySource = "ip";
+
       const dm = dailyByGroup.get(groupKey);
       const sparkline = sparkDays.map((d) => Math.round(dm?.get(d) ?? 0));
 
@@ -1211,6 +1395,7 @@ export const signals = query({
         account: r.label,
         companyName,
         workDomain,
+        companySource,
         tier,
         intent,
         score,
@@ -1225,6 +1410,7 @@ export const signals = query({
         reasons: reasons.slice(0, 4),
         lastSeenTs: r.lastSeenTs || undefined,
         sparkline,
+        conversationIds: [...r.conversationIds].slice(0, 12),
       };
     });
 
@@ -1240,7 +1426,10 @@ export const trends = query({
     fromTs: v.number(),
     toTs: v.number(),
   },
-  handler: async (ctx, { organizationId, fromTs, toTs }) => {
+  handler: async (ctx, args) => {
+    const organizationId = await requireDashboardOrgId(ctx, args.organizationId);
+    const { fromTs, toTs } = args;
+
     const evts = await ctx.db
       .query("analyticsEvents")
       .withIndex("by_org_ts", (q: any) =>
@@ -1320,7 +1509,11 @@ export const repsLeaderboard = query({
     toTs: v.number(),
     slaSeconds: v.optional(v.number()),
   },
-  handler: async (ctx, { organizationId, fromTs, toTs, slaSeconds }) => {
+  handler: async (ctx, args) => {
+    const organizationId = await requireDashboardOrgId(ctx, args.organizationId);
+    await requireAdvancedAnalytics(ctx, organizationId);
+    const { fromTs, toTs, slaSeconds } = args;
+
     const evts = await ctx.db
       .query("analyticsEvents")
       .withIndex("by_org_ts", (q: any) =>

@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { contactSessionIdAtom, organizationIdAtom } from "../atoms/widget-atoms";
 import { getHostPageUrlSync } from "../../../lib/host-page-url";
+import { rememberFirstTouchReferrer, getPersistedFirstTouchReferrer } from "../../../lib/first-touch-referrer";
 
 const HEARTBEAT_MS = 60_000;
 const URL_THROTTLE_MS = 800;
@@ -107,6 +108,7 @@ export function usePresence() {
 
   // URL la plus récente reçue depuis l’embed (SPA-safe)
   const parentUrlRef = useRef<string | undefined>(undefined);
+  const parentReferrerRef = useRef<string | undefined>(undefined);
 
   // throttle anti-spam (must not start at 0 — that blocked the first parent-location heartbeat)
   const lastUrlPushAtRef = useRef<number>(-URL_THROTTLE_MS);
@@ -129,7 +131,11 @@ export function usePresence() {
           getHostPageUrlSync() ??
           undefined,
 
-        referrer: typeof document !== "undefined" ? document.referrer : undefined,
+        referrer:
+          parentReferrerRef.current ||
+          getPersistedFirstTouchReferrer() ||
+          (typeof document !== "undefined" ? document.referrer : undefined),
+        firstTouchReferrer: getPersistedFirstTouchReferrer(),
         language: typeof navigator !== "undefined" ? navigator.language : undefined,
         timezone: getTimezone(),
         viewportSize: getViewport(),
@@ -154,7 +160,7 @@ export function usePresence() {
       }
     };
 
-    // ✅ reçoit l’URL du parent (host)
+    // ✅ reçoit l’URL + referrer du parent (host)
     const onMessage = (e: MessageEvent) => {
       const d: any = e?.data;
       if (!d || d.type !== "nexus:parent-location") return;
@@ -165,9 +171,22 @@ export function usePresence() {
         (typeof d?.href === "string" && d.href) ||
         undefined;
 
-      if (!href) return;
+      const hostReferrer =
+        (typeof d?.payload?.referrer === "string" && d.payload.referrer) ||
+        (typeof d?.referrer === "string" && d.referrer) ||
+        undefined;
 
-      if (parentUrlRef.current === href) return;
+      if (hostReferrer) {
+        parentReferrerRef.current = hostReferrer;
+        rememberFirstTouchReferrer(hostReferrer);
+      }
+
+      if (!href) {
+        if (hostReferrer) send();
+        return;
+      }
+
+      if (parentUrlRef.current === href && !hostReferrer) return;
 
       const hadParentBefore = parentUrlRef.current !== undefined;
       parentUrlRef.current = href;

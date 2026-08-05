@@ -1292,7 +1292,12 @@ type NudgeKind = "promo" | "suggestions" | null;
   }
 
   function sendParentLocation() {
-    postToWidget({ type: "nexus:parent-location", href: location.href });
+    postToWidget({
+      type: "nexus:parent-location",
+      href: location.href,
+      // Host document.referrer — marketing acquisition (Google/LinkedIn), not the iframe's.
+      referrer: typeof document !== "undefined" ? document.referrer || "" : "",
+    });
   }
 
   /* ---------------- Nudge ---------------- */
@@ -2318,7 +2323,7 @@ type NudgeKind = "promo" | "suggestions" | null;
       caret.style.display = "block";
       caret.style.opacity = "1";
       placeNudge();
-      postToWidget({ type: "nexus:parent-location", href: location.href });
+      sendParentLocation();
     }
   }
 

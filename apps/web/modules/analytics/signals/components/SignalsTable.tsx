@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Filter, HelpCircle, Search } from "lucide-react";
+import { ArrowUpRight, Download, Filter, HelpCircle, Search } from "lucide-react";
 
 import { displaySourceLabel } from "@/modules/analytics/shared/source-labels";
 import { Button } from "@workspace/ui/components/button";
@@ -21,6 +22,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@workspace/ui/components/sheet";
 
 type Row = {
   groupKey?: string;
@@ -28,6 +36,7 @@ type Row = {
   companyName?: string;
   workDomain?: string;
   identityKind?: "account" | "company" | "domain" | "visitor" | "unknown";
+  companySource?: "declared" | "ip" | "mixed";
   tier?: "Hot" | "Warm" | "Neutral" | string;
   score?: number;
   intent?: "High" | "Medium" | "Low" | string;
@@ -47,6 +56,7 @@ type Row = {
   reasons?: string[];
   lastSeenTs?: number;
   sparkline?: number[];
+  conversationIds?: string[];
 };
 
 type SortKey = "score" | "sessions" | "meetings" | "account" | "lastSeen";
@@ -223,6 +233,95 @@ function IntentBadge({ value }: { value?: string }) {
 const SCORE_HELP =
   "Weighted blend of meetings (×50), conversations (×15), inbound requests (×8), sessions (×3), experiences (×1). Thresholds: Hot ≥120, Warm ≥45.";
 
+function CompanySourceBadge({ source }: { source?: Row["companySource"] }) {
+  if (!source) return null;
+  const meta =
+    source === "declared"
+      ? {
+          label: "Declared",
+          hint: "Company name typed by the visitor (form / chat).",
+          cls: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/45 dark:bg-emerald-950/40 dark:text-emerald-100",
+        }
+      : source === "ip"
+        ? {
+            label: "From IP",
+            hint: "Inferred from corporate IP / ASN — treat as a hint, not CRM truth.",
+            cls: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/45 dark:bg-amber-950/40 dark:text-amber-100",
+          }
+        : {
+            label: "Mixed",
+            hint: "Both visitor-declared and IP-inferred names appear on events.",
+            cls: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900/45 dark:bg-sky-950/35 dark:text-sky-100",
+          };
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={[
+            "inline-flex cursor-help rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+            meta.cls,
+          ].join(" ")}
+        >
+          {meta.label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+        {meta.hint}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function csvEscape(v: string) {
+  if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+  return v;
+}
+
+function downloadSignalsCsv(rows: Row[], audience: SignalsAudience) {
+  const headers = [
+    "label",
+    "identityKind",
+    "companySource",
+    "tier",
+    "intent",
+    "score",
+    "sessions",
+    "conversations",
+    "meetings",
+    "inboundRequests",
+    "territory",
+    "source",
+    "lastSeenTs",
+  ];
+  const lines = [headers.join(",")];
+  for (const r of rows) {
+    lines.push(
+      [
+        csvEscape(organizationPrimaryLabel(r)),
+        csvEscape(safeStr(r.identityKind)),
+        csvEscape(safeStr(r.companySource)),
+        csvEscape(safeStr(r.tier)),
+        csvEscape(safeStr(r.intent)),
+        String(safeNum(r.score)),
+        String(safeNum(r.sessions)),
+        String(safeNum(r.conversations)),
+        String(safeNum(r.meetings)),
+        String(safeNum(r.inboundRequests)),
+        csvEscape(safeStr(r.territory)),
+        csvEscape(displaySourceLabel(r.source ?? "direct")),
+        r.lastSeenTs ? String(r.lastSeenTs) : "",
+      ].join(","),
+    );
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `signals-${audience}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function IdentityBadge({ kind }: { kind?: Row["identityKind"] }) {
   const k = kind ?? "unknown";
   const meta: Record<
@@ -298,6 +397,7 @@ export function SignalsTable({
   const [minScore, setMinScore] = useState<string>("0");
   const [showUnattributed, setShowUnattributed] = useState(false);
   const [hideJunkCompanies, setHideJunkCompanies] = useState(true);
+  const [selected, setSelected] = useState<Row | null>(null);
 
   const applyPresetToFilters = (p: SignalsPreset) => {
     if (p === "all") {
@@ -393,6 +493,17 @@ export function SignalsTable({
                 className="h-10 rounded-xl border-border/80 bg-white pl-9 dark:bg-card"
               />
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-10 shrink-0 rounded-xl"
+              onClick={() => downloadSignalsCsv(filtered, audience)}
+              disabled={filtered.length === 0}
+            >
+              <Download className="mr-1.5 size-3.5" />
+              CSV
+            </Button>
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
                 <Filter className="size-3.5" />
@@ -569,10 +680,12 @@ export function SignalsTable({
         </div>
       ) : (
         filtered.map((row) => (
-          <div
+          <button
             key={row.groupKey ?? row.account}
+            type="button"
+            onClick={() => setSelected(row)}
             className={[
-              "grid gap-3 border-b border-border/50 px-4 py-3.5 transition last:border-0 items-center hover:bg-fuchsia-50/40 dark:hover:bg-fuchsia-950/15",
+              "grid w-full gap-3 border-b border-border/50 px-4 py-3.5 text-left transition last:border-0 items-center hover:bg-fuchsia-50/40 dark:hover:bg-fuchsia-950/15",
               advanced
                 ? "grid-cols-[minmax(0,2fr)_auto_auto_auto_auto_auto_auto]"
                 : "grid-cols-[minmax(0,2fr)_auto_auto_auto_auto]",
@@ -587,6 +700,9 @@ export function SignalsTable({
                   {safeStr(row.companyName) && safeStr(row.account) !== safeStr(row.companyName) ? (
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">{row.account}</div>
                   ) : null}
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <CompanySourceBadge source={row.companySource} />
+                  </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <IdentityBadge kind={row.identityKind} />
@@ -623,9 +739,71 @@ export function SignalsTable({
                 {displaySourceLabel(row.source ?? "direct")}
               </div>
             ) : null}
-          </div>
+          </button>
         ))
       )}
+
+      <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>{selected ? organizationPrimaryLabel(selected) : "Signal"}</SheetTitle>
+            <SheetDescription>
+              Related conversations and context — stay in Signals, open a thread when ready.
+            </SheetDescription>
+          </SheetHeader>
+          {selected ? (
+            <div className="space-y-4 px-4 pb-6">
+              <div className="flex flex-wrap gap-1.5">
+                <TierBadge value={selected.tier} />
+                <IntentBadge value={selected.intent} />
+                <CompanySourceBadge source={selected.companySource} />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div className="rounded-xl border bg-muted/30 px-3 py-2">
+                  <div className="text-[10px] uppercase text-muted-foreground">Meetings</div>
+                  <div className="font-semibold tabular-nums">{safeNum(selected.meetings)}</div>
+                </div>
+                <div className="rounded-xl border bg-muted/30 px-3 py-2">
+                  <div className="text-[10px] uppercase text-muted-foreground">Conversations</div>
+                  <div className="font-semibold tabular-nums">{safeNum(selected.conversations)}</div>
+                </div>
+                <div className="rounded-xl border bg-muted/30 px-3 py-2">
+                  <div className="text-[10px] uppercase text-muted-foreground">Sessions</div>
+                  <div className="font-semibold tabular-nums">{safeNum(selected.sessions)}</div>
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Conversations
+                </div>
+                {(selected.conversationIds?.length ?? 0) === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No conversation ids on events for this account yet.{" "}
+                    <Link href="/conversations" className="font-medium text-fuchsia-700 hover:underline">
+                      Open inbox
+                    </Link>
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {selected.conversationIds!.map((id) => (
+                      <li key={id}>
+                        <Link
+                          href={`/conversations/${id}`}
+                          className="inline-flex items-center gap-1.5 text-sm font-medium text-fuchsia-700 hover:underline dark:text-fuchsia-300"
+                        >
+                          Open conversation
+                          <ArrowUpRight className="size-3.5" />
+                          <span className="font-mono text-[11px] text-muted-foreground">{id.slice(-8)}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DateRange } from "react-day-picker";
 import { differenceInCalendarDays, endOfDay, startOfDay, subDays } from "date-fns";
 import { CalendarRange } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Calendar } from "@workspace/ui/components/calendar";
 import { Button } from "@workspace/ui/components/button";
@@ -15,6 +16,58 @@ import { PALETTE } from "./analytics-primitives";
 export type AnalyticsRange =
   | { kind: "preset"; days: 7 | 30 | 90 }
   | { kind: "custom"; fromTs: number; toTs: number };
+
+function parseRangeFromSearch(sp: URLSearchParams): AnalyticsRange {
+  const daysRaw = sp.get("days");
+  if (daysRaw === "7" || daysRaw === "30" || daysRaw === "90") {
+    return { kind: "preset", days: Number(daysRaw) as 7 | 30 | 90 };
+  }
+  const from = Number(sp.get("from"));
+  const to = Number(sp.get("to"));
+  if (Number.isFinite(from) && Number.isFinite(to) && from > 0 && to >= from) {
+    return { kind: "custom", fromTs: from, toTs: to };
+  }
+  return { kind: "preset", days: 30 };
+}
+
+/** Shared 7d/30d/90d/custom range synced to `?days=` or `?from=&to=` across analytics pages. */
+export function useAnalyticsRangeFromUrl() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const range = useMemo(() => parseRangeFromSearch(searchParams), [searchParams]);
+  const { fromTs, toTs } = useMemo(() => rangeToTimestamps(range), [range]);
+
+  const setRange = useCallback(
+    (next: AnalyticsRange) => {
+      const n = new URLSearchParams(searchParams.toString());
+      n.delete("days");
+      n.delete("from");
+      n.delete("to");
+      if (next.kind === "preset") {
+        n.set("days", String(next.days));
+      } else {
+        n.set("from", String(next.fromTs));
+        n.set("to", String(next.toTs));
+      }
+      const qs = n.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  // Ensure a default `days=30` is written once so Funnel/Signals share the same URL.
+  useEffect(() => {
+    if (searchParams.get("days") || (searchParams.get("from") && searchParams.get("to"))) return;
+    const n = new URLSearchParams(searchParams.toString());
+    n.set("days", "30");
+    const qs = n.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  return { range, setRange, fromTs, toTs };
+}
 
 const MAX_CUSTOM_DAYS = 366;
 

@@ -9,11 +9,14 @@ export function PrimaryOutcomeStrip({
   sessions,
   conversations,
   meetingsDelta,
+  insight,
 }: {
   meetings: number;
   sessions: number;
   conversations: number;
   meetingsDelta?: number | null;
+  /** One-line verdict: what booked (no LLM). */
+  insight?: string | null;
 }) {
   const meetingsN = Number(meetings ?? 0);
   const sessionsN = Number(sessions ?? 0);
@@ -35,22 +38,38 @@ export function PrimaryOutcomeStrip({
             <span className="pb-1 text-lg font-medium text-muted-foreground">meetings booked</span>
             <DeltaPill delta={meetingsDelta ?? null} className="mb-1" />
           </div>
-          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Booked meetings attributed to this period.
-          </p>
+          {insight ? (
+            <p className="max-w-2xl border-l-2 border-fuchsia-400/80 pl-3 text-sm leading-relaxed text-foreground/90">
+              {insight}
+            </p>
+          ) : (
+            <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+              Booked meetings attributed to this period — no CRM required.
+            </p>
+          )}
         </div>
         <div className="grid w-full max-w-md shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:max-w-lg">
           <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
-            <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Session → meeting</div>
-            <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{sessionToMtgPct.toFixed(1)}%</div>
+            <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Session → meeting
+            </div>
+            <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+              {sessionToMtgPct.toFixed(1)}%
+            </div>
           </div>
           <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
-            <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Conv. → meeting</div>
-            <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{convToMtgPct.toFixed(1)}%</div>
+            <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Conv. → meeting
+            </div>
+            <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+              {convToMtgPct.toFixed(1)}%
+            </div>
           </div>
           <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-3 shadow-sm dark:border-border dark:bg-card/95">
             <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sessions</div>
-            <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{sessionsN.toLocaleString()}</div>
+            <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+              {sessionsN.toLocaleString()}
+            </div>
           </div>
         </div>
       </div>
