@@ -48,8 +48,9 @@ export async function GET(req: Request) {
 
   const convexToken = await authCtx.getToken({ template: "convex" });
 
+  // Include clientSecret from DB (public getHubSpotAppConfig strips it).
   const appConfig = await fetchQuery(
-    api.integrations.getHubSpotAppConfig,
+    api.integrations.getHubSpotAppConfigForOAuth,
     {},
     { token: convexToken ?? undefined }
   );

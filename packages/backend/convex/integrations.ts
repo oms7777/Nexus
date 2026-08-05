@@ -363,6 +363,31 @@ export const getSalesforceAppConfig = query({
   },
 });
 
+/**
+ * OAuth token exchange (Next.js API routes only). Includes clientSecret so BYO
+ * credentials are not silently replaced by INBOUNDLESS_* env defaults.
+ * Still admin-gated; do not use from browser UI.
+ */
+export const getSalesforceAppConfigForOAuth = query({
+  args: {},
+  handler: async (ctx) => {
+    const { orgId: organizationId } = await requireOrgAdmin(ctx);
+    await requireSalesforceEntitled(ctx, organizationId);
+
+    const cfg = await ctx.db
+      .query("salesforceAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (!cfg) return null;
+    return {
+      clientId: cfg.clientId,
+      clientSecret: cfg.clientSecret,
+      loginUrl: cfg.loginUrl,
+    };
+  },
+});
+
 /** True when global Inboundless OAuth env vars are set (Convex Dashboard). Does not expose secrets. */
 export const getInboundlessOAuthEnvHints = query({
   args: {},
@@ -559,6 +584,26 @@ export const getHubSpotAppConfig = query({
       createdAt: cfg.createdAt,
       updatedAt: cfg.updatedAt,
       hasClientSecret: Boolean((cfg.clientSecret ?? "").trim()),
+    };
+  },
+});
+
+/** OAuth token exchange (Next.js API routes only). Includes clientSecret. */
+export const getHubSpotAppConfigForOAuth = query({
+  args: {},
+  handler: async (ctx) => {
+    const { orgId: organizationId } = await requireOrgAdmin(ctx);
+    await requireHubSpotEntitled(ctx, organizationId);
+
+    const cfg = await ctx.db
+      .query("hubspotAppConfigs")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", organizationId))
+      .unique();
+
+    if (!cfg) return null;
+    return {
+      clientId: cfg.clientId,
+      clientSecret: cfg.clientSecret,
     };
   },
 });

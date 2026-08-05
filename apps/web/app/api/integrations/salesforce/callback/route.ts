@@ -62,8 +62,10 @@ export async function GET(req: Request) {
   // load app config
   const convexToken = await authCtx.getToken({ template: "convex" });
 
+  // Must include clientSecret from DB — public getSalesforceAppConfig strips it,
+  // which caused invalid_client (new BYO client_id + env default secret).
   const appConfig = await fetchQuery(
-    api.integrations.getSalesforceAppConfig,
+    api.integrations.getSalesforceAppConfigForOAuth,
     {},
     { token: convexToken ?? undefined }
   );
