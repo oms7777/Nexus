@@ -229,6 +229,28 @@ export const fetchHubSpotDealsForContact = action({
 
       if (dealIds.length === 0) return { ok: true as const, deals: [] };
 
+      // Resolve dealstage ids → human labels (default + custom pipelines).
+      const stageLabelById = new Map<string, string>();
+      try {
+        const pipeRes = await hubFetch(
+          ctx,
+          args.organizationId,
+          `${base}/crm/v3/pipelines/deals`,
+          { method: "GET" },
+          accessToken,
+        );
+        const pipeJson: any = await pipeRes.json().catch(() => ({}));
+        for (const pipe of Array.isArray(pipeJson?.results) ? pipeJson.results : []) {
+          for (const st of Array.isArray(pipe?.stages) ? pipe.stages : []) {
+            const id = String(st?.id ?? "");
+            const label = typeof st?.label === "string" ? st.label.trim() : "";
+            if (id && label) stageLabelById.set(id, label);
+          }
+        }
+      } catch {
+        // Labels are best-effort; raw stage ids remain usable.
+      }
+
       const batchRes = await hubFetch(
         ctx,
         args.organizationId,
@@ -248,10 +270,11 @@ export const fetchHubSpotDealsForContact = action({
       const deals = rows.map((d) => {
         const p = d?.properties ?? {};
         const amount = Number(p.amount);
+        const stageId = typeof p.dealstage === "string" ? p.dealstage : undefined;
         return {
           dealId: String(d?.id ?? ""),
           amount: Number.isFinite(amount) ? amount : undefined,
-          stage: typeof p.dealstage === "string" ? p.dealstage : undefined,
+          stage: stageId ? stageLabelById.get(stageId) ?? stageId : undefined,
           closeDate: typeof p.closedate === "string" ? p.closedate : undefined,
           // HubSpot returns this calculated property as the string "true" / "false".
           isWon: p.hs_is_closed_won === "true" || p.hs_is_closed_won === true,

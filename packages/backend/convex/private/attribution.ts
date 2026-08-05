@@ -229,14 +229,28 @@ export const syncRevenueAttribution = internalAction({
    Dashboard read model
    ============================================================ */
 
+function orgCanUseCrmRevenue(sub: Doc<"subscriptions"> | null) {
+  const plan = (sub?.plan ?? "starter") as string;
+  const status = (sub?.status ?? "paused") as string;
+  const isActive = status === "active" || status === "trial";
+  if (!isActive || plan === "starter") return false;
+  const addons = (sub?.addons ?? {}) as Record<string, unknown>;
+  return addons.salesforce === true || addons.hubspot === true;
+}
+
 function sumPipeline(bookings: Array<Doc<"calendarBookings">>) {
   let pipelineAmount = 0;
+  let openPipelineAmount = 0;
   let wonAmount = 0;
   let dealCount = 0;
   let wonCount = 0;
+  let meetingsWithCrmLink = 0;
   const currencies = new Set<string>();
+  const stageMap = new Map<string, { stage: string; count: number; amount: number }>();
 
   for (const b of bookings) {
+    if (b.crm?.salesforceLeadId || b.crm?.hubspotContactId) meetingsWithCrmLink += 1;
+
     const a = b.attribution;
     if (!a?.dealId) continue;
 
@@ -249,14 +263,29 @@ function sumPipeline(bookings: Array<Doc<"calendarBookings">>) {
     if (a.isWon) {
       wonCount += 1;
       wonAmount += amount;
+    } else {
+      openPipelineAmount += amount;
     }
+
+    const stageKey = (a.stage ?? (a.isWon ? "Closed won" : "Unknown")).trim() || "Unknown";
+    const prev = stageMap.get(stageKey) ?? { stage: stageKey, count: 0, amount: 0 };
+    prev.count += 1;
+    prev.amount += amount;
+    stageMap.set(stageKey, prev);
   }
+
+  const stages = [...stageMap.values()]
+    .sort((a, b) => b.amount - a.amount || b.count - a.count)
+    .slice(0, 8);
 
   return {
     dealCount,
     wonCount,
     pipelineAmount,
+    openPipelineAmount,
     wonAmount,
+    meetingsWithCrmLink,
+    stages,
     /** Undefined when the CRM mixes currencies — the UI then hides the symbol. */
     currency: currencies.size === 1 ? [...currencies][0] : undefined,
   };
@@ -266,18 +295,19 @@ export const getRevenueSummary = query({
   args: {
     /** Inclusive lower bound on booking creation time. Defaults to the last 90 days. */
     fromTs: v.optional(v.number()),
+    toTs: v.optional(v.number()),
   },
-  handler: async (ctx, { fromTs }) => {
+  handler: async (ctx, { fromTs, toTs }) => {
     const orgId = await requireOrgId(ctx);
     const since = fromTs ?? Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const until = toTs ?? Date.now() + 60_000;
 
-    const bookings = await ctx.db
-      .query("calendarBookings")
-      .withIndex("by_org_createdAt", (q) =>
-        q.eq("organizationId", orgId).gte("createdAt", since),
-      )
-      .collect();
+    const sub = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+      .unique();
 
+    const entitled = orgCanUseCrmRevenue(sub);
     const [salesforce, hubspot] = await Promise.all([
       ctx.db
         .query("salesforceIntegrations")
@@ -289,11 +319,48 @@ export const getRevenueSummary = query({
         .unique(),
     ]);
 
+    const crmConnected = Boolean(salesforce || hubspot);
+    const providers = [
+      ...(salesforce ? (["salesforce"] as const) : []),
+      ...(hubspot ? (["hubspot"] as const) : []),
+    ];
+
+    if (!entitled) {
+      return {
+        entitled: false as const,
+        crmConnected,
+        providers,
+        meetings: 0,
+        dealCount: 0,
+        wonCount: 0,
+        pipelineAmount: 0,
+        openPipelineAmount: 0,
+        wonAmount: 0,
+        meetingsWithCrmLink: 0,
+        stages: [] as Array<{ stage: string; count: number; amount: number }>,
+        currency: undefined as string | undefined,
+        since,
+        until,
+      };
+    }
+
+    const bookings = (
+      await ctx.db
+        .query("calendarBookings")
+        .withIndex("by_org_createdAt", (q) =>
+          q.eq("organizationId", orgId).gte("createdAt", since),
+        )
+        .collect()
+    ).filter((b) => b.createdAt <= until);
+
     return {
-      crmConnected: Boolean(salesforce || hubspot),
+      entitled: true as const,
+      crmConnected,
+      providers,
       meetings: bookings.length,
       ...sumPipeline(bookings),
       since,
+      until,
     };
   },
 });
@@ -301,19 +368,30 @@ export const getRevenueSummary = query({
 export const getAttributedMeetings = query({
   args: {
     fromTs: v.optional(v.number()),
+    toTs: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { fromTs, limit }) => {
+  handler: async (ctx, { fromTs, toTs, limit }) => {
     const orgId = await requireOrgId(ctx);
     const since = fromTs ?? Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const until = toTs ?? Date.now() + 60_000;
     const max = Math.min(Math.max(limit ?? 25, 1), 200);
 
-    const bookings = await ctx.db
-      .query("calendarBookings")
-      .withIndex("by_org_createdAt", (q) =>
-        q.eq("organizationId", orgId).gte("createdAt", since),
-      )
-      .collect();
+    const sub = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+      .unique();
+
+    if (!orgCanUseCrmRevenue(sub)) return [];
+
+    const bookings = (
+      await ctx.db
+        .query("calendarBookings")
+        .withIndex("by_org_createdAt", (q) =>
+          q.eq("organizationId", orgId).gte("createdAt", since),
+        )
+        .collect()
+    ).filter((b) => b.createdAt <= until);
 
     return bookings
       .filter((b) => b.attribution?.dealId)
@@ -330,6 +408,7 @@ export const getAttributedMeetings = query({
         amount: b.attribution!.amount,
         currency: b.attribution!.currency,
         isWon: b.attribution!.isWon ?? false,
+        isClosed: b.attribution!.isClosed ?? false,
         closeDate: b.attribution!.closeDate,
       }));
   },

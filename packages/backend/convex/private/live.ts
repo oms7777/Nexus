@@ -265,3 +265,77 @@ export const getActiveVisitors = query({
     return results;
   },
 });
+
+/**
+ * Command-center strip: live visitors vs online reps per territory.
+ * Admins / ops see all territories; members still get org-wide coverage (read-only ops signal).
+ */
+export const getCoverageBoard = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    const orgId = (identity as any)?.orgId as string | undefined;
+    if (!orgId) {
+      throw new ConvexError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+    }
+
+    const now = Date.now();
+    const [territories, reps, sessions] = await Promise.all([
+      ctx.db.query("territories").withIndex("by_org", (q) => q.eq("organizationId", orgId)).collect(),
+      ctx.db.query("repsPresence").withIndex("by_org", (q) => q.eq("organizationId", orgId)).collect(),
+      ctx.db
+        .query("contactSessions")
+        .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+        .collect(),
+    ]);
+
+    const active = sessions.filter((s) => {
+      const hb = Number((s.metadata as any)?.lastHeartbeatAt ?? 0);
+      return hb > 0 && now - hb <= 90_000;
+    });
+
+    const terrList = territories.map((t) => ({
+      key: t.key,
+      label: t.label ?? t.key,
+      countryCodes: t.countryCodes ?? [],
+    }));
+
+    const rows = terrList.map((t) => {
+      const codes = new Set((t.countryCodes ?? []).map((c) => String(c).toUpperCase()));
+      const visitors = active.filter((s) => {
+        const cc = normalizeCC((s.metadata as any)?.countryCode);
+        if (!cc || codes.size === 0) return false;
+        return codes.has(cc);
+      }).length;
+      const onlineReps = reps.filter(
+        (r) => r.available && Array.isArray(r.regions) && r.regions.includes(t.key),
+      ).length;
+      return {
+        territoryKey: t.key,
+        territoryLabel: t.label,
+        visitors,
+        onlineReps,
+        uncovered: visitors > 0 && onlineReps === 0,
+      };
+    });
+
+    const unmappedVisitors = active.filter((s) => {
+      const cc = normalizeCC((s.metadata as any)?.countryCode);
+      if (!cc) return true;
+      return !terrList.some((t) =>
+        (t.countryCodes ?? []).map((x) => String(x).toUpperCase()).includes(cc),
+      );
+    }).length;
+
+    const onlineRepsTotal = reps.filter((r) => r.available).length;
+
+    return {
+      asOf: now,
+      visitorsLive: active.length,
+      onlineRepsTotal,
+      uncoveredTerritories: rows.filter((r) => r.uncovered).length,
+      rows: rows.sort((a, b) => Number(b.uncovered) - Number(a.uncovered) || b.visitors - a.visitors),
+      unmappedVisitors,
+    };
+  },
+});

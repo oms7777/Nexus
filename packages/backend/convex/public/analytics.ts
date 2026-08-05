@@ -937,22 +937,70 @@ export const funnels = query({
       meetings_booked: meetingsBooked,
     };
 
-    const pounce = {
-      attempts: evts.filter((e) => e.type === "pounce_attempt").length,
-      conversations: evts.filter((e) => e.type === "pounce_conversation").length,
-      meetings: evts.filter((e) => e.type === "pounce_meeting").length,
-    };
+    // Missed handoffs: inbound chat requested with no inbound_rep_started on that conversation.
+    const requestedKeys = new Set(
+      evts.filter((e) => e.type === "inbound_chat_requested").map(getConversationKey).filter(Boolean) as string[],
+    );
+    const startedKeys = new Set(
+      evts.filter((e) => e.type === "inbound_rep_started").map(getConversationKey).filter(Boolean) as string[],
+    );
+    const missedKeys = [...requestedKeys].filter((k) => !startedKeys.has(k));
+    const missedHandoffs = missedKeys.length;
+
+    const convIdByKey = new Map<string, string>();
+    for (const e of evts) {
+      if (e.type !== "inbound_chat_requested") continue;
+      const k = getConversationKey(e);
+      if (k && e.conversationId && !convIdByKey.has(k)) convIdByKey.set(k, String(e.conversationId));
+    }
+    const missedConversationIds = missedKeys
+      .map((k) => convIdByKey.get(k))
+      .filter(Boolean)
+      .slice(0, 12) as string[];
+
+    const sla = computeFirstResponseStats(evts, 120);
+
+    // Pages with traffic but 0 meetings (marketing kill list) — opposite of Overview “pages that book”.
+    const pageAgg = new Map<string, { sessions: Set<string>; meetings: Set<string> }>();
+    for (const e of evts) {
+      const page = normalizePage(e.meta ?? {}) || "/";
+      let r = pageAgg.get(page);
+      if (!r) {
+        r = { sessions: new Set(), meetings: new Set() };
+        pageAgg.set(page, r);
+      }
+      const sk = getSessionKey(e);
+      if (sk) r.sessions.add(sk);
+      if (e.type === "meeting_booked") {
+        const mk = getMeetingKey(e);
+        if (mk) r.meetings.add(mk);
+      }
+    }
+    const pagesDontBook = [...pageAgg.entries()]
+      .map(([page, r]) => ({
+        page,
+        sessions: r.sessions.size,
+        meetings: r.meetings.size,
+      }))
+      .filter((p) => p.meetings === 0 && p.sessions >= 2)
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 8);
 
     return {
       engagement,
       conversion,
       inbound,
-      pounce,
-      primaryOutcome: {
-        meetings,
-        sessions,
-        conversations,
-        meetingsDelta: deltaPct(meetings, prevMeetings),
+      diagnosis: {
+        missedHandoffs,
+        missedConversationIds,
+        sla: {
+          median_sec: sla.median_sec,
+          p90_sec: sla.p90_sec,
+          within_sla_rate: sla.within_sla_rate,
+          conversations_with_rep: sla.conversations_with_rep,
+          slaSeconds: 120,
+        },
+        pagesDontBook,
       },
     };
   },

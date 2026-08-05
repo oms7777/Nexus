@@ -90,7 +90,7 @@ export const DashboardSidebar = () => {
   const pathname = usePathname();
   const router = useRouter();
   const { organization } = useOrganization();
-  const { isAdmin, canManageOperations } = useOrgCapabilities();
+  const { isAdmin, canManageTeam, canManagePromos } = useOrgCapabilities();
 
   const ent = useEntitlements();
   const isActive = (url: string) =>
@@ -186,21 +186,26 @@ export const DashboardSidebar = () => {
 
   const configurationItems = useMemo(() => {
     if (ent.isLoading) return [];
-    const all = [
-      { title: "Team & Territories", url: "/team", icon: Users, adminOnly: false },
-      { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen, adminOnly: false },
+    const all: Array<{
+      title: string;
+      url: string;
+      icon: typeof Users;
+      show: boolean;
+    }> = [
+      { title: "Team & Territories", url: "/team", icon: Users, show: canManageTeam },
+      { title: "Knowledge Base (AI)", url: "/files", icon: BookOpen, show: canManageTeam },
       {
         title: "Widget Customization",
         url: "/customization",
         icon: SlidersHorizontal,
-        adminOnly: false,
+        show: canManagePromos,
       },
-      { title: "Integrations", url: "/integrations", icon: InboxIcon, adminOnly: true },
-      { title: "Audit log", url: "/org/audit", icon: ScrollText, adminOnly: true },
-      { title: "Privacy & retention", url: "/org/privacy", icon: ShieldCheck, adminOnly: true },
+      { title: "Integrations", url: "/integrations", icon: InboxIcon, show: isAdmin },
+      { title: "Audit log", url: "/org/audit", icon: ScrollText, show: isAdmin },
+      { title: "Privacy & retention", url: "/org/privacy", icon: ShieldCheck, show: isAdmin },
     ];
-    return all.filter((item) => (item.adminOnly ? isAdmin : canManageOperations));
-  }, [ent.isLoading, isAdmin, canManageOperations]);
+    return all.filter((item) => item.show);
+  }, [ent.isLoading, isAdmin, canManageTeam, canManagePromos]);
 
   const labelClass = "group-data-[collapsible=icon]:hidden";
   const iconClass = "size-5";

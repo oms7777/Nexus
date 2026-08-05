@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
@@ -19,28 +18,23 @@ import {
   Legend,
 } from "recharts";
 
-import { BrandPill, CardShell, GeoKpiTable } from "@/modules/analytics/shared/analytics-primitives";
+import { BrandPill, CardShell } from "@/modules/analytics/shared/analytics-primitives";
 import {
   AnalyticsDateRangePicker,
   useAnalyticsRangeFromUrl,
 } from "@/modules/analytics/shared/analytics-date-range";
 import { PrimaryOutcomeStrip } from "@/modules/analytics/shared/PrimaryOutcomeStrip";
-import { PipelineFunnelStrip } from "@/modules/analytics/overview/components/PipelineFunnelStrip";
 import { BookingPathsPanel } from "@/modules/analytics/overview/components/BookingPathsPanel";
+import { CoverageBoard } from "@/modules/analytics/overview/components/CoverageBoard";
+import {
+  CrmPipelineCard,
+  CrmPipelineGrowthTeaser,
+} from "@/modules/analytics/overview/components/CrmPipelineCard";
 
 function niceDayLabel(day: string) {
   const parts = day.split("-");
   if (parts.length !== 3) return day;
   return `${parts[1]}/${parts[2]}`;
-}
-
-function normalizeLabel(s: any) {
-  const v = String(s ?? "").trim();
-  if (!v) return "Unattributed";
-  const lower = v.toLowerCase();
-  if (lower === "unknown") return "Unattributed";
-  if (lower === "other") return "Other";
-  return v;
 }
 
 export default function AnalyticsOverviewPage() {
@@ -50,8 +44,9 @@ export default function AnalyticsOverviewPage() {
   const searchParams = useSearchParams();
   const showPlanBadges = searchParams.get("showPlanBadges") === "1";
 
-  const ent = useEntitlements();
-  const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
+  const { plan, features, canUseCrmRevenue } = useEntitlements();
+  const advancedEnabled = features.canUseAdvancedAnalytics;
+  const isGrowthPlus = plan === "growth" || plan === "enterprise";
 
   const { range, setRange, fromTs, toTs } = useAnalyticsRangeFromUrl();
 
@@ -96,14 +91,6 @@ export default function AnalyticsOverviewPage() {
     ? ((overview as any).booking_paths as any[])
     : [];
 
-  const topCountries = Array.isArray((overview as any)?.top_countries)
-    ? (overview as any).top_countries
-    : [];
-  const topCountriesKnown = useMemo(
-    () => topCountries.filter((c: any) => String(c?.countryCode ?? "").toUpperCase() !== "UNKNOWN"),
-    [topCountries],
-  );
-
   const trendRows = (Array.isArray(trends) ? trends : []).map((r: any) => ({
     day: niceDayLabel(String(r.day)),
     sessions: Number(r.sessions ?? 0),
@@ -112,7 +99,6 @@ export default function AnalyticsOverviewPage() {
   }));
 
   const repRows = Array.isArray(reps?.reps) ? reps.reps : [];
-
   const showTrafficAlert = meetingsN === 0 && sessionsN >= 10;
 
   if (!orgId) return <div className="p-6">No organization</div>;
@@ -123,9 +109,12 @@ export default function AnalyticsOverviewPage() {
     <div className="space-y-8 p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="max-w-2xl space-y-1">
-          <div className="text-2xl font-semibold tracking-tight">Overview</div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-800/80 dark:text-fuchsia-300/80">
+            Overview · scoreboard
+          </p>
+          <div className="text-2xl font-semibold tracking-tight">Command center</div>
           <p className="text-sm text-muted-foreground">
-            Meetings booked from the widget — where they came from, and who closed them
+            Meetings, live coverage, pages that book, who closed — Funnel diagnoses leaks, Signals is the call list
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
@@ -134,7 +123,7 @@ export default function AnalyticsOverviewPage() {
       {showTrafficAlert ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
           <span className="font-semibold">0 meetings</span> with {sessionsN.toLocaleString()} sessions —
-          traffic is not converting. Check paths below or Funnel → inbound handling.
+          check Funnel for leaks or Signals for accounts to call.
         </div>
       ) : null}
 
@@ -146,13 +135,19 @@ export default function AnalyticsOverviewPage() {
         insight={insight}
       />
 
+      {canUseCrmRevenue ? (
+        <CrmPipelineCard
+          fromTs={fromTs}
+          toTs={toTs}
+          showPlanBadge={showPlanBadges}
+        />
+      ) : isGrowthPlus ? (
+        <CrmPipelineGrowthTeaser showPlanBadge={showPlanBadges} />
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-12">
         <div className="xl:col-span-5">
-      <PipelineFunnelStrip
-        sessions={sessionsN}
-        conversations={conversationsN}
-        meetings={meetingsN}
-      />
+          <CoverageBoard />
         </div>
         <div className="xl:col-span-7">
           <CardShell
@@ -163,7 +158,7 @@ export default function AnalyticsOverviewPage() {
             {trendRows.length === 0 ? (
               <div className="text-sm text-muted-foreground">No trend data yet.</div>
             ) : (
-              <div className="h-[320px] w-full">
+              <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trendRows} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -219,7 +214,9 @@ export default function AnalyticsOverviewPage() {
                       <div className="text-xl font-semibold tabular-nums">
                         {Number(r.meetings ?? 0).toLocaleString()}
                       </div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">meetings</div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        meetings
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -227,35 +224,13 @@ export default function AnalyticsOverviewPage() {
             )}
           </CardShell>
         ) : (
-          <CardShell title="Geography" subtitle="Top countries this period">
-            {topCountriesKnown.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No country attribution yet.</p>
-            ) : (
-              <GeoKpiTable
-                rows={topCountriesKnown.slice(0, 6).map((t: any) => ({
-                  label: normalizeLabel(t.countryLabel ?? t.countryCode),
-                  sessions: Number(t.sessions ?? 0),
-                  conversations: Number(t.conversations ?? 0),
-                  meetings: Number(t.meetings ?? 0),
-                }))}
-              />
-            )}
+          <CardShell title="Tip" subtitle="Advanced Analytics">
+            <p className="text-sm text-muted-foreground">
+              Unlock the reps leaderboard and Signals call queue with Advanced Analytics.
+            </p>
           </CardShell>
         )}
       </div>
-
-      {advancedEnabled && topCountriesKnown.length > 0 ? (
-        <CardShell title="Geography" subtitle="Countries by meetings">
-          <GeoKpiTable
-            rows={topCountriesKnown.slice(0, 8).map((t: any) => ({
-              label: normalizeLabel(t.countryLabel ?? t.countryCode),
-              sessions: Number(t.sessions ?? 0),
-              conversations: Number(t.conversations ?? 0),
-              meetings: Number(t.meetings ?? 0),
-            }))}
-          />
-        </CardShell>
-      ) : null}
     </div>
   );
 }

@@ -1,7 +1,12 @@
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { writeAuditLog } from "./lib/audit";
-import { requireOrgId, requireSelfOrOrgManager } from "./lib/authz";
+import {
+  requireOrgId,
+  requireSelfOrOrgManager,
+  requireOrgAdmin,
+  getActorCapabilities,
+} from "./lib/authz";
 
 async function upsertUserProfileBestEffort(
   ctx: any,
@@ -47,6 +52,64 @@ export const listRepsForOrg = query({
       .query("repsPresence")
       .withIndex("by_org", (q: any) => q.eq("organizationId", organizationId))
       .collect();
+  },
+});
+
+/** Sidebar / gates: app capabilities for the signed-in member. */
+export const getMyCapabilities = query({
+  args: {},
+  handler: async (ctx) => {
+    return await getActorCapabilities(ctx);
+  },
+});
+
+/** Admin-only: grant Team (RevOps) and/or Promos (Marketing) without Clerk custom roles. */
+export const setMemberCapabilities = mutation({
+  args: {
+    userId: v.string(),
+    canManageTeam: v.boolean(),
+    canManagePromos: v.boolean(),
+  },
+  handler: async (ctx, { userId, canManageTeam, canManagePromos }) => {
+    const { orgId: organizationId, userId: actorUserId, orgRole } = await requireOrgAdmin(ctx);
+
+    const existing = await ctx.db
+      .query("repsPresence")
+      .withIndex("by_org_user", (q: any) =>
+        q.eq("organizationId", organizationId).eq("userId", userId),
+      )
+      .unique();
+
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        canManageTeam,
+        canManagePromos,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("repsPresence", {
+        organizationId,
+        userId,
+        regions: [],
+        available: false,
+        canManageTeam,
+        canManagePromos,
+        updatedAt: now,
+      });
+    }
+
+    await writeAuditLog(ctx, {
+      organizationId,
+      actorUserId,
+      actorOrgRole: orgRole,
+      action: "rep.capabilities.updated",
+      entityType: "rep",
+      entityId: String(userId),
+      meta: { userId, canManageTeam, canManagePromos },
+    });
+
+    return { ok: true as const };
   },
 });
 

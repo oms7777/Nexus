@@ -15,6 +15,8 @@ function computeEntitlements(sub: any) {
   const canUseSlack = isActive && (plan === "growth" || plan === "enterprise");
   const canUseSalesforce = isActive && plan !== "starter" && addons.salesforce === true;
   const canUseHubspot = isActive && plan !== "starter" && addons.hubspot === true;
+  /** Growth+ CRM add-on: attributed pipeline € / stage / won (not on Starter). */
+  const canUseCrmRevenue = canUseSalesforce || canUseHubspot;
 
   const voiceEnabled = addons.voice === true;
   const canUseVoice = isActive && voiceEnabled;
@@ -56,6 +58,7 @@ function computeEntitlements(sub: any) {
       canUseSlack,
       canUseSalesforce,
       canUseHubspot,
+      canUseCrmRevenue,
       canUseVoice,
       canUseAdvancedRouting,
       canUseAdvancedPromos,

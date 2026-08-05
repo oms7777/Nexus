@@ -61,7 +61,7 @@ type Row = {
 
 type SortKey = "score" | "sessions" | "meetings" | "account" | "lastSeen";
 
-type SignalsPreset = "all" | "hot" | "warm_plus";
+type SignalsPreset = "all" | "hot" | "warm_plus" | "ghost_ip";
 
 export type SignalsAudience = "companies" | "domains";
 
@@ -388,13 +388,16 @@ export function SignalsTable({
   const searchParams = useSearchParams();
   const rawPreset = searchParams.get("preset");
   const preset: SignalsPreset =
-    rawPreset === "hot" || rawPreset === "warm_plus" ? rawPreset : "all";
+    rawPreset === "hot" || rawPreset === "warm_plus" || rawPreset === "ghost_ip"
+      ? rawPreset
+      : "all";
 
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [territoryFilter, setTerritoryFilter] = useState<string>("all");
   const [minScore, setMinScore] = useState<string>("0");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "ip">("all");
   const [showUnattributed, setShowUnattributed] = useState(false);
   const [hideJunkCompanies, setHideJunkCompanies] = useState(true);
   const [selected, setSelected] = useState<Row | null>(null);
@@ -403,14 +406,24 @@ export function SignalsTable({
     if (p === "all") {
       setTierFilter("all");
       setMinScore("0");
+      setSourceFilter("all");
     } else if (p === "hot") {
       setTierFilter("hot");
       setMinScore("0");
+      setSourceFilter("all");
     } else if (p === "warm_plus") {
       setTierFilter("all");
       setMinScore("45");
+      setSourceFilter("all");
+    } else if (p === "ghost_ip") {
+      setTierFilter("all");
+      setMinScore("0");
+      setSourceFilter("ip");
     }
   };
+
+  const parsePreset = (raw: string | null): SignalsPreset =>
+    raw === "hot" || raw === "warm_plus" || raw === "ghost_ip" ? raw : "all";
 
   const setPreset = (p: SignalsPreset) => {
     applyPresetToFilters(p);
@@ -422,10 +435,15 @@ export function SignalsTable({
   };
 
   useEffect(() => {
-    const raw = searchParams.get("preset");
-    applyPresetToFilters(raw === "hot" || raw === "warm_plus" ? raw : "all");
+    applyPresetToFilters(parsePreset(searchParams.get("preset")));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate saved view from URL once
   }, []);
+
+  // Keep filters in sync when parent changes ?preset= (Morning Call Queue shortcuts).
+  useEffect(() => {
+    applyPresetToFilters(parsePreset(searchParams.get("preset")));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawPreset]);
 
   const territories = useMemo(() => {
     const s = new Set<string>();
@@ -460,6 +478,9 @@ export function SignalsTable({
     if (tierFilter !== "all") {
       base = base.filter((r) => (r.tier ?? "Neutral").toLowerCase() === tierFilter.toLowerCase());
     }
+    if (sourceFilter === "ip") {
+      base = base.filter((r) => r.companySource === "ip" && safeNum(r.meetings) === 0);
+    }
     if (territoryFilter !== "all" && advanced) {
       base = base.filter((r) => safeStr(r.territory) === territoryFilter);
     }
@@ -477,7 +498,19 @@ export function SignalsTable({
     });
 
     return base;
-  }, [rows, q, sortKey, tierFilter, territoryFilter, minScore, advanced, hideJunkCompanies, showUnattributed, audience]);
+  }, [
+    rows,
+    q,
+    sortKey,
+    tierFilter,
+    territoryFilter,
+    minScore,
+    sourceFilter,
+    advanced,
+    hideJunkCompanies,
+    showUnattributed,
+    audience,
+  ]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm ring-1 ring-black/[0.04] dark:ring-white/10">
@@ -548,6 +581,7 @@ export function SignalsTable({
               {(tierFilter !== "all" ||
                 territoryFilter !== "all" ||
                 minScore !== "0" ||
+                sourceFilter !== "all" ||
                 showUnattributed ||
                 !hideJunkCompanies ||
                 q) && (
@@ -560,6 +594,7 @@ export function SignalsTable({
                     setTierFilter("all");
                     setTerritoryFilter("all");
                     setMinScore("0");
+                    setSourceFilter("all");
                     setShowUnattributed(false);
                     setHideJunkCompanies(true);
                     setQ("");
@@ -597,6 +632,7 @@ export function SignalsTable({
             { id: "all" as const, label: "All tiers" },
             { id: "hot" as const, label: "Hot" },
             { id: "warm_plus" as const, label: "Warm+" },
+            { id: "ghost_ip" as const, label: "Ghost IP" },
           ] as const
         ).map((v) => {
           const active = preset === v.id;

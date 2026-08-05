@@ -2,7 +2,7 @@
 import { mutation, query } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
-import { requireOrgManager } from "../lib/authz";
+import { requireCanManagePromos } from "../lib/authz";
 
 type PathMode = "prefix" | "exact";
 
@@ -170,7 +170,7 @@ const promoSettingsV = v.object({
 export const listByOrg = query({
   args: {},
   handler: async (ctx) => {
-    const { orgId } = await requireOrgManager(ctx);
+    const { orgId } = await requireCanManagePromos(ctx);
 
     return await ctx.db
       .query("promos")
@@ -195,7 +195,7 @@ export const upsert = mutation({
     settings: v.optional(promoSettingsV),
   },
   handler: async (ctx, args) => {
-    const { orgId: organizationId, userId, orgRole } = await requireOrgManager(ctx);
+    const { orgId: organizationId, userId, orgRole } = await requireCanManagePromos(ctx);
 
     await requirePromoSubscription(ctx, organizationId);
 
@@ -257,7 +257,7 @@ export const upsert = mutation({
 export const remove = mutation({
   args: { _id: v.id("promos") },
   handler: async (ctx, { _id }) => {
-    const { orgId: organizationId, userId, orgRole } = await requireOrgManager(ctx);
+    const { orgId: organizationId, userId, orgRole } = await requireCanManagePromos(ctx);
 
     await requirePromoSubscription(ctx, organizationId);
 

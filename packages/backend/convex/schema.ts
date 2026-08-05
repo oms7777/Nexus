@@ -401,6 +401,12 @@ export default defineSchema({
     whatsappPhoneDigits: v.optional(v.string()),
     slackUserId: v.optional(v.string()),
     slackDmChannel: v.optional(v.string()),
+    /**
+     * App-level capabilities (no Clerk custom roles required).
+     * Clerk stays admin/member; these flags unlock Team vs Promos without Integrations.
+     */
+    canManageTeam: v.optional(v.boolean()),
+    canManagePromos: v.optional(v.boolean()),
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId"])

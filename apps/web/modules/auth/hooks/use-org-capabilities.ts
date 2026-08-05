@@ -1,30 +1,39 @@
 "use client";
 
 import { useOrganization } from "@clerk/nextjs";
+import { useQuery } from "convex/react";
+import { api } from "@workspace/backend/_generated/api";
 
 /**
- * Roles allowed to run day-to-day operations (team, routing, knowledge base,
- * widget content). Must stay in sync with isOrgManagerRole in
- * packages/backend/convex/lib/authz.ts — the backend is the real gate.
- *
- * "org:manager" is an optional Clerk custom role: as long as the org has not
- * created it, no member carries it and these surfaces stay admin-only.
+ * Combines Clerk org role (admin/member) with app-level flags from Convex
+ * (canManageTeam / canManagePromos) so we don't need Clerk custom roles.
  */
-const OPERATIONS_ROLES: readonly string[] = ["org:admin", "org:manager"];
-
 export function useOrgCapabilities(): {
   isLoaded: boolean;
   role: string;
   isAdmin: boolean;
+  canManageTeam: boolean;
+  canManagePromos: boolean;
   canManageOperations: boolean;
 } {
-  const { isLoaded, membership } = useOrganization();
+  const { isLoaded: clerkLoaded, membership, organization } = useOrganization();
   const role = membership?.role ?? "";
+  const caps = useQuery(
+    api.team.getMyCapabilities,
+    clerkLoaded && organization?.id ? {} : "skip",
+  );
+
+  const isAdmin = role === "org:admin" || caps?.isAdmin === true;
+  const canManageTeam = Boolean(caps?.canManageTeam ?? isAdmin);
+  const canManagePromos = Boolean(caps?.canManagePromos ?? isAdmin);
+  const capsLoaded = !organization?.id || caps !== undefined;
 
   return {
-    isLoaded,
-    role,
-    isAdmin: role === "org:admin",
-    canManageOperations: OPERATIONS_ROLES.includes(role),
+    isLoaded: clerkLoaded && capsLoaded,
+    role: caps?.orgRole || role,
+    isAdmin,
+    canManageTeam,
+    canManagePromos,
+    canManageOperations: canManageTeam || canManagePromos,
   };
 }

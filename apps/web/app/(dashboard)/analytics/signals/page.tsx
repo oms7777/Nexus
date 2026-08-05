@@ -13,6 +13,7 @@ import {
   useAnalyticsRangeFromUrl,
 } from "@/modules/analytics/shared/analytics-date-range";
 import { LockedSignalsAdvancedCard } from "@/modules/analytics/signals/components/LockedSignalsAdvancedCard";
+import { MorningCallQueue } from "@/modules/analytics/signals/components/MorningCallQueue";
 import {
   SignalsTable,
   type SignalsAudience,
@@ -72,7 +73,7 @@ export default function AnalyticsSignalsPage() {
           <div className="space-y-1">
             <div className="text-2xl font-semibold tracking-tight">Signals</div>
             <div className="max-w-xl text-sm text-muted-foreground">
-              Prioritize accounts by intent — unlocks with Advanced Analytics.
+              Morning call list — Hot + Ghost IP. Unlocks with Advanced Analytics.
             </div>
           </div>
           <AnalyticsDateRangePicker value={range} onChange={setRange} />
@@ -95,49 +96,64 @@ export default function AnalyticsSignalsPage() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
+  const setPreset = (preset: "hot" | "ghost_ip") => {
+    const n = new URLSearchParams(searchParams.toString());
+    n.set("audience", "companies");
+    n.set("preset", preset);
+    const qs = n.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
   const list = Array.isArray(rows) ? rows : [];
   const meetingsTotal = list.reduce((s, r: any) => s + Number(r.meetings ?? 0), 0);
   const sessionsTotal = list.reduce((s, r: any) => s + Number(r.sessions ?? 0), 0);
   const hotCount = list.filter((r: any) => String(r.tier ?? "").toLowerCase() === "hot").length;
   const warmCount = list.filter((r: any) => String(r.tier ?? "").toLowerCase() === "warm").length;
-  const ipOnly = list.filter((r: any) => r.companySource === "ip").length;
+  const ghostIp = list.filter(
+    (r: any) => r.companySource === "ip" && Number(r.meetings ?? 0) === 0,
+  ).length;
   const showAlert = meetingsTotal === 0 && sessionsTotal >= 10;
 
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
-          <div className="text-2xl font-semibold tracking-tight">Signals</div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-800/80 dark:text-fuchsia-300/80">
+            Signals · call list
+          </p>
+          <div className="text-2xl font-semibold tracking-tight">Who do I call this morning?</div>
           <p className="text-sm text-muted-foreground">
-            Work queue for accounts — click a row for conversations · export CSV · badge Declared vs From IP
+            Hot accounts first, then Ghost IP (inferred company, no meeting yet). Click a row for conversations.
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
 
       {!isEmpty ? (
-        <div className="grid gap-3 sm:grid-cols-4">
-          <QueueStat
-            label="Hot"
-            value={hotCount}
-            tone="hot"
-            hint="Score ≥ 120 — call these first"
+        <>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <QueueStat label="Hot" value={hotCount} tone="hot" hint="Score ≥ 120 — call first" />
+            <QueueStat label="Warm" value={warmCount} tone="warm" hint="Score ≥ 45" />
+            <QueueStat label="Meetings" value={meetingsTotal} tone="neutral" hint="Booked this period" />
+            <QueueStat
+              label="Ghost IP"
+              value={ghostIp}
+              tone="ip"
+              hint="From IP only · 0 meetings"
+            />
+          </div>
+          <MorningCallQueue
+            rows={list as any}
+            onShowHot={() => setPreset("hot")}
+            onShowGhostIp={() => setPreset("ghost_ip")}
           />
-          <QueueStat label="Warm" value={warmCount} tone="warm" hint="Score ≥ 45" />
-          <QueueStat label="Meetings" value={meetingsTotal} tone="neutral" hint="Booked this period" />
-          <QueueStat
-            label="From IP only"
-            value={ipOnly}
-            tone="ip"
-            hint="Company inferred from IP — not typed by visitor"
-          />
-        </div>
+        </>
       ) : null}
 
       {showAlert ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
           <span className="font-semibold">0 meetings</span> across signals this period despite{" "}
-          {sessionsTotal.toLocaleString()} sessions — prioritize Warm/Hot or check Funnel.
+          {sessionsTotal.toLocaleString()} sessions — start with Hot / Ghost IP or check Funnel.
         </div>
       ) : null}
 

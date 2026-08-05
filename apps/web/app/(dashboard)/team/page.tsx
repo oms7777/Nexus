@@ -282,7 +282,7 @@ const COUNTRY_PRESETS: CountryPreset[] = [
 export default function TeamPage() {
   const router = useRouter();
   const { organization, isLoaded } = useOrganization();
-  const { canManageOperations } = useOrgCapabilities();
+  const { canManageTeam, isAdmin } = useOrgCapabilities();
 
   const ent = useEntitlements();
   const isStarter = ent.plan === "starter";
@@ -295,15 +295,15 @@ export default function TeamPage() {
   useEffect(() => {
     if (!isLoaded) return;
     if (!organization) return;
-    if (!canManageOperations) router.replace("/live");
-  }, [isLoaded, organization, canManageOperations, router]);
+    if (!canManageTeam) router.replace("/live");
+  }, [isLoaded, organization, canManageTeam, router]);
 
   useEffect(() => {
     if (!inviteOpen) return;
     if (typeof window !== "undefined") window.location.hash = "members";
   }, [inviteOpen]);
 
-  const canQuery = Boolean(organization && canManageOperations);
+  const canQuery = Boolean(organization && canManageTeam);
 
   const widgetSettings = useQuery(
     api.private.widgetSettings.getOne,
@@ -378,7 +378,7 @@ export default function TeamPage() {
   const [loadingMembers, setLoadingMembers] = useState(false);
 
   useEffect(() => {
-    if (!organization || !canManageOperations) return;
+    if (!organization || !canManageTeam) return;
 
     let cancelled = false;
 
@@ -416,7 +416,7 @@ export default function TeamPage() {
     return () => {
       cancelled = true;
     };
-  }, [organization, canManageOperations]);
+  }, [organization, canManageTeam]);
 
   // repsPresence
   const reps = useQuery(
@@ -431,11 +431,14 @@ export default function TeamPage() {
         available: boolean;
         slackUserId?: string;
         slackDmChannel?: string;
+        canManageTeam?: boolean;
+        canManagePromos?: boolean;
         updatedAt: number;
       }[]
     | undefined;
 
   const upsertRep = useMutation(api.team.upsertRepPresence);
+  const setCaps = useMutation(api.team.setMemberCapabilities);
 
   const rows = useMemo(() => {
     if (!organization) return [];
@@ -454,6 +457,8 @@ export default function TeamPage() {
         available: rep?.available ?? false,
         slackUserId: rep?.slackUserId,
         slackDmChannel: rep?.slackDmChannel,
+        canManageTeam: Boolean(rep?.canManageTeam),
+        canManagePromos: Boolean(rep?.canManagePromos),
       };
     });
   }, [members, reps, organization]);
@@ -465,7 +470,7 @@ export default function TeamPage() {
     slackUserId?: string;
     slackDmChannel?: string;
   }) => {
-    if (!organization || !canManageOperations) return;
+    if (!organization || !canManageTeam) return;
 
     try {
       await upsertRep({
@@ -527,7 +532,7 @@ export default function TeamPage() {
   };
 
   const handleCreateTerritory = async () => {
-    if (!organization || !canManageOperations) return;
+    if (!organization || !canManageTeam) return;
 
     const trimmedLabel = territoryLabel.trim();
     const trimmedKey = (territoryKey || slugify(territoryLabel)).trim();
@@ -567,7 +572,7 @@ export default function TeamPage() {
   };
 
   const handleDeleteTerritory = async (id: string) => {
-    if (!canManageOperations) return;
+    if (!canManageTeam) return;
     try {
       await removeTerritory({ territoryId: id as any });
       toast.success("Territory removed");
@@ -590,7 +595,7 @@ export default function TeamPage() {
     );
   }
 
-  if (isLoaded && !canManageOperations) {
+  if (isLoaded && !canManageTeam) {
     return (
       <Protect>
         <div className="mx-auto max-w-lg space-y-4 p-8">
@@ -707,6 +712,9 @@ export default function TeamPage() {
                     ) : null}
 
                     <th className="px-4 py-3 text-left font-medium">Receives leads</th>
+                    {isAdmin ? (
+                      <th className="px-4 py-3 text-left font-medium">App access</th>
+                    ) : null}
                     <th className="px-4 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -718,6 +726,24 @@ export default function TeamPage() {
                       row={row}
                       territoryOptions={territoryOptions}
                       hideTerritories={isStarter}
+                      showCapabilities={isAdmin}
+                      onSaveCaps={
+                        isAdmin
+                          ? async (caps) => {
+                              try {
+                                await setCaps({
+                                  userId: row.member.userId,
+                                  canManageTeam: caps.canManageTeam,
+                                  canManagePromos: caps.canManagePromos,
+                                });
+                                toast.success("Access updated");
+                              } catch (e) {
+                                console.error(e);
+                                toast.error("Failed to update access");
+                              }
+                            }
+                          : undefined
+                      }
                       onSave={async (payload) =>
                         handleSaveRep({
                           ...payload,
@@ -732,7 +758,7 @@ export default function TeamPage() {
                     <tr>
                       <td
                         className="px-4 py-6 text-center text-muted-foreground"
-                        colSpan={isStarter ? 3 : 4}
+                        colSpan={isStarter ? (isAdmin ? 4 : 3) : isAdmin ? 5 : 4}
                       >
                         No members found in this organization.
                       </td>
@@ -903,7 +929,9 @@ function TeamRow({
   row,
   territoryOptions,
   hideTerritories,
+  showCapabilities,
   onSave,
+  onSaveCaps,
 }: {
   row: {
     member: Membership;
@@ -911,22 +939,38 @@ function TeamRow({
     available: boolean;
     slackUserId?: string;
     slackDmChannel?: string;
+    canManageTeam?: boolean;
+    canManagePromos?: boolean;
   };
   territoryOptions: TerritoryOption[];
   hideTerritories?: boolean;
+  showCapabilities?: boolean;
   onSave: (row: {
     member: Membership;
     regions: string[];
     available: boolean;
   }) => void;
+  onSaveCaps?: (caps: { canManageTeam: boolean; canManagePromos: boolean }) => void | Promise<void>;
 }) {
   const [regions, setRegions] = useState<string[]>(row.regions || []);
   const [available, setAvailable] = useState(row.available);
+  const [capTeam, setCapTeam] = useState(Boolean(row.canManageTeam));
+  const [capPromos, setCapPromos] = useState(Boolean(row.canManagePromos));
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setRegions(row.regions || []);
+    setAvailable(row.available);
+    setCapTeam(Boolean(row.canManageTeam));
+    setCapPromos(Boolean(row.canManagePromos));
+  }, [row.regions, row.available, row.canManageTeam, row.canManagePromos]);
 
   const handleClickSave = async () => {
     setSaving(true);
     await onSave({ member: row.member, regions: hideTerritories ? [] : regions, available });
+    if (showCapabilities && onSaveCaps) {
+      await onSaveCaps({ canManageTeam: capTeam, canManagePromos: capPromos });
+    }
     setSaving(false);
   };
 
@@ -958,6 +1002,29 @@ function TeamRow({
           <span className="text-xs text-muted-foreground">{available ? "Online" : "Offline"}</span>
         </div>
       </td>
+
+      {showCapabilities ? (
+        <td className="px-4 py-3 align-middle">
+          <div className="flex flex-col gap-1.5 text-xs">
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={capTeam}
+                onChange={(e) => setCapTeam(e.target.checked)}
+              />
+              Team / territories
+            </label>
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={capPromos}
+                onChange={(e) => setCapPromos(e.target.checked)}
+              />
+              Promos / widget
+            </label>
+          </div>
+        </td>
+      ) : null}
 
       <td className="px-4 py-3 align-middle text-right">
         <Button size="sm" onClick={handleClickSave} disabled={saving} className="bg-fuchsia-600 hover:bg-fuchsia-700 border-0">

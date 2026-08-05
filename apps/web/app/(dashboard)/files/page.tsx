@@ -3,7 +3,7 @@ import { OperationsGate } from "@/modules/auth/ui/components/operations-gate";
 
 export default function Page() {
   return (
-    <OperationsGate title="Knowledge Base (AI)">
+    <OperationsGate title="Knowledge Base (AI)" require="team">
       <FilesView />
     </OperationsGate>
   );

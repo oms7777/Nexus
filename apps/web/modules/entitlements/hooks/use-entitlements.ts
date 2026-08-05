@@ -6,9 +6,51 @@ import { api } from "@workspace/backend/_generated/api";
 
 export type Plan = "starter" | "growth" | "enterprise";
 
+export type EntitlementFeatures = {
+  canUseSlack: boolean;
+  canUseSalesforce: boolean;
+  canUseHubspot: boolean;
+  canUseCrmRevenue: boolean;
+  canUseVoice: boolean;
+  canUseAdvancedRouting: boolean;
+  canUseAdvancedPromos: boolean;
+  canUseAdvancedAnalytics: boolean;
+  canUseBooking: boolean;
+  canChooseLlmProvider: boolean;
+  canConfigureSalesforceByo: boolean;
+  canConfigureHubspotByo: boolean;
+  canConfigureVoiceByo: boolean;
+};
+
+const EMPTY_FEATURES: EntitlementFeatures = {
+  canUseSlack: false,
+  canUseSalesforce: false,
+  canUseHubspot: false,
+  canUseCrmRevenue: false,
+  canUseVoice: false,
+  canUseAdvancedRouting: false,
+  canUseAdvancedPromos: false,
+  canUseAdvancedAnalytics: false,
+  canUseBooking: false,
+  canChooseLlmProvider: false,
+  canConfigureSalesforceByo: false,
+  canConfigureHubspotByo: false,
+  canConfigureVoiceByo: false,
+};
+
 export function useEntitlements() {
   const ent = useQuery(api.public.entitlements.getEntitlements, {});
   const isLoading = ent === undefined;
+
+  const features: EntitlementFeatures = {
+    ...EMPTY_FEATURES,
+    ...(ent?.features ?? {}),
+    // Older clients / cached shapes may omit this flag — derive from CRM add-ons.
+    canUseCrmRevenue:
+      Boolean((ent?.features as EntitlementFeatures | undefined)?.canUseCrmRevenue) ||
+      Boolean(ent?.features?.canUseSalesforce) ||
+      Boolean(ent?.features?.canUseHubspot),
+  };
 
   return {
     // raw
@@ -31,25 +73,13 @@ export function useEntitlements() {
       snapshotsGb: 0,
     },
 
-    features: ent?.features ?? {
-      canUseSlack: false,
-      canUseSalesforce: false,
-      canUseHubspot: false,
-      canUseVoice: false,
-      canUseAdvancedRouting: false,
-      canUseAdvancedPromos: false,
-      canUseAdvancedAnalytics: false,
-      canUseBooking: false,
-      canChooseLlmProvider: false,
-      canConfigureSalesforceByo: false,
-      canConfigureHubspotByo: false,
-      canConfigureVoiceByo: false,
-    },
+    features,
 
     // helpers UI (optionnel)
-    canUseSlack: ent?.features?.canUseSlack ?? false,
-    canUseSalesforce: ent?.features?.canUseSalesforce ?? false,
-    canUseHubspot: ent?.features?.canUseHubspot ?? false,
-    canUseVoice: ent?.features?.canUseVoice ?? false,
+    canUseSlack: features.canUseSlack,
+    canUseSalesforce: features.canUseSalesforce,
+    canUseHubspot: features.canUseHubspot,
+    canUseCrmRevenue: features.canUseCrmRevenue,
+    canUseVoice: features.canUseVoice,
   };
 }

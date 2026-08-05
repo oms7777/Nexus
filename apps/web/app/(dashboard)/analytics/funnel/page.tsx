@@ -12,6 +12,7 @@ import { EngagementFunnelChart } from "@/modules/analytics/funnel/components/Eng
 import { ConversionRatesChart } from "@/modules/analytics/funnel/components/ConversionRatesChart";
 import { FunnelDropoffStrip } from "@/modules/analytics/funnel/components/FunnelDropoffStrip";
 import { InboundHealthChart } from "@/modules/analytics/funnel/components/InboundHealthChart";
+import { FunnelDiagnosisPanel } from "@/modules/analytics/funnel/components/FunnelDiagnosisPanel";
 import {
   AnalyticsDateRangePicker,
   useAnalyticsRangeFromUrl,
@@ -24,10 +25,10 @@ function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPla
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-base font-semibold">
-            Funnel Analytics {showPlanBadges ? "(Advanced)" : ""}
+            Diagnose leaks {showPlanBadges ? "(Advanced)" : ""}
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            Drop-off diagnostics and inbound health require Advanced Analytics.
+            Missed handoffs, SLA, and drop-offs require Advanced Analytics.
           </div>
           {reason ? (
             <div className="mt-2 text-xs text-muted-foreground">
@@ -107,9 +108,9 @@ function FunnelsInner({
     return (
       <div className="space-y-6 p-6">
         <div>
-          <div className="text-2xl font-semibold">Funnels</div>
+          <div className="text-2xl font-semibold">Diagnose leaks</div>
           <div className="text-sm text-muted-foreground">
-            Diagnostic view — drop-offs and inbound handling (not the executive overview).
+            Coach view — handoffs, SLA, drop-offs (not the Overview scoreboard).
           </div>
         </div>
         <LockedFunnelCard showPlanBadges={showPlanBadges} />
@@ -122,9 +123,9 @@ function FunnelsInner({
       <div className="space-y-6 p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="text-2xl font-semibold">Funnels</div>
+            <div className="text-2xl font-semibold">Diagnose leaks</div>
             <div className="text-sm text-muted-foreground">
-              Drop-off and inbound health for the selected period.
+              Missed handoffs, response SLA, and drop-offs for the selected period.
             </div>
           </div>
           <AnalyticsDateRangePicker value={range} onChange={setRange} />
@@ -149,27 +150,31 @@ function FunnelsInner({
   };
 
   const inbound = data?.inbound ?? null;
+  const diagnosis = (data as any)?.diagnosis ?? null;
+  const planBadge = showPlanBadges ? <BrandPill>Advanced</BrandPill> : null;
 
   return (
     <div className="space-y-8 p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-800/80 dark:text-fuchsia-300/80">
-            Funnel diagnostics
+            Funnel · coach
           </p>
-          <div className="text-2xl font-semibold tracking-tight text-foreground">Where pipeline leaks</div>
+          <div className="text-2xl font-semibold tracking-tight text-foreground">Diagnose leaks</div>
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Drop-offs and sales handoff — outcomes stay on Overview. Date range syncs across tabs.
+            Who was too slow, which handoffs missed, which pages never book — Overview keeps the scoreboard.
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
 
+      <FunnelDiagnosisPanel diagnosis={diagnosis} showPlanBadge={planBadge} />
+
       <div className="grid gap-6 lg:grid-cols-12">
         <CardShell
-          title="Volume funnel"
-          subtitle="Stage counts and where volume drops between steps"
-          right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
+          title="Drop-off"
+          subtitle="Where volume falls between stages"
+          right={planBadge}
           className="lg:col-span-7"
         >
           <EngagementFunnelChart data={engagement as any} />
@@ -180,17 +185,17 @@ function FunnelsInner({
 
         <CardShell
           title="Step conversion"
-          subtitle="Cohort-style rates between adjacent stages"
-          right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
+          subtitle="Adjacent-stage rates"
+          right={planBadge}
           className="lg:col-span-5"
         >
           <ConversionRatesChart data={conversion as any} />
         </CardShell>
 
         <CardShell
-          title="Sales handoff health"
-          subtitle="After a visitor requests chat: did a rep start, propose a booking, and book?"
-          right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
+          title="Handoff flow"
+          subtitle="Chat requested → rep started → booking proposed → meeting"
+          right={planBadge}
           className="lg:col-span-12"
         >
           {!inbound ? (
@@ -234,7 +239,7 @@ export default function AnalyticsFunnelPage() {
       fallback={(err) => (
         <div className="space-y-6 p-6">
           <div>
-            <div className="text-2xl font-semibold">Funnels</div>
+            <div className="text-2xl font-semibold">Diagnose leaks</div>
             <div className="text-sm text-muted-foreground">
               Drop-off diagnostics and inbound health.
             </div>

@@ -1,41 +1,48 @@
 "use client";
 
-import { Protect } from "@clerk/nextjs";
 import Link from "next/link";
 import { useOrgCapabilities } from "@/modules/auth/hooks/use-org-capabilities";
 
-/**
- * Soft gate for day-to-day ops pages (team, knowledge base, widget).
- * Backend still enforces requireOrgManager — this only stops a blank crash.
- */
 export function OperationsGate({
+  title,
   children,
-  title = "Restricted",
+  require,
 }: {
+  title: string;
   children: React.ReactNode;
-  title?: string;
+  /** Which app capability unlocks this page. Default: either ops flag. */
+  require?: "team" | "promos" | "any";
 }) {
-  const { isLoaded, canManageOperations } = useOrgCapabilities();
+  const { isLoaded, canManageTeam, canManagePromos, canManageOperations, isAdmin } =
+    useOrgCapabilities();
 
-  if (!isLoaded) return null;
+  const allowed =
+    require === "team"
+      ? canManageTeam
+      : require === "promos"
+        ? canManagePromos
+        : canManageOperations;
 
-  if (!canManageOperations) {
+  if (!isLoaded) {
+    return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
+  }
+
+  if (!allowed) {
     return (
-      <Protect>
-        <div className="mx-auto max-w-lg space-y-4 p-8">
-          <h1 className="text-2xl font-semibold">{title}</h1>
-          <p className="text-muted-foreground">
-            This area is for organization admins and managers. Ask an admin to
-            grant you the <span className="font-medium">Manager</span> or{" "}
-            <span className="font-medium">Admin</span> role.
-          </p>
-          <Link href="/live" className="text-sm font-medium underline underline-offset-4">
-            Back to Live Map
-          </Link>
-        </div>
-      </Protect>
+      <div className="mx-auto max-w-lg space-y-3 p-8">
+        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+        <p className="text-sm text-muted-foreground">
+          You don&apos;t have access to this area.
+          {isAdmin
+            ? " Unexpected — try refreshing."
+            : " Ask an organization admin to enable Team or Promos access for you on Team & Territories."}
+        </p>
+        <Link href="/live" className="text-sm font-medium text-fuchsia-700 hover:underline">
+          Back to Live Map
+        </Link>
+      </div>
     );
   }
 
-  return <Protect>{children}</Protect>;
+  return <>{children}</>;
 }

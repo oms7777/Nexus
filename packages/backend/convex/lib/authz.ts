@@ -23,13 +23,6 @@ export async function requireOrgId(ctx: any): Promise<string> {
   return orgId;
 }
 
-/**
- * Enterprise-safe rule: only Clerk org admins can mutate org settings.
- *
- * IMPORTANT:
- * - This assumes the Clerk "convex" JWT template includes an `orgRole` claim (e.g. "org:admin").
- * - If `orgRole` is missing, we deny by default (secure).
- */
 /** For audit logs / UI — not used as the sole authorization gate. */
 export function readOrgRoleFromIdentity(identity: Record<string, unknown> | null | undefined): string {
   if (!identity) return "";
@@ -49,19 +42,12 @@ function extractOrgRoleFromIdentity(identity: Record<string, unknown>): string {
 function isClerkOrgAdminRole(role: string): boolean {
   if (!role) return false;
   if (role === "org:admin") return true;
-  // Some JWT templates shorten or use different casing
   if (role === "admin") return true;
   return false;
 }
 
-/**
- * Day-to-day operations (team, routing, knowledge base, widget content) can be
- * delegated to a Clerk custom role. Admins always qualify.
- *
- * Until the org actually creates that custom role in Clerk, no JWT carries it,
- * so every manager-gated function stays admin-only — the check is a no-op.
- */
-function isOrgManagerRole(role: string): boolean {
+/** Optional Clerk custom role (B2B add-on). Harmless no-op until the role exists. */
+function isClerkOrgManagerRole(role: string): boolean {
   if (isClerkOrgAdminRole(role)) return true;
   if (!role) return false;
   return role === "org:manager" || role === "manager";
@@ -81,6 +67,17 @@ async function resolveActor(ctx: any): Promise<Actor> {
   return { orgId, userId, orgRole: extractOrgRoleFromIdentity(identity) };
 }
 
+async function loadRepCaps(ctx: any, orgId: string, userId: string) {
+  const row = await ctx.db
+    .query("repsPresence")
+    .withIndex("by_org_user", (q: any) => q.eq("organizationId", orgId).eq("userId", userId))
+    .unique();
+  return {
+    canManageTeam: Boolean(row?.canManageTeam),
+    canManagePromos: Boolean(row?.canManagePromos),
+  };
+}
+
 export async function requireOrgAdmin(ctx: any): Promise<Actor> {
   const actor = await resolveActor(ctx);
 
@@ -95,27 +92,45 @@ export async function requireOrgAdmin(ctx: any): Promise<Actor> {
   return actor;
 }
 
-/** For org-wide operational settings that are safe to delegate to a manager. */
-export async function requireOrgManager(ctx: any): Promise<Actor> {
+/** Team & territories (RevOps). Admin, Clerk manager, or app flag. */
+export async function requireCanManageTeam(ctx: any): Promise<Actor> {
   const actor = await resolveActor(ctx);
+  if (isClerkOrgManagerRole(actor.orgRole)) return actor;
+  const caps = await loadRepCaps(ctx, actor.orgId, actor.userId);
+  if (caps.canManageTeam) return actor;
+  throw new ConvexError({
+    code: "FORBIDDEN",
+    message: "Team management access required (ask an admin to enable it on Team).",
+  });
+}
 
-  if (!isOrgManagerRole(actor.orgRole)) {
-    throw new ConvexError({
-      code: "FORBIDDEN",
-      message: "Admin or manager role required to change this setting.",
-    });
-  }
-
-  return actor;
+/** Promos / nudges (Marketing). Admin, Clerk manager, or app flag. */
+export async function requireCanManagePromos(ctx: any): Promise<Actor> {
+  const actor = await resolveActor(ctx);
+  if (isClerkOrgManagerRole(actor.orgRole)) return actor;
+  const caps = await loadRepCaps(ctx, actor.orgId, actor.userId);
+  if (caps.canManagePromos) return actor;
+  throw new ConvexError({
+    code: "FORBIDDEN",
+    message: "Promo management access required (ask an admin to enable it on Team).",
+  });
 }
 
 /**
- * For writes that target a specific member.
- *
- * A rep may edit their own row, but editing someone else's availability or
- * territories silently reassigns that person's inbound leads, so it needs
- * team-management rights.
+ * Broader ops (KB, widget shell): admin, Clerk manager, or either app flag.
+ * Integrations / audit stay requireOrgAdmin.
  */
+export async function requireOrgManager(ctx: any): Promise<Actor> {
+  const actor = await resolveActor(ctx);
+  if (isClerkOrgManagerRole(actor.orgRole)) return actor;
+  const caps = await loadRepCaps(ctx, actor.orgId, actor.userId);
+  if (caps.canManageTeam || caps.canManagePromos) return actor;
+  throw new ConvexError({
+    code: "FORBIDDEN",
+    message: "Admin or operations access required to change this setting.",
+  });
+}
+
 export async function requireSelfOrOrgManager(ctx: any, targetUserId: string): Promise<Actor> {
   const actor = await resolveActor(ctx);
 
@@ -123,13 +138,37 @@ export async function requireSelfOrOrgManager(ctx: any, targetUserId: string): P
     return actor;
   }
 
-  if (!isOrgManagerRole(actor.orgRole)) {
-    throw new ConvexError({
-      code: "FORBIDDEN",
-      message: "Only an admin or manager can change another member's rep settings.",
-    });
-  }
+  if (isClerkOrgManagerRole(actor.orgRole)) return actor;
+  const caps = await loadRepCaps(ctx, actor.orgId, actor.userId);
+  if (caps.canManageTeam) return actor;
 
-  return actor;
+  throw new ConvexError({
+    code: "FORBIDDEN",
+    message: "Only an admin or team manager can change another member's rep settings.",
+  });
 }
 
+/** Caps for the signed-in user — drives sidebar / gates. */
+export async function getActorCapabilities(ctx: any): Promise<{
+  orgId: string;
+  userId: string;
+  orgRole: string;
+  isAdmin: boolean;
+  canManageTeam: boolean;
+  canManagePromos: boolean;
+  canManageOperations: boolean;
+}> {
+  const actor = await resolveActor(ctx);
+  const isAdmin = isClerkOrgAdminRole(actor.orgRole);
+  const clerkManager = isClerkOrgManagerRole(actor.orgRole);
+  const caps = await loadRepCaps(ctx, actor.orgId, actor.userId);
+  const canManageTeam = isAdmin || clerkManager || caps.canManageTeam;
+  const canManagePromos = isAdmin || clerkManager || caps.canManagePromos;
+  return {
+    ...actor,
+    isAdmin,
+    canManageTeam,
+    canManagePromos,
+    canManageOperations: canManageTeam || canManagePromos,
+  };
+}

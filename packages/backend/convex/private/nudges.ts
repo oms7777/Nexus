@@ -1,7 +1,7 @@
 // packages/backend/convex/private/nudges.ts
 import { mutation, query } from "../_generated/server";
 import { v, ConvexError } from "convex/values";
-import { requireOrgManager } from "../lib/authz";
+import { requireCanManagePromos } from "../lib/authz";
 
 function requireOrgId(identity: any) {
   const orgId = identity?.orgId as string | undefined;
@@ -62,7 +62,7 @@ export const upsert = mutation({
     settings: settingsV,
   },
   handler: async (ctx, args) => {
-    const { orgId } = await requireOrgManager(ctx);
+    const { orgId } = await requireCanManagePromos(ctx);
 
     const now = Date.now();
     const insertShow = args.active ?? true;
@@ -94,7 +94,7 @@ export const upsert = mutation({
 export const remove = mutation({
   args: { _id: v.id("pageNudges") },
   handler: async (ctx, { _id }) => {
-    const { orgId } = await requireOrgManager(ctx);
+    const { orgId } = await requireCanManagePromos(ctx);
 
     // Basic ownership check
     const doc = await ctx.db.get(_id);
