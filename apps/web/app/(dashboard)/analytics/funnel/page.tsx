@@ -150,6 +150,20 @@ function FunnelsInner({
 
   const inbound = data?.inbound ?? null;
 
+  const sess = Number(engagement.sessions ?? 0);
+  const conv = Number(engagement.conversations ?? 0);
+  const mtg = Number(engagement.meetings ?? 0);
+  const req = Number(inbound?.requests ?? 0);
+  const repStarted = Number(inbound?.rep_started ?? 0);
+  const leakLabel =
+    sess > 0 && conv / sess < 0.15
+      ? "Biggest leak: sessions → conversations (few chats start)."
+      : conv > 0 && mtg / conv < 0.2
+        ? "Biggest leak: conversations → meetings (chats don’t book)."
+        : req > 0 && repStarted / req < 0.5
+          ? "Biggest leak: chat requested → rep started (slow / missed handoff)."
+          : "Pipeline looks healthy for this period — dig into charts below for nuance.";
+
   return (
     <div className="space-y-8 p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -159,10 +173,23 @@ function FunnelsInner({
           </p>
           <div className="text-2xl font-semibold tracking-tight text-foreground">Where pipeline leaks</div>
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Step drop-offs and inbound handling. Outcomes live on Overview — this page is for diagnosis.
+            Diagnosis only — booked meetings live on Overview. Same date range syncs across analytics tabs.
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
+      </div>
+
+      <div className="rounded-2xl border border-fuchsia-200/70 bg-gradient-to-r from-fuchsia-50 via-white to-rose-50/60 p-5 shadow-sm dark:from-fuchsia-950/30 dark:via-card dark:to-rose-950/20">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-800/90 dark:text-fuchsia-300">
+          Focus this period
+        </p>
+        <p className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">{leakLabel}</p>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <DiagStat label="Sessions" value={sess} />
+          <DiagStat label="Conversations" value={conv} />
+          <DiagStat label="Chat requested" value={req} hint="Visitor asked for sales" />
+          <DiagStat label="Meetings" value={mtg} />
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-12">
@@ -188,17 +215,17 @@ function FunnelsInner({
         </CardShell>
 
         <CardShell
-          title="Inbound handling"
-          subtitle="Rep routing and booking motion on inbound chats"
+          title="Sales handoff health"
+          subtitle="After a visitor requests chat: did a rep start, propose a booking, and book?"
           right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           className="lg:col-span-12"
         >
           {!inbound ? (
-            <div className="text-sm text-muted-foreground">No inbound data.</div>
+            <div className="text-sm text-muted-foreground">No chat-request data yet.</div>
           ) : (
             <div className="grid gap-5 lg:grid-cols-12 lg:items-start">
               <div className="grid gap-2 sm:grid-cols-2 lg:col-span-5">
-                <Row label="Inbound chat requests" value={Number(inbound.requests ?? 0).toLocaleString()} />
+                <Row label="Chat requested" value={Number(inbound.requests ?? 0).toLocaleString()} />
                 <Row label="Rep started conversation" value={Number(inbound.rep_started ?? 0).toLocaleString()} />
                 <Row
                   label="Booking proposed (timeout 30s)"
@@ -213,6 +240,16 @@ function FunnelsInner({
           )}
         </CardShell>
       </div>
+    </div>
+  );
+}
+
+function DiagStat({ label, value, hint }: { label: string; value: number; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-white/80 bg-white/90 px-3 py-2.5 shadow-sm dark:border-border dark:bg-card/90">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-2xl font-semibold tabular-nums text-foreground">{value.toLocaleString()}</div>
+      {hint ? <div className="mt-0.5 text-[10px] text-muted-foreground">{hint}</div> : null}
     </div>
   );
 }

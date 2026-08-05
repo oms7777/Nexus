@@ -183,11 +183,13 @@ async function requireAdvancedAnalytics(ctx: any, organizationId: string) {
 }
 
 function isNoiseSourceKey(source: string): boolean {
-  const s = source.toLowerCase().trim();
+  const s = source.toLowerCase().trim().replace(/^www\./, "");
   if (!s || s === "direct") return false;
   if (s === "localhost" || s.startsWith("127.") || s === "0.0.0.0" || s === "::1") return true;
   if (s.endsWith(".vercel.app") || s.includes(".vercel.app")) return true;
   if (s.includes("nexus-site-") || s.includes("-oms")) return true;
+  // Product host mistakenly stored as a channel (apex was missing from internal list historically).
+  if (s === "inboundless.co" || s.endsWith(".inboundless.co")) return true;
   return false;
 }
 
@@ -385,9 +387,10 @@ function normalizeSource(meta: any) {
   const isInternalReferrerHost = (host: string) => {
     const h = host.replace(/^www\./, "").toLowerCase();
     return (
+      h === "inboundless.co" ||
       h === "widget.inboundless.co" ||
       h === "app.inboundless.co" ||
-      // Any subdomain of inboundless.co is internal tooling, not a marketing source.
+      // Apex + any subdomain of inboundless.co are product/site, not a paid channel.
       h.endsWith(".inboundless.co")
     );
   };
@@ -821,7 +824,8 @@ export const overview = query({
       const ratePct = (bestPath.meetingRate * 100).toFixed(0);
       const srcLabel = bestPath.source === "direct" ? "Direct" : bestPath.source;
       if (loudNoBook && loudNoBook.sessions > bestPath.sessions * 1.5) {
-        booking_insight = `${srcLabel} → ${bestPath.page} booked (${bestPath.meetings} meeting${bestPath.meetings === 1 ? "" : "s"}, ${ratePct}% rate). High volume on ${loudNoBook.page} (${loudNoBook.sessions} sessions) produced none.`;
+        const loudSrc = loudNoBook.source === "direct" ? "Direct" : loudNoBook.source;
+        booking_insight = `${srcLabel} → ${bestPath.page} booked (${bestPath.meetings} meeting${bestPath.meetings === 1 ? "" : "s"}, ${ratePct}% rate). High volume ${loudSrc} → ${loudNoBook.page} (${loudNoBook.sessions} sessions) produced none.`;
       } else {
         booking_insight = `${srcLabel} → ${bestPath.page}: ${ratePct}% meeting rate (${bestPath.meetings} of ${bestPath.sessions} sessions).`;
       }

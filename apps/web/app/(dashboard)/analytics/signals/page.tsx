@@ -95,12 +95,12 @@ export default function AnalyticsSignalsPage() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const meetingsTotal = Array.isArray(rows)
-    ? rows.reduce((s, r: any) => s + Number(r.meetings ?? 0), 0)
-    : 0;
-  const sessionsTotal = Array.isArray(rows)
-    ? rows.reduce((s, r: any) => s + Number(r.sessions ?? 0), 0)
-    : 0;
+  const list = Array.isArray(rows) ? rows : [];
+  const meetingsTotal = list.reduce((s, r: any) => s + Number(r.meetings ?? 0), 0);
+  const sessionsTotal = list.reduce((s, r: any) => s + Number(r.sessions ?? 0), 0);
+  const hotCount = list.filter((r: any) => String(r.tier ?? "").toLowerCase() === "hot").length;
+  const warmCount = list.filter((r: any) => String(r.tier ?? "").toLowerCase() === "warm").length;
+  const ipOnly = list.filter((r: any) => r.companySource === "ip").length;
   const showAlert = meetingsTotal === 0 && sessionsTotal >= 10;
 
   return (
@@ -109,16 +109,35 @@ export default function AnalyticsSignalsPage() {
         <div className="space-y-1">
           <div className="text-2xl font-semibold tracking-tight">Signals</div>
           <p className="text-sm text-muted-foreground">
-            Hot accounts first — click a row to open related conversations
+            Work queue for accounts — click a row for conversations · export CSV · badge Declared vs From IP
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
       </div>
 
+      {!isEmpty ? (
+        <div className="grid gap-3 sm:grid-cols-4">
+          <QueueStat
+            label="Hot"
+            value={hotCount}
+            tone="hot"
+            hint="Score ≥ 120 — call these first"
+          />
+          <QueueStat label="Warm" value={warmCount} tone="warm" hint="Score ≥ 45" />
+          <QueueStat label="Meetings" value={meetingsTotal} tone="neutral" hint="Booked this period" />
+          <QueueStat
+            label="From IP only"
+            value={ipOnly}
+            tone="ip"
+            hint="Company inferred from IP — not typed by visitor"
+          />
+        </div>
+      ) : null}
+
       {showAlert ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
           <span className="font-semibold">0 meetings</span> across signals this period despite{" "}
-          {sessionsTotal.toLocaleString()} sessions — prioritize Warm/Hot outreach or check Funnel drop-off.
+          {sessionsTotal.toLocaleString()} sessions — prioritize Warm/Hot or check Funnel.
         </div>
       ) : null}
 
@@ -126,7 +145,7 @@ export default function AnalyticsSignalsPage() {
         <div className="overflow-hidden rounded-2xl border border-dashed border-fuchsia-200/80 bg-gradient-to-br from-fuchsia-50/50 to-white p-8 shadow-sm ring-1 ring-black/[0.04] dark:border-fuchsia-900/40 dark:from-fuchsia-950/20 dark:to-background dark:ring-white/10">
           <div className="text-lg font-semibold tracking-tight">No signals yet</div>
           <div className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Signals appear when visitors generate trackable events (sessions, inbound requests, conversations,
+            Signals appear when visitors generate trackable events (sessions, chat requests, conversations,
             bookings).
           </div>
         </div>
@@ -145,6 +164,34 @@ export default function AnalyticsSignalsPage() {
           <SignalsTable rows={rows} advanced={advancedEnabled} audience={audience} />
         </div>
       )}
+    </div>
+  );
+}
+
+function QueueStat({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  tone: "hot" | "warm" | "neutral" | "ip";
+}) {
+  const toneCls =
+    tone === "hot"
+      ? "border-rose-200 bg-gradient-to-br from-rose-50 to-orange-50/80 dark:border-rose-900/40 dark:from-rose-950/40"
+      : tone === "warm"
+        ? "border-amber-200 bg-amber-50/80 dark:border-amber-900/40 dark:bg-amber-950/30"
+        : tone === "ip"
+          ? "border-sky-200 bg-sky-50/80 dark:border-sky-900/40 dark:bg-sky-950/30"
+          : "border-border/70 bg-card";
+  return (
+    <div className={["rounded-2xl border px-4 py-3 shadow-sm", toneCls].join(" ")}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-3xl font-semibold tabular-nums tracking-tight">{value.toLocaleString()}</div>
+      <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div>
     </div>
   );
 }

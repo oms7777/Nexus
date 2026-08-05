@@ -43,9 +43,15 @@ export function BookingPathsPanel({
     <>
       <CardShell
         title="Paths that book"
-        subtitle="Ranked by meetings, then meeting rate — not raw session volume"
+        subtitle="Channel → page, ranked by meetings (click a row to open conversations)"
         right={showPlanBadge}
       >
+        <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground">Direct</span> = no UTM / no external referrer
+          (typed URL, bookmark, or navigation on your own site).{" "}
+          <span className="font-medium text-foreground">LinkedIn / Google…</span> = real acquisition
+          channel when UTMs or referrer are present.
+        </p>
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No attributed paths in this period yet.</p>
         ) : (
@@ -62,13 +68,13 @@ export function BookingPathsPanel({
                   className={[
                     "group relative w-full overflow-hidden rounded-xl border px-3 py-3 text-left transition",
                     muted
-                      ? "border-border/50 bg-muted/20 opacity-70 hover:opacity-90"
-                      : "border-border/70 bg-white hover:border-fuchsia-200 hover:bg-fuchsia-50/40 dark:bg-card",
+                      ? "border-border/50 bg-muted/15 opacity-75 hover:opacity-95"
+                      : "border-fuchsia-200/70 bg-gradient-to-r from-fuchsia-50/80 to-white hover:border-fuchsia-300 dark:from-fuchsia-950/30 dark:to-card",
                   ].join(" ")}
                 >
                   <div
-                    className="pointer-events-none absolute inset-y-0 left-0 bg-gradient-to-r from-fuchsia-100/80 to-transparent dark:from-fuchsia-950/40"
-                    style={{ width: `${Math.max(muted ? 0 : 6, bar)}%` }}
+                    className="pointer-events-none absolute inset-y-0 left-0 bg-fuchsia-200/40 dark:bg-fuchsia-800/30"
+                    style={{ width: `${Math.max(muted ? 0 : 8, bar)}%` }}
                   />
                   <div className="relative flex items-start justify-between gap-3">
                     <div className="min-w-0">

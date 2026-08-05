@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@workspace/backend/_generated/api";
 import { useOrganization } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown } from "lucide-react";
 
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 
@@ -55,7 +54,6 @@ export default function AnalyticsOverviewPage() {
   const advancedEnabled = !!ent.features.canUseAdvancedAnalytics;
 
   const { range, setRange, fromTs, toTs } = useAnalyticsRangeFromUrl();
-  const [trendOpen, setTrendOpen] = useState(false);
 
   const overview = useQuery(
     api.public.analytics.overview,
@@ -124,12 +122,12 @@ export default function AnalyticsOverviewPage() {
     return <div className="p-6">Loading…</div>;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-8 p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="max-w-2xl space-y-2">
-          <div className="text-2xl font-semibold tracking-tight">Executive Analytics</div>
+        <div className="max-w-2xl space-y-1">
+          <div className="text-2xl font-semibold tracking-tight">Overview</div>
           <p className="text-sm text-muted-foreground">
-            What booked from the Inboundless widget — meetings first, volume second
+            Meetings booked from the widget — where they came from, and who closed them
           </p>
         </div>
         <AnalyticsDateRangePicker value={range} onChange={setRange} />
@@ -137,8 +135,8 @@ export default function AnalyticsOverviewPage() {
 
       {showTrafficAlert ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
-          <span className="font-semibold">0 meetings</span> while sessions are up (
-          {sessionsN.toLocaleString()}). Check paths below or inbound handling on Funnel.
+          <span className="font-semibold">0 meetings</span> with {sessionsN.toLocaleString()} sessions —
+          traffic is not converting. Check paths below or Funnel → inbound handling.
         </div>
       ) : null}
 
@@ -150,15 +148,51 @@ export default function AnalyticsOverviewPage() {
         insight={insight}
       />
 
-      <PipelineFunnelStrip
-        sessions={sessionsN}
-        experiences={experiencesN}
-        inboundRequests={inboundN}
-        conversations={conversationsN}
-        meetings={meetingsN}
-      />
+      <div className="grid gap-6 xl:grid-cols-12">
+        <div className="xl:col-span-5">
+          <PipelineFunnelStrip
+            sessions={sessionsN}
+            experiences={experiencesN}
+            inboundRequests={inboundN}
+            conversations={conversationsN}
+            meetings={meetingsN}
+          />
+        </div>
+        <div className="xl:col-span-7">
+          <CardShell
+            title="Activity over time"
+            subtitle="Sessions, conversations, and meetings day by day"
+            right={showPlanBadges ? <BrandPill>Core</BrandPill> : null}
+          >
+            {trendRows.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No trend data yet.</div>
+            ) : (
+              <div className="h-[320px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendRows} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="day" tickMargin={8} />
+                    <YAxis width={42} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="sessions" dot={false} stroke="#a855f7" strokeWidth={2} />
+                    <Line
+                      type="monotone"
+                      dataKey="conversations"
+                      dot={false}
+                      stroke="#ec4899"
+                      strokeWidth={2}
+                    />
+                    <Line type="monotone" dataKey="meetings" dot={false} stroke="#f43f5e" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardShell>
+        </div>
+      </div>
 
-      <div className="grid gap-4 grid-cols-1 xl:grid-cols-3">
+      <div className="grid gap-6 grid-cols-1 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <BookingPathsPanel
             paths={bookingPaths}
@@ -169,37 +203,27 @@ export default function AnalyticsOverviewPage() {
         {advancedEnabled ? (
           <CardShell
             title="Who converted"
-            subtitle="Reps that turned inbound into meetings"
+            subtitle="Reps that booked meetings this period"
             right={showPlanBadges ? <BrandPill>Advanced</BrandPill> : null}
           >
             {repRows.length === 0 ? (
-              <div className="text-sm text-muted-foreground">
-                No rep events tracked yet. Fills when rep actions log with `userId`.
-              </div>
+              <div className="text-sm text-muted-foreground">No rep attribution yet for this period.</div>
             ) : (
               <div className="space-y-2">
                 {repRows.slice(0, 8).map((r: any) => (
                   <div
                     key={r.repUserId}
-                    className="flex items-center justify-between rounded-xl border p-3 transition hover:border-fuchsia-200 hover:bg-fuchsia-50/40"
+                    className="flex items-center justify-between rounded-xl border border-border/70 bg-gradient-to-r from-white to-fuchsia-50/40 p-3 dark:from-card dark:to-fuchsia-950/20"
                   >
                     <div className="min-w-0">
                       <div className="truncate font-medium">{r.name ?? "Rep"}</div>
                       <div className="truncate text-xs text-muted-foreground">{r.title ?? "—"}</div>
                     </div>
-                    <div className="flex items-center gap-3 text-sm">
-                      <div className="text-right">
-                        <div className="font-semibold tabular-nums">
-                          {Number(r.meetings ?? 0).toLocaleString()}
-                        </div>
-                        <div className="text-xs text-muted-foreground">meetings</div>
+                    <div className="text-right">
+                      <div className="text-xl font-semibold tabular-nums">
+                        {Number(r.meetings ?? 0).toLocaleString()}
                       </div>
-                      <div className="text-right">
-                        <div className="font-semibold tabular-nums">
-                          {Number(r.rep_started ?? 0).toLocaleString()}
-                        </div>
-                        <div className="text-xs text-muted-foreground">started</div>
-                      </div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">meetings</div>
                     </div>
                   </div>
                 ))}
@@ -225,7 +249,7 @@ export default function AnalyticsOverviewPage() {
       </div>
 
       {advancedEnabled && topCountriesKnown.length > 0 ? (
-        <CardShell title="Geography" subtitle="Countries by meetings — secondary context">
+        <CardShell title="Geography" subtitle="Countries by meetings">
           <GeoKpiTable
             rows={topCountriesKnown.slice(0, 8).map((t: any) => ({
               label: normalizeLabel(t.countryLabel ?? t.countryCode),
@@ -236,52 +260,6 @@ export default function AnalyticsOverviewPage() {
           />
         </CardShell>
       ) : null}
-
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
-        <button
-          type="button"
-          onClick={() => setTrendOpen((v) => !v)}
-          className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-muted/30"
-        >
-          <div>
-            <div className="text-sm font-semibold">Activity over time</div>
-            <div className="text-xs text-muted-foreground">Day-by-day sessions, conversations, meetings</div>
-          </div>
-          <ChevronDown
-            className={["size-4 text-muted-foreground transition", trendOpen ? "rotate-180" : ""].join(
-              " ",
-            )}
-          />
-        </button>
-        {trendOpen ? (
-          <div className="border-t px-5 pb-5 pt-2">
-            {trendRows.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No trend data yet.</div>
-            ) : (
-              <div className="h-[280px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trendRows} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="day" tickMargin={8} />
-                    <YAxis width={42} />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="sessions" dot={false} stroke="#a855f7" strokeWidth={2} />
-                    <Line
-                      type="monotone"
-                      dataKey="conversations"
-                      dot={false}
-                      stroke="#ec4899"
-                      strokeWidth={2}
-                    />
-                    <Line type="monotone" dataKey="meetings" dot={false} stroke="#f43f5e" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 }

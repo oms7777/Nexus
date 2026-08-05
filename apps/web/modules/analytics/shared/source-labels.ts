@@ -17,7 +17,8 @@ export function displaySourceLabel(raw: unknown): string {
   const v = baseNormalize(String(raw ?? ""));
   const lower = v.toLowerCase();
 
-  if (lower === "direct") return "Direct / Unattributed";
+  // No UTM and no external referrer (typed URL, bookmark, or same-site nav).
+  if (lower === "direct") return "Direct";
 
   // Synthetic ad click-id buckets (see packages/backend convex public analytics)
   const synthetic: Record<string, string> = {

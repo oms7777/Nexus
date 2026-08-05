@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
-
 type Step = {
   key: string;
   label: string;
+  hint: string;
   value: number;
 };
 
+/**
+ * Classic funnel bars (wide → narrow) — not a row of slide cards.
+ */
 export function PipelineFunnelStrip({
   sessions,
   experiences,
@@ -22,85 +24,98 @@ export function PipelineFunnelStrip({
   meetings: number;
 }) {
   const steps: Step[] = [
-    { key: "sessions", label: "Sessions", value: sessions },
-    { key: "experiences", label: "Experience", value: experiences },
-    { key: "inbound", label: "Inbound", value: inboundRequests },
-    { key: "conversations", label: "Conversations", value: conversations },
-    { key: "meetings", label: "Meetings", value: meetings },
+    {
+      key: "sessions",
+      label: "Sessions",
+      hint: "Unique visitors who hit a page with the widget",
+      value: sessions,
+    },
+    {
+      key: "experiences",
+      label: "Widget shown",
+      hint: "Times the chat experience was actually shown",
+      value: experiences,
+    },
+    {
+      key: "inbound",
+      label: "Chat requested",
+      hint: "Visitor asked to talk to sales (inbound handoff)",
+      value: inboundRequests,
+    },
+    {
+      key: "conversations",
+      label: "Conversations",
+      hint: "Chat threads created",
+      value: conversations,
+    },
+    {
+      key: "meetings",
+      label: "Meetings",
+      hint: "Meetings booked in Inboundless",
+      value: meetings,
+    },
   ];
 
-  const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(1, ...steps.map((s) => s.value));
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white to-fuchsia-50/30 p-5 shadow-sm dark:from-card dark:to-fuchsia-950/10">
-      <div className="mb-4 flex items-end justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">Pipeline flow</h2>
-          <p className="text-xs text-muted-foreground">Volume by stage — hover a step for drop-off</p>
-        </div>
+    <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm sm:p-6">
+      <div className="mb-5">
+        <h2 className="text-base font-semibold tracking-tight text-foreground">Conversion funnel</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          How traffic becomes a booked meeting — bar width = relative volume
+        </p>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-0">
+      <div className="mx-auto flex max-w-3xl flex-col items-center gap-1.5">
         {steps.map((step, i) => {
           const prev = i > 0 ? steps[i - 1]!.value : null;
-          const drop =
-            prev != null && prev > 0 ? Math.max(0, 1 - step.value / prev) : null;
-          const active = hover === i;
-          const dim = hover != null && hover !== i && hover !== i - 1;
+          const keep =
+            prev != null && prev > 0 ? Math.round((step.value / prev) * 1000) / 10 : null;
+          // Funnel shape: top ~100%, bottom narrower but never tiny for readability
+          const widthPct = 42 + (step.value / max) * 58;
 
           return (
-            <div key={step.key} className="flex min-w-0 flex-1 items-stretch sm:flex-row">
-              {i > 0 ? (
-                <div className="hidden w-6 shrink-0 items-center justify-center sm:flex">
-                  <div
+            <div key={step.key} className="w-full">
+              {i > 0 && keep != null ? (
+                <div className="mb-1 flex justify-center">
+                  <span
                     className={[
-                      "h-px w-full transition",
-                      active || hover === i - 1 ? "bg-fuchsia-400" : "bg-border",
-                    ].join(" ")}
-                  />
-                </div>
-              ) : null}
-              <button
-                type="button"
-                onMouseEnter={() => setHover(i)}
-                onMouseLeave={() => setHover(null)}
-                onFocus={() => setHover(i)}
-                onBlur={() => setHover(null)}
-                className={[
-                  "group relative flex w-full flex-col rounded-xl border px-3 py-3 text-left transition",
-                  active
-                    ? "border-fuchsia-300 bg-white shadow-md ring-1 ring-fuchsia-200/80 dark:bg-card"
-                    : "border-border/60 bg-white/80 hover:border-fuchsia-200 dark:bg-card/80",
-                  dim ? "opacity-45" : "opacity-100",
-                ].join(" ")}
-              >
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {step.label}
-                </div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-foreground">
-                  {step.value.toLocaleString()}
-                </div>
-                {drop != null ? (
-                  <div
-                    className={[
-                      "mt-1 text-[11px] font-medium tabular-nums",
-                      drop >= 0.7 ? "text-rose-600" : "text-muted-foreground",
-                      active ? "opacity-100" : "opacity-80",
+                      "rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums",
+                      keep < 30
+                        ? "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-200"
+                        : "bg-muted text-muted-foreground",
                     ].join(" ")}
                   >
-                    −{(drop * 100).toFixed(0)}% from prior
-                  </div>
-                ) : (
-                  <div className="mt-1 text-[11px] text-muted-foreground">Top of funnel</div>
-                )}
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/80">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 to-rose-400 transition-all"
-                    style={{ width: `${Math.max(4, (step.value / max) * 100)}%` }}
-                  />
+                    {keep}% kept
+                  </span>
                 </div>
-              </button>
+              ) : null}
+
+              <div
+                className="mx-auto transition-[width] duration-500"
+                style={{ width: `${widthPct}%` }}
+                title={step.hint}
+              >
+                <div
+                  className={[
+                    "flex items-center justify-between gap-3 rounded-lg px-4 py-2.5 text-white shadow-sm",
+                    i === steps.length - 1
+                      ? "bg-gradient-to-r from-rose-500 to-fuchsia-600"
+                      : "bg-gradient-to-r from-fuchsia-600/90 to-fuchsia-500/85",
+                  ].join(" ")}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold uppercase tracking-wide text-white/85">
+                      {step.label}
+                    </div>
+                    <div className="truncate text-[10px] text-white/65">{step.hint}</div>
+                  </div>
+                  <div className="shrink-0 text-2xl font-bold tabular-nums tracking-tight">
+                    {step.value.toLocaleString()}
+                  </div>
+                </div>
+              </div>
             </div>
           );
         })}
