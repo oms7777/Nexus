@@ -810,7 +810,8 @@ export const overview = query({
           b.conversations - a.conversations ||
           b.sessions - a.sessions,
       )
-      .slice(0, 12);
+      // Enough for UI preview + expand (“show more pages”), not every URL on a huge site.
+      .slice(0, 40);
 
     // Verdict sentence for the hero (no LLM).
     let booking_insight: string | null = null;

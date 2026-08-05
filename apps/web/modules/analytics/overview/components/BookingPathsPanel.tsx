@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, ChevronDown } from "lucide-react";
 
 import { displaySourceLabel } from "@/modules/analytics/shared/source-labels";
 import { CardShell } from "@/modules/analytics/shared/analytics-primitives";
@@ -25,7 +25,7 @@ export type BookingPath = {
 };
 
 const MAX_BOOKED = 5;
-const MAX_ZERO = 3;
+const MAX_ZERO_PREVIEW = 3;
 
 /** Page-first label: hide "Direct →" noise; keep real channels (LinkedIn, Ads…). */
 function pathTitle(p: BookingPath): string {
@@ -37,10 +37,14 @@ function pathTitle(p: BookingPath): string {
 }
 
 /**
- * Cap the list: every path that booked, plus a few high-traffic pages that didn't.
- * Never dump every URL on a large site.
+ * Booked paths first, then zero-meeting pages by traffic.
+ * Preview shows a few zeros; the rest expand on demand.
  */
-function selectPaths(paths: BookingPath[]): { rows: BookingPath[]; hiddenZero: number } {
+function selectPaths(paths: BookingPath[]): {
+  booked: BookingPath[];
+  zeroPreview: BookingPath[];
+  zeroRest: BookingPath[];
+} {
   const list = (paths ?? []).filter((p) => p.sessions > 0 || p.meetings > 0);
   const booked = list
     .filter((p) => p.meetings > 0)
@@ -55,10 +59,63 @@ function selectPaths(paths: BookingPath[]): { rows: BookingPath[]; hiddenZero: n
     .filter((p) => p.meetings === 0 && !bookedKeys.has(`${p.source}\0${p.page}`))
     .sort((a, b) => b.sessions - a.sessions);
 
-  const shownZeros = zeros.slice(0, MAX_ZERO);
-  const hiddenZero = Math.max(0, zeros.length - shownZeros.length);
+  return {
+    booked,
+    zeroPreview: zeros.slice(0, MAX_ZERO_PREVIEW),
+    zeroRest: zeros.slice(MAX_ZERO_PREVIEW),
+  };
+}
 
-  return { rows: [...booked, ...shownZeros], hiddenZero };
+function PathRow({
+  p,
+  maxMeetings,
+  onSelect,
+}: {
+  p: BookingPath;
+  maxMeetings: number;
+  onSelect: (p: BookingPath) => void;
+}) {
+  const ratePct = (Number(p.meetingRate ?? 0) * 100).toFixed(1);
+  const bar = (p.meetings / maxMeetings) * 100;
+  const muted = p.meetings === 0;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(p)}
+      className={[
+        "group relative w-full overflow-hidden rounded-xl border px-3 py-3 text-left transition",
+        muted
+          ? "border-border/50 bg-muted/15 opacity-80 hover:opacity-100"
+          : "border-fuchsia-200/70 bg-gradient-to-r from-fuchsia-50/80 to-white hover:border-fuchsia-300 dark:from-fuchsia-950/30 dark:to-card",
+      ].join(" ")}
+    >
+      <div
+        className="pointer-events-none absolute inset-y-0 left-0 bg-fuchsia-200/40 dark:bg-fuchsia-800/30"
+        style={{ width: `${Math.max(muted ? 0 : 8, bar)}%` }}
+      />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-foreground">{pathTitle(p)}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {muted ? (
+              <>Traffic without meetings · {p.sessions.toLocaleString()} sessions</>
+            ) : (
+              <>
+                <span className="font-semibold text-foreground">{ratePct}%</span> meeting rate ·{" "}
+                {p.conversations.toLocaleString()} conv · {p.sessions.toLocaleString()} sessions
+              </>
+            )}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-lg font-semibold tabular-nums text-foreground">
+            {p.meetings.toLocaleString()}
+          </div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">meetings</div>
+        </div>
+      </div>
+    </button>
+  );
 }
 
 export function BookingPathsPanel({
@@ -69,10 +126,16 @@ export function BookingPathsPanel({
   showPlanBadge?: React.ReactNode;
 }) {
   const [selected, setSelected] = useState<BookingPath | null>(null);
-  const { rows, hiddenZero } = useMemo(() => selectPaths(paths), [paths]);
+  const [showMoreZeros, setShowMoreZeros] = useState(false);
+  const { booked, zeroPreview, zeroRest } = useMemo(() => selectPaths(paths), [paths]);
 
-  const maxMeetings = Math.max(1, ...rows.map((r) => r.meetings), 1);
-  const hasCampaignChannel = rows.some((p) => {
+  const visible = useMemo(
+    () => [...booked, ...zeroPreview, ...(showMoreZeros ? zeroRest : [])],
+    [booked, zeroPreview, zeroRest, showMoreZeros],
+  );
+
+  const maxMeetings = Math.max(1, ...visible.map((r) => r.meetings), 1);
+  const hasCampaignChannel = visible.some((p) => {
     const s = String(p.source ?? "").toLowerCase();
     return s && s !== "direct";
   });
@@ -90,66 +153,34 @@ export function BookingPathsPanel({
           </p>
         ) : null}
 
-        {rows.length === 0 ? (
+        {booked.length + zeroPreview.length === 0 ? (
           <p className="text-sm text-muted-foreground">No page activity in this period yet.</p>
         ) : (
           <div className="space-y-2">
-            {rows.map((p) => {
-              const ratePct = (Number(p.meetingRate ?? 0) * 100).toFixed(1);
-              const bar = (p.meetings / maxMeetings) * 100;
-              const muted = p.meetings === 0;
-              return (
-                <button
-                  key={`${p.source}|${p.page}`}
-                  type="button"
-                  onClick={() => setSelected(p)}
+            {visible.map((p) => (
+              <PathRow
+                key={`${p.source}|${p.page}`}
+                p={p}
+                maxMeetings={maxMeetings}
+                onSelect={setSelected}
+              />
+            ))}
+            {zeroRest.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowMoreZeros((v) => !v)}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border/70 px-3 py-2.5 text-xs font-medium text-muted-foreground transition hover:border-fuchsia-200 hover:bg-fuchsia-50/40 hover:text-foreground"
+              >
+                <ChevronDown
                   className={[
-                    "group relative w-full overflow-hidden rounded-xl border px-3 py-3 text-left transition",
-                    muted
-                      ? "border-border/50 bg-muted/15 opacity-80 hover:opacity-100"
-                      : "border-fuchsia-200/70 bg-gradient-to-r from-fuchsia-50/80 to-white hover:border-fuchsia-300 dark:from-fuchsia-950/30 dark:to-card",
+                    "size-3.5 transition-transform",
+                    showMoreZeros ? "rotate-180" : "",
                   ].join(" ")}
-                >
-                  <div
-                    className="pointer-events-none absolute inset-y-0 left-0 bg-fuchsia-200/40 dark:bg-fuchsia-800/30"
-                    style={{ width: `${Math.max(muted ? 0 : 8, bar)}%` }}
-                  />
-                  <div className="relative flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-foreground">
-                        {pathTitle(p)}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {muted ? (
-                          <>
-                            Traffic without meetings · {p.sessions.toLocaleString()} sessions
-                          </>
-                        ) : (
-                          <>
-                            <span className="font-semibold text-foreground">{ratePct}%</span> meeting
-                            rate · {p.conversations.toLocaleString()} conv ·{" "}
-                            {p.sessions.toLocaleString()} sessions
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="text-lg font-semibold tabular-nums text-foreground">
-                        {p.meetings.toLocaleString()}
-                      </div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                        meetings
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-            {hiddenZero > 0 ? (
-              <p className="pt-1 text-center text-[11px] text-muted-foreground">
-                +{hiddenZero} other page{hiddenZero === 1 ? "" : "s"} with traffic, 0 meetings — not
-                listed
-              </p>
+                />
+                {showMoreZeros
+                  ? "Hide other pages"
+                  : `Show ${zeroRest.length} more page${zeroRest.length === 1 ? "" : "s"} with traffic, 0 meetings`}
+              </button>
             ) : null}
           </div>
         )}
