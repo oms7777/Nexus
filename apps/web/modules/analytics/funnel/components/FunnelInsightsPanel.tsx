@@ -20,7 +20,6 @@ function fmtPct(p: number | null) {
 
 type Engagement = {
   sessions?: number;
-  experiences?: number;
   conversations?: number;
   meetings?: number;
 };
@@ -41,12 +40,10 @@ export function FunnelInsightsPanel({
 }) {
   const insights = useMemo(() => {
     const sessions = n(engagement.sessions);
-    const experiences = n(engagement.experiences);
     const conversations = n(engagement.conversations);
     const meetings = n(engagement.meetings);
 
-    const exRate = pct(experiences, sessions);
-    const convoRate = pct(conversations, experiences);
+    const convoRate = pct(conversations, sessions);
     const meetRate = pct(meetings, conversations);
 
     const steps: Array<{
@@ -57,18 +54,11 @@ export function FunnelInsightsPanel({
       hint: string;
     }> = [
       {
-        label: "Sessions → Experience shown",
+        label: "Sessions → Conversation",
         from: sessions,
-        to: experiences,
-        rate: exRate,
-        hint: "Widget coverage & targeting (is the experience eligible on the pages getting traffic?)",
-      },
-      {
-        label: "Experience → Conversation",
-        from: experiences,
         to: conversations,
         rate: convoRate,
-        hint: "Offer relevance, timing, copy, routing speed, bot/rep availability",
+        hint: "Widget coverage, targeting, offer relevance — are visitors opening chat?",
       },
       {
         label: "Conversation → Meeting",
@@ -119,7 +109,7 @@ export function FunnelInsightsPanel({
       steps,
       worst,
       alerts,
-      rates: { exRate, convoRate, meetRate, repStartRate, bookingPropRate, inboundMeetRate },
+      rates: { convoRate, meetRate, repStartRate, bookingPropRate, inboundMeetRate },
     };
   }, [engagement, inbound]);
 
@@ -147,11 +137,7 @@ export function FunnelInsightsPanel({
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Stage retention</div>
           <div className="mt-3 space-y-2 text-sm">
             <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 truncate text-muted-foreground">Sessions → Experience</div>
-              <div className="shrink-0 font-semibold tabular-nums">{fmtPct(insights.rates.exRate)}</div>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 truncate text-muted-foreground">Experience → Conversation</div>
+              <div className="min-w-0 truncate text-muted-foreground">Sessions → Conversation</div>
               <div className="shrink-0 font-semibold tabular-nums">{fmtPct(insights.rates.convoRate)}</div>
             </div>
             <div className="flex items-center justify-between gap-3">

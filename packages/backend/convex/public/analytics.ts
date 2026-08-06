@@ -897,7 +897,6 @@ export const funnels = query({
       .collect();
 
     const sessions = computeSessionsRobust(evts);
-    const experiences = countUniqueExperiences(evts);
     const conversations = computeConversationsUnique(evts);
     const meetings = computeMeetingsUnique(evts);
 
@@ -921,13 +920,17 @@ export const funnels = query({
     // If later you want "only meetings that came from booking flow", filter by meta.source etc.
     const meetingsBooked = meetings;
 
-    const engagement = { sessions, experiences, conversations, meetings };
+    // 3-stage funnel: Sessions → Conversations → Meetings (Experience retired — was dual-logged with conversation_created).
+    const engagement = { sessions, conversations, meetings };
 
     const conversion = {
       meetings_from_conversations_num: meetings,
       meetings_from_conversations_den: conversations,
+      conversations_from_sessions_num: conversations,
+      conversations_from_sessions_den: sessions,
+      // Legacy keys (older clients) — same as sessions path now that Experience is retired.
       conversations_from_experiences_num: conversations,
-      conversations_from_experiences_den: experiences,
+      conversations_from_experiences_den: sessions,
     };
 
     const inbound = {

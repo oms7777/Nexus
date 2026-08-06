@@ -179,19 +179,6 @@ export const create = mutation({
 
     await ctx.runMutation(api.public.analytics.log, {
       organizationId: args.organizationId,
-      type: "experience_shown",
-      sessionId: args.contactSessionId,
-      conversationId,
-      meta: {
-        threadId,
-        suppressGreet: !!args.suppressGreet,
-        assignedRepUserId: sessionAssignedRep ?? null,
-        assignedTerritoryKey: sessionTerritory ?? null,
-      },
-    });
-
-    await ctx.runMutation(api.public.analytics.log, {
-      organizationId: args.organizationId,
       type: "conversation_created",
       sessionId: args.contactSessionId,
       conversationId,

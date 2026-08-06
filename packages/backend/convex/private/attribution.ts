@@ -268,6 +268,8 @@ function sumPipeline(bookings: Array<Doc<"calendarBookings">>) {
   let meetingsWithCrmLink = 0;
   const currencies = new Set<string>();
   const stageMap = new Map<string, { stage: string; count: number; amount: number }>();
+  /** Same CRM Opportunity can be attached to several meetings — count € once. */
+  const seenDealIds = new Set<string>();
 
   for (const b of bookings) {
     if (b.crm?.salesforceLeadId || b.crm?.hubspotContactId) meetingsWithCrmLink += 1;
@@ -275,8 +277,13 @@ function sumPipeline(bookings: Array<Doc<"calendarBookings">>) {
     const a = b.attribution;
     if (!a?.dealId) continue;
 
+    const dealId = String(a.dealId);
+    if (seenDealIds.has(dealId)) continue;
+    seenDealIds.add(dealId);
+
     dealCount += 1;
-    if (a.currency) currencies.add(a.currency);
+    // SF DE often omits CurrencyIsoCode — default USD so the UI can show $.
+    currencies.add(a.currency?.trim() || "USD");
 
     const amount = a.amount ?? 0;
     pipelineAmount += amount;
@@ -307,7 +314,6 @@ function sumPipeline(bookings: Array<Doc<"calendarBookings">>) {
     wonAmount,
     meetingsWithCrmLink,
     stages,
-    /** Undefined when the CRM mixes currencies — the UI then hides the symbol. */
     currency: currencies.size === 1 ? [...currencies][0] : undefined,
   };
 }

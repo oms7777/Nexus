@@ -18,6 +18,9 @@ import { PALETTE, PRIMARY_CHART_SURFACE } from "@/modules/analytics/shared/analy
 type Conversion = {
   meetings_from_conversations_num?: number;
   meetings_from_conversations_den?: number;
+  conversations_from_sessions_num?: number;
+  conversations_from_sessions_den?: number;
+  /** @deprecated kept for older payloads */
   conversations_from_experiences_num?: number;
   conversations_from_experiences_den?: number;
 };
@@ -37,12 +40,16 @@ export function ConversionRatesChart({ data }: { data?: Conversion | null }) {
     const mNum = n(data?.meetings_from_conversations_num);
     const mDen = n(data?.meetings_from_conversations_den);
 
-    const cNum = n(data?.conversations_from_experiences_num);
-    const cDen = n(data?.conversations_from_experiences_den);
+    const cNum = n(
+      data?.conversations_from_sessions_num ?? data?.conversations_from_experiences_num,
+    );
+    const cDen = n(
+      data?.conversations_from_sessions_den ?? data?.conversations_from_experiences_den,
+    );
 
     return [
+      { name: "Session → Conv", rate: pct(cNum, cDen), num: cNum, den: cDen },
       { name: "Conv → Meeting", rate: pct(mNum, mDen), num: mNum, den: mDen },
-      { name: "Exp → Conv", rate: pct(cNum, cDen), num: cNum, den: cDen },
     ];
   }, [data]);
 
@@ -53,13 +60,13 @@ export function ConversionRatesChart({ data }: { data?: Conversion | null }) {
       <div className="flex h-[220px] w-full flex-col items-center justify-center rounded-xl border border-dashed border-border/80 bg-muted/15 px-6 text-center">
         <p className="text-sm font-medium text-foreground">Not enough data</p>
         <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-          Conversion rates appear once experiences and conversations exist in this period.
+          Conversion rates appear once sessions and conversations exist in this period.
         </p>
       </div>
     );
   }
 
-  const fills = [PALETTE.chart[2] ?? "#ec4899", PALETTE.chart[0] ?? "#a855f7"];
+  const fills = [PALETTE.chart[0] ?? "#a855f7", PALETTE.chart[2] ?? "#ec4899"];
 
   return (
     <div className={`h-[260px] w-full ${PRIMARY_CHART_SURFACE}`}>

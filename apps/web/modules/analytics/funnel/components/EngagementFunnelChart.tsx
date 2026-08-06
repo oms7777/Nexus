@@ -7,7 +7,6 @@ import { PALETTE, PRIMARY_CHART_SURFACE } from "@/modules/analytics/shared/analy
 
 type Engagement = {
   sessions?: number;
-  experiences?: number;
   conversations?: number;
   meetings?: number;
 };
@@ -21,11 +20,11 @@ function fmt(v: any) {
   return n(v).toLocaleString();
 }
 
+/** Volume funnel: Sessions → Conversations → Meetings (Experience removed — same event as conversation). */
 export function EngagementFunnelChart({ data }: { data?: Engagement | null }) {
   const cols = PALETTE.chart;
   const rows = [
     { name: "Sessions", value: n(data?.sessions), fill: cols[0] },
-    { name: "Experience", value: n(data?.experiences), fill: cols[1] },
     { name: "Conversations", value: n(data?.conversations), fill: cols[2] },
     { name: "Meetings", value: n(data?.meetings), fill: cols[3] },
   ];
@@ -44,29 +43,32 @@ export function EngagementFunnelChart({ data }: { data?: Engagement | null }) {
   }
 
   return (
-    <div className={`h-[260px] w-full ${PRIMARY_CHART_SURFACE}`}>
+    <div className={`h-[280px] w-full ${PRIMARY_CHART_SURFACE}`}>
       <ResponsiveContainer width="100%" height="100%">
-        <FunnelChart margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
+        <FunnelChart>
           <Tooltip
             contentStyle={{
               borderRadius: "12px",
               border: "1px solid hsl(var(--border))",
               boxShadow: "0 4px 14px rgb(0 0 0 / 0.06)",
             }}
-            formatter={(value: any, name: any) => [fmt(value), String(name)]}
+            formatter={(value: any) => [fmt(value), "Volume"]}
           />
           <Funnel dataKey="value" data={rows} isAnimationActive={false}>
             <LabelList
               position="right"
+              fill="hsl(var(--foreground))"
+              stroke="none"
               dataKey="name"
-              className="fill-foreground text-xs font-medium"
-              formatter={(label: any) => String(label)}
+              className="text-xs font-medium"
             />
             <LabelList
-              position="inside"
+              position="center"
+              fill="#fff"
+              stroke="none"
               dataKey="value"
-              className="fill-white text-sm font-semibold drop-shadow-sm"
-              formatter={(v: any) => fmt(v)}
+              formatter={fmt}
+              className="text-sm font-semibold"
             />
           </Funnel>
         </FunnelChart>

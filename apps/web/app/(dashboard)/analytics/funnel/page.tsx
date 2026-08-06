@@ -42,7 +42,7 @@ function LockedFunnelCard({ reason, showPlanBadges }: { reason?: string; showPla
       </div>
 
       <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-        <div>• Drop-off between sessions → experiences → conversations → meetings</div>
+        <div>• Drop-off between sessions → conversations → meetings</div>
         <div>• Step conversion rates</div>
         <div>• Inbound health — requests → rep started → booking proposed → meetings</div>
       </div>
@@ -137,7 +137,6 @@ function FunnelsInner({
 
   const engagement = data?.engagement ?? {
     sessions: 0,
-    experiences: 0,
     conversations: 0,
     meetings: 0,
   };
@@ -145,8 +144,8 @@ function FunnelsInner({
   const conversion = data?.conversion ?? {
     meetings_from_conversations_num: 0,
     meetings_from_conversations_den: 0,
-    conversations_from_experiences_num: 0,
-    conversations_from_experiences_den: 0,
+    conversations_from_sessions_num: 0,
+    conversations_from_sessions_den: 0,
   };
 
   const inbound = data?.inbound ?? null;

@@ -15,14 +15,15 @@ import {
 } from "@workspace/ui/components/sheet";
 
 function fmtMoney(amount: number, currency?: string) {
+  const code = (currency || "USD").trim() || "USD";
   try {
     return new Intl.NumberFormat(undefined, {
-      style: currency ? "currency" : "decimal",
-      currency: currency || undefined,
+      style: "currency",
+      currency: code,
       maximumFractionDigits: 0,
     }).format(amount);
   } catch {
-    return `${Math.round(amount).toLocaleString()}${currency ? ` ${currency}` : ""}`;
+    return `${Math.round(amount).toLocaleString()} ${code}`;
   }
 }
 
