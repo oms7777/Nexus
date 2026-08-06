@@ -35,8 +35,12 @@ type CrmDeal = {
 };
 
 export const listBookingsNeedingAttribution = internalQuery({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, { limit }): Promise<AttributionTarget[]> => {
+  args: {
+    limit: v.optional(v.number()),
+    /** When true, re-check bookings even if checked recently without a won deal. */
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { limit, force }): Promise<AttributionTarget[]> => {
     const now = Date.now();
     const since = now - ATTRIBUTION_WINDOW_MS;
     const max = Math.min(Math.max(limit ?? MAX_BOOKINGS_PER_RUN, 1), 200);
@@ -71,9 +75,15 @@ export const listBookingsNeedingAttribution = internalQuery({
         const contactId = b.crm?.hubspotContactId;
         if (!leadId && !contactId) continue;
 
-        // Won deals are final; everything else is re-checked once a day.
+        // Won deals are final; everything else is re-checked once a day (unless force).
         if (b.attribution?.isWon) continue;
-        if (b.attribution && now - b.attribution.checkedAt < RECHECK_AFTER_MS) continue;
+        if (
+          !force &&
+          b.attribution &&
+          now - b.attribution.checkedAt < RECHECK_AFTER_MS
+        ) {
+          continue;
+        }
 
         out.push({
           bookingId: b._id,
@@ -132,11 +142,15 @@ export const markAttributionChecked = internalMutation({
 });
 
 export const syncRevenueAttribution = internalAction({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, { limit }): Promise<{ checked: number; matched: number }> => {
+  args: {
+    limit: v.optional(v.number()),
+    /** Re-check recently checked bookings (e.g. after converting a Lead in SF). */
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { limit, force }): Promise<{ checked: number; matched: number }> => {
     const targets: AttributionTarget[] = await ctx.runQuery(
       internal.private.attribution.listBookingsNeedingAttribution,
-      { limit },
+      { limit, force },
     );
 
     let matched = 0;

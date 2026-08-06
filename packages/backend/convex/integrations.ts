@@ -956,6 +956,8 @@ const SF_NOTE_BODY_MAX = 31_000;
 /**
  * Reads the Opportunity a Lead converted into, so a booking can be tied to pipeline value.
  * Read-only: revenue attribution never writes to the CRM.
+ *
+ * Path: Lead → ConvertedOpportunityId, or (if empty) Opportunities linked to ConvertedContactId.
  */
 export const fetchSalesforceOpportunityForLead = action({
   args: {
@@ -977,8 +979,23 @@ export const fetchSalesforceOpportunityForLead = action({
 
     if (!safeLeadId) return { ok: false as const, reason: "INVALID_LEAD_ID" as const };
 
+    const readOpportunity = async (oppIdRaw: string) => {
+      const oppId = String(oppIdRaw).replace(/[^a-zA-Z0-9]/g, "");
+      if (!oppId) return null;
+      const oppSoql = `SELECT Id, Amount, StageName, IsClosed, IsWon, CloseDate, CurrencyIsoCode FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`;
+      const oppRes = await sfFetch(
+        ctx,
+        args.organizationId,
+        `${base}/query?q=${encodeURIComponent(oppSoql)}`,
+        { method: "GET" },
+        accessToken,
+      );
+      const oppJson: any = await oppRes.json().catch(() => ({}));
+      return oppJson?.records?.[0] ?? null;
+    };
+
     try {
-      const leadSoql = `SELECT Id, IsConverted, ConvertedOpportunityId FROM Lead WHERE Id = '${safeLeadId}' LIMIT 1`;
+      const leadSoql = `SELECT Id, IsConverted, ConvertedOpportunityId, ConvertedContactId FROM Lead WHERE Id = '${safeLeadId}' LIMIT 1`;
       const leadRes = await sfFetch(
         ctx,
         args.organizationId,
@@ -990,31 +1007,51 @@ export const fetchSalesforceOpportunityForLead = action({
       const lead = leadJson?.records?.[0];
 
       if (!lead) return { ok: false as const, reason: "LEAD_NOT_FOUND" as const };
-      if (!lead.ConvertedOpportunityId) {
-        return { ok: true as const, converted: false as const };
+
+      let opp: any = null;
+
+      if (lead.ConvertedOpportunityId) {
+        opp = await readOpportunity(String(lead.ConvertedOpportunityId));
       }
 
-      const oppId = String(lead.ConvertedOpportunityId).replace(/[^a-zA-Z0-9]/g, "");
-      const oppSoql = `SELECT Id, Amount, StageName, IsClosed, IsWon, CloseDate, CurrencyIsoCode FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`;
+      // Converted Lead with Opp created only on the Contact (common SF UI path).
+      if (!opp && lead.IsConverted && lead.ConvertedContactId) {
+        const contactId = String(lead.ConvertedContactId).replace(/[^a-zA-Z0-9]/g, "");
+        if (contactId) {
+          const roleSoql = `SELECT OpportunityId FROM OpportunityContactRole WHERE ContactId = '${contactId}' ORDER BY CreatedDate DESC LIMIT 10`;
+          const roleRes = await sfFetch(
+            ctx,
+            args.organizationId,
+            `${base}/query?q=${encodeURIComponent(roleSoql)}`,
+            { method: "GET" },
+            accessToken,
+          );
+          const roleJson: any = await roleRes.json().catch(() => ({}));
+          const roleRows: any[] = Array.isArray(roleJson?.records) ? roleJson.records : [];
+          const opps: any[] = [];
+          for (const row of roleRows) {
+            const o = await readOpportunity(String(row?.OpportunityId ?? ""));
+            if (o) opps.push(o);
+          }
+          opp =
+            opps.find((o) => o.IsWon === true) ??
+            [...opps].sort((a, b) => Number(b.Amount ?? 0) - Number(a.Amount ?? 0))[0] ??
+            null;
+        }
+      }
 
-      const oppRes = await sfFetch(
-        ctx,
-        args.organizationId,
-        `${base}/query?q=${encodeURIComponent(oppSoql)}`,
-        { method: "GET" },
-        accessToken,
-      );
-      const oppJson: any = await oppRes.json().catch(() => ({}));
-      const opp = oppJson?.records?.[0];
-
-      if (!opp) return { ok: true as const, converted: false as const };
+      if (!opp) {
+        return {
+          ok: true as const,
+          converted: Boolean(lead.IsConverted),
+        };
+      }
 
       return {
         ok: true as const,
         converted: true as const,
         dealId: String(opp.Id),
         amount: typeof opp.Amount === "number" ? opp.Amount : undefined,
-        // Orgs without multi-currency enabled don't return CurrencyIsoCode at all.
         currency: typeof opp.CurrencyIsoCode === "string" ? opp.CurrencyIsoCode : undefined,
         stage: typeof opp.StageName === "string" ? opp.StageName : undefined,
         isClosed: opp.IsClosed === true,
