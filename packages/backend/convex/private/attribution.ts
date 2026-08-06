@@ -165,29 +165,36 @@ export const syncRevenueAttribution = internalAction({
             leadId: t.salesforceLeadId,
           });
 
-          if (sf.ok && sf.converted) {
+          // Only count a real Opportunity id — converted Lead without Opp must fall through to HubSpot.
+          const sfDealId = sf.ok ? (sf as { dealId?: string }).dealId : undefined;
+          if (sf.ok && sf.converted && sfDealId) {
+            const matchedSf = sf as {
+              dealId: string;
+              stage?: string;
+              amount?: number;
+              currency?: string;
+              isWon?: boolean;
+              isClosed?: boolean;
+              closeDate?: string;
+            };
             await ctx.runMutation(internal.private.attribution.saveAttribution, {
               bookingId: t.bookingId,
               provider: "salesforce",
-              dealId: sf.dealId,
-              stage: sf.stage,
-              amount: sf.amount,
-              currency: sf.currency,
-              isWon: sf.isWon,
-              isClosed: sf.isClosed,
-              closeDate: sf.closeDate,
+              dealId: matchedSf.dealId,
+              stage: matchedSf.stage,
+              amount: matchedSf.amount,
+              currency: matchedSf.currency,
+              isWon: matchedSf.isWon,
+              isClosed: matchedSf.isClosed,
+              closeDate: matchedSf.closeDate,
             });
             matched += 1;
             continue;
           }
 
-          if (sf.ok) {
-            await ctx.runMutation(internal.private.attribution.markAttributionChecked, {
-              bookingId: t.bookingId,
-              provider: "salesforce",
-            });
-            continue;
-          }
+          console.log(
+            `[attribution] SF no deal yet booking=${t.bookingId} ok=${sf.ok} converted=${(sf as any).converted} reason=${(sf as any).reason ?? "none"}`,
+          );
         } catch (e) {
           console.log(`[attribution] salesforce lookup failed booking=${t.bookingId}:`, e);
         }

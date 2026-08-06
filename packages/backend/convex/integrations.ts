@@ -979,10 +979,27 @@ export const fetchSalesforceOpportunityForLead = action({
 
     if (!safeLeadId) return { ok: false as const, reason: "INVALID_LEAD_ID" as const };
 
+    const normalizeOpp = (opp: any) => {
+      if (!opp?.Id) return null;
+      const amountRaw = opp.Amount;
+      const amountNum = typeof amountRaw === "number" ? amountRaw : Number(amountRaw);
+      return {
+        dealId: String(opp.Id),
+        amount: Number.isFinite(amountNum) ? amountNum : undefined,
+        // CurrencyIsoCode only exists when multi-currency is enabled — never require it in SOQL.
+        currency: typeof opp.CurrencyIsoCode === "string" ? opp.CurrencyIsoCode : undefined,
+        stage: typeof opp.StageName === "string" ? opp.StageName : undefined,
+        isClosed: opp.IsClosed === true || opp.IsClosed === "true",
+        isWon: opp.IsWon === true || opp.IsWon === "true",
+        closeDate: typeof opp.CloseDate === "string" ? opp.CloseDate : undefined,
+      };
+    };
+
     const readOpportunity = async (oppIdRaw: string) => {
       const oppId = String(oppIdRaw).replace(/[^a-zA-Z0-9]/g, "");
       if (!oppId) return null;
-      const oppSoql = `SELECT Id, Amount, StageName, IsClosed, IsWon, CloseDate, CurrencyIsoCode FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`;
+      // Avoid CurrencyIsoCode — INVALID_FIELD on many DE orgs without multi-currency.
+      const oppSoql = `SELECT Id, Amount, StageName, IsClosed, IsWon, CloseDate FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`;
       const oppRes = await sfFetch(
         ctx,
         args.organizationId,
@@ -991,7 +1008,31 @@ export const fetchSalesforceOpportunityForLead = action({
         accessToken,
       );
       const oppJson: any = await oppRes.json().catch(() => ({}));
+      if (!oppRes.ok) {
+        console.log("[attribution] SF Opportunity query failed:", oppJson?.message ?? oppRes.status);
+        // Fallback retrieve
+        const getRes = await sfFetch(
+          ctx,
+          args.organizationId,
+          `${base}/sobjects/Opportunity/${oppId}`,
+          { method: "GET" },
+          accessToken,
+        );
+        const getJson: any = await getRes.json().catch(() => ({}));
+        return getRes.ok ? getJson : null;
+      }
       return oppJson?.records?.[0] ?? null;
+    };
+
+    const pickBestOpp = (opps: any[]) => {
+      const normalized = opps.map(normalizeOpp).filter(Boolean) as NonNullable<
+        ReturnType<typeof normalizeOpp>
+      >[];
+      return (
+        normalized.find((o) => o.isWon) ??
+        [...normalized].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))[0] ??
+        null
+      );
     };
 
     const oppsForContact = async (contactIdRaw: string) => {
@@ -1006,51 +1047,55 @@ export const fetchSalesforceOpportunityForLead = action({
         accessToken,
       );
       const roleJson: any = await roleRes.json().catch(() => ({}));
+      if (!roleRes.ok) {
+        console.log("[attribution] SF OpportunityContactRole failed:", roleJson?.message ?? roleRes.status);
+      }
       const roleRows: any[] = Array.isArray(roleJson?.records) ? roleJson.records : [];
       const opps: any[] = [];
       for (const row of roleRows) {
         const o = await readOpportunity(String(row?.OpportunityId ?? ""));
         if (o) opps.push(o);
       }
-      return (
-        opps.find((o) => o.IsWon === true) ??
-        [...opps].sort((a, b) => Number(b.Amount ?? 0) - Number(a.Amount ?? 0))[0] ??
-        null
-      );
+      return pickBestOpp(opps);
     };
 
     try {
-      // REST retrieve sees converted Leads; plain SOQL often hides them (matched=0 after convert).
+      // Full retrieve (no fields=) — converted Leads are visible; SOQL often hides them.
       const leadRes = await sfFetch(
         ctx,
         args.organizationId,
-        `${base}/sobjects/Lead/${safeLeadId}?fields=Id,IsConverted,ConvertedOpportunityId,ConvertedContactId,Email`,
+        `${base}/sobjects/Lead/${safeLeadId}`,
         { method: "GET" },
         accessToken,
       );
       const lead: any = await leadRes.json().catch(() => ({}));
 
       if (!leadRes.ok || !lead?.Id) {
-        console.log("[attribution] SF Lead retrieve failed:", lead?.errorCode ?? leadRes.status, lead?.message);
+        console.log(
+          "[attribution] SF Lead retrieve failed:",
+          lead?.errorCode ?? leadRes.status,
+          lead?.message,
+          "leadId=",
+          safeLeadId,
+        );
         return { ok: false as const, reason: "LEAD_NOT_FOUND" as const };
       }
 
       const isConverted = lead.IsConverted === true || lead.IsConverted === "true";
-      let opp: any = null;
+      let best: ReturnType<typeof normalizeOpp> = null;
 
       if (lead.ConvertedOpportunityId) {
-        opp = await readOpportunity(String(lead.ConvertedOpportunityId));
+        best = normalizeOpp(await readOpportunity(String(lead.ConvertedOpportunityId)));
       }
 
-      // Opp created on Contact after convert (ConvertedOpportunityId empty).
-      if (!opp && isConverted && lead.ConvertedContactId) {
-        opp = await oppsForContact(String(lead.ConvertedContactId));
+      if (!best && lead.ConvertedContactId) {
+        best = await oppsForContact(String(lead.ConvertedContactId));
       }
 
-      // Last resort: Contact with same email as the Lead (UI search shows Contact, not Lead Id).
-      if (!opp && typeof lead.Email === "string" && lead.Email.trim()) {
+      // Contact / Opp by Lead email (after convert UI only shows Contact).
+      if (!best && typeof lead.Email === "string" && lead.Email.trim()) {
         const safeEmail = lead.Email.trim().replace(/'/g, "\\'");
-        const contactSoql = `SELECT Id FROM Contact WHERE Email = '${safeEmail}' ORDER BY LastModifiedDate DESC LIMIT 3`;
+        const contactSoql = `SELECT Id FROM Contact WHERE Email = '${safeEmail}' ORDER BY LastModifiedDate DESC LIMIT 5`;
         const cRes = await sfFetch(
           ctx,
           args.organizationId,
@@ -1060,14 +1105,32 @@ export const fetchSalesforceOpportunityForLead = action({
         );
         const cJson: any = await cRes.json().catch(() => ({}));
         for (const row of Array.isArray(cJson?.records) ? cJson.records : []) {
-          opp = await oppsForContact(String(row?.Id ?? ""));
-          if (opp) break;
+          best = await oppsForContact(String(row?.Id ?? ""));
+          if (best) break;
+        }
+
+        // Direct semi-join if Contact Roles query is empty/permissioned oddly.
+        if (!best) {
+          const oppByEmailSoql = `SELECT Id, Amount, StageName, IsClosed, IsWon, CloseDate FROM Opportunity WHERE Id IN (SELECT OpportunityId FROM OpportunityContactRole WHERE Contact.Email = '${safeEmail}') ORDER BY LastModifiedDate DESC LIMIT 10`;
+          const oRes = await sfFetch(
+            ctx,
+            args.organizationId,
+            `${base}/query?q=${encodeURIComponent(oppByEmailSoql)}`,
+            { method: "GET" },
+            accessToken,
+          );
+          const oJson: any = await oRes.json().catch(() => ({}));
+          if (oRes.ok && Array.isArray(oJson?.records)) {
+            best = pickBestOpp(oJson.records);
+          } else if (!oRes.ok) {
+            console.log("[attribution] SF Opp-by-email failed:", oJson?.message ?? oRes.status);
+          }
         }
       }
 
-      if (!opp) {
+      if (!best) {
         console.log(
-          `[attribution] SF Lead ${safeLeadId} converted=${isConverted} oppId=${lead.ConvertedOpportunityId ?? "none"} contactId=${lead.ConvertedContactId ?? "none"}`,
+          `[attribution] SF Lead ${safeLeadId} email=${lead.Email ?? "?"} converted=${isConverted} oppId=${lead.ConvertedOpportunityId ?? "none"} contactId=${lead.ConvertedContactId ?? "none"}`,
         );
         return {
           ok: true as const,
@@ -1075,16 +1138,14 @@ export const fetchSalesforceOpportunityForLead = action({
         };
       }
 
+      console.log(
+        `[attribution] SF match lead=${safeLeadId} deal=${best.dealId} amount=${best.amount} won=${best.isWon}`,
+      );
+
       return {
         ok: true as const,
         converted: true as const,
-        dealId: String(opp.Id),
-        amount: typeof opp.Amount === "number" ? opp.Amount : undefined,
-        currency: typeof opp.CurrencyIsoCode === "string" ? opp.CurrencyIsoCode : undefined,
-        stage: typeof opp.StageName === "string" ? opp.StageName : undefined,
-        isClosed: opp.IsClosed === true,
-        isWon: opp.IsWon === true,
-        closeDate: typeof opp.CloseDate === "string" ? opp.CloseDate : undefined,
+        ...best,
       };
     } catch (e) {
       console.log("Salesforce opportunity lookup failed:", (e as any)?.detail ?? e);
