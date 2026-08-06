@@ -994,56 +994,84 @@ export const fetchSalesforceOpportunityForLead = action({
       return oppJson?.records?.[0] ?? null;
     };
 
-    try {
-      const leadSoql = `SELECT Id, IsConverted, ConvertedOpportunityId, ConvertedContactId FROM Lead WHERE Id = '${safeLeadId}' LIMIT 1`;
-      const leadRes = await sfFetch(
+    const oppsForContact = async (contactIdRaw: string) => {
+      const contactId = String(contactIdRaw).replace(/[^a-zA-Z0-9]/g, "");
+      if (!contactId) return null;
+      const roleSoql = `SELECT OpportunityId FROM OpportunityContactRole WHERE ContactId = '${contactId}' ORDER BY CreatedDate DESC LIMIT 10`;
+      const roleRes = await sfFetch(
         ctx,
         args.organizationId,
-        `${base}/query?q=${encodeURIComponent(leadSoql)}`,
+        `${base}/query?q=${encodeURIComponent(roleSoql)}`,
         { method: "GET" },
         accessToken,
       );
-      const leadJson: any = await leadRes.json().catch(() => ({}));
-      const lead = leadJson?.records?.[0];
+      const roleJson: any = await roleRes.json().catch(() => ({}));
+      const roleRows: any[] = Array.isArray(roleJson?.records) ? roleJson.records : [];
+      const opps: any[] = [];
+      for (const row of roleRows) {
+        const o = await readOpportunity(String(row?.OpportunityId ?? ""));
+        if (o) opps.push(o);
+      }
+      return (
+        opps.find((o) => o.IsWon === true) ??
+        [...opps].sort((a, b) => Number(b.Amount ?? 0) - Number(a.Amount ?? 0))[0] ??
+        null
+      );
+    };
 
-      if (!lead) return { ok: false as const, reason: "LEAD_NOT_FOUND" as const };
+    try {
+      // REST retrieve sees converted Leads; plain SOQL often hides them (matched=0 after convert).
+      const leadRes = await sfFetch(
+        ctx,
+        args.organizationId,
+        `${base}/sobjects/Lead/${safeLeadId}?fields=Id,IsConverted,ConvertedOpportunityId,ConvertedContactId,Email`,
+        { method: "GET" },
+        accessToken,
+      );
+      const lead: any = await leadRes.json().catch(() => ({}));
 
+      if (!leadRes.ok || !lead?.Id) {
+        console.log("[attribution] SF Lead retrieve failed:", lead?.errorCode ?? leadRes.status, lead?.message);
+        return { ok: false as const, reason: "LEAD_NOT_FOUND" as const };
+      }
+
+      const isConverted = lead.IsConverted === true || lead.IsConverted === "true";
       let opp: any = null;
 
       if (lead.ConvertedOpportunityId) {
         opp = await readOpportunity(String(lead.ConvertedOpportunityId));
       }
 
-      // Converted Lead with Opp created only on the Contact (common SF UI path).
-      if (!opp && lead.IsConverted && lead.ConvertedContactId) {
-        const contactId = String(lead.ConvertedContactId).replace(/[^a-zA-Z0-9]/g, "");
-        if (contactId) {
-          const roleSoql = `SELECT OpportunityId FROM OpportunityContactRole WHERE ContactId = '${contactId}' ORDER BY CreatedDate DESC LIMIT 10`;
-          const roleRes = await sfFetch(
-            ctx,
-            args.organizationId,
-            `${base}/query?q=${encodeURIComponent(roleSoql)}`,
-            { method: "GET" },
-            accessToken,
-          );
-          const roleJson: any = await roleRes.json().catch(() => ({}));
-          const roleRows: any[] = Array.isArray(roleJson?.records) ? roleJson.records : [];
-          const opps: any[] = [];
-          for (const row of roleRows) {
-            const o = await readOpportunity(String(row?.OpportunityId ?? ""));
-            if (o) opps.push(o);
-          }
-          opp =
-            opps.find((o) => o.IsWon === true) ??
-            [...opps].sort((a, b) => Number(b.Amount ?? 0) - Number(a.Amount ?? 0))[0] ??
-            null;
+      // Opp created on Contact after convert (ConvertedOpportunityId empty).
+      if (!opp && isConverted && lead.ConvertedContactId) {
+        opp = await oppsForContact(String(lead.ConvertedContactId));
+      }
+
+      // Last resort: Contact with same email as the Lead (UI search shows Contact, not Lead Id).
+      if (!opp && typeof lead.Email === "string" && lead.Email.trim()) {
+        const safeEmail = lead.Email.trim().replace(/'/g, "\\'");
+        const contactSoql = `SELECT Id FROM Contact WHERE Email = '${safeEmail}' ORDER BY LastModifiedDate DESC LIMIT 3`;
+        const cRes = await sfFetch(
+          ctx,
+          args.organizationId,
+          `${base}/query?q=${encodeURIComponent(contactSoql)}`,
+          { method: "GET" },
+          accessToken,
+        );
+        const cJson: any = await cRes.json().catch(() => ({}));
+        for (const row of Array.isArray(cJson?.records) ? cJson.records : []) {
+          opp = await oppsForContact(String(row?.Id ?? ""));
+          if (opp) break;
         }
       }
 
       if (!opp) {
+        console.log(
+          `[attribution] SF Lead ${safeLeadId} converted=${isConverted} oppId=${lead.ConvertedOpportunityId ?? "none"} contactId=${lead.ConvertedContactId ?? "none"}`,
+        );
         return {
           ok: true as const,
-          converted: Boolean(lead.IsConverted),
+          converted: isConverted,
         };
       }
 
