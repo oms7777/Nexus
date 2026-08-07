@@ -9,7 +9,9 @@ export type OnboardingStepId =
   | "knowledge"
   | "team"
   | "calendar"
-  | "firstConversation";
+  | "firstConversation"
+  | "firstMeeting"
+  | "crm";
 
 export type OnboardingStep = {
   id: OnboardingStepId;
@@ -46,7 +48,7 @@ export const getStatus = query({
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
       .unique();
 
-    const [websites, reps, calendarAccounts] = await Promise.all([
+    const [websites, reps, calendarAccounts, salesforce, hubspot] = await Promise.all([
       ctx.db
         .query("websites")
         .withIndex("by_org", (q) => q.eq("organizationId", orgId))
@@ -59,6 +61,14 @@ export const getStatus = query({
         .query("calendarAccounts")
         .withIndex("by_org", (q) => q.eq("organizationId", orgId))
         .collect(),
+      ctx.db
+        .query("salesforceIntegrations")
+        .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+        .unique(),
+      ctx.db
+        .query("hubspotIntegrations")
+        .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+        .unique(),
     ]);
 
     // A real visitor loading the widget is the only proof the snippet is live.
@@ -70,6 +80,11 @@ export const getStatus = query({
     const firstConversation = await ctx.db
       .query("conversations")
       .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+      .first();
+
+    const firstMeeting = await ctx.db
+      .query("calendarBookings")
+      .withIndex("by_org_createdAt", (q) => q.eq("organizationId", orgId))
       .first();
 
     let knowledgeIndexed = false;
@@ -87,6 +102,12 @@ export const getStatus = query({
     }
 
     const canUseBooking = (subscription?.limits.reps ?? 0) > 0;
+    const addons = (subscription?.addons ?? {}) as Record<string, unknown>;
+    const plan = (subscription?.plan ?? "starter") as string;
+    const status = (subscription?.status ?? "paused") as string;
+    const isActive = status === "active" || status === "trial";
+    const crmAddon =
+      isActive && plan !== "starter" && (addons.salesforce === true || addons.hubspot === true);
 
     const steps: OnboardingStep[] = [
       {
@@ -118,6 +139,16 @@ export const getStatus = query({
         id: "firstConversation",
         done: firstConversation !== null,
         applicable: true,
+      },
+      {
+        id: "firstMeeting",
+        done: firstMeeting !== null,
+        applicable: canUseBooking,
+      },
+      {
+        id: "crm",
+        done: Boolean(salesforce || hubspot),
+        applicable: crmAddon,
       },
     ];
 

@@ -16,7 +16,9 @@ export type SetupStepId =
   | "knowledge"
   | "team"
   | "calendar"
-  | "firstConversation";
+  | "firstConversation"
+  | "firstMeeting"
+  | "crm";
 
 export type SetupStep = {
   id: SetupStepId | string;
@@ -63,6 +65,18 @@ const STEP_COPY: Record<
     description: "Open the widget on your own site and send a message end to end.",
     href: "/conversations",
     cta: "Open inbox",
+  },
+  firstMeeting: {
+    title: "Book a test meeting",
+    description: "Complete one booking through the widget so calendar + CRM flows are proven.",
+    href: "/conversations",
+    cta: "Open inbox",
+  },
+  crm: {
+    title: "Connect your CRM",
+    description: "HubSpot or Salesforce — bookings create contacts/leads and feed pipeline € on Overview.",
+    href: "/integrations",
+    cta: "Connect CRM",
   },
 };
 
@@ -153,7 +167,15 @@ export function SetupChecklist({
         <div className="border-t px-5 py-4 text-xs text-muted-foreground">
           Setup complete. If a step opens again later, something got disconnected.
         </div>
-      ) : null}
+      ) : (
+        <div className="border-t px-5 py-3 text-xs text-muted-foreground">
+          Stuck? See{" "}
+          <Link href="/help" className="font-medium text-foreground underline-offset-2 hover:underline">
+            Help
+          </Link>
+          .
+        </div>
+      )}
     </div>
   );
 }

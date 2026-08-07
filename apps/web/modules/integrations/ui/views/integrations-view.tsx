@@ -41,6 +41,7 @@ import { api } from "@workspace/backend/_generated/api";
 import { useEntitlements } from "@/modules/entitlements/hooks/use-entitlements";
 import { VapiConnectionPanel } from "@/modules/plugins/ui/views/vapi-view";
 import { WebhooksSection } from "../components/webhooks-section";
+import { CrmHealthCard } from "../components/crm-health-card";
 
 export const IntegrationsView = () => {
   const { organization } = useOrganization();
@@ -644,14 +645,20 @@ export const IntegrationsView = () => {
                   </>
                 )}
 
-                {/* Salesforce */}
-                {showSalesforce && (
+                {/* CRM */}
+                {(showSalesforce || showHubspot) && (
                   <>
                     <div className="pt-2">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         CRM
                       </h3>
                     </div>
+                    <CrmHealthCard enabled={showSalesforce || showHubspot} />
+                  </>
+                )}
+
+                {/* Salesforce */}
+                {showSalesforce && (
                   <Card className="overflow-hidden border-border/60 shadow-sm">
                     <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex gap-4">
@@ -846,7 +853,6 @@ export const IntegrationsView = () => {
                     </div>
                     ) : null}
                   </Card>
-                  </>
                 )}
 
                 {/* HubSpot */}

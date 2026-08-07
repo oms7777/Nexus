@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
   ScrollText,
   ShieldCheck,
+  CircleHelp,
 } from "lucide-react";
 import { BarChart3, Filter, Activity } from "lucide-react";
 import Link from "next/link";
@@ -334,6 +335,24 @@ export const DashboardSidebar = () => {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+
+        <SidebarGroup>
+          <SidebarGroupLabel className={labelClass}>Support</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <Link
+                  href="/help"
+                  className={cn(itemClass, isActive("/help") && SIDEBAR_ITEM_ACTIVE)}
+                  title="Help"
+                >
+                  <CircleHelp className={iconClass} />
+                  <span className={labelClass}>Help</span>
+                </Link>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>

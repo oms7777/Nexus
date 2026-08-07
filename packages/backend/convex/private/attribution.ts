@@ -1,6 +1,12 @@
 // packages/backend/convex/private/attribution.ts
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery, query } from "../_generated/server";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  query,
+} from "../_generated/server";
 import { api, internal } from "../_generated/api";
 import { requireOrgId } from "../lib/authz";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -39,8 +45,10 @@ export const listBookingsNeedingAttribution = internalQuery({
     limit: v.optional(v.number()),
     /** When true, re-check bookings even if checked recently without a won deal. */
     force: v.optional(v.boolean()),
+    /** When set, only this org (dashboard Sync now). */
+    organizationId: v.optional(v.string()),
   },
-  handler: async (ctx, { limit, force }): Promise<AttributionTarget[]> => {
+  handler: async (ctx, { limit, force, organizationId: onlyOrg }): Promise<AttributionTarget[]> => {
     const now = Date.now();
     const since = now - ATTRIBUTION_WINDOW_MS;
     const max = Math.min(Math.max(limit ?? MAX_BOOKINGS_PER_RUN, 1), 200);
@@ -55,6 +63,12 @@ export const listBookingsNeedingAttribution = internalQuery({
       ...salesforceOrgs.map((r) => r.organizationId),
       ...hubspotOrgs.map((r) => r.organizationId),
     ]);
+
+    if (onlyOrg) {
+      if (!connectedOrgIds.has(onlyOrg)) return [];
+      connectedOrgIds.clear();
+      connectedOrgIds.add(onlyOrg);
+    }
 
     if (connectedOrgIds.size === 0) return [];
 
@@ -146,11 +160,15 @@ export const syncRevenueAttribution = internalAction({
     limit: v.optional(v.number()),
     /** Re-check recently checked bookings (e.g. after converting a Lead in SF). */
     force: v.optional(v.boolean()),
+    organizationId: v.optional(v.string()),
   },
-  handler: async (ctx, { limit, force }): Promise<{ checked: number; matched: number }> => {
+  handler: async (
+    ctx,
+    { limit, force, organizationId },
+  ): Promise<{ checked: number; matched: number }> => {
     const targets: AttributionTarget[] = await ctx.runQuery(
       internal.private.attribution.listBookingsNeedingAttribution,
-      { limit, force },
+      { limit, force, organizationId },
     );
 
     let matched = 0;
@@ -246,6 +264,25 @@ export const syncRevenueAttribution = internalAction({
   },
 });
 
+/** Dashboard: force re-check attribution for the current org only. */
+export const requestRevenueSync = action({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; matched: number }> => {
+    const orgId = await requireOrgId(ctx);
+    const sub = await ctx.runQuery(api.integrations._getSubscriptionByOrg, {
+      organizationId: orgId,
+    });
+    if (!orgCanUseCrmRevenue(sub)) {
+      return { checked: 0, matched: 0 };
+    }
+    return await ctx.runAction(internal.private.attribution.syncRevenueAttribution, {
+      organizationId: orgId,
+      force: true,
+      limit: 40,
+    });
+  },
+});
+
 /* ============================================================
    Dashboard read model
    ============================================================ */
@@ -317,6 +354,90 @@ function sumPipeline(bookings: Array<Doc<"calendarBookings">>) {
     currency: currencies.size === 1 ? [...currencies][0] : undefined,
   };
 }
+
+/** Compact CRM status for Integrations (connect + link + last attribution check). */
+export const getCrmHealth = query({
+  args: {},
+  handler: async (ctx) => {
+    const orgId = await requireOrgId(ctx);
+    const since = Date.now() - 90 * 24 * 60 * 60 * 1000;
+
+    const sub = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+      .unique();
+
+    const entitled = orgCanUseCrmRevenue(sub);
+    const [salesforce, hubspot] = await Promise.all([
+      ctx.db
+        .query("salesforceIntegrations")
+        .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+        .unique(),
+      ctx.db
+        .query("hubspotIntegrations")
+        .withIndex("by_organization_id", (q) => q.eq("organizationId", orgId))
+        .unique(),
+    ]);
+
+    const crmConnected = Boolean(salesforce || hubspot);
+    const providers = [
+      ...(salesforce ? (["salesforce"] as const) : []),
+      ...(hubspot ? (["hubspot"] as const) : []),
+    ];
+
+    if (!entitled) {
+      return {
+        entitled: false as const,
+        crmConnected,
+        providers,
+        meetings: 0,
+        meetingsWithCrmLink: 0,
+        dealCount: 0,
+        lastAttributionCheckedAt: null as number | null,
+      };
+    }
+
+    const bookings = await ctx.db
+      .query("calendarBookings")
+      .withIndex("by_org_createdAt", (q) =>
+        q.eq("organizationId", orgId).gte("createdAt", since),
+      )
+      .collect();
+
+    let meetingsWithCrmLink = 0;
+    let dealCount = 0;
+    let lastAttributionCheckedAt: number | null = null;
+    const seenDeals = new Set<string>();
+
+    for (const b of bookings) {
+      if (b.crm?.salesforceLeadId || b.crm?.hubspotContactId) meetingsWithCrmLink += 1;
+      const checked = b.attribution?.checkedAt;
+      if (typeof checked === "number") {
+        lastAttributionCheckedAt =
+          lastAttributionCheckedAt == null
+            ? checked
+            : Math.max(lastAttributionCheckedAt, checked);
+      }
+      if (b.attribution?.dealId) {
+        const id = String(b.attribution.dealId);
+        if (!seenDeals.has(id)) {
+          seenDeals.add(id);
+          dealCount += 1;
+        }
+      }
+    }
+
+    return {
+      entitled: true as const,
+      crmConnected,
+      providers,
+      meetings: bookings.length,
+      meetingsWithCrmLink,
+      dealCount,
+      lastAttributionCheckedAt,
+    };
+  },
+});
 
 export const getRevenueSummary = query({
   args: {
