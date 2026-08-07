@@ -5,6 +5,7 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 
 import type { HelpArticle } from "../articles";
+import { SUPPORT_EMAIL, SUPPORT_HOURS_LABEL } from "../support";
 
 export function HelpArticleView({ article }: { article: HelpArticle }) {
   return (
@@ -59,6 +60,17 @@ export function HelpArticleView({ article }: { article: HelpArticle }) {
           </ul>
         </div>
       ) : null}
+
+      <p className="border-t pt-4 text-xs text-muted-foreground">
+        Still stuck? Email{" "}
+        <a
+          className="font-medium text-foreground underline-offset-2 hover:underline"
+          href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(article.title)}`}
+        >
+          {SUPPORT_EMAIL}
+        </a>{" "}
+        · {SUPPORT_HOURS_LABEL}. Include your organization id from Integrations.
+      </p>
     </div>
   );
 }
