@@ -62,7 +62,8 @@ export default clerkMiddleware(async (auth, req) => {
   const { userId, orgId } = await auth();
 
   // ✅ bloque le sign-up direct (autorise via lien d'invite)
-  if (url.pathname.startsWith("/sign-up") && !isInviteSignUp(req)) {
+  // `startsWith` requires a newer TS lib target; keep this middleware compatible.
+  if (url.pathname.indexOf("/sign-up") === 0 && !isInviteSignUp(req)) {
     const signInUrl = new URL("/sign-in", req.url);
     signInUrl.searchParams.set("redirect_url", "/");
     return NextResponse.redirect(signInUrl);

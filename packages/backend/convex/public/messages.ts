@@ -224,15 +224,16 @@ The visitor explicitly asked to talk to a human, but no rep is online right now.
 `.trim();
 
 /**
- * The visitor prompt is normally persisted as a side effect of agent.generateText.
- * Every early return must save it explicitly, otherwise the message vanishes from the
- * thread and the rep opening the inbox never sees what the visitor asked.
+ * Persist the visitor user message. Prefer `prompt` form so we get a messageId
+ * usable with generateText({ promptMessageId }) — retries must not pass `prompt`
+ * again or the visitor bubble is duplicated.
  */
 async function saveVisitorMessage(ctx: any, threadId: string, prompt: string) {
-  await saveMessage(ctx, components.agent, {
+  const saved = await saveMessage(ctx, components.agent, {
     threadId,
-    message: { role: "user", content: prompt },
+    prompt,
   });
+  return (saved as any)?.messageId as string | undefined;
 }
 
 // ✅ hard human-intent detector (deterministic escalation)
@@ -373,7 +374,8 @@ function sanitizeAssistantMessageDoc(doc: MessageDoc): MessageDoc {
 
 /**
  * Retry wrapper: avoids provider cold-start flakiness.
- * IMPORTANT: Don't write user-visible fallback here.
+ * Payload should use `promptMessageId` (not `prompt`) so a failed attempt + retry
+ * does not duplicate the visitor user bubble.
  */
 async function safeGenerate(
   agent: any,
@@ -538,6 +540,14 @@ export const create = action({
       return;
     }
 
+    // Persist visitor prompt once, then generate from promptMessageId (no duplicate on retry).
+    const promptMessageId = await saveVisitorMessage(ctx, args.threadId, prompt);
+    if (!promptMessageId) {
+      console.error("saveVisitorMessage returned no messageId");
+      await writeGenerationFallback(ctx, args.threadId, visitorLocale);
+      return;
+    }
+
     // repsBlock for agent (hidden)
     const repsLabel = availableReps
       .slice(0, 3)
@@ -561,7 +571,7 @@ export const create = action({
     if (knowledgeMode === "llm_only") {
       const system = buildLlmOnlyVisitorSystem(repsBlock, visitorLocale);
       const gen = await safeGenerate(agent, ctx, args.threadId, {
-        prompt,
+        promptMessageId,
         system,
         temperature: 0.35,
         maxTokens: 1100,
@@ -610,7 +620,7 @@ export const create = action({
         ctx,
         args.threadId,
         {
-          prompt,
+          promptMessageId,
           system: `
 ${kbStrictRewriteInstructions(fallbackLine, visitorLocale)}
 
@@ -642,7 +652,7 @@ ${kbText}
       const system = buildLlmPlusKbVisitorSystem(repsBlock, kbText, visitorLocale, prompt);
 
       const gen = await safeGenerate(agent, ctx, args.threadId, {
-        prompt,
+        promptMessageId,
         system,
         temperature: 0.25,
         maxTokens: 1100,
@@ -667,8 +677,9 @@ export const getMany = query({
   handler: async (ctx, args) => {
     const contactSession = await ctx.db.get(args.contactSessionId);
 
+    // Soft-fail expired sessions: widget polling must not show as 100% Health failures.
     if (!contactSession || contactSession.expiresAt < Date.now()) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid session" });
+      return { page: [], isDone: true, continueCursor: "" };
     }
 
     const widgetSettings = await ctx.runQuery(api.public.widgetSettings.getByOrganizationId, {

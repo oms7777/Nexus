@@ -163,7 +163,8 @@ export async function crawlAndIndexPublicSite(
     organizationId,
   });
 
-  if (subscription?.status !== "active") {
+  const status = subscription?.status as string | undefined;
+  if (status !== "active" && status !== "trial") {
     throw new ConvexError({ code: "BAD_REQUEST", message: "Missing subscription" });
   }
 

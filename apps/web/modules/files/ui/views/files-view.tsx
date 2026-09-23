@@ -410,8 +410,9 @@ export const FilesView = () => {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Enter your site URL. We&apos;ll crawl up to 20 pages and add them to your Knowledge Base.
-                  If auto-sync is enabled, we&apos;ll re-index automatically.
+                  Enter your site URL. We&apos;ll crawl publicly reachable pages (up to 500) and add them to your
+                  Knowledge Base. Large sites can take several minutes. If auto-sync is enabled, we&apos;ll re-index
+                  automatically.
                 </p>
                 {websiteIndexingSettings?.lastRunAt ? (
                   <p className="text-xs text-muted-foreground">

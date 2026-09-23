@@ -60,19 +60,21 @@ export const getOne = query({
     contactSessionId: v.id("contactSessions"),
   },
   handler: async (ctx, args) => {
+    // Return null instead of throwing: expired sessions are common while the
+    // widget keeps polling, and throws show up as 100% failure rate in Health.
     const session = await ctx.db.get(args.contactSessionId);
 
     if (!session || session.expiresAt < Date.now()) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Invalid Session" });
+      return null;
     }
 
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) {
-      throw new ConvexError({ code: "NOT_FOUND", message: "Conversation not found" });
+      return null;
     }
 
     if (conversation.contactSessionId !== session._id) {
-      throw new ConvexError({ code: "UNAUTHORIZED", message: "Incorrect session" });
+      return null;
     }
 
     return {
