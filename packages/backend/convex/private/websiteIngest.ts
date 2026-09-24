@@ -264,25 +264,43 @@ export async function crawlAndIndexPublicSite(
 
     const { title, text } = stripHtmlToText(html);
 
-    const minLength = 80;
+    const minLength = 40;
     let indexedText: string | null = null;
+    let extractHadContent = false;
 
     // ✅ Prefer Jina Reader for indexing (better for SPAs / client-rendered pages)
     try {
       const jinaText = await fetchJinaText(currentUrl);
       if (jinaText && jinaText.trim().length >= minLength) {
         indexedText = jinaText.trim();
+        extractHadContent = true;
       }
-    } catch {
-      // fallback to SSR HTML text below
+    } catch (e) {
+      console.log("jina fetch failed, falling back to HTML", {
+        url: currentUrl,
+        error: String((e as Error)?.message ?? e),
+      });
     }
 
     // Fallback: use stripped HTML (title + meta included)
     if (!indexedText && text && text.length >= minLength) {
       indexedText = text;
+      extractHadContent = true;
     }
 
-    if (!indexedText) continue;
+    if (!indexedText) {
+      console.log("crawl skip: insufficient text", {
+        url: currentUrl,
+        htmlLen: html.length,
+        textLen: (text ?? "").length,
+        title,
+      });
+      continue;
+    }
+
+    if (indexedText.length > 60_000) {
+      indexedText = indexedText.slice(0, 60_000);
+    }
 
     const key = `${organizationId}/website/${Date.now()}-${indexedCount + 1}`;
 
@@ -301,8 +319,17 @@ export async function crawlAndIndexPublicSite(
       });
 
       indexedCount += 1;
-    } catch {
-      // ignore individual indexing failures
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      console.error("rag.add failed during website crawl", { url: currentUrl, error: msg });
+      // Root page with extractable text but failed embedding = almost always OpenAI key/quota.
+      if (isRootPage && extractHadContent) {
+        throw new ConvexError({
+          code: "BAD_REQUEST",
+          message:
+            "Could not index page text into the Knowledge Base (embedding failed). Check OPENAI_API_KEY on the Convex production deployment (Settings → Environment Variables), billing/quota on OpenAI, then retry.",
+        });
+      }
     }
 
     if (visited.size >= limit) break;
@@ -335,28 +362,45 @@ export async function crawlAndIndexPublicSite(
 async function fetchJinaText(url: string): Promise<string> {
   const readerUrl = `${JINA_READER_BASE}${url}`;
 
-  const headers: Record<string, string> = {
+  const baseHeaders: Record<string, string> = {
     "User-Agent": CRAWL_USER_AGENT,
     Accept: "text/plain",
   };
 
-  const apiKey = process.env.JINA_API_KEY;
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
+  const apiKey = (process.env.JINA_API_KEY ?? "").trim();
+
+  const attempt = async (withKey: boolean) => {
+    const headers = { ...baseHeaders };
+    if (withKey && apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+    return fetchWithTimeout(
+      readerUrl,
+      {
+        redirect: "follow",
+        headers,
+      },
+      JINA_FETCH_TIMEOUT_MS,
+    );
+  };
+
+  let res = await attempt(!!apiKey);
+  // Invalid/expired Jina keys return 401; public reader often still works without auth.
+  if (res.status === 401 && apiKey) {
+    console.log("Jina API key rejected (401); retrying without Authorization");
+    res = await attempt(false);
   }
 
-  const res = await fetchWithTimeout(
-    readerUrl,
-    {
-      redirect: "follow",
-      headers,
-    },
-    JINA_FETCH_TIMEOUT_MS,
-  );
   if (!res.ok) {
     throw new Error(`Jina returned ${res.status}`);
   }
-  return await res.text();
+
+  const body = await res.text();
+  // Guard against JSON error payloads returned with a misleading status.
+  if (body.trim().startsWith("{") && /AuthenticationFailedError|"code"\s*:\s*401/.test(body)) {
+    throw new Error("Jina authentication failed");
+  }
+  return body;
 }
 
 async function purgeWebsiteEntries(ctx: any, organizationId: string) {

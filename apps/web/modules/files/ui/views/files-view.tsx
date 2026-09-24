@@ -201,7 +201,9 @@ export const FilesView = () => {
       });
       if (result.pagesIndexed === 0) {
         toast.warning(
-          "No pages were added. The site may be client-rendered (SPA) or pages have very little text. Try adding important pages as PDF or TXT in \"Add document\"."
+          result.pagesVisited > 0
+            ? `Reached ${result.pagesVisited} page(s) but none were added to the Knowledge Base. Often this is an OpenAI embedding issue (OPENAI_API_KEY / billing). Check Convex logs, or add pages as PDF/TXT.`
+            : "No pages were added. The site may be client-rendered (SPA) or pages have very little text. Try adding important pages as PDF or TXT in \"Add document\".",
         );
       } else {
         toast.success(
