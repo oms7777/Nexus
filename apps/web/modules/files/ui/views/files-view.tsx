@@ -193,7 +193,7 @@ export const FilesView = () => {
     }
     try {
       setCrawling(true);
-      const result = await crawlSiteAction({ rootUrl: url });
+      const result = await crawlSiteAction({ rootUrl: url, maxPages: 100 });
       await upsertWebsiteIndexingSettings({
         rootUrl: url,
         frequency: websiteSyncFrequency,
@@ -410,9 +410,9 @@ export const FilesView = () => {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Enter your site URL. We&apos;ll crawl publicly reachable pages (up to 500) and add them to your
-                  Knowledge Base. Large sites can take several minutes. If auto-sync is enabled, we&apos;ll re-index
-                  automatically.
+                  Enter your site URL. We&apos;ll crawl up to 100 pages per run (you can click again for more)
+                  and add them to your Knowledge Base. Large sites can take a few minutes. If auto-sync is
+                  enabled, we&apos;ll re-index automatically.
                 </p>
                 {websiteIndexingSettings?.lastRunAt ? (
                   <p className="text-xs text-muted-foreground">

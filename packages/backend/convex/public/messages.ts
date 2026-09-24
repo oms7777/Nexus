@@ -384,14 +384,22 @@ async function safeGenerate(
   payload: any,
   callOptions?: { storageOptions?: { saveMessages?: "all" | "none" | "promptAndOutput" } },
 ) {
+  const runOnce = async () => {
+    const generate = agent.generateText(ctx, { threadId }, payload, callOptions);
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("generateText timeout after 35s")), 35_000),
+    );
+    await Promise.race([generate, timeout]);
+  };
+
   try {
-    await agent.generateText(ctx, { threadId }, payload, callOptions);
+    await runOnce();
     return { ok: true as const };
   } catch (e1) {
     console.error("agent.generateText attempt 1 failed", e1);
     await new Promise((r) => setTimeout(r, 250));
     try {
-      await agent.generateText(ctx, { threadId }, payload, callOptions);
+      await runOnce();
       return { ok: true as const };
     } catch (e2) {
       console.error("agent.generateText failed twice (visitor sees fallback)", e2);

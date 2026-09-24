@@ -11,7 +11,13 @@ type WebsiteEntryMetadata = {
 };
 
 const DEFAULT_MAX_PAGES = 500;
+/** Soft cap for interactive “Index now” from the dashboard (clients can re-run). */
+export const INTERACTIVE_CRAWL_MAX_PAGES = 100;
 const HARD_MAX_PAGES = 1000;
+/** Stop a crawl before Convex action hard-timeouts (~10m). */
+const CRAWL_TIME_BUDGET_MS = 7 * 60 * 1000;
+const PAGE_FETCH_TIMEOUT_MS = 12_000;
+const JINA_FETCH_TIMEOUT_MS = 15_000;
 
 const SKIPPED_EXTENSIONS = [
   ".png",
@@ -128,6 +134,20 @@ function stripHtmlToText(html: string): { title: string; text: string } {
   return { title, text: combined };
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function crawlAndIndexPublicSite(
   ctx: any,
   {
@@ -173,6 +193,7 @@ export async function crawlAndIndexPublicSite(
 
   const visited = new Set<string>();
   const queue: string[] = [root.toString()];
+  const startedAt = Date.now();
 
   let indexedCount = 0;
   const fetchOpts: RequestInit = {
@@ -181,6 +202,16 @@ export async function crawlAndIndexPublicSite(
   };
 
   while (queue.length > 0 && visited.size < limit) {
+    if (Date.now() - startedAt > CRAWL_TIME_BUDGET_MS) {
+      console.log("crawlAndIndexPublicSite time budget reached", {
+        organizationId,
+        rootUrl,
+        pagesVisited: visited.size,
+        pagesIndexed: indexedCount,
+      });
+      break;
+    }
+
     const currentUrl = queue.shift()!;
     if (visited.has(currentUrl)) continue;
     visited.add(currentUrl);
@@ -189,7 +220,7 @@ export async function crawlAndIndexPublicSite(
 
     let response: Response;
     try {
-      response = await fetch(currentUrl, fetchOpts);
+      response = await fetchWithTimeout(currentUrl, fetchOpts, PAGE_FETCH_TIMEOUT_MS);
     } catch (err) {
       if (isRootPage) {
         throw new ConvexError({
@@ -314,10 +345,14 @@ async function fetchJinaText(url: string): Promise<string> {
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  const res = await fetch(readerUrl, {
-    redirect: "follow",
-    headers,
-  });
+  const res = await fetchWithTimeout(
+    readerUrl,
+    {
+      redirect: "follow",
+      headers,
+    },
+    JINA_FETCH_TIMEOUT_MS,
+  );
   if (!res.ok) {
     throw new Error(`Jina returned ${res.status}`);
   }

@@ -354,7 +354,7 @@ export const crawlSite = action({
       {
         organizationId: orgId,
         rootUrl: args.rootUrl,
-        maxPages: args.maxPages,
+        maxPages: args.maxPages ?? 100,
       }
     );
   },
